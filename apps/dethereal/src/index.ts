@@ -187,8 +187,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   try {
-    // Execute the tool
-    const result = await tool.execute(args, context)
+    // Validate input and execute the tool
+    const result = await tool.run(args, context)
 
     if (result.success) {
       return {

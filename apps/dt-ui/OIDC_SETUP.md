@@ -8,9 +8,9 @@ Create a `.env.local` file in the `apps/dt-ui` directory with the following vari
 
 ### Development Environment (HTTP)
 ```bash
-VITE_OIDC_ISSUER=http://dethernety.corp:8080
+VITE_OIDC_ISSUER=http://localhost:8080
 VITE_OIDC_CLIENT_ID=your-development-client-id
-VITE_OIDC_REDIRECT_URI=http://dethernety.corp:3005/auth/callback
+VITE_OIDC_REDIRECT_URI=http://localhost:3005/auth/callback
 ```
 
 ### Production Environment (HTTPS)

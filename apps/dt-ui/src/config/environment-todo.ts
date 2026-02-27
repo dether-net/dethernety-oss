@@ -322,7 +322,6 @@ export async function getConfig(): Promise<FrontendConfig> {
   if (!configPromise) {
     configPromise = loadConfig().then(config => {
       validateConfig(config);
-      console.log('config', config);
       return config;
     });
   }

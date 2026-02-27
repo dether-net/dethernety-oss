@@ -46,6 +46,23 @@ import {
 const ATTRIBUTES_SUBDIRS = ['boundaries', 'components', 'dataFlows', 'dataItems'] as const
 
 // =============================================================================
+// Path Validation
+// =============================================================================
+
+/**
+ * Validate that a path is within the allowed base directory.
+ * Prevents path traversal attacks via directory_path parameters.
+ */
+export function validatePathConfinement(targetPath: string, baseDir?: string): string {
+  const base = path.resolve(baseDir || process.cwd());
+  const resolved = path.resolve(targetPath);
+  if (!resolved.startsWith(base + path.sep) && resolved !== base) {
+    throw new Error(`Path "${targetPath}" is outside the allowed directory`);
+  }
+  return resolved;
+}
+
+// =============================================================================
 // Read Operations
 // =============================================================================
 
@@ -187,6 +204,7 @@ export async function readModelDirectory(dirPath: string): Promise<SplitModel> {
  * Ensure the model directory structure exists
  */
 export async function ensureModelDirectoryStructure(dirPath: string): Promise<void> {
+  validatePathConfinement(dirPath);
   // Create main directory
   await fs.mkdir(dirPath, { recursive: true })
 
@@ -203,6 +221,7 @@ export async function ensureModelDirectoryStructure(dirPath: string): Promise<vo
  * Write manifest to directory
  */
 export async function writeManifest(dirPath: string, manifest: ModelManifest): Promise<void> {
+  validatePathConfinement(dirPath);
   const manifestPath = path.join(dirPath, DEFAULT_FILE_NAMES.manifest)
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8')
 }

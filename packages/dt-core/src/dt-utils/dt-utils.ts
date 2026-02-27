@@ -56,6 +56,9 @@ export class DtUtils {
    */
   deepMerge (target: any, updates: any) {
     for (const key in updates) {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+        continue;
+      }
       if (
         updates[key] &&
         typeof updates[key] === 'object' &&

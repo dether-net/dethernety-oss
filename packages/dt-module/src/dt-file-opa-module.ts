@@ -149,9 +149,18 @@ export class DtFileOpaModule implements DTModule {
    * @param id The id of the class
    * @returns The template for the class
    */
+  private validateModulePath(filePath: string): void {
+    const resolved = path.resolve(filePath);
+    const moduleBase = path.resolve(this.moduleDataDir);
+    if (!resolved.startsWith(moduleBase + path.sep) && resolved !== moduleBase) {
+      throw new Error('Path traversal detected: path escapes module directory');
+    }
+  }
+
   async getClassTemplate(id: string): Promise<string> {
     const classDataPath = await this.dbOps.getAttribute(id, 'path');
     const templatePath = path.join(this.moduleDataDir, classDataPath, 'template.json');
+    this.validateModulePath(templatePath);
 
     if (!fs.existsSync(templatePath)) {
       throw new Error(`Schema file not found: ${templatePath}`);
@@ -171,6 +180,7 @@ export class DtFileOpaModule implements DTModule {
     try {
       const classDataPath = await this.dbOps.getAttribute(classId, 'path');
       const exposureRulesPath = path.join(this.moduleDataDir, classDataPath, 'policies.rego');
+      this.validateModulePath(exposureRulesPath);
       const attributes = await this.dbOps.getInstantiationAttributes(id, classId);
       if (attributes) {
         if (!fs.existsSync(exposureRulesPath)) {
@@ -208,6 +218,7 @@ export class DtFileOpaModule implements DTModule {
     try {
       const classDataPath = await this.dbOps.getAttribute(classId, 'path');
       const countermeasureRulesPath = path.join(this.moduleDataDir, classDataPath, 'policies.rego');
+      this.validateModulePath(countermeasureRulesPath);
       const attributes = await this.dbOps.getInstantiationAttributes(id, classId);
       if (attributes) {
         if (!fs.existsSync(countermeasureRulesPath)) {

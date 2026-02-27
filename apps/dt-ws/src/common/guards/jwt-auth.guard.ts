@@ -49,14 +49,20 @@ export class JwtAuthGuard implements CanActivate {
         nodeEnv: process.env.NODE_ENV || 'undefined'
       });
 
-      // Simple development mode check: if no OIDC is configured, allow access
+      // If no OIDC is configured, bypass JWT validation (development mode)
       if (!this.config?.oidcJwksUri) {
+        if (process.env.NODE_ENV === 'production') {
+          this.logger.error(
+            'SECURITY WARNING: No OIDC configuration provided in production mode. ' +
+            'All requests will be unauthenticated. Set OIDC_JKWS_URI to enable JWT validation.'
+          );
+        }
         this.logger.log('JWT validation bypassed - no OIDC configuration (development mode)');
-        
+
         // Add mock user info to request
         request['user'] = { sub: 'dev-user', email: 'dev@example.com', roles: [], permissions: [] };
         request['token'] = token || 'dev-token';
-        
+
         return true;
       }
 
@@ -112,10 +118,17 @@ export class JwtAuthGuard implements CanActivate {
 
         const signingKey = key.getPublicKey();
 
-        // Verify token
-        jwt.verify(token, signingKey, {
+        // Verify token with optional issuer/audience validation
+        const verifyOptions: jwt.VerifyOptions = {
           algorithms: ['RS256'],
-        }, (verifyErr, payload) => {
+        };
+        if (this.config.oidcIssuer) {
+          verifyOptions.issuer = this.config.oidcIssuer;
+        }
+        if (this.config.oidcAudience) {
+          verifyOptions.audience = this.config.oidcAudience;
+        }
+        jwt.verify(token, signingKey, verifyOptions, (verifyErr, payload) => {
           if (verifyErr) {
             return reject(new Error(`Token verification failed: ${verifyErr.message}`));
           }

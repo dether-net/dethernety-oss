@@ -26,7 +26,10 @@ const __dirname = path.dirname(__filename);
 // Database configuration from environment
 const NEO4J_URI = process.env.NEO4J_URI || 'bolt://localhost:7687';
 const NEO4J_USERNAME = process.env.NEO4J_USERNAME || 'neo4j';
-const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD || 'password';
+const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD;
+if (!NEO4J_PASSWORD) {
+  console.warn('Warning: NEO4J_PASSWORD not set. Set it via environment variable.');
+}
 
 // Class types to export
 const CLASS_TYPES = [

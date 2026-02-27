@@ -26,6 +26,9 @@ export class DbOps {
       let match;
       while ((match = regex.exec(flatKey)) !== null) {
         if (match[1] !== undefined) {
+          if (match[1] === '__proto__' || match[1] === 'constructor' || match[1] === 'prototype') {
+            continue;
+          }
           keys.push(match[1]);
         } else if (match[2] !== undefined) {
           keys.push(Number(match[2])); // Convert array index to a number.
@@ -70,6 +73,10 @@ export class DbOps {
    * @returns The attribute
    */
   async getAttribute(id: string, attribute: string): Promise<any> {
+    // Validate attribute name to prevent Cypher injection
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(attribute)) {
+      throw new Error(`Invalid attribute name: ${attribute}`);
+    }
     let session: any = null;
     try {
       session = this.driver.session();

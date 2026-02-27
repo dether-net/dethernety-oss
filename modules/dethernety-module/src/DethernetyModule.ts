@@ -10,7 +10,7 @@ import { Logger } from '@nestjs/common';
  */
 class DethernetyModule extends DtNeo4jOpaModule {
   constructor(driver: any, logger: Logger) {
-    const moduleName = process.env.INTERNAL_MODULE_NAME || 'dethernety';
+    const moduleName = process.env.DETHERNETY_MODULE_NAME || process.env.INTERNAL_MODULE_NAME || 'dethernety';
     super(moduleName, driver, logger);
   }
 }

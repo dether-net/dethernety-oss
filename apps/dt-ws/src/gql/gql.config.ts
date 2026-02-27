@@ -72,6 +72,8 @@ export class GqlConfig {
   playground: boolean = false;
   introspection: boolean = false;
   oidcJwksUri?: string;
+  oidcIssuer?: string;
+  oidcAudience?: string;
   queryDepthLimit: number = 10;
   queryComplexityLimit: number = 1000;
   enableSubscriptions: boolean = true;
@@ -95,6 +97,8 @@ export default registerAs('gql', () => {
     playground: process.env.NODE_ENV !== 'production',
     introspection: process.env.NODE_ENV !== 'production',
     oidcJwksUri: process.env.OIDC_JKWS_URI,
+    oidcIssuer: process.env.OIDC_ISSUER,
+    oidcAudience: process.env.OIDC_AUDIENCE,
     queryDepthLimit: parseInt(process.env.GQL_QUERY_DEPTH_LIMIT || '10', 10),
     queryComplexityLimit: parseInt(process.env.GQL_QUERY_COMPLEXITY_LIMIT || '1000', 10),
     enableSubscriptions: process.env.GQL_ENABLE_SUBSCRIPTIONS !== 'false',

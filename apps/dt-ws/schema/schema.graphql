@@ -486,7 +486,7 @@ type Issue implements Element  @authentication @node {
   )
 }
 
-type IssueClass implements Element  @node {
+type IssueClass implements Element @authentication @node {
   id: ID! @id
   name: String!
   module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
@@ -684,8 +684,10 @@ type Query {
     @authentication
 
   getAvailableFrontendModules: [String!]!
+    @authentication
 
   getModuleFrontendBundle(moduleName: String!): String!
+    @authentication
 }
 
 type ResponseMetadata {

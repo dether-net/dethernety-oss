@@ -102,7 +102,7 @@ export default defineConfig(({ command, mode }) => {
       },
     },
     server: {
-      allowedHosts: ['localhost', '127.0.0.1', '0.0.0.0', 'dethernety.corp'],
+      allowedHosts: ['localhost', '127.0.0.1', '0.0.0.0'],
       host: '0.0.0.0',
       port: 3005,
       proxy: {

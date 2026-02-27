@@ -187,9 +187,9 @@ const extractPermissionsFromUserInfo = (userInfo: UserInfo, permissionsClaim: st
 
 // Logging utility
 const debugLog = (config: Required<AuthStoreConfig>, message: string, ...args: any[]) => {
-  // if (config.enableDebugLogging) {
+  if (config.enableDebugLogging) {
     console.log(`[AuthStore] ${message}`, ...args)
-  // }
+  }
 }
 
 // Retry utility with exponential backoff
@@ -373,8 +373,8 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
       throw new Error('Crypto API not available and not in development mode')
     }
     
-    localStorage.setItem('code_verifier', codeVerifier)
-    localStorage.setItem('challenge_method', challengeMethod)
+    sessionStorage.setItem('code_verifier', codeVerifier)
+    sessionStorage.setItem('challenge_method', challengeMethod)
     return { codeChallenge, challengeMethod }
   }
 
@@ -400,7 +400,7 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
       // Add state parameter for additional security
       const state = generateRandomString(authConfig.stateLength)
       authUrl.searchParams.set('state', state)
-      localStorage.setItem('auth_state', state)
+      sessionStorage.setItem('auth_state', state)
       
       safeRedirect(authUrl.toString())
     } catch (err) {
@@ -417,12 +417,12 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
       setLoadingState(true)
       
       // Validate state parameter for CSRF protection
-      const storedState = localStorage.getItem('auth_state')
+      const storedState = sessionStorage.getItem('auth_state')
       if (state && storedState && state !== storedState) {
         throw new Error('Invalid state parameter - possible CSRF attack')
       }
       
-      const codeVerifier = localStorage.getItem('code_verifier')
+      const codeVerifier = sessionStorage.getItem('code_verifier')
       if (!codeVerifier) throw new Error('No code verifier found')
 
       // Exchange authorization code for tokens
@@ -493,7 +493,7 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text()
-      console.error('Token response error:', errorText)
+      debugLog(authConfig, 'Token response error:', errorText)
       throw new Error(`Token exchange failed: ${tokenResponse.status}`)
     }
 
@@ -545,9 +545,9 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
 
   // Helper function to clean up stored authentication data
   const cleanupStoredAuthData = (): void => {
-    localStorage.removeItem('code_verifier')
-    localStorage.removeItem('challenge_method')
-    localStorage.removeItem('auth_state')
+    sessionStorage.removeItem('code_verifier')
+    sessionStorage.removeItem('challenge_method')
+    sessionStorage.removeItem('auth_state')
   }
 
   /**
@@ -840,7 +840,9 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
     setToken, setUser, setRoles, setPermissions, setRefreshToken, setTokenExpiry,
   }
   }, {
-    persist: true
+    persist: {
+      pick: ['user', 'roles', 'permissions'],
+    }
   })
 }
 

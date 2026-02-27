@@ -12,11 +12,11 @@ import { getConfig, debug } from '../config.js'
  * Platform configuration returned from /config endpoint
  */
 export interface PlatformConfig {
-  /** OIDC issuer URL (e.g., https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_xxx) */
+  /** OIDC issuer URL (e.g., https://your-oidc-provider.example.com) */
   oidcIssuer: string
   /** OIDC client ID for the application */
   oidcClientId: string
-  /** Cognito hosted UI domain (e.g., dethernety-demo.auth.eu-central-1.amazoncognito.com) */
+  /** OIDC hosted UI domain (e.g., your-app.auth.your-region.amazoncognito.com) */
   oidcDomain: string
   /** Default redirect URI configured in Cognito (we use localhost instead) */
   oidcRedirectUri: string

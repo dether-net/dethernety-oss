@@ -25,12 +25,6 @@ type LoginInput = z.infer<typeof InputSchema>
  * Output from login tool
  */
 interface LoginOutput {
-  /** OAuth access token */
-  accessToken: string
-  /** OIDC identity token (use this for API calls) */
-  idToken: string
-  /** OAuth refresh token */
-  refreshToken: string
   /** Token lifetime in seconds */
   expiresIn: number
   /** Token type */
@@ -41,6 +35,8 @@ interface LoginOutput {
   refreshed?: boolean
   /** Where tokens are stored locally */
   tokenStoragePath: string
+  /** Status message */
+  message: string
 }
 
 /**
@@ -81,14 +77,12 @@ Tokens are cached at: ~/.dethernety/tokens.json`
       return {
         success: true,
         data: {
-          accessToken: result.tokens.accessToken,
-          idToken: result.tokens.idToken,
-          refreshToken: result.tokens.refreshToken,
           expiresIn: result.tokens.expiresIn,
           tokenType: result.tokens.tokenType,
           fromCache: result.fromCache,
           refreshed: result.refreshed,
-          tokenStoragePath: getTokenStoragePath()
+          tokenStoragePath: getTokenStoragePath(),
+          message: 'Authentication successful. Tokens stored securely.'
         }
       }
     } catch (error) {

@@ -11,20 +11,8 @@ import { GraphQLSseController } from './sse/graphql-sse.controller';
 import { ResolverService, GraphQLContext } from './interfaces/resolver.interface';
 import gqlConfig, { GqlConfig } from './gql.config';
 import { Logger } from '@nestjs/common';
-// Note: Install these packages: npm install graphql-depth-limit graphql-query-complexity
-// import { depthLimit } from 'graphql-depth-limit';
-// import { createComplexityLimitRule } from 'graphql-query-complexity';
-
-// Temporary placeholder functions until packages are installed
-const depthLimit = (maxDepth: number) => {
-  console.warn(`Query depth limiting not available. Install graphql-depth-limit package. Max depth would be: ${maxDepth}`);
-  return null;
-};
-
-const createComplexityLimitRule = (maxComplexity: number) => {
-  console.warn(`Query complexity limiting not available. Install graphql-query-complexity package. Max complexity would be: ${maxComplexity}`);
-  return null;
-};
+import depthLimit from 'graphql-depth-limit';
+import { createComplexityRule, simpleEstimator } from 'graphql-query-complexity';
 
 @Module({
   imports: [
@@ -62,8 +50,13 @@ const createComplexityLimitRule = (maxComplexity: number) => {
             if (depthRule) validationRules.push(depthRule);
           }
           if (config.queryComplexityLimit > 0) {
-            const complexityRule = createComplexityLimitRule(config.queryComplexityLimit);
-            if (complexityRule) validationRules.push(complexityRule);
+            const complexityRule = createComplexityRule({
+              maximumComplexity: config.queryComplexityLimit,
+              estimators: [
+                simpleEstimator({ defaultComplexity: 1 }),
+              ],
+            });
+            validationRules.push(complexityRule);
           }
 
           const useWebSocket = config.subscriptionTransport === 'ws';

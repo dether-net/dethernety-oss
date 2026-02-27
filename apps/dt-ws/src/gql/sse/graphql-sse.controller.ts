@@ -8,6 +8,7 @@ import {
   Headers,
   Logger,
   OnModuleInit,
+  UseGuards,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { createHandler, HandlerOptions } from 'graphql-sse/lib/use/express';
@@ -16,6 +17,7 @@ import { SchemaService } from '../services/schema.service';
 import { RESOLVER_SERVICES } from '../resolvers.constants';
 import { Inject } from '@nestjs/common';
 import { ResolverService } from '../interfaces/resolver.interface';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 /**
  * GraphQL SSE Controller
@@ -30,6 +32,7 @@ import { ResolverService } from '../interfaces/resolver.interface';
  * - Better compatibility with VPC Origins
  */
 @Controller('graphql')
+@UseGuards(JwtAuthGuard)
 export class GraphQLSseController implements OnModuleInit {
   private readonly logger = new Logger(GraphQLSseController.name);
   private handler: ReturnType<typeof createHandler> | null = null;

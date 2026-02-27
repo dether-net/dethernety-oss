@@ -147,6 +147,15 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         );
       }
 
+      // Validate Cypher identifiers before interpolation
+      const cypherIdentifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+      if (!cypherIdentifierRegex.test(request.elementToOriginRelation)) {
+        throw new Error(`Invalid relationship type: ${request.elementToOriginRelation}`);
+      }
+      if (!cypherIdentifierRegex.test(request.relationName)) {
+        throw new Error(`Invalid relationship name: ${request.relationName}`);
+      }
+
       const result = await tx.run(
         `
         MATCH (c {id: $elementId})-[:${request.elementToOriginRelation}]->(e {name: $originName})
@@ -874,12 +883,21 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   }
 
   private validateExternalObjectTarget(target: ExternalObjectTarget): ExternalObjectValidationResult {
+    // Regex for safe Cypher identifiers (alphanumeric + underscore only)
+    const cypherIdentifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
     if (!target.label || typeof target.label !== 'string') {
       return { isValid: false, error: 'target.label is required and must be a string' };
+    }
+    if (!cypherIdentifierRegex.test(target.label)) {
+      return { isValid: false, error: `target.label contains invalid characters: ${target.label}` };
     }
 
     if (!target.property || typeof target.property !== 'string') {
       return { isValid: false, error: 'target.property is required and must be a string' };
+    }
+    if (!cypherIdentifierRegex.test(target.property)) {
+      return { isValid: false, error: `target.property contains invalid characters: ${target.property}` };
     }
 
     if (!target.value || typeof target.value !== 'string') {

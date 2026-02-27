@@ -29,6 +29,12 @@ export class OpaOps {
    * Delete all OPA policies
    * @returns True if the policies were deleted successfully, false otherwise
    */
+  private validatePolicyId(policyId: string): void {
+    if (!/^[a-zA-Z0-9_\-\.\/]+$/.test(policyId)) {
+      throw new Error(`Invalid policy ID: ${policyId}`);
+    }
+  }
+
   async deleteAllPolicies(): Promise<boolean> {
     try {
       const response = await axios.get(`${this.opaServerUrl}/v1/policies`);
@@ -36,11 +42,10 @@ export class OpaOps {
       for (const policy of existingPolicies) {
         await axios.delete(`${this.opaServerUrl}/v1/policies/${policy.id}`);
       }
+      return true;
     } catch (error) {
       console.error("Error deleting OPA policies", error);
       return false;
-    } finally {
-      return true;
     }
   }
 
@@ -51,12 +56,12 @@ export class OpaOps {
    */
   async deletePolicy(id: string): Promise<boolean> {
     try {
+      this.validatePolicyId(id);
       await axios.delete(`${this.opaServerUrl}/v1/policies/${id}`);
+      return true;
     } catch (error) {
       console.error("Error deleting OPA policy", error);
       return false;
-    } finally {
-      return true;
     }
   }
 
@@ -74,11 +79,10 @@ export class OpaOps {
           await axios.delete(`${this.opaServerUrl}/v1/policies/${policy.id}`);
         }
       }
+      return true;
     } catch (error) {
       console.error("Error deleting OPA policy", error);
       return false;
-    } finally {
-      return true;
     }
   }
 
@@ -91,6 +95,7 @@ export class OpaOps {
     let allSuccessful = true;
     for (const policy of policies) {
       try {
+        this.validatePolicyId(policy.id);
         const url = `${this.opaServerUrl}/v1/policies/${policy.id}`;
         await axios.put(url, policy.raw, {
           headers: {

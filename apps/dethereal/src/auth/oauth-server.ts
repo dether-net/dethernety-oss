@@ -93,9 +93,17 @@ const SUCCESS_HTML = `
 </html>
 `
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 /**
  * Error page HTML shown when auth fails
- * Styled to match AWS Cognito Managed Login branding
  */
 const ERROR_HTML = (error: string, description?: string) => `
 <!DOCTYPE html>
@@ -151,7 +159,7 @@ const ERROR_HTML = (error: string, description?: string) => `
     <div class="error-icon">✗</div>
     <h1>Authentication Failed</h1>
     <p>There was an error during authentication.</p>
-    <p class="error-details">${error}${description ? `: ${description}` : ''}</p>
+    <p class="error-details">${escapeHtml(error)}${description ? `: ${escapeHtml(description)}` : ''}</p>
   </div>
 </body>
 </html>
