@@ -1,0 +1,27 @@
+{
+  "name": "dethernety-module",
+  "type": "module",
+  "version": "0.1.0",
+  "main": "dist/dethernety/dethernety-module/DethernetyModule.js",
+  "types": "dist/dethernety/dethernety-module/DethernetyModule.d.ts",
+  "scripts": {
+    "build": "pnpm build:ts && pnpm build:package",
+    "build:ts": "tsc",
+    "build:package": "node scripts/package.js",
+    "dev": "tsc -w",
+    "clean": "rm -rf dist",
+    "test": "./scripts/test-memgraph.sh",
+    "export": "npx tsx src/tools/export-module-data.ts --module dethernety --output ./data"
+  },
+  "dependencies": {
+    "@dethernety/dt-module": "workspace:*",
+    "@nestjs/common": "^11.1.8",
+    "@open-policy-agent/opa-wasm": "^1.10.0",
+    "json-logic-js": "^2.0.5",
+    "neo4j-driver": "^5.28.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "tsx": "^4.7.0"
+  }
+}

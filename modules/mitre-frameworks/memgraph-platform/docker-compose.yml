@@ -1,0 +1,14 @@
+services:
+  memgraph:
+    image: memgraph/memgraph-mage:latest
+    container_name: memgraph-mage
+    pull_policy: always
+    ports:
+      - "7687:7687"
+    # command: ["--storage-mode=ON_DISK_TRANSACTIONAL"]
+    environment:
+      - MEMGRAPH_USER=neo4j
+      - MEMGRAPH_PASSWORD=password
+    volumes:
+      - $PWD/data/memgraph_data:/var/lib/memgraph
+

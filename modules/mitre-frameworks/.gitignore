@@ -1,0 +1,10 @@
+# Generated data files
+data/
+
+# Build output
+dist/
+
+# Python environment
+.venv/
+__pycache__/
+*.pyc

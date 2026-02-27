@@ -1,0 +1,715 @@
+#graphql
+
+scalar JSON
+
+## Enum to define the different types of components (e.g., process, database, service)
+enum ComponentType {
+  PROCESS
+  EXTERNAL_ENTITY
+  STORE
+  BOUNDARY
+  SECURITY_BOUNDARY
+  DATA_FLOW
+}
+
+## Enum to define the trust level of security boundaries
+enum TrustLevel {
+  UNTRUSTED
+  SEMI_TRUSTED
+  TRUSTED
+}
+
+
+## Enum for Value Type
+enum ValueType {
+  STRING
+  NUMBER
+  BOOLEAN
+  DATE
+}
+
+####################################################################################################
+## Core Types for the model, components, threats, mitigations, etc.
+
+interface Element {
+  id: ID!
+  name: String!
+  description: String
+}
+
+type Folder implements Element @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  parentFolder: [Folder!]! @relationship(type: "FOLDER_CONTAINS", direction: IN)
+  childrenFolders: [Folder!]! @relationship(type: "FOLDER_CONTAINS", direction: OUT)
+  models: [Model!]! @relationship(type: "FOLDER_CONTAINS", direction: OUT)
+  controls: [Control!]! @relationship(type: "FOLDER_CONTAINS", direction: OUT)
+}
+
+## Model represents the system model containing components, data flows, and threats
+type Model implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String # Optional description of the model
+  defaultBoundary: [SecurityBoundary!]! @relationship(type: "CONTAINS", direction: OUT) # Security boundaries within the model
+  modules: [Module!]! @relationship(type: "HAS_MODULE", direction: OUT) # Modules associated with the model
+  controls: [Control!]! @relationship(type: "SUPPORTS", direction: IN) # Controls supported by this component
+  dataItems: [Data!]! @relationship(type: "CONTAINS", direction: OUT) # Data elements within the model
+  representedBy: [Element!]! @relationship(type: "REPRESENTS_MODEL", direction: IN) # Components representing the model
+  analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT) # Analyses associated with the model
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT) # Issues associated with the model
+  folder: [Folder!]! @relationship(type: "FOLDER_CONTAINS", direction: IN)
+}
+
+## Component represents a key entity in the system (e.g., process, database)
+type Component implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String # Optional description of the component
+  type: ComponentType! # Type of component (e.g., process, database)
+  parentBoundary: [SecurityBoundary!]! @relationship(type: "BELONGS_TO", direction: OUT) # Security boundary containing this component
+  flowsFrom: [DataFlow!]! @relationship(type: "FLOWS", direction: OUT) # Data flows originating from this component
+  flowsTo: [DataFlow!]! @relationship(type: "FLOWS", direction: IN) # Data flows targeting this component
+  exposures: [Exposure!]! @relationship(type: "HAS_EXPOSURE", direction: OUT) # Exposures associated with this component
+  controls: [Control!]! @relationship(type: "SUPPORTS", direction: IN) # Controls supported by this component
+  dataItems: [Data!]! @relationship(type: "HANDLES", direction: OUT) # Data elements handled by this component
+  componentClass: [ComponentClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT) # Component class for this component
+  representedModel: [Model!]! @relationship(type: "REPRESENTS_MODEL", direction: OUT) # Model represented by this component
+  analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT) # Analyses associated with this component
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT) # Issues associated with the component
+  positionX: Float # X-coordinate of the component on the canvas
+  positionY: Float # Y-coordinate of the component on the canvas
+  dimensionsWidth: Float # Width of the component on the canvas
+  dimensionsHeight: Float # Height of the component on the canvas
+}
+
+## Data flow represents the flow of data between two components in the model
+type DataFlow implements Element  @authentication @node {
+  id: ID! @id
+  name: String! # Custom name of the data flow
+  description: String # Optional description of the data flow
+  source: [Component!]! @relationship(type: "FLOWS", direction: IN) # Source component of the data flow
+  target: [Component!]! @relationship(type: "FLOWS", direction: OUT) # Target component of the data flow
+  sourceHandle: String # Handle for the source component
+  targetHandle: String # Handle for the target component
+  dataFlowTypes: [String!] # Types of data flow (e.g., request, response)
+  analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT) # Analyses associated with this data flow
+  exposures: [Exposure!]! @relationship(type: "HAS_EXPOSURE", direction: OUT) # Exposures associated with this data flow
+  controls: [Control!]! @relationship(type: "SUPPORTS", direction: IN) # Controls supported by this data flow
+  dataItems: [Data!]! @relationship(type: "HANDLES", direction: OUT) # Data elements handled by this data flow
+  dataFlowClass: [DataFlowClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT) # Data flow class for this data flow
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT) # Issues associated with the data flow
+}
+
+## Security boundary represents a trust boundary within the system (e.g., network boundary)
+type SecurityBoundary implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  model: [Model!]! @relationship(type: "CONTAINS", direction: IN) # Model containing this security boundary
+  trustLevel: TrustLevel! # Trust level of the boundary (e.g., untrusted, semi-trusted)
+  components: [Component!]! @relationship(type: "BELONGS_TO", direction: IN) # Component within the security boundary
+  childBoundaries: [SecurityBoundary!]! @relationship(type: "BELONGS_TO", direction: IN) # Security boundary contained within this component
+  parentBoundary: [SecurityBoundary!]! @relationship(type: "BELONGS_TO", direction: OUT) # Security boundary containing this component
+  exposures: [Exposure!]! @relationship(type: "HAS_EXPOSURE", direction: OUT) # Exposures associated with this security boundary
+  controls: [Control!]! @relationship(type: "SUPPORTS", direction: IN) # Controls supports this security boundary
+  dataItems: [Data!]! @relationship(type: "HANDLES", direction: OUT) # Data elements handled by this security boundary
+  securityBoundaryClass: [SecurityBoundaryClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT) # Security boundary class for this security boundary
+  representedModel: [Model!]! @relationship(type: "REPRESENTS_MODEL", direction: OUT) # Model represented by this component
+  analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT) # Analyses associated with this security boundary
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT) # Issues associated with the security boundary
+  positionX: Float # X-coordinate of the component on the canvas
+  positionY: Float # Y-coordinate of the component on the canvas
+  dimensionsWidth: Float # Width of the component on the canvas
+  dimensionsHeight: Float # Height of the component on the canvas
+  dimensionsMinWidth: Float # Minimum width of the component on the canvas
+  dimensionsMinHeight: Float # Minimum height of the component on the canvas
+  allDescendantBoundaries: [SecurityBoundary!]!
+    @cypher(
+      statement: """
+      MATCH (this)<-[:BELONGS_TO*1..10]-(sb:SecurityBoundary)
+      RETURN DISTINCT sb
+      """,
+      columnName: "sb"
+    )
+
+  allDescendantComponents: [Component!]!
+    @cypher(
+      statement: """
+      MATCH (this)<-[:BELONGS_TO*0..10]-(sb:SecurityBoundary)
+      WITH DISTINCT sb
+      MATCH (sb)<-[:BELONGS_TO]-(c:Component)
+      RETURN DISTINCT c
+      """,
+      columnName: "c"
+    )
+
+  allDescendantDataFlows: [DataFlow!]!
+    @cypher(
+      statement: """
+      MATCH (this)<-[:BELONGS_TO*0..10]-(sb:SecurityBoundary)
+      WITH DISTINCT sb
+      MATCH (sb)<-[:BELONGS_TO]-(c:Component)
+      WITH DISTINCT c
+      MATCH (c)-[:FLOWS]-(df:DataFlow)
+      RETURN DISTINCT df
+      """,
+      columnName: "df"
+    )
+}
+
+type Data implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  model: [Model!]! @relationship(type: "CONTAINS", direction: IN)
+  dataClass: [DataClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  component: [Component!]! @relationship(type: "HANDLES", direction: IN)
+  dataFlow: [DataFlow!]! @relationship(type: "HANDLES", direction: IN)
+  securityBoundary: [SecurityBoundary!]! @relationship(type: "HANDLES", direction: IN)
+  elements: [Element!]! @relationship(type: "HANDLES", direction: IN)
+  exposures: [Exposure!]! @relationship(type: "HAS_EXPOSURE", direction: OUT)
+  analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT)
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT) # Issues associated with the data
+}
+
+type Control implements Element  @authentication @node {
+  id: ID! @id # Unique identifier for the threat modification
+  name: String! # Custom name of the threat modification
+  description: String # Optional description of the threat modification
+  type: String # Type of the threat modification (e.g., technical, procedural)
+  category: String # Category of the threat modification 
+  controlClasses: [ControlClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT) # Threat modification class for this threat modification
+  elements: [Element!]! @relationship(type: "SUPPORTS", direction: OUT) # Elements supported by this threat modification
+  countermeasures: [Countermeasure!]! @relationship(type: "HAS_COUNTERMEASURE", direction: OUT) # Countermeasures associated with this threat modification
+  folder: [Folder!]! @relationship(type: "FOLDER_CONTAINS", direction: IN)
+  analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT)
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT) # Issues associated with the control
+}
+
+type Module implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  version: String!
+  description: String
+  model: [Model!]! @relationship(type: "HAS_MODULE", direction: IN)
+  componentClasses: [ComponentClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  dataFlowClasses: [DataFlowClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  securityBoundaryClasses: [SecurityBoundaryClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  controlClasses: [ControlClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  dataClasses: [DataClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  analysisClasses: [AnalysisClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  template: String @customResolver(requires: "name")
+  attributes: String
+  path: String
+}
+
+type ComponentClass implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  type: ComponentType!
+  category: String
+  module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
+  path: String
+  components: [Component!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  template: String @customResolver(requires: "id module { name }")
+  guide: String @customResolver(requires: "id module { name }")
+}
+
+type SecurityBoundaryClass implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  type: ComponentType!
+  category: String
+  module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
+  path: String
+  securityBoundaries: [SecurityBoundary!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  template: String @customResolver(requires: "id module { name }")
+  guide: String @customResolver(requires: "id module { name }")
+}
+
+type DataFlowClass implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  type: ComponentType!
+  category: String
+  module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
+  path: String
+  dataFlows: [DataFlow!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  template: String @customResolver(requires: "id module { name }")
+  guide: String @customResolver(requires: "id module { name }")
+}
+
+type ControlClass implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  type: String
+  category: String
+  supportedTypes: [ComponentType!]
+  supportedCategories: [String!]
+  module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
+  path: String
+  controls: [Control!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  countermeasures: [Countermeasure!]! @relationship(type: "IS_COUNTERMEASURE_OF", direction: IN)
+  template: String @customResolver(requires: "id module { name }")
+  guide: String @customResolver(requires: "id module { name }")
+}
+
+type DataClass implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  type: String
+  category: String
+  module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
+  path: String
+  data: [Data!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  template: String @customResolver(requires: "id module { name }")
+  guide: String @customResolver(requires: "id module { name }")
+}
+
+type Exposure implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  type: String
+  category: String
+  score: Int
+  references: String
+  mitigationSuggestions: [String!]
+  detectionMethods: [String!]
+  tags: [String!]
+  techniques: [String!]
+  component: [Component!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
+  securityBoundary: [SecurityBoundary!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
+  dataFlow: [DataFlow!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
+  data: [Data!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
+  element: [Element!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
+  exploitedBy: [MitreAttackTechnique!]! @relationship(type: "EXPLOITED_BY", direction: OUT)
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT) # Issues associated with the exposure
+}
+
+type MitreAttackTactic implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  attack_id: String
+  attack_version: String
+  stix_id: String
+  stix_spec_version: String
+  stix_type: String
+  techniques: [MitreAttackTechnique!]! @relationship(type: "TACTIC_INCLUDES_TECHNIQUE", direction: OUT)
+}
+
+type MitreAttackTechnique implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  attack_id: String
+  attack_spec_version: String
+  attack_decreased: Boolean
+  attack_subtechnique: Boolean
+  attack_version: String
+  ref_url: String
+  stix_id: String
+  stix_spec_version: String
+  stix_type: String
+  subTechniques: [MitreAttackTechnique!]! @relationship(type: "SUBTECHNIQUE_OF", direction: IN)
+  parentTechnique: [MitreAttackTechnique!]! @relationship(type: "SUBTECHNIQUE_OF", direction: OUT)
+  exposures: [Exposure!]! @relationship(type: "EXPLOITED_BY", direction: IN)
+  mitigations: [MitreAttackMitigation!]! @relationship(type: "MITIGATION_DEFENDS_AGAINST_TECHNIQUE", direction: IN)
+  tactics: [MitreAttackTactic!]! @relationship(type: "TACTIC_INCLUDES_TECHNIQUE", direction: IN)
+}
+
+type MitreAttackMitigation implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  attack_id: String
+  attack_deprecated: Boolean
+  ref_url: String
+  attack_spec_version: String
+  stix_spec_version: String
+  stix_modified: String
+  stix_id: String
+  attack_version: String
+  stix_created: String
+  stix_revoked: Boolean
+  stix_type: String
+  attackTechniqueMitigated: [MitreAttackTechnique!]! @relationship(type: "MITIGATION_DEFENDS_AGAINST_TECHNIQUE", direction: OUT)
+  countermeasures: [Countermeasure!]! @relationship(type: "RESPONDS_WITH", direction: IN)
+}
+
+type MitreDefendTactic implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  attack_id: String
+  uri: String
+  techniques: [MitreDefendTechnique!]! @relationship(type: "ENABLES", direction: IN)
+}
+
+type MitreDefendTechnique implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  d3fendId: String
+  description: String
+  uri: String
+  tactics: [MitreDefendTactic!]! @relationship(type: "ENABLES", direction: OUT)
+  subTechniques: [MitreDefendTechnique!]! @relationship(type: "SUB_TECHNIQUE_OF", direction: IN)
+  parentTechnique: [MitreDefendTechnique!]! @relationship(type: "SUB_TECHNIQUE_OF", direction: OUT)
+  countermeasures: [Countermeasure!]! @relationship(type: "RESPONDS_WITH", direction: IN)
+}
+
+type Countermeasure implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  type: String
+  category: String
+  score: Int
+  references: String
+  addressedExposures: [String!]
+  tags: [String!]
+  mitigations: [MitreAttackMitigation!]! @relationship(type: "RESPONDS_WITH", direction: OUT)
+  defendedTechniques: [MitreDefendTechnique!]! @relationship(type: "RESPONDS_WITH", direction: OUT)
+  control: [Control!]! @relationship(type: "HAS_COUNTERMEASURE", direction: IN)
+  controlClass: [ControlClass!]! @relationship(type: "IS_COUNTERMEASURE_OF", direction: OUT)
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT) # Issues associated with the countermeasure
+}
+
+type AnalysisStatus  @authentication @node {
+  createdAt: String!
+  updatedAt: String!
+  status: String!
+  interrupts: JSON
+  messages: [JSON!]
+  metadata: JSON
+}
+
+type Analysis implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  type: String
+  category: String
+  # model: [Model!]! @relationship(type: "HAS_ANALYSIS", direction: IN)
+  analysisClass: [AnalysisClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  status: AnalysisStatus @customResolver(requires: "id analysisClass { id module { name } }")
+  valueKeys: [String!]! @customResolver(requires: "id analysisClass { id module { name } }")
+  model: [Model!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  component: [Component!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  dataFlow: [DataFlow!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  securityBoundary: [SecurityBoundary!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  control: [Control!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  data: [Data!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  element: [Element!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT) # Issues associated with the analysis
+}
+
+type AnalysisClass implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
+  description: String
+  type: String
+  category: String
+  analyses: [Analysis!]! @relationship(type: "IS_INSTANCE_OF", direction: IN)
+}
+
+type IssueElement  @authentication @node {
+  id: ID!
+  name: String
+  description: String
+  type: String
+  element_type: String
+  category: String
+  model_id: ID
+  model_name: String
+  model_description: String
+  exposed_component_id: ID
+  exposed_component_name: String
+  exposed_component_description: String
+}
+
+type Issue implements Element  @authentication @node {
+  id: ID! @id
+  name: String!
+  description: String
+  type: String
+  category: String
+  issueStatus: String
+  comments: [String!]
+  # Relationships - we need all, because using the element interface would result in performance issues
+  models: [Model!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  components: [Component!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  dataFlows: [DataFlow!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  securityBoundaries: [SecurityBoundary!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  controls: [Control!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  data: [Data!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  analyses: [Analysis!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  exposures: [Exposure!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  countermeasures: [Countermeasure!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  # elements: [Element!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  attributes: String
+  lastSyncAt: String
+  createdAt: String
+  updatedAt: String
+  syncedAttributes: JSON @customResolver(requires: "id lastSyncAt attributes issueClass { module { name } }")
+  issueClass: [IssueClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  elementsWithExtendedInfo: [IssueElement!]! @cypher(
+    statement: """
+    MATCH (this)-[:HAS_ISSUE]-(e)
+    OPTIONAL MATCH (e)-[:CONTAINS|BELONGS_TO|FLOWS|HANDLES|HAS_EXPOSURE|ANALYZED_BY*1..10]-(m:Model)
+    OPTIONAL MATCH (e)<-[:HAS_EXPOSURE]-(c)
+    RETURN DISTINCT {
+      id: e.id,
+      name: e.name,
+      description: e.description,
+      type: COALESCE(e.type, labels(e)[0]),
+      element_type: labels(e)[0],
+      category: COALESCE(e.category, ''),
+      model_id: CASE WHEN 'Model' IN labels(e) THEN e.id ELSE m.id END,
+      model_name: CASE WHEN 'Model' IN labels(e) THEN e.name ELSE m.name END,
+      model_description: CASE WHEN 'Model' IN labels(e) THEN e.description ELSE m.description END,
+      exposed_component_id: COALESCE(c.id, ''),
+      exposed_component_name: COALESCE(c.name, ''),
+      exposed_component_description: COALESCE(c.description, '')
+    } AS issueElement
+    """
+    columnName: "issueElement"
+  )
+}
+
+type IssueClass implements Element  @node {
+  id: ID! @id
+  name: String!
+  module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
+  description: String
+  type: String
+  category: String
+  template: String @customResolver(requires: "id module { name }")
+  issues: [Issue!]! @relationship(type: "IS_INSTANCE_OF", direction: IN)
+}
+
+# Mutuation Types
+type DeletionStats @authentication @node {
+    nodesDeleted: Int!
+    relationshipsDeleted: Int!
+}
+
+type Session {
+  sessionId: ID!
+}
+
+type AddElementsToIssueResult {
+  elementsAdded: String!
+}
+
+# Mutuations
+type Mutation {
+  addElementsToIssue(
+    issueId: String!
+    elementIds: [String!]!
+  ): AddElementsToIssueResult!
+    @cypher(
+      statement: """
+      MATCH (issue:Issue {id: $issueId})
+      UNWIND $elementIds as elementId
+      MATCH (element {id: elementId})
+      MERGE (issue)<-[:HAS_ISSUE]-(element)
+      RETURN DISTINCT {
+        elementsAdded: size(collect(element))
+      } AS result
+      """
+      columnName: "result"
+    )
+    @authentication
+
+  removeElementFromIssue(
+    issueId: String!
+    elementId: String!
+  ): Boolean!
+    @cypher(
+      statement: """
+      MATCH (issue:Issue {id: $issueId})<-[r:HAS_ISSUE]-(element {id: $elementId})
+      DELETE r
+      RETURN TRUE as result
+      """
+      columnName: "result"
+    )
+    @authentication
+
+  setInstantiationAttributes(
+    componentId: String!
+    classId: String!
+    attributes: JSON!
+  ): Boolean!
+    @authentication
+
+  resetModule(moduleId: ID!): Boolean!
+    @authentication
+
+  deleteModel(modelId: ID!): DeletionStats!
+    @cypher(
+      statement: """
+      MATCH (model:Model {id: $modelId})-[:CONTAINS]->(defbound:SecurityBoundary)
+      OPTIONAL MATCH (defbound)<-[:BELONGS_TO*0..]-(secbound:SecurityBoundary)
+      OPTIONAL MATCH (secbound)<-[:BELONGS_TO]-(comp:Component)
+      OPTIONAL MATCH (comp)-[:FLOWS]-(flow:DataFlow)
+      OPTIONAL MATCH (comp)-[:HANDLES]->(compdat:Data)
+      OPTIONAL MATCH (flow)-[:HANDLES]->(flowdat:Data)
+      OPTIONAL MATCH (secbound)-[:HANDLES]->(bounddat:Data)
+      OPTIONAL MATCH (comp)-[:HAS_EXPOSURE]->(excomp:Exposure)
+      OPTIONAL MATCH (flow)-[:HAS_EXPOSURE]->(exflow:Exposure)
+      OPTIONAL MATCH (secbound)-[:HAS_EXPOSURE]->(exbound:Exposure)
+      OPTIONAL MATCH (compdat)-[:HAS_EXPOSURE]->(exdat:Exposure)
+      OPTIONAL MATCH (flowdat)-[:HAS_EXPOSURE]->(exflowdat:Exposure)
+      OPTIONAL MATCH (bounddat)-[:HAS_EXPOSURE]->(exbounddat:Exposure)
+      // Collect all nodes into a single list
+      WITH collect(model) + collect(defbound) + collect(secbound) 
+          + collect(comp) + collect(flow) + collect(compdat) 
+          + collect(flowdat) + collect(bounddat)
+          + collect(excomp) + collect(exflow) + collect(exbound)
+          + collect(exdat) + collect(exflowdat) as nodesToDelete
+
+      // Remove null entries and get distinct nodes
+      UNWIND nodesToDelete as n
+      WITH collect(distinct n) as distinctNodes
+
+      // Count relationships that will be deleted
+      UNWIND distinctNodes as dn
+      MATCH (dn)-[r]-()
+      WITH distinctNodes, count(r) as relCount
+
+      // Delete all nodes
+      UNWIND distinctNodes as node
+      DETACH DELETE node
+
+      // Return stats
+      RETURN DISTINCT { 
+        nodesDeleted: size(distinctNodes), 
+        relationshipsDeleted: relCount 
+      } AS result
+      """
+      columnName: "result"
+    )
+    @authentication
+
+  runAnalysis(
+    analysisId: String!
+    additionalParams: JSON
+  ): Session!
+    @authentication
+
+  startChat(
+    analysisId: String!
+    userQuestion: String!
+    additionalParams: JSON
+  ): Session!
+    @authentication
+
+  resumeAnalysis(
+    analysisId: String!
+    userInput: String!
+  ): Session!
+    @authentication
+
+  deleteAnalysis(
+    analysisId: String!
+  ): Boolean!
+    @authentication
+}
+
+# Queries
+type Query {
+  getExposuresForElement(elementId: String!): [Exposure!]!
+    @cypher(
+      statement: """
+      MATCH (e {id: $elementId})-[:HAS_EXPOSURE]->(ex:Exposure)
+      RETURN ex
+      """
+      columnName: "ex"
+    )
+    @authentication
+
+  getAttributesFromClassRel(
+    componentId: String!
+    classId: String!
+  ): JSON
+    @cypher(
+      statement: """
+      MATCH (c {id: $componentId})
+      MATCH (t {id: $classId})
+      OPTIONAL MATCH (c)-[r:IS_INSTANCE_OF]->(t)
+      RETURN COALESCE(r, {}) AS attributes
+      """
+      columnName: "attributes"
+    )
+    @authentication
+
+  getNotRepreseningModels(
+    modelId: String!
+  ): [Model!]
+    @cypher(
+      statement: """
+      MATCH (src:Model {id:$modelId})
+      MATCH (src)<-[:REPRESENTS_MODEL]-(comp)
+      MATCH (comp)-[:BELONGS_TO|CONTAINS*1..]-(mod:Model)
+      WITH COLLECT(DISTINCT mod) AS connectedModels
+      MATCH (m:Model)
+      WHERE m.id <> $modelId
+        AND NOT m IN connectedModels
+      RETURN m
+      """
+      columnName: "m"
+    )
+    @authentication
+
+  getAnalysisValues(
+    analysisId: String!
+    valueKey: String!
+  ): JSON!
+    @authentication
+
+  getDocument(
+    analysisId: String!
+    filter: JSON!
+  ): JSON!
+    @authentication
+
+  getAvailableFrontendModules: [String!]!
+
+  getModuleFrontendBundle(moduleName: String!): String!
+}
+
+type ResponseMetadata {
+  finish_reason: String
+  model_name: String
+  system_fingerprint: String
+}
+
+type AIResponse {
+  content: String
+  additional_kwargs: JSON
+  response_metadata: ResponseMetadata
+  type: String
+  name: String
+  id: String
+  example: Boolean
+  tool_calls: [JSON!]
+  invalid_tool_calls: [JSON!]
+  usage_metadata: JSON
+  tool_call_chunks: [JSON!]
+}
+
+
+# type Subscription @subscriptionsAuthorization(filter: [{ requireAuthentication: true }]) {
+type Subscription {
+  streamResponse(sessionId: String!): AIResponse!
+}

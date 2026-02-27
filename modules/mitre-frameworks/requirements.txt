@@ -1,0 +1,7 @@
+ontolocy
+neontology
+rdflib
+python-dotenv
+neo4j
+openai>=1.0.0
+pyyaml
