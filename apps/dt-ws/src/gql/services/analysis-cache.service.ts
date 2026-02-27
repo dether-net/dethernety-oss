@@ -239,8 +239,9 @@ export class AnalysisCacheService {
    * Update cache configuration
    */
   updateConfig(updates: Partial<AnalysisResolverConfig>): void {
-    Object.assign(this.config, updates);
-    this.logger.log('Cache configuration updated', updates);
+    const { __proto__, constructor, prototype, ...safeUpdates } = updates as any;
+    Object.assign(this.config, safeUpdates);
+    this.logger.log('Cache configuration updated', safeUpdates);
   }
 
   /**

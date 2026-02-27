@@ -64,7 +64,8 @@ export class ModuleBundleController {
       // Set appropriate headers
       response.setHeader('Content-Type', 'application/javascript; charset=utf-8');
       response.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes cache
-      response.setHeader('X-Module-Name', moduleName);
+      const safeModuleName = moduleName.replace(/[^a-zA-Z0-9_\-]/g, '');
+      response.setHeader('X-Module-Name', safeModuleName);
       response.setHeader('X-Response-Time', `${duration}ms`);
 
       this.logger.log('Module bundle served successfully via REST', {

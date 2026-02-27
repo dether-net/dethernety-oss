@@ -82,7 +82,7 @@ export class GqlConfig {
   // Module Registry Configuration
   customModulesPath: string = 'custom_modules';
   allowedModules: string[] = [];
-  enableModuleHotReload: boolean = true;
+  enableModuleHotReload: boolean = false;
   moduleLoadTimeout: number = 30000; // 30 seconds
   enableModuleSecurityValidation: boolean = true;
 }
@@ -107,7 +107,7 @@ export default registerAs('gql', () => {
     // Module Registry Configuration
     customModulesPath: process.env.CUSTOM_MODULES_PATH || 'custom_modules',
     allowedModules: process.env.ALLOWED_MODULES ? process.env.ALLOWED_MODULES.split(',').map(m => m.trim()) : [],
-    enableModuleHotReload: process.env.ENABLE_MODULE_HOT_RELOAD !== 'false',
+    enableModuleHotReload: process.env.ENABLE_MODULE_HOT_RELOAD === 'true',
     moduleLoadTimeout: parseInt(process.env.MODULE_LOAD_TIMEOUT || '30000', 10),
     enableModuleSecurityValidation: process.env.NODE_ENV === 'production',
   };

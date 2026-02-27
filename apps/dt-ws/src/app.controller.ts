@@ -6,10 +6,10 @@ import { ModuleRegistryService } from './gql/module-management-services/module-r
 interface HealthCheckResult {
   status: 'healthy' | 'unhealthy' | 'degraded';
   timestamp: string;
-  uptime: number;
-  version: string;
-  environment: string;
-  services: {
+  uptime?: number;
+  version?: string;
+  environment?: string;
+  services?: {
     database: {
       status: 'up' | 'down';
       responseTime?: number;
@@ -26,7 +26,7 @@ interface HealthCheckResult {
       error?: string;
     };
   };
-  system: {
+  system?: {
     memory: {
       used: number;
       total: number;
@@ -152,7 +152,15 @@ export class AppController {
       if (overallStatus === 'healthy') overallStatus = 'degraded';
     }
 
-    // System metrics
+    // In production, return minimal health info (no system details)
+    if (process.env.NODE_ENV === 'production') {
+      return {
+        status: overallStatus,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    // System metrics (development only)
     const memUsage = process.memoryUsage();
     const totalMemory = memUsage.heapTotal + memUsage.external;
     const usedMemory = memUsage.heapUsed;

@@ -49,17 +49,20 @@ export class JwtAuthGuard implements CanActivate {
         nodeEnv: process.env.NODE_ENV || 'undefined'
       });
 
-      // If no OIDC is configured, bypass JWT validation (development mode)
+      // If no OIDC is configured, handle based on environment
       if (!this.config?.oidcJwksUri) {
         if (process.env.NODE_ENV === 'production') {
           this.logger.error(
-            'SECURITY WARNING: No OIDC configuration provided in production mode. ' +
-            'All requests will be unauthenticated. Set OIDC_JKWS_URI to enable JWT validation.'
+            'SECURITY: No OIDC configuration in production mode. ' +
+            'Rejecting request. Set OIDC_JKWS_URI to enable JWT validation.'
+          );
+          throw new UnauthorizedException(
+            'Authentication service not configured. Contact your administrator.'
           );
         }
         this.logger.log('JWT validation bypassed - no OIDC configuration (development mode)');
 
-        // Add mock user info to request
+        // Add mock user info to request (development only)
         request['user'] = { sub: 'dev-user', email: 'dev@example.com', roles: [], permissions: [] };
         request['token'] = token || 'dev-token';
 
@@ -97,9 +100,15 @@ export class JwtAuthGuard implements CanActivate {
   }
 
   private async validateToken(token: string): Promise<any> {
-    // If no OIDC configuration, skip validation (development mode)
+    // If no OIDC configuration, handle based on environment
     if (!this.config.oidcJwksUri || !this.jwksClientInstance) {
-      this.logger.warn('JWT validation skipped - no OIDC configuration', { token: token.substring(0, 10) + '...' });
+      if (process.env.NODE_ENV === 'production') {
+        this.logger.error('SECURITY: validateToken called without OIDC configuration in production');
+        throw new UnauthorizedException(
+          'Authentication service not configured. Contact your administrator.'
+        );
+      }
+      this.logger.warn('JWT validation skipped - no OIDC configuration (development mode)');
       return { sub: 'dev-user', email: 'dev@example.com', roles: [], permissions: [] };
     }
 

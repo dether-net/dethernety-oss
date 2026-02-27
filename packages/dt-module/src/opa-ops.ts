@@ -33,6 +33,9 @@ export class OpaOps {
     if (!/^[a-zA-Z0-9_\-\.\/]+$/.test(policyId)) {
       throw new Error(`Invalid policy ID: ${policyId}`);
     }
+    if (policyId.includes('..')) {
+      throw new Error(`Invalid policy ID: path traversal not allowed`);
+    }
   }
 
   async deleteAllPolicies(): Promise<boolean> {
@@ -72,6 +75,7 @@ export class OpaOps {
    */
   async deletePolicyByPrefix(prefix: string): Promise<boolean> {
     try {
+      this.validatePolicyId(prefix.trim().replaceAll(" ", "_"));
       const response = await axios.get(`${this.opaServerUrl}/v1/policies`);
       const existingPolicies = response.data.result || [];
       for (const policy of existingPolicies) {

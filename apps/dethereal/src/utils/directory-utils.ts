@@ -230,6 +230,7 @@ export async function writeManifest(dirPath: string, manifest: ModelManifest): P
  * Write structure to directory
  */
 export async function writeStructure(dirPath: string, structure: ModelStructure): Promise<void> {
+  validatePathConfinement(dirPath);
   const structurePath = path.join(dirPath, DEFAULT_FILE_NAMES.structure)
   await fs.writeFile(structurePath, JSON.stringify(structure, null, 2), 'utf-8')
 }
@@ -238,6 +239,7 @@ export async function writeStructure(dirPath: string, structure: ModelStructure)
  * Write dataflows to directory
  */
 export async function writeDataFlows(dirPath: string, dataFlows: DataFlow[]): Promise<void> {
+  validatePathConfinement(dirPath);
   const dataFlowsPath = path.join(dirPath, DEFAULT_FILE_NAMES.dataFlows)
   await fs.writeFile(dataFlowsPath, JSON.stringify({ dataFlows }, null, 2), 'utf-8')
 }
@@ -246,6 +248,7 @@ export async function writeDataFlows(dirPath: string, dataFlows: DataFlow[]): Pr
  * Write data items to directory
  */
 export async function writeDataItems(dirPath: string, dataItems: DataItem[]): Promise<void> {
+  validatePathConfinement(dirPath);
   const dataItemsPath = path.join(dirPath, DEFAULT_FILE_NAMES.dataItems)
   await fs.writeFile(dataItemsPath, JSON.stringify({ dataItems }, null, 2), 'utf-8')
 }
@@ -257,6 +260,7 @@ export async function writeAttributes(
   dirPath: string,
   attributes: ConsolidatedAttributesFile
 ): Promise<void> {
+  validatePathConfinement(dirPath);
   const attributesDir = path.join(dirPath, DEFAULT_FILE_NAMES.attributes)
 
   // Ensure subdirectories exist

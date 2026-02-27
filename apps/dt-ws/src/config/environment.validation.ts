@@ -150,8 +150,8 @@ export class EnvironmentVariables {
 
   @IsOptional()
   @IsBoolean()
-  @Transform(({ value }) => value !== 'false')
-  ENABLE_MODULE_HOT_RELOAD?: boolean = true;
+  @Transform(({ value }) => value === 'true')
+  ENABLE_MODULE_HOT_RELOAD?: boolean = false;
 
   @IsOptional()
   @IsNumber()

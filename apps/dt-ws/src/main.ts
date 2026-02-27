@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
+import * as express from 'express';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -15,6 +16,10 @@ async function bootstrap() {
         ? ['error', 'warn', 'log'] 
         : ['error', 'warn', 'log', 'debug', 'verbose'],
     });
+
+    // Request body size limits
+    app.use(express.json({ limit: '1mb' }));
+    app.use(express.urlencoded({ limit: '1mb', extended: true }));
 
     // Get configuration service
     const configService = app.get(ConfigService);
@@ -45,6 +50,8 @@ async function bootstrap() {
         res.setHeader('X-XSS-Protection', '1; mode=block');
         res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
         res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+        res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'");
         next();
       });
     }

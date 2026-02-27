@@ -17,10 +17,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Database configuration
-POSTGRES_URI = os.getenv(
-    "POSTGRES_URI",
-    "postgresql+psycopg://postgres:langgraph123@localhost:5432/dethermine"
-)
+POSTGRES_URI = os.getenv("POSTGRES_URI")
+if not POSTGRES_URI:
+    print("Error: POSTGRES_URI environment variable is required")
+    print("Example: export POSTGRES_URI='postgresql+psycopg://postgres:yourpassword@localhost:5432/dethermine'")
+    sys.exit(1)
 
 
 def main():
@@ -35,7 +36,9 @@ def main():
         print("Set it with: export OPENAI_API_KEY='sk-...'")
         return 1
 
-    print(f"\nConnecting to: {POSTGRES_URI.replace('langgraph123', '***')}")
+    import re
+    display_uri = re.sub(r'://([^:]+):([^@]+)@', r'://\1:***@', POSTGRES_URI)
+    print(f"\nConnecting to: {display_uri}")
 
     # Import langchain components
     from langchain_openai import OpenAIEmbeddings

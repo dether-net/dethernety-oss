@@ -213,7 +213,11 @@ export class ModuleManagementService {
     obj: any,
     prefix: string = '',
     result: any = {},
+    depth: number = 0,
   ): any {
+    if (depth > 20) {
+      return result; // Prevent stack overflow from deeply nested or circular objects
+    }
     for (const key in obj) {
       if (obj.hasOwnProperty(key)) {
         const value = obj[key];
@@ -226,7 +230,7 @@ export class ModuleManagementService {
           !Array.isArray(value) &&
           Object.keys(value).length > 0
         ) {
-          this.flattenNestedProperties(value, prefixedKey, result);
+          this.flattenNestedProperties(value, prefixedKey, result, depth + 1);
         } else {
           result[prefixedKey] = value;
         }

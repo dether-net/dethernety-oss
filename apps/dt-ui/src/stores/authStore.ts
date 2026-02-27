@@ -97,10 +97,9 @@ const generateRandomString = (length: number): string => {
   if (typeof window !== 'undefined' && window.crypto) {
     crypto.getRandomValues(array)
   } else {
-    // Fallback for environments without crypto API
-    for (let i = 0; i < array.length; i++) {
-      array[i] = Math.floor(Math.random() * 256)
-    }
+    throw new Error(
+      'Web Crypto API is required for secure authentication. Please use a modern browser.'
+    )
   }
   return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('')
 }
@@ -120,8 +119,6 @@ const sha256Fallback = async (plain: string): Promise<ArrayBuffer> => {
 
 const sha256 = async (plain: string): Promise<ArrayBuffer> => {
   const config = await validateAuthConfig()
-  console.log('isSecureContext', isSecureContext)
-  console.log('crypto.subtle', crypto.subtle)
   if (isSecureContext && crypto.subtle) {
     // Use Web Crypto API in secure contexts (HTTPS)
     const encoder = new TextEncoder()
