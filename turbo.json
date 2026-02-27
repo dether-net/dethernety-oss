@@ -1,0 +1,49 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "concurrency": "12",
+  "tasks": {
+    "m-cleanup": {
+      "outputs": []
+    },
+    "m-ingest": {
+      "outputs": []
+    },
+    "parsetest": {
+      "outputs": []
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": ["dist/**"]
+    },
+    "build:production": {
+      "dependsOn": ["^build:production"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*", ".env.production"],
+      "outputs": ["dist/**"],
+      "env": ["NODE_ENV=production"]
+    },
+    "build:docker": {
+      "dependsOn": ["^build:docker"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": ["dist/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "dependsOn": ["^lint"],
+      "outputs": []
+    },
+    "check-types": {
+      "dependsOn": ["^check-types"],
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["^test"],
+      "outputs": ["coverage/**"]
+    }
+  },
+  "globalDependencies": [".env*"]
+}

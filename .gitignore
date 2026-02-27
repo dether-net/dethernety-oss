@@ -1,0 +1,61 @@
+# Dependencies
+node_modules
+**/node_modules
+.pnp
+.pnp.js
+
+# Local env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Testing
+coverage
+
+# Turbo
+.turbo
+
+# Build Outputs
+.next/
+out/
+build
+dist
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Misc
+.DS_Store
+*.pem
+.venv
+apps/dt-ws/.env.bak
+apps/dt-ws/.env copy
+
+**/out*.txt
+**/checkpoints*.db*
+
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ipynb_checkpoints/
+**/.vscode/
+
+**/custom_modules/
+**/custom_modules/*
+
+venv
+
+# Demo runtime data
+demo/data/
+demo/config/ssl/
+demo/*.log
+demo/.DS_Store
+demo/login-client.pat
+
+# Frontend build outputs served by dt-ws
+apps/dt-ws/public/assets/
+apps/dt-ws/public/index.html
