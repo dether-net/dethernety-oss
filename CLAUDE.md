@@ -63,10 +63,8 @@ pnpm docker:run           # Run Docker container
 
 ## Documentation
 
-- `docs/how-it-works.md` — Core concepts and workflow
-- `docs/CONFIGURATION_GUIDE.md` — Environment variables and setup
 - `docs/schema.md` — Graph database schema reference
-- `docs/architecture/` — Architecture documentation
+- `docs/export-import-schema.json` — Model export/import format
 
 ## Build Tools
 

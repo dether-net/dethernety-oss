@@ -106,18 +106,17 @@ dethernety-oss/
 ├── modules/
 │   ├── dethernety-module/  Default threat modeling module
 │   └── mitre-frameworks/   MITRE ATT&CK and D3FEND data
-├── docs/                   Architecture and user documentation
+├── docs/                   Schema reference and technical docs
 ├── demo/                   Docker Compose demo environment
 └── scripts/                Build and utility scripts
 ```
 
 ## Documentation
 
-- [How It Works](docs/how-it-works.md) — Core concepts and workflow
-- [Configuration Guide](docs/CONFIGURATION_GUIDE.md) — Environment variables and setup
 - [Schema Reference](docs/schema.md) — Neo4j graph schema documentation
-- [Architecture Overview](docs/architecture/architecture.md) — System architecture
-- [Module Development](docs/architecture/modules/) — Building custom modules
+- [Export/Import Schema](docs/export-import-schema.json) — Model export/import format
+
+Full documentation including architecture guides, configuration reference, and user guides is being prepared for release.
 
 ## Module System
 
