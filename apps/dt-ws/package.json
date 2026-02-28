@@ -46,7 +46,7 @@
     "express": "5.1.0",
     "graphql": "^16.12.0",
     "graphql-depth-limit": "^1.1.0",
-    "graphql-query-complexity": "^0.12.0",
+    "graphql-query-complexity": "^1.1.0",
     "graphql-sse": "^2.6.0",
     "graphql-subscriptions": "^3.0.0",
     "graphql-type-json": "^0.3.2",
