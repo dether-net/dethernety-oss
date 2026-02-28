@@ -18,7 +18,7 @@
     "@nestjs/common": "^11.1.8",
     "@open-policy-agent/opa-wasm": "^1.10.0",
     "json-logic-js": "^2.0.5",
-    "neo4j-driver": "^5.28.2"
+    "neo4j-driver": "^6.0.1"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
