@@ -1,0 +1,33 @@
+{
+  "name": "dethernety",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "build:production": "turbo build:production",
+    "build:docker": "turbo build:docker",
+    "docker:build": "docker build -f Dockerfile.production -t dethernety:latest .",
+    "docker:run": "docker run --env-file .env.production -p 3000:3000 dethernety:latest",
+    "lint": "turbo lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "test": "turbo run test",
+    "m-cleanup": "turbo run m-cleanup",
+    "m-ingest": "turbo run m-ingest",
+    "parsetest": "turbo run parsetest"
+  },
+  "devDependencies": {
+    "prettier": "^3.8.1",
+    "turbo": "^2.8.0",
+    "typescript": "5.5.4"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "pnpm@9.13.2",
+  "pnpm": {
+    "overrides": {
+      "zod": "4.3.6"
+    }
+  }
+}

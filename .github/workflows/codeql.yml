@@ -1,0 +1,37 @@
+name: CodeQL
+
+# Note: CodeQL code scanning is free for public repositories.
+# For private repositories, it requires GitHub Advanced Security.
+# Re-enable triggers below once the repository is made public.
+on:
+  workflow_dispatch: {}
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
+  # schedule:
+  #   - cron: "0 6 * * 1"
+
+permissions:
+  actions: read
+  security-events: write
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3

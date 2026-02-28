@@ -1,0 +1,36 @@
+// @ts-ignore
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "jsx": "preserve",
+    "lib": ["DOM", "ESNext"],
+    "baseUrl": ".",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "resolveJsonModule": true,
+    "types": [
+      "vite/client",
+      "unplugin-vue-router/client",
+      "vite-plugin-vue-layouts/client"
+    ],
+    "allowJs": true,
+    "strict": true,
+    "strictNullChecks": true,
+    "noUnusedLocals": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "outDir": "./build"
+  },
+  "include": [
+    "src/**/*",
+    "src/**/*.vue",
+    "src/types/global.d.ts"
+  ],
+  "exclude": ["dist", "node_modules", "cypress", "src/plugins/vite-config-inject.ts"],
+  "references": [{ "path": "./tsconfig.node.json" }],
+}

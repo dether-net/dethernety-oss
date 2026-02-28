@@ -1,0 +1,9 @@
+{
+  "name": "dethernety",
+  "version": "1.0.0",
+  "displayName": "Dethernety Core Classes",
+  "description": "Built-in classes for Dethernety threat modeling",
+  "tags": ["core", "classes", "built-in"],
+  "dependencies": [],
+  "restarts": ["dethernety.service"]
+}

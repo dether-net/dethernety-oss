@@ -1,0 +1,418 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Dethernety Model Export/Import Format",
+  "description": "Schema for the JSON format used to export and import models in the Dethernety threat modeling framework. LAYOUT RULES: All position coordinates (positionX, positionY) are relative to the parent boundary with (0,0) at top-left. Components have a fixed size of 150x150 pixels. Boundary dimensions must accommodate all child components and nested boundaries.",
+  "type": "object",
+  "required": ["name", "defaultBoundary"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "The name of the model"
+    },
+    "description": {
+      "type": "string",
+      "description": "A detailed description of the model"
+    },
+    "defaultBoundary": {
+      "$ref": "#/definitions/boundary"
+    },
+    "dataFlows": {
+      "type": "array",
+      "description": "List of all data flows in the model",
+      "items": {
+        "$ref": "#/definitions/dataFlow"
+      }
+    },
+    "dataItems": {
+      "type": "array",
+      "description": "List of all data items in the model",
+      "items": {
+        "$ref": "#/definitions/dataItem"
+      }
+    },
+    "modules": {
+      "type": "array",
+      "description": "References to modules used in the model",
+      "items": {
+        "$ref": "#/definitions/moduleReference"
+      }
+    }
+  },
+  "definitions": {
+    "boundary": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Reference identifier for the boundary (e.g., 'boundary-1', 'dmz-boundary'). Used for internal linking within the JSON structure, especially when referenced by components, dataflows, or nested boundaries. The server will generate actual database IDs upon import."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the boundary"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the boundary"
+        },
+        "positionX": {
+          "type": "number",
+          "description": "X-coordinate of the boundary's position"
+        },
+        "positionY": {
+          "type": "number",
+          "description": "Y-coordinate of the boundary's position"
+        },
+        "dimensionsWidth": {
+          "type": "number",
+          "description": "Width of the boundary"
+        },
+        "dimensionsHeight": {
+          "type": "number",
+          "description": "Height of the boundary"
+        },
+        "dimensionsMinWidth": {
+          "type": "number",
+          "description": "Minimum width of the boundary"
+        },
+        "dimensionsMinHeight": {
+          "type": "number",
+          "description": "Minimum height of the boundary"
+        },
+        "parentBoundary": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "ID of the parent boundary"
+            }
+          },
+          "required": ["id"]
+        },
+        "controls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "description": "ID of a control associated with the boundary"
+              },
+              "name": {
+                "type": "string",
+                "description": "Name of the control"
+              }
+            },
+            "required": ["id"]
+          }
+        },
+        "classData": {
+          "$ref": "#/definitions/classData",
+          "description": "Class data for the boundary if it is an instance of a class"
+        },
+        "attributes": {
+          "type": "object",
+          "description": "Dynamic attributes specific to this boundary's class",
+          "additionalProperties": true
+        },
+        "boundaries": {
+          "type": "array",
+          "description": "Nested boundaries within this boundary",
+          "items": {
+            "$ref": "#/definitions/boundary"
+          }
+        },
+        "components": {
+          "type": "array",
+          "description": "Components contained within this boundary",
+          "items": {
+            "$ref": "#/definitions/component"
+          }
+        },
+        "dataItemIds": {
+          "type": "array",
+          "description": "IDs of data items associated with this boundary",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "representedModel": {
+          "$ref": "#/definitions/modelReference",
+          "description": "Reference to a model that this boundary represents (if any)"
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["classData"]
+        },
+        {
+          "required": ["representedModel"]
+        }
+      ]
+    },
+    "component": {
+      "type": "object",
+      "required": ["id", "name", "type"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Reference identifier for the component (e.g., 'component-1', 'web-server'). Used for internal linking within the JSON structure, especially when referenced by dataflows via source/target. The server will generate actual database IDs upon import."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the component"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the component"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["PROCESS", "EXTERNAL_ENTITY", "STORE"],
+          "description": "Type of the component"
+        },
+        "positionX": {
+          "type": "number",
+          "description": "X-coordinate of the component's position"
+        },
+        "positionY": {
+          "type": "number",
+          "description": "Y-coordinate of the component's position"
+        },
+        "parentBoundary": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "ID of the parent boundary"
+            }
+          },
+          "required": ["id"]
+        },
+        "controls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "description": "ID of a control associated with the component"
+              },
+              "name": {
+                "type": "string",
+                "description": "Name of the control"
+              }
+            },
+            "required": ["id"]
+          }
+        },
+        "classData": {
+          "$ref": "#/definitions/classData",
+          "description": "Class data for the component if it is an instance of a class"
+        },
+        "attributes": {
+          "type": "object",
+          "description": "Dynamic attributes specific to this component's class",
+          "additionalProperties": true
+        },
+        "dataItemIds": {
+          "type": "array",
+          "description": "IDs of data items associated with this component",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "representedModel": {
+          "$ref": "#/definitions/modelReference",
+          "description": "Reference to a model that this component represents (if any)"
+        }
+      }
+    },
+    "dataFlow": {
+      "type": "object",
+      "required": ["id", "name", "source", "target"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Reference identifier for the data flow (e.g., 'flow-1', 'user-to-api'). The server will generate actual database IDs upon import."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the data flow"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the data flow"
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "ID of the source component"
+            }
+          },
+          "required": ["id"]
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "ID of the target component"
+            }
+          },
+          "required": ["id"]
+        },
+        "sourceHandle": {
+          "type": "string",
+          "description": "Connection point on the source component"
+        },
+        "targetHandle": {
+          "type": "string",
+          "description": "Connection point on the target component"
+        },
+        "controls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "description": "ID of a control associated with the data flow"
+              },
+              "name": {
+                "type": "string",
+                "description": "Name of the control"
+              }
+            },
+            "required": ["id"]
+          }
+        },
+        "classData": {
+          "$ref": "#/definitions/classData",
+          "description": "Class data for the data flow"
+        },
+        "attributes": {
+          "type": "object",
+          "description": "Dynamic attributes specific to this data flow's class",
+          "additionalProperties": true
+        },
+        "dataItemIds": {
+          "type": "array",
+          "description": "IDs of data items associated with this data flow",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    "dataItem": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Reference identifier for the data item (e.g., 'data-1', 'user-credentials'). Used for internal linking when components or dataflows reference this data via dataItemIds array. The server will generate actual database IDs upon import."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the data item"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the data item"
+        },
+        "classData": {
+          "$ref": "#/definitions/classData",
+          "description": "Class data for the data item"
+        },
+        "attributes": {
+          "type": "object",
+          "description": "Dynamic attributes specific to this data item's class",
+          "additionalProperties": true
+        }
+      }
+    },
+    "classData": {
+      "type": "object",
+      "required": ["id", "name", "type"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique identifier for the class"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the class"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the class"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["PROCESS", "EXTERNAL_ENTITY", "STORE", "SECURITY_BOUNDARY", "DATA_FLOW", "DATA"],
+          "description": "Type of the class"
+        },
+        "category": {
+          "type": "string",
+          "description": "Category of the class"
+        },
+        "module": {
+          "$ref": "#/definitions/moduleReference",
+          "description": "Reference to the module that provides the class"
+        }
+      }
+    },
+    "moduleReference": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique identifier for the module"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the module"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the module"
+        }
+      }
+    },
+    "modelReference": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique identifier for the model"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the model"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the model"
+        }
+      }
+    }
+  }
+} 

@@ -1,0 +1,68 @@
+# Production Dockerfile - Uses pre-built artifacts from build-production.sh
+# This assumes you've already run: ./scripts/build-production.sh
+
+FROM node:24-alpine AS runtime
+
+# Install specific pnpm version, curl for healthcheck
+RUN npm install -g pnpm@9.13.2 && \
+    apk add --no-cache curl bash && \
+    rm -rf /var/cache/apk/* && \
+    rm -rf ~/.npm
+
+# Create app user for security
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S nestjs -u 1001
+
+WORKDIR /app
+
+# Copy workspace configuration to respect overrides
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/dt-ws/package.json ./apps/dt-ws/package.json
+COPY packages/dt-core/package.json ./packages/dt-core/package.json
+COPY packages/dt-module/package.json ./packages/dt-module/package.json
+
+# Copy built workspace packages
+COPY packages/dt-core/dist ./packages/dt-core/dist
+COPY packages/dt-module/dist ./packages/dt-module/dist
+
+# Install dependencies with workspace context (respects overrides)
+RUN pnpm install --prod --frozen-lockfile --no-optional && \
+    rm -rf /var/cache/apk/*
+
+# Create symlinks for workspace packages (pnpm doesn't auto-link them in prod mode)
+# This allows dynamically loaded modules to resolve @dethernety/dt-module
+RUN mkdir -p /app/node_modules/@dethernety && \
+    ln -s /app/packages/dt-module /app/node_modules/@dethernety/dt-module && \
+    ln -s /app/packages/dt-core /app/node_modules/@dethernety/dt-core
+
+# Copy pre-built backend to the workspace app directory
+COPY apps/dt-ws/dist ./apps/dt-ws/dist
+COPY apps/dt-ws/schema ./apps/dt-ws/schema
+
+# Copy pre-built frontend (already placed in public by build-production.sh)
+COPY apps/dt-ws/public ./apps/dt-ws/public
+
+# Set ownership
+RUN chown -R nestjs:nodejs /app
+USER nestjs
+
+# Set production environment
+ENV NODE_ENV=production
+
+# Expose port
+EXPOSE 3000
+
+# Set working directory to where the app and its node_modules are
+WORKDIR /app/apps/dt-ws
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/health/simple || exit 1
+
+# Add metadata
+LABEL maintainer="dether-net" \
+      version="1.0" \
+      description="Dethernety production container"
+
+# Start the application with proper signal handling
+CMD ["node", "--enable-source-maps", "dist/main.js"]

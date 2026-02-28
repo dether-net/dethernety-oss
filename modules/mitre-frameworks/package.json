@@ -1,0 +1,14 @@
+{
+  "name": "mitre-frameworks",
+  "version": "0.1.0",
+  "scripts": {
+    "setup": "python3 -m venv .venv && . .venv/bin/activate && .venv/bin/pip install -r requirements.txt",
+    "m-cleanup": ". .venv/bin/activate && .venv/bin/python ingest.py --cleanup",
+    "m-ingest": ". .venv/bin/activate && .venv/bin/python ingest.py",
+    "m-export": ". .venv/bin/activate && .venv/bin/python scripts/export_to_cypher.py",
+    "build": "./scripts/build-data.sh",
+    "test": "./scripts/test-pgvector.sh",
+    "test:memgraph": "./scripts/test-memgraph.sh",
+    "parsetest": ". .venv/bin/activate && .venv/bin/python parsetest.py"
+  }
+}

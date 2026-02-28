@@ -1,0 +1,7 @@
+@use 'vuetify' with (
+  $color-pack: "blue-grey",
+);
+
+.v-application {
+  font-family: 'JetBrains Mono', monospace !important;
+}

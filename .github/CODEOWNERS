@@ -1,0 +1,6 @@
+# Default owners for everything in the repo
+* @dether-net/core-team
+
+# Core packages require additional review
+/packages/dt-core/ @dether-net/core-team
+/packages/dt-module/ @dether-net/core-team
