@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: CLA Assistant
-        uses: contributor-assistant/github-action@v2
+        uses: contributor-assistant/github-action@v2.6.1
         with:
           path-to-signatures: signatures/cla.json
           path-to-document: CLA.md
