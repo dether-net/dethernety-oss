@@ -1,7 +1,7 @@
 # Production Dockerfile - Uses pre-built artifacts from build-production.sh
 # This assumes you've already run: ./scripts/build-production.sh
 
-FROM node:24-alpine AS runtime
+FROM node:25-alpine AS runtime
 
 # Install specific pnpm version, curl for healthcheck
 RUN npm install -g pnpm@9.13.2 && \
