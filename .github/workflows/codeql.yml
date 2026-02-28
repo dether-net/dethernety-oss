@@ -1,12 +1,16 @@
 name: CodeQL
 
+# Note: CodeQL code scanning is free for public repositories.
+# For private repositories, it requires GitHub Advanced Security.
+# Re-enable triggers below once the repository is made public.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  schedule:
-    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
+  # schedule:
+  #   - cron: "0 6 * * 1"
 
 permissions:
   actions: read

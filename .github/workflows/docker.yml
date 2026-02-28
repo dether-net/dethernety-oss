@@ -31,7 +31,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm build:docker
+        run: pnpm build
 
       - name: Prepare Docker assets
         run: |
