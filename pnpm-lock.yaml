@@ -31,7 +31,7 @@ importers:
         version: link:../../packages/dt-core
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.0
-        version: 1.27.1(zod@3.25.76)
+        version: 1.27.1(zod@4.3.6)
       cross-fetch:
         specifier: ^4.0.0
         version: 4.1.0
@@ -43,10 +43,10 @@ importers:
         version: 11.0.0
       zod:
         specifier: 3.25.76
-        version: 3.25.76
+        version: 4.3.6
       zod-to-json-schema:
         specifier: ^3.22.0
-        version: 3.25.1(zod@3.25.76)
+        version: 3.25.1(zod@4.3.6)
     devDependencies:
       '@types/node':
         specifier: ^25.3.2
@@ -273,7 +273,7 @@ importers:
         version: 5.0.4(@nestjs/common@11.1.14(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.14)(express@5.1.0)
       '@styra/opa':
         specifier: ^1.7.10
-        version: 1.7.10(zod@3.25.76)
+        version: 1.7.10(zod@4.3.6)
       '@types/json-logic-js':
         specifier: ^2.0.8
         version: 2.0.8
@@ -470,7 +470,7 @@ importers:
         version: 11.1.14(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@styra/opa':
         specifier: ^1.7.10
-        version: 1.7.10(zod@3.25.76)
+        version: 1.7.10(zod@4.3.6)
       axios:
         specifier: ^1.13.2
         version: 1.13.5
@@ -7795,8 +7795,8 @@ packages:
     peerDependencies:
       zod: 3.25.76
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+  zod@4.3.6:
+    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
 
 snapshots:
 
@@ -9072,7 +9072,7 @@ snapshots:
 
   '@microsoft/tsdoc@0.14.2': {}
 
-  '@modelcontextprotocol/sdk@1.27.1(zod@3.25.76)':
+  '@modelcontextprotocol/sdk@1.27.1(zod@4.3.6)':
     dependencies:
       '@hono/node-server': 1.19.9(hono@4.12.3)
       ajv: 8.18.0
@@ -9089,8 +9089,8 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
-      zod: 3.25.76
-      zod-to-json-schema: 3.25.1(zod@3.25.76)
+      zod: 4.3.6
+      zod-to-json-schema: 3.25.1(zod@4.3.6)
     transitivePeerDependencies:
       - supports-color
 
@@ -9558,10 +9558,10 @@ snapshots:
       estraverse: 5.3.0
       picomatch: 4.0.3
 
-  '@styra/opa@1.7.10(zod@3.25.76)':
+  '@styra/opa@1.7.10(zod@4.3.6)':
     dependencies:
       '@styra/ucast-prisma': 0.1.5
-      zod: 3.25.76
+      zod: 4.3.6
 
   '@styra/ucast-prisma@0.1.5':
     dependencies:
@@ -15872,8 +15872,8 @@ snapshots:
 
   zen-observable@0.8.15: {}
 
-  zod-to-json-schema@3.25.1(zod@3.25.76):
+  zod-to-json-schema@3.25.1(zod@4.3.6):
     dependencies:
-      zod: 3.25.76
+      zod: 4.3.6
 
-  zod@3.25.76: {}
+  zod@4.3.6: {}
