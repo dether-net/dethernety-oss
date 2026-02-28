@@ -21,7 +21,7 @@
     "neo4j-driver": "^5.28.2"
   },
   "devDependencies": {
-    "@types/node": "^24.10.0",
+    "@types/node": "^25.3.2",
     "tsx": "^4.7.0"
   }
 }
