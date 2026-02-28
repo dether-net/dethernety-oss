@@ -29,16 +29,12 @@ type RefreshTokenInput = z.infer<typeof InputSchema>
  * Output from refresh token tool
  */
 interface RefreshTokenOutput {
-  /** New OAuth access token */
-  accessToken: string
-  /** New OIDC identity token */
-  idToken: string
-  /** Refresh token (may be the same or new) */
-  refreshToken: string
   /** Token lifetime in seconds */
   expiresIn: number
   /** Token type */
   tokenType: string
+  /** Whether the refresh succeeded */
+  refreshed: boolean
   /** Where tokens are stored locally */
   tokenStoragePath: string
 }
@@ -84,11 +80,9 @@ Cognito refresh tokens are typically valid for 30 days.`
       return {
         success: true,
         data: {
-          accessToken: tokens.accessToken,
-          idToken: tokens.idToken,
-          refreshToken: tokens.refreshToken,
           expiresIn: tokens.expiresIn,
           tokenType: tokens.tokenType,
+          refreshed: true,
           tokenStoragePath: getTokenStoragePath()
         }
       }

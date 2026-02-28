@@ -3,6 +3,12 @@ name: Security Review
 on:
   pull_request:
     branches: [main]
+    paths:
+      - 'apps/*/src/**'
+      - 'packages/*/src/**'
+      - 'modules/*/src/**'
+      - 'Dockerfile*'
+      - '*.config.*'
 
 permissions:
   pull-requests: write
@@ -23,4 +29,4 @@ jobs:
             Review this PR for security vulnerabilities. Focus on:
             authentication bypass, injection attacks, credential leakage,
             SSRF, XSS, and module sandbox escape. Flag any issues found.
-          claude_api_key: ${{ secrets.CLAUDE_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}

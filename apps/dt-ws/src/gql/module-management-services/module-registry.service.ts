@@ -4,6 +4,7 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
 import { DTModule, DTMetadata } from '@dethernety/dt-module';
+import { safeErrorMessage } from '../../common/utils/safe-error-message';
 import { ModuleManagementService } from './module-management.service';
 import { GqlConfig } from '../gql.config';
 import {
@@ -28,7 +29,7 @@ export class ModuleRegistryService implements OnModuleInit {
     private readonly configService: ConfigService,
   ) {
     this.config = this.configService.get<GqlConfig>('gql')!;
-    this.allowedModules = new Set(this.config.allowedModules);
+    this.allowedModules = new Set(this.config.allowedModules.map(m => m.toLowerCase()));
     
     this.logger.log('Module Registry initialized', {
       customModulesPath: this.config.customModulesPath,
@@ -82,8 +83,9 @@ export class ModuleRegistryService implements OnModuleInit {
       return true;
     }
 
-    // Check for exact match
-    if (this.allowedModules.has(moduleName)) {
+    // Check for exact match (case-insensitive)
+    const normalizedName = moduleName.toLowerCase();
+    if (this.allowedModules.has(normalizedName)) {
       return true;
     }
 
@@ -91,7 +93,7 @@ export class ModuleRegistryService implements OnModuleInit {
     for (const pattern of this.allowedModules) {
       if (pattern.endsWith('*')) {
         const prefix = pattern.slice(0, -1);
-        if (moduleName.startsWith(prefix)) {
+        if (normalizedName.startsWith(prefix)) {
           return true;
         }
       }
@@ -145,7 +147,7 @@ export class ModuleRegistryService implements OnModuleInit {
 
     } catch (error) {
       validation.isValid = false;
-      validation.errors.push(`Security validation failed: ${error.message}`);
+      validation.errors.push(`Security validation failed: ${safeErrorMessage(error)}`);
     }
 
     return validation;
@@ -260,7 +262,7 @@ export class ModuleRegistryService implements OnModuleInit {
         });
 
         if (isLastAttempt) {
-          result.error = error.message;
+          result.error = safeErrorMessage(error);
           result.loadTime = Date.now() - startTime;
           return result;
         }
@@ -668,7 +670,7 @@ export class ModuleRegistryService implements OnModuleInit {
 
       } catch (error) {
         moduleHealth.status = 'unhealthy';
-        moduleHealth.error = error.message;
+        moduleHealth.error = safeErrorMessage(error);
         healthStatus.unhealthyModules++;
         
         // Update entry health status
@@ -779,7 +781,7 @@ export class ModuleRegistryService implements OnModuleInit {
 
     } catch (error) {
       moduleHealth.status = 'unhealthy';
-      moduleHealth.error = error.message;
+      moduleHealth.error = safeErrorMessage(error);
       entry.isHealthy = false;
 
       this.logger.warn('Module health check failed', {

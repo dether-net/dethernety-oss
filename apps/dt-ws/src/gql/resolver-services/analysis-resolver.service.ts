@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ModuleRegistryService } from '../module-management-services/module-registry.service';
+import { safeErrorMessage } from '../../common/utils/safe-error-message';
 import {
   AnalysisEvents,
   AnalysisSession,
@@ -177,14 +178,14 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
       // Return structured error result instead of throwing
       return {
         success: false,
-        error: error.message,
+        error: safeErrorMessage(error),
         data: {
           createdAt: '',
           updatedAt: '',
           status: 'error',
           interrupts: {},
           messages: [],
-          metadata: { error: error.message },
+          metadata: { error: safeErrorMessage(error) },
         },
         metadata: {
           operationId,
@@ -268,7 +269,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
 
       return {
         success: false,
-        error: error.message,
+        error: safeErrorMessage(error),
         data: [],
         metadata: {
           operationId,
@@ -373,7 +374,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
 
       return {
         success: false,
-        error: error.message,
+        error: safeErrorMessage(error),
         data: {},
         metadata: {
           operationId,
@@ -417,7 +418,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
       const result = await session.executeRead(async (tx: DatabaseTransaction) => {
         return await tx.run(
           `
-          MATCH (a {id: $analysisId})
+          MATCH (a:Analysis {id: $analysisId})
           MATCH (a)<-[:ANALYZED_BY]-(e)
           MATCH (a)-[:IS_INSTANCE_OF]->(c:AnalysisClass)
           MATCH (c)<-[:HAS_CLASS]-(m:Module)
@@ -587,7 +588,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
 
       return {
         success: false,
-        error: error.message,
+        error: safeErrorMessage(error),
         data: { sessionId: '' },
         metadata: {
           operationId,
@@ -725,7 +726,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
 
       return {
         success: false,
-        error: error.message,
+        error: safeErrorMessage(error),
         data: { sessionId: '' },
         metadata: {
           operationId,
@@ -860,7 +861,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
 
       return {
         success: false,
-        error: error.message,
+        error: safeErrorMessage(error),
         data: { sessionId: '' },
         metadata: {
           operationId,
@@ -885,7 +886,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
       
       // Use modern Neo4j v5 executeWrite pattern
       await session.executeWrite(async (tx: DatabaseTransaction) => {
-        await tx.run(`MATCH (a {id: $id}) DETACH DELETE a`, { id });
+        await tx.run(`MATCH (a:Analysis {id: $id}) DETACH DELETE a`, { id });
       });
       
       // Invalidate cache entry
@@ -1032,7 +1033,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
 
       return {
         success: false,
-        error: error.message,
+        error: safeErrorMessage(error),
         data: false,
         metadata: {
           operationId,
@@ -1148,7 +1149,7 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
 
       return {
         success: false,
-        error: error.message,
+        error: safeErrorMessage(error),
         data: {},
         metadata: {
           operationId,

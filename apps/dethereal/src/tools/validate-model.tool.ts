@@ -15,6 +15,7 @@ import {
   readDataFlows,
   readDataItems,
   readAttributes,
+  validatePathConfinement,
 } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
 
@@ -118,8 +119,9 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
 
   async execute(input: ValidateInput, context: ToolContext): Promise<ToolResult<ValidateOutput>> {
     try {
-      // Validate directory if provided
+      // Validate path confinement if directory path provided
       if (input.directory_path) {
+        validatePathConfinement(input.directory_path)
         return await this.validateDirectory(input.directory_path)
       }
 

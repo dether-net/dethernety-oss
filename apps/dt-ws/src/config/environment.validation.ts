@@ -115,6 +115,10 @@ export class EnvironmentVariables {
   @IsIn(['cognito', 'zitadel', 'auth0', 'keycloak', 'generic'])
   OIDC_PROVIDER?: string;
 
+  @IsOptional()
+  @IsString()
+  OIDC_AUDIENCE?: string;
+
   // GraphQL Configuration
   @IsOptional()
   @IsUrl({ require_tld: false })
@@ -284,6 +288,10 @@ export function validateEnvironment(config: Record<string, unknown>): Environmen
 
     if (!validatedConfig.OIDC_CLIENT_ID) {
       productionErrors.push('OIDC_CLIENT_ID is required in production for authentication');
+    }
+
+    if (!validatedConfig.OIDC_AUDIENCE) {
+      productionErrors.push('OIDC_AUDIENCE is required in production for JWT audience validation');
     }
 
     if (!validatedConfig.ALLOWED_MODULES) {

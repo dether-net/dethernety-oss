@@ -83,14 +83,13 @@ export class DbOps {
       return await session
         .run(`MATCH (n) WHERE n.id = $id RETURN n.${attribute} AS ${attribute}`, { id })
         .then((result: any) => {
-          session.close();
           return result.records[0].get(attribute);
         });
     } catch (error) {
       console.error(`Error getting attribute ${attribute} for node ${id}:`, error);
       throw error;
     } finally {
-      session.close();
+      await session.close();
     } 
   }
 
@@ -106,11 +105,14 @@ export class DbOps {
       return await session
         .run(`MATCH (m:Module {name: $name}) RETURN m.attributes AS attributes`, { name })
         .then((result: any) => {
-          session.close();
           const retValue = result.records[0].get('attributes') as string;
           if (retValue) {
-            const parsedAttributes = JSON.parse(retValue);
-            return parsedAttributes;
+            try {
+              return JSON.parse(retValue);
+            } catch (parseError) {
+              console.error(`Invalid JSON in module attributes for ${name}:`, parseError instanceof Error ? parseError.message : String(parseError));
+              return {};
+            }
           }
           return {};
         });
@@ -118,7 +120,7 @@ export class DbOps {
       console.error(`Error getting attributes for module ${name}:`, error);
       throw error;
     } finally {
-      session.close();
+      await session.close();
     }
   }
 
@@ -131,7 +133,7 @@ export class DbOps {
     const session = this.driver.session();
 
     try {
-      return session
+      return await session
         .run(`MATCH (n {id: $id})-[:IS_INSTANCE_OF]->(c) RETURN c.id AS classId`, { id })
         .then((result: any) => {
           return result.records[0].get('classId');
@@ -140,7 +142,7 @@ export class DbOps {
       console.error(`Error getting class id for node ${id}:`, error);
       throw error;
     } finally {
-      session.close();
+      await session.close();
     }
   }
 
@@ -163,10 +165,10 @@ export class DbOps {
       console.error(`Error getting class ids for nodes ${id}:`, error);
       throw error;
     } finally {
-      session.close();
+      await session.close();
     }
   }
-  
+
   /**
    * Gets the attributes of a class relation.
    * @param id The id of the node
@@ -197,7 +199,7 @@ export class DbOps {
       }:`, error);
       throw error;
     } finally {
-      session.close();
+      await session.close();
     }
   }
 }

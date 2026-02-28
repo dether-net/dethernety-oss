@@ -11,8 +11,10 @@ import { GraphQLSseController } from './sse/graphql-sse.controller';
 import { ResolverService, GraphQLContext } from './interfaces/resolver.interface';
 import gqlConfig, { GqlConfig } from './gql.config';
 import { Logger } from '@nestjs/common';
-import depthLimit from 'graphql-depth-limit';
-import { createComplexityRule, simpleEstimator } from 'graphql-query-complexity';
+import { extractBearerToken } from '../common/utils/extract-bearer-token';
+import * as _depthLimitModule from 'graphql-depth-limit';
+const depthLimit = (_depthLimitModule as any).default || _depthLimitModule;
+import { getComplexity, simpleEstimator } from 'graphql-query-complexity';
 
 @Module({
   imports: [
@@ -49,15 +51,6 @@ import { createComplexityRule, simpleEstimator } from 'graphql-query-complexity'
             const depthRule = depthLimit(config.queryDepthLimit);
             if (depthRule) validationRules.push(depthRule);
           }
-          if (config.queryComplexityLimit > 0) {
-            const complexityRule = createComplexityRule({
-              maximumComplexity: config.queryComplexityLimit,
-              estimators: [
-                simpleEstimator({ defaultComplexity: 1 }),
-              ],
-            });
-            validationRules.push(complexityRule);
-          }
 
           const useWebSocket = config.subscriptionTransport === 'ws';
 
@@ -71,17 +64,44 @@ import { createComplexityRule, simpleEstimator } from 'graphql-query-complexity'
             },
           });
 
+          // Query complexity plugin — runs per-request with variables available.
+          // Using a static validation rule (createComplexityRule) fails because
+          // the validation phase doesn't have access to request variables yet.
+          const complexityPlugin = config.queryComplexityLimit > 0
+            ? {
+                async requestDidStart() {
+                  return {
+                    async didResolveOperation(requestContext: any) {
+                      const { request, document } = requestContext;
+                      const complexity = getComplexity({
+                        schema,
+                        operationName: request.operationName,
+                        query: document,
+                        variables: request.variables || {},
+                        estimators: [simpleEstimator({ defaultComplexity: 1 })],
+                      });
+                      if (complexity > config.queryComplexityLimit) {
+                        throw new Error(
+                          `Query too complex: ${complexity}. Maximum allowed: ${config.queryComplexityLimit}`,
+                        );
+                      }
+                    },
+                  };
+                },
+              }
+            : null;
+
           return {
             schema,
             playground: config.playground,
             introspection: config.introspection,
             validationRules,
+            plugins: complexityPlugin ? [complexityPlugin] : [],
             // WebSocket subscriptions - only enabled when SUBSCRIPTION_TRANSPORT=ws
             // SSE is always available via /graphql/stream endpoint
             subscriptions: useWebSocket && config.enableSubscriptions
               ? {
                   'graphql-ws': true,
-                  'subscriptions-transport-ws': true,
                 }
               : undefined,
             context: ({ req, connection }): GraphQLContext => {
@@ -89,7 +109,7 @@ import { createComplexityRule, simpleEstimator } from 'graphql-query-complexity'
 
               // WebSocket connection (subscription via graphql-ws)
               if (connection) {
-                const token = connection.context?.Authorization?.replace('Bearer ', '');
+                const token = extractBearerToken(connection.context?.Authorization);
                 return {
                   token,
                   jwt: token,
@@ -101,7 +121,7 @@ import { createComplexityRule, simpleEstimator } from 'graphql-query-complexity'
 
               // HTTP request (query/mutation, or SSE subscription)
               if (req) {
-                const token = req.headers?.authorization?.replace('Bearer ', '');
+                const token = extractBearerToken(req.headers?.authorization);
                 return {
                   token,
                   jwt: token, // Neo4j GraphQL expects 'jwt' field

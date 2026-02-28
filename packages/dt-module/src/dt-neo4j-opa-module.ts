@@ -375,8 +375,16 @@ export class DtNeo4jOpaModule implements DTModule {
         issueClassCount: metadata.issueClasses?.length || 0
       });
 
-      this.resetPolicies(policies);
-      
+      // Launch policy reset without blocking metadata return.
+      // resetPolicies has its own try/catch with full error logging.
+      // Blocking here causes module load timeouts with large policy sets (70+ policies).
+      this.resetPolicies(policies).catch((err) => {
+        this.logger.error('Background policy reset failed', {
+          moduleName: this.moduleName,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+
       const duration = Date.now() - startTime;
       this.logger.log('getMetadata operation completed successfully', {
         moduleName: this.moduleName,
@@ -404,10 +412,10 @@ export class DtNeo4jOpaModule implements DTModule {
       });
       throw error;
     } finally {
-      session.close();
+      await session.close();
     }
   }
-  
+
   private async resetPolicies(policies: Policy[]) {
     if (!this.resetInProgress) {
       this.resetInProgress = true;
@@ -508,7 +516,7 @@ export class DtNeo4jOpaModule implements DTModule {
       operation: 'getClassTemplate',
       classId: id
     });
-    
+
     try {
       const dtClassId = await this.dbOps.getAttribute(id, 'dt_class_id') as string;
       this.logger.debug('Retrieved dt_class_id', {
@@ -516,49 +524,51 @@ export class DtNeo4jOpaModule implements DTModule {
         classId: id,
         dtClassId: dtClassId
       });
-      
+
       const session = this.driver.session();
-      const result = await session.run(
-        `MATCH (class) 
-         WHERE class.id = $dtClassId AND (class:DTComponentClass OR class:DTDataFlowClass OR class:DTSecurityBoundaryClass OR class:DTControlClass OR class:DTDataClass OR class:DTIssueClass)
-         RETURN class.template as template`,
-        { dtClassId }
-      );
+      try {
+        const result = await session.run(
+          `MATCH (class)
+           WHERE class.id = $dtClassId AND (class:DTComponentClass OR class:DTDataFlowClass OR class:DTSecurityBoundaryClass OR class:DTControlClass OR class:DTDataClass OR class:DTIssueClass)
+           RETURN class.template as template`,
+          { dtClassId }
+        );
 
-      if (result.records.length === 0) {
-        this.logger.error('Class template not found in database', {
+        if (result.records.length === 0) {
+          this.logger.error('Class template not found in database', {
+            moduleName: this.moduleName,
+            operation: 'getClassTemplate',
+            classId: id,
+            dtClassId: dtClassId
+          });
+          throw new Error(`Class template not found for id: ${dtClassId}`);
+        }
+
+        const template = result.records[0].get('template');
+        if (!template) {
+          this.logger.error('Template is empty for class', {
+            moduleName: this.moduleName,
+            operation: 'getClassTemplate',
+            classId: id,
+            dtClassId: dtClassId
+          });
+          throw new Error(`Template is empty for class id: ${dtClassId}`);
+        }
+
+        const duration = Date.now() - startTime;
+        this.logger.log('getClassTemplate completed successfully', {
           moduleName: this.moduleName,
           operation: 'getClassTemplate',
           classId: id,
-          dtClassId: dtClassId
+          dtClassId: dtClassId,
+          duration: `${duration}ms`,
+          templateLength: template.length
         });
-        throw new Error(`Class template not found for id: ${dtClassId}`);
-      }
 
-      const template = result.records[0].get('template');
-      if (!template) {
-        this.logger.error('Template is empty for class', {
-          moduleName: this.moduleName,
-          operation: 'getClassTemplate',
-          classId: id,
-          dtClassId: dtClassId
-        });
-        throw new Error(`Template is empty for class id: ${dtClassId}`);
+        return template;
+      } finally {
+        await session.close();
       }
-
-      session.close();
-      
-      const duration = Date.now() - startTime;
-      this.logger.log('getClassTemplate completed successfully', {
-        moduleName: this.moduleName,
-        operation: 'getClassTemplate',
-        classId: id,
-        dtClassId: dtClassId,
-        duration: `${duration}ms`,
-        templateLength: template.length
-      });
-      
-      return template;
 
     } catch (error) {
       const duration = Date.now() - startTime;
@@ -571,7 +581,7 @@ export class DtNeo4jOpaModule implements DTModule {
         stack: error instanceof Error ? error.stack : undefined
       });
       throw error;
-    } 
+    }
   }
 
   async getClassGuide(id: string): Promise<string> {
@@ -581,7 +591,7 @@ export class DtNeo4jOpaModule implements DTModule {
       operation: 'getClassGuide',
       classId: id
     });
-    
+
     try {
       const dtClassId = await this.dbOps.getAttribute(id, 'dt_class_id') as string;
       this.logger.debug('Retrieved dt_class_id for guide', {
@@ -589,49 +599,51 @@ export class DtNeo4jOpaModule implements DTModule {
         classId: id,
         dtClassId: dtClassId
       });
-      
+
       const session = this.driver.session();
-      const result = await session.run(
-        `MATCH (class) 
-         WHERE class.id = $dtClassId AND (class:DTComponentClass OR class:DTDataFlowClass OR class:DTSecurityBoundaryClass OR class:DTControlClass OR class:DTDataClass OR class:DTIssueClass)
-         RETURN class.configurationOptionsGuide as guide`,
-        { dtClassId }
-      );
+      try {
+        const result = await session.run(
+          `MATCH (class)
+           WHERE class.id = $dtClassId AND (class:DTComponentClass OR class:DTDataFlowClass OR class:DTSecurityBoundaryClass OR class:DTControlClass OR class:DTDataClass OR class:DTIssueClass)
+           RETURN class.configurationOptionsGuide as guide`,
+          { dtClassId }
+        );
 
-      if (result.records.length === 0) {
-        this.logger.error('Class guide not found in database', {
+        if (result.records.length === 0) {
+          this.logger.error('Class guide not found in database', {
+            moduleName: this.moduleName,
+            operation: 'getClassGuide',
+            classId: id,
+            dtClassId: dtClassId
+          });
+          throw new Error(`Class guide not found for id: ${dtClassId}`);
+        }
+
+        const guide = result.records[0].get('guide');
+        if (!guide) {
+          this.logger.error('Guide is empty for class', {
+            moduleName: this.moduleName,
+            operation: 'getClassGuide',
+            classId: id,
+            dtClassId: dtClassId
+          });
+          throw new Error(`Guide is empty for class id: ${dtClassId}`);
+        }
+
+        const duration = Date.now() - startTime;
+        this.logger.log('getClassGuide completed successfully', {
           moduleName: this.moduleName,
           operation: 'getClassGuide',
           classId: id,
-          dtClassId: dtClassId
+          dtClassId: dtClassId,
+          duration: `${duration}ms`,
+          guideLength: guide.length
         });
-        throw new Error(`Class guide not found for id: ${dtClassId}`);
-      }
 
-      const guide = result.records[0].get('guide');
-      if (!guide) {
-        this.logger.error('Guide is empty for class', {
-          moduleName: this.moduleName,
-          operation: 'getClassGuide',
-          classId: id,
-          dtClassId: dtClassId
-        });
-        throw new Error(`Guide is empty for class id: ${dtClassId}`);
+        return guide;
+      } finally {
+        await session.close();
       }
-
-      session.close();
-      
-      const duration = Date.now() - startTime;
-      this.logger.log('getClassGuide completed successfully', {
-        moduleName: this.moduleName,
-        operation: 'getClassGuide',
-        classId: id,
-        dtClassId: dtClassId,
-        duration: `${duration}ms`,
-        guideLength: guide.length
-      });
-      
-      return guide;
 
     } catch (error) {
       const duration = Date.now() - startTime;
@@ -644,7 +656,7 @@ export class DtNeo4jOpaModule implements DTModule {
         stack: error instanceof Error ? error.stack : undefined
       });
       throw error;
-    } 
+    }
   }
 
   /**

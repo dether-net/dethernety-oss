@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nest
 import { ConfigService } from '@nestjs/config';
 import { ModuleRegistryService } from '../module-management-services/module-registry.service';
 import { Countermeasure, Exposure } from '@dethernety/dt-module';
+import { safeErrorMessage } from '../../common/utils/safe-error-message';
 import { AuthorizationService } from '../services/authorization.service';
 import { MonitoringService } from '../services/monitoring.service';
 import {
@@ -158,7 +159,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
       const result = await tx.run(
         `
-        MATCH (c {id: $elementId})-[:${request.elementToOriginRelation}]->(e {name: $originName})
+        MATCH (c:Component {id: $elementId})-[:${request.elementToOriginRelation}]->(e {name: $originName})
         OPTIONAL MATCH (t:${request.target.label}) WHERE t.${request.target.property} = $value
         WITH e, t
         WHERE t IS NOT NULL
@@ -225,7 +226,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
       return {
         success: false,
-        error: error.message,
+        error: safeErrorMessage(error),
         recordsAffected: 0,
       };
     }
@@ -243,6 +244,12 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     const startTime = Date.now();
 
     try {
+      // Validate relationship type before Cypher interpolation
+      const cypherIdentifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+      if (!cypherIdentifierRegex.test(request.relation)) {
+        throw new Error(`Invalid relationship type: ${request.relation}`);
+      }
+
       this.logger.debug('Deleting obsolete external objects', {
         elementId: request.elementId,
         relation: request.relation,
@@ -252,8 +259,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
       const result = await tx.run(
         `
-        MATCH (class {id: $classId})
-        MATCH (c {id: $elementId})-[r:${request.relation}]->(e)-[]->(class)
+        MATCH (class:DTComponentClass {id: $classId})
+        MATCH (c:Component {id: $elementId})-[r:${request.relation}]->(e)-[]->(class)
         WHERE NOT e.name IN $validNames
         DETACH DELETE e
         RETURN COUNT(e) as deletedCount
@@ -297,7 +304,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
       return {
         success: false,
-        error: error.message,
+        error: safeErrorMessage(error),
         recordsAffected: 0,
       };
     }
@@ -335,8 +342,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           // Upsert exposure node
           await tx.run(
             `
-            MATCH (c {id: $componentId})
-            MATCH (t {id: $classId})
+            MATCH (c:Component {id: $componentId})
+            MATCH (t:DTComponentClass {id: $classId})
             MERGE (c)-[:HAS_EXPOSURE]->(e:Exposure {name: $attributes.name})-[:IS_EXPOSURE_OF]->(t)
             ON CREATE SET e.id = randomUUID()
             SET e += $attributes
@@ -429,7 +436,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
       return {
         success: false,
-        error: error.message,
+        error: safeErrorMessage(error),
         recordsAffected: 0,
       };
     }
@@ -471,8 +478,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           // Upsert countermeasure node
           await tx.run(
             `
-            MATCH (c {id: $componentId})
-            MATCH (t {id: $classId})
+            MATCH (c:Component {id: $componentId})
+            MATCH (t:DTComponentClass {id: $classId})
             MERGE (c)-[:HAS_COUNTERMEASURE]->(cm:Countermeasure {name: $attributes.name})-[:IS_COUNTERMEASURE_OF]->(t)
             ON CREATE SET cm.id = randomUUID()
             SET cm += $attributes
@@ -565,7 +572,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
       return {
         success: false,
-        error: error.message,
+        error: safeErrorMessage(error),
         recordsAffected: 0,
       };
     }
@@ -614,8 +621,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       const metadata = await session.executeWrite(async (tx: DatabaseTransaction) => {
         const result = await tx.run(
           `
-          MATCH (c {id: $componentId})
-          MATCH (t {id: $classId})<-[:HAS_CLASS]-(m:Module)
+          MATCH (c:Component {id: $componentId})
+          MATCH (t:DTComponentClass {id: $classId})<-[:HAS_CLASS]-(m:Module)
           MATCH (c)-[r:IS_INSTANCE_OF]->(t)
           SET r += $attributes
           RETURN m.name AS moduleName, labels(c)[0] AS type
@@ -739,7 +746,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
       return {
         success: false,
-        error: error.message,
+        error: safeErrorMessage(error),
         metadata: {
           operationId,
           timestamp: new Date().toISOString(),

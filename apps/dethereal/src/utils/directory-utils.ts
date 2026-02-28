@@ -45,6 +45,16 @@ import {
 
 const ATTRIBUTES_SUBDIRS = ['boundaries', 'components', 'dataFlows', 'dataItems'] as const
 
+/**
+ * Validate that an element ID is safe for use in filesystem paths.
+ * Element IDs should be UUIDs or similar safe identifiers.
+ */
+function validateElementId(elementId: string): void {
+  if (!/^[\w-]+$/.test(elementId)) {
+    throw new Error(`Invalid elementId "${elementId}": contains disallowed characters`)
+  }
+}
+
 // =============================================================================
 // Path Validation
 // =============================================================================
@@ -85,7 +95,11 @@ export async function isModelDirectory(dirPath: string): Promise<boolean> {
 export async function readManifest(dirPath: string): Promise<ModelManifest> {
   const manifestPath = path.join(dirPath, DEFAULT_FILE_NAMES.manifest)
   const content = await fs.readFile(manifestPath, 'utf-8')
-  return JSON.parse(content) as ModelManifest
+  try {
+    return JSON.parse(content) as ModelManifest
+  } catch (parseError) {
+    throw new Error(`Invalid JSON in manifest at ${manifestPath}: ${parseError instanceof Error ? parseError.message : String(parseError)}`)
+  }
 }
 
 /**
@@ -94,7 +108,11 @@ export async function readManifest(dirPath: string): Promise<ModelManifest> {
 export async function readStructure(dirPath: string): Promise<ModelStructure> {
   const structurePath = path.join(dirPath, DEFAULT_FILE_NAMES.structure)
   const content = await fs.readFile(structurePath, 'utf-8')
-  return JSON.parse(content) as ModelStructure
+  try {
+    return JSON.parse(content) as ModelStructure
+  } catch (parseError) {
+    throw new Error(`Invalid JSON in structure at ${structurePath}: ${parseError instanceof Error ? parseError.message : String(parseError)}`)
+  }
 }
 
 /**
@@ -162,6 +180,7 @@ export async function readAttributes(dirPath: string): Promise<ConsolidatedAttri
               const filePath = path.join(subdirPath, file)
               const content = await fs.readFile(filePath, 'utf-8')
               const attrs = JSON.parse(content) as ElementAttributes
+              validateElementId(attrs.elementId)
               result[targetKey]![attrs.elementId] = attrs
             }
           }
@@ -271,6 +290,7 @@ export async function writeAttributes(
   // Write boundary attributes
   if (attributes.boundaries) {
     for (const [elementId, attrs] of Object.entries(attributes.boundaries)) {
+      validateElementId(elementId)
       const filePath = path.join(attributesDir, 'boundaries', `${elementId}.json`)
       await fs.writeFile(filePath, JSON.stringify(attrs, null, 2), 'utf-8')
     }
@@ -279,6 +299,7 @@ export async function writeAttributes(
   // Write component attributes
   if (attributes.components) {
     for (const [elementId, attrs] of Object.entries(attributes.components)) {
+      validateElementId(elementId)
       const filePath = path.join(attributesDir, 'components', `${elementId}.json`)
       await fs.writeFile(filePath, JSON.stringify(attrs, null, 2), 'utf-8')
     }
@@ -287,6 +308,7 @@ export async function writeAttributes(
   // Write dataflow attributes
   if (attributes.dataFlows) {
     for (const [elementId, attrs] of Object.entries(attributes.dataFlows)) {
+      validateElementId(elementId)
       const filePath = path.join(attributesDir, 'dataFlows', `${elementId}.json`)
       await fs.writeFile(filePath, JSON.stringify(attrs, null, 2), 'utf-8')
     }
@@ -295,6 +317,7 @@ export async function writeAttributes(
   // Write data item attributes
   if (attributes.dataItems) {
     for (const [elementId, attrs] of Object.entries(attributes.dataItems)) {
+      validateElementId(elementId)
       const filePath = path.join(attributesDir, 'dataItems', `${elementId}.json`)
       await fs.writeFile(filePath, JSON.stringify(attrs, null, 2), 'utf-8')
     }
@@ -331,6 +354,9 @@ export async function createDirectoryBackup(dirPath: string): Promise<string> {
   const parentDir = path.dirname(dirPath)
   const baseName = path.basename(dirPath)
   const backupPath = path.join(parentDir, `${baseName}.backup-${timestamp}`)
+
+  // Validate backup path stays within confinement boundary
+  validatePathConfinement(backupPath)
 
   // Recursively copy directory
   await copyDirectory(dirPath, backupPath)
@@ -568,6 +594,8 @@ async function updateAndRenameAttributes(
 
     for (const [oldId, attrs] of Object.entries(group)) {
       const newId = idMapping.get(oldId) || oldId
+      validateElementId(oldId)
+      validateElementId(newId)
 
       // Update element ID in attributes
       const updatedAttrs: ElementAttributes = {

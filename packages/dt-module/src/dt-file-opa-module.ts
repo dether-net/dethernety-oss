@@ -32,6 +32,7 @@ export class DtFileOpaModule implements DTModule {
     className: string,
   ): any | null {
     const classDir = path.join(classesDir, className);
+    this.validateModulePath(classDir);
     const metadataPath = path.join(classDir, 'metadata.json');
     if (fs.existsSync(metadataPath)) {
       const metaData = fs.readFileSync(metadataPath, 'utf8');
@@ -57,6 +58,7 @@ export class DtFileOpaModule implements DTModule {
 
   private async installClassPolicies(classDir: string, className: string): Promise<void> {
     const policiesPath = path.join(classDir, 'policies.rego');
+    this.validateModulePath(policiesPath);
     if (fs.existsSync(policiesPath)) {
       const policies = fs.readFileSync(policiesPath, 'utf8').trim();
       await this.opaOps.installPolicies([{
@@ -107,7 +109,7 @@ export class DtFileOpaModule implements DTModule {
       : null;
     if (metaData) {
       try {
-        this.opaOps.deletePolicyByPrefix(this.moduleName + '.');
+        await this.opaOps.deletePolicyByPrefix(this.moduleName + '.');
         parsedMetaData = JSON.parse(metaData);
         if (parsedMetaData) {
           for (const classType of classTypes) {
@@ -127,7 +129,7 @@ export class DtFileOpaModule implements DTModule {
                 );
                 if (classMetadata) {
                   classData.push(classMetadata);
-                  this.installClassPolicies(classesDir, className);
+                  await this.installClassPolicies(classesDir, className);
                 }
               }
               parsedMetaData[key] = classData;

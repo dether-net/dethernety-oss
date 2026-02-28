@@ -200,8 +200,8 @@ export class ModuleManagementResolverService {
    * Legacy method for backward compatibility
    * Returns boolean as expected by current GraphQL schema
    */
-  async resetModuleLegacy(moduleId: string): Promise<boolean> {
-    const result = await this.resetModule(moduleId);
+  async resetModuleLegacy(moduleId: string, context?: AuthorizationContext): Promise<boolean> {
+    const result = await this.resetModule(moduleId, context);
     return result.success;
   }
 
@@ -411,7 +411,7 @@ export class ModuleManagementResolverService {
           }
 
           // Create operation promise with enhanced error handling
-          const syncPromise = this.resetModuleLegacy(moduleId);
+          const syncPromise = this.resetModuleLegacy(moduleId, authContext);
           this.syncMutex.set(moduleId, syncPromise);
           
           try {

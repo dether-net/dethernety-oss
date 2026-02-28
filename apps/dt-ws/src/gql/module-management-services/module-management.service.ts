@@ -59,16 +59,17 @@ export class ModuleManagementService {
       return true;
     }
 
-    // Check for exact match
-    if (allowedModules.includes(moduleName)) {
+    // Check for exact match (case-insensitive)
+    const moduleNameLower = moduleName.toLowerCase();
+    if (allowedModules.some(m => m.toLowerCase() === moduleNameLower)) {
       return true;
     }
 
-    // Check for prefix patterns (e.g., 'aws-*', 'mitre-*')
+    // Check for prefix patterns (e.g., 'aws-*', 'mitre-*') (case-insensitive)
     for (const pattern of allowedModules) {
       if (pattern.endsWith('*')) {
-        const prefix = pattern.slice(0, -1);
-        if (moduleName.startsWith(prefix)) {
+        const prefix = pattern.slice(0, -1).toLowerCase();
+        if (moduleNameLower.startsWith(prefix)) {
           return true;
         }
       }
@@ -185,15 +186,18 @@ export class ModuleManagementService {
    * @param obj The object to sanitize
    * @returns The sanitized object
    */
-  sanitizePropertyKeys(obj: any): FlattenedProperties {
+  sanitizePropertyKeys(obj: any, depth: number = 0): FlattenedProperties {
+    if (depth > 20) {
+      return {}; // Prevent stack overflow from deeply nested or circular objects
+    }
     const sanitizedObj: any = {};
     for (const key in obj) {
-      if (obj.hasOwnProperty(key)) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
         const sanitizedKey = key.replace(/[^a-zA-Z0-9_.]/g, '_');
         const value = obj[key];
 
         if (value && typeof value === 'object' && !Array.isArray(value)) {
-          sanitizedObj[sanitizedKey] = this.sanitizePropertyKeys(value);
+          sanitizedObj[sanitizedKey] = this.sanitizePropertyKeys(value, depth + 1);
         } else {
           sanitizedObj[sanitizedKey] = value;
         }
@@ -219,7 +223,7 @@ export class ModuleManagementService {
       return result; // Prevent stack overflow from deeply nested or circular objects
     }
     for (const key in obj) {
-      if (obj.hasOwnProperty(key)) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
         const value = obj[key];
         const sanitizedKey = key.replace(/[^a-zA-Z0-9_.]/g, '_');
         const prefixedKey = prefix ? `${prefix}.${sanitizedKey}` : sanitizedKey;
@@ -342,55 +346,6 @@ export class ModuleManagementService {
         duration,
       });
       throw new Error(`Module cleanup failed: ${error.message}`);
-    }
-  }
-
-  /**
-   * Deletes old classes.
-   * @param tx The transaction
-   * @param moduleId The module id
-   * @param validNames The valid names
-   * @param classLabel The class label
-   */
-  async deleteOldClasses(
-    tx: any,
-    moduleId: string,
-    validNames: string[],
-    classLabel: string,
-  ) {
-    try {
-      const result = await tx.run(
-        `
-        MATCH (p:Module {id: $moduleId})-[:HAS_CLASS]->(t:${classLabel})
-        RETURN t.name AS name
-        `,
-        { moduleId },
-      );
-      const existingNames = result.records.map((record) => record.get('name'));
-
-      const namesToDelete = existingNames.filter(
-        (name) => !validNames.includes(name),
-      );
-
-      if (namesToDelete.length > 0) {
-        await tx.run(
-          `
-          MATCH (p:Module {id: $moduleId})-[:HAS_CLASS]->(t:${classLabel})
-          WHERE t.name IN $namesToDelete
-          DETACH DELETE t
-          `,
-          { moduleId, namesToDelete },
-        );
-      }
-    } catch (error) {
-      this.logger.error('Failed to delete old classes', {
-        moduleId,
-        classLabel,
-        validNames,
-        error: error.message,
-        stack: error.stack,
-      });
-      throw error;
     }
   }
 
@@ -975,7 +930,7 @@ export class ModuleManagementService {
       // Security: Ensure the resolved path is still within the expected module directory
       const resolvedPath = path.resolve(frontendBundlePath);
       const allowedBasePath = path.resolve(moduleDir);
-      if (!resolvedPath.startsWith(allowedBasePath)) {
+      if (!resolvedPath.startsWith(allowedBasePath + path.sep) && resolvedPath !== allowedBasePath) {
         throw new Error('Invalid bundle path: outside module directory');
       }
 

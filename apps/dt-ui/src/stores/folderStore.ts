@@ -223,5 +223,7 @@ export const useFolderStore = defineStore('folder', () => {
     fetchFolders, createFolder, deleteFolder, updateFolder,
   }
 }, {
-  persist: true 
+  persist: {
+    pick: ['selectedFolder']
+  }
 })

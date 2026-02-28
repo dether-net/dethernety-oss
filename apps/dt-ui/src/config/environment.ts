@@ -218,7 +218,17 @@ async function fetchRuntimeConfig(): Promise<FrontendConfig> {
       debugAuth: config.debugAuth || false,
       enableDevTools: config.enableDevTools || false,
 
-      userProfileUrl: config.userProfileUrl || '',
+      userProfileUrl: (() => {
+        const url = config.userProfileUrl || '';
+        if (!url) return '';
+        // Validate URL scheme to prevent javascript: XSS
+        try {
+          const parsed = new URL(url);
+          return ['https:', 'http:'].includes(parsed.protocol) ? url : '';
+        } catch {
+          return url.startsWith('/') ? url : '';
+        }
+      })(),
     };
   } catch (error) {
     console.warn('Failed to fetch runtime config, falling back to development config:', error);

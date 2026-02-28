@@ -17,7 +17,9 @@ async function createApolloClient() {
   const config = await getConfig();
   const useWebSocket = config.subscriptionTransport === 'ws';
 
-  console.log(`[ApolloClient] Subscription transport: ${useWebSocket ? 'WebSocket' : 'SSE'}`);
+  if (import.meta.env.DEV) {
+    console.log(`[ApolloClient] Subscription transport: ${useWebSocket ? 'WebSocket' : 'SSE'}`);
+  }
 
   // Resolve subscription URL based on transport mode
   const resolveSseUrl = () => {
@@ -60,19 +62,23 @@ async function createApolloClient() {
 
   // Error link to handle authentication errors
   const errorLink = onError(({ graphQLErrors, networkError, operation, forward }) => {
-    if (graphQLErrors) {
+    if (graphQLErrors && import.meta.env.DEV) {
       graphQLErrors.forEach(({ message, locations, path }) => {
         console.error(`GraphQL error: Message: ${message}, Location: ${locations}, Path: ${path}`)
       })
     }
 
     if (networkError) {
-      console.error(`[ApolloClient] Network error: ${networkError}`)
-      
+      if (import.meta.env.DEV) {
+        console.error(`[ApolloClient] Network error: ${networkError}`)
+      }
+
       // Handle 401/403 errors - token might be invalid
       if ('statusCode' in networkError && (networkError.statusCode === 401 || networkError.statusCode === 403)) {
         const authStore = useAuthStore()
-        console.warn('[ApolloClient] GraphQL request unauthorized, clearing session')
+        if (import.meta.env.DEV) {
+          console.warn('[ApolloClient] GraphQL request unauthorized, clearing session')
+        }
         authStore.clearState()
         window.location.href = '/login'
       }
@@ -85,7 +91,9 @@ async function createApolloClient() {
   if (useWebSocket) {
     // WebSocket transport (for on-prem deployments)
     const wsUrl = resolveWsUrl();
-    console.log(`[ApolloClient] WebSocket URL: ${wsUrl}`);
+    if (import.meta.env.DEV) {
+      console.log(`[ApolloClient] WebSocket URL: ${wsUrl}`);
+    }
 
     const wsClient = createWsClient({
       url: wsUrl,
@@ -96,7 +104,9 @@ async function createApolloClient() {
       },
       on: {
         error: (error: unknown) => {
-          console.error('[ApolloClient] WebSocket error:', error)
+          if (import.meta.env.DEV) {
+            console.error('[ApolloClient] WebSocket error:', error)
+          }
           if (error instanceof Error && (error.message?.includes('Unauthorized') || error.message?.includes('401'))) {
             const authStore = useAuthStore()
             authStore.clearState()
@@ -111,7 +121,9 @@ async function createApolloClient() {
   } else {
     // SSE transport (default, for CloudFront/CDN deployments)
     const sseUrl = resolveSseUrl();
-    console.log(`[ApolloClient] SSE URL: ${sseUrl}`);
+    if (import.meta.env.DEV) {
+      console.log(`[ApolloClient] SSE URL: ${sseUrl}`);
+    }
 
     const sseClient = createSseClient({
       url: sseUrl,
@@ -132,7 +144,9 @@ async function createApolloClient() {
           {
             next: (data: unknown) => observer.next(data as any),
             error: (err: unknown) => {
-              console.error('[ApolloClient] SSE error:', err)
+              if (import.meta.env.DEV) {
+                console.error('[ApolloClient] SSE error:', err)
+              }
               if (err instanceof Error && (err.message?.includes('Unauthorized') || err.message?.includes('401'))) {
                 const authStore = useAuthStore()
                 authStore.clearState()

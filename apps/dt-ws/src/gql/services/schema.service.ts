@@ -66,6 +66,11 @@ export class SchemaService implements ISchemaService {
             url: this.config.oidcJwksUri,
           }
         };
+      } else {
+        this.logger.warn(
+          'OIDC JWKS URI not configured — @authentication directives in the schema will not be enforced. ' +
+          'Set OIDC_JWKS_URI to enable schema-level authentication.',
+        );
       }
 
       const neoSchema = new Neo4jGraphQL({
@@ -109,13 +114,14 @@ export class SchemaService implements ISchemaService {
   }
 
   private async validateNeo4jConnection(): Promise<void> {
+    const session = this.neo4jDriver.session();
     try {
-      const session = this.neo4jDriver.session();
       await session.run('RETURN 1');
-      await session.close();
       this.logger.log('Neo4j connection validated');
     } catch (error) {
       throw new Error(`Neo4j connection failed: ${error.message}`);
+    } finally {
+      await session.close();
     }
   }
 

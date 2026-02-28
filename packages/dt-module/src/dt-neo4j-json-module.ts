@@ -166,7 +166,7 @@ export class DtNeo4jJsonModule implements DTModule {
       console.error(`Error getting metadata for module ${this.moduleName}:`, error);
       throw error;
     } finally {
-      session.close();
+      await session.close();
     }
   }
 
@@ -202,7 +202,7 @@ export class DtNeo4jJsonModule implements DTModule {
       console.error(`Error getting template for class ${dtClassId}:`, error);
       throw error;
     } finally {
-      session.close();
+      await session.close();
     }
   }
 
@@ -281,7 +281,7 @@ export class DtNeo4jJsonModule implements DTModule {
         }
 
       } finally {
-        session.close();
+        await session.close();
       }
 
     } catch (err: unknown) {
@@ -366,7 +366,7 @@ export class DtNeo4jJsonModule implements DTModule {
         }
 
       } finally {
-        session.close();
+        await session.close();
       }
 
     } catch (err: unknown) {

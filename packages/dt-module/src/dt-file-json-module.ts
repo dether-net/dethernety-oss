@@ -30,6 +30,7 @@ export class DtFileJsonModule implements DTModule {
     className: string,
   ): any | null {
     const classDir = path.join(classesDir, className);
+    this.validateModulePath(classDir);
     const metadataPath = path.join(classDir, 'metadata.json');
     if (fs.existsSync(metadataPath)) {
       const metaData = fs.readFileSync(metadataPath, 'utf8');
@@ -174,8 +175,14 @@ export class DtFileJsonModule implements DTModule {
         }
         
         const rulesData = fs.readFileSync(exposureRulesPath, 'utf-8');
-        const parsedData = JSON.parse(rulesData);
-        
+        let parsedData: any;
+        try {
+          parsedData = JSON.parse(rulesData);
+        } catch (parseError) {
+          console.error(`Error parsing exposure rules for class ${classId}:`, parseError instanceof Error ? parseError.message : String(parseError));
+          return exposures;
+        }
+
         // Handle case where rules are wrapped in an "exposures" property
         const rules = Array.isArray(parsedData) ? parsedData : parsedData.exposures;
 
@@ -233,8 +240,14 @@ export class DtFileJsonModule implements DTModule {
           return counterMeasures;
         }
         const rulesData = fs.readFileSync(countermeasureRulesPath, 'utf-8');
-        const parsedData = JSON.parse(rulesData);
-        
+        let parsedData: any;
+        try {
+          parsedData = JSON.parse(rulesData);
+        } catch (parseError) {
+          console.error(`Error parsing countermeasure rules for class ${classId}:`, parseError instanceof Error ? parseError.message : String(parseError));
+          return counterMeasures;
+        }
+
         // Handle case where rules are wrapped in a "countermeasures" property
         const rules = Array.isArray(parsedData) ? parsedData : parsedData.countermeasures;
 

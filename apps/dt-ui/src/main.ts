@@ -25,23 +25,35 @@ registerPlugins(app)
 
 const initializeApp = async () => {
   try {
-    console.log('Creating Vue app...')
-    
-    console.log('Initializing Apollo client...')
+    if (import.meta.env.DEV) {
+      console.log('Creating Vue app...')
+    }
+
+    if (import.meta.env.DEV) {
+      console.log('Initializing Apollo client...')
+    }
     await initializeApolloClient()
-    
-    console.log('Exposing host dependencies...')
+
+    if (import.meta.env.DEV) {
+      console.log('Exposing host dependencies...')
+    }
     // Use the static method to expose dependencies
     ModuleLoader.exposeHostDependencies(VueRuntime, app._context)
-    
-    console.log('Loading dynamic modules...')
+
+    if (import.meta.env.DEV) {
+      console.log('Loading dynamic modules...')
+    }
     await moduleLoader.loadAvailableModules()
-    
-    console.log('Mounting app...')
+
+    if (import.meta.env.DEV) {
+      console.log('Mounting app...')
+    }
     app.mount('#app')
-    
+
   } catch (error) {
-    console.error('Failed to initialize app:', error)
+    if (import.meta.env.DEV) {
+      console.error('Failed to initialize app:', error)
+    }
     app.mount('#app')
   }
 }

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ModuleRegistryService } from '../module-management-services/module-registry.service';
 import { AuthorizationService } from '../services/authorization.service';
 import { MonitoringService } from '../services/monitoring.service';
+import { safeErrorMessage } from '../../common/utils/safe-error-message';
 import { 
   AuthorizationContext, 
   OperationContext 
@@ -147,7 +148,7 @@ export class IssueResolverService {
 
       return {
         success: false,
-        error: error.message,
+        error: safeErrorMessage(error),
         duration,
       };
     } finally {
@@ -336,6 +337,7 @@ export class IssueResolverService {
       });
 
       // Return fallback with local attributes
+      const errorDetail = process.env.NODE_ENV === 'production' ? 'Sync failed' : error.message;
       return {
         success: false,
         attributes: this.parseAttributes(attributes),
@@ -343,10 +345,10 @@ export class IssueResolverService {
           lastSyncAt: lastSyncAt || '',
           syncedAt: lastSyncAt || new Date().toISOString(),
           synced: false,
-          message: error.message,
+          message: errorDetail,
         },
         duration,
-        error: error.message,
+        error: errorDetail,
       };
     }
   }
@@ -571,7 +573,7 @@ export class IssueResolverService {
                 lastSyncAt: lastSyncAt || '',
                 syncedAt: new Date().toISOString(),
                 synced: false,
-                message: `Resolver error: ${error.message}`,
+                message: process.env.NODE_ENV === 'production' ? 'Resolver error' : `Resolver error: ${error.message}`,
               },
             };
           }
@@ -619,7 +621,7 @@ export class IssueResolverService {
           lastSyncAt: lastSyncAt || '',
           syncedAt: new Date().toISOString(),
           synced: false,
-          message: `Sync failed: ${error.message}`,
+          message: process.env.NODE_ENV === 'production' ? 'Sync failed' : `Sync failed: ${error.message}`,
         },
       };
     }

@@ -113,7 +113,7 @@ Options:
 Environment variables:
   NEO4J_URI             Database URI (default: bolt://localhost:7687)
   NEO4J_USERNAME        Username (default: neo4j)
-  NEO4J_PASSWORD        Password (default: password)
+  NEO4J_PASSWORD        Password (required)
 
 Example:
   npx tsx src/tools/export-module-data.ts --module dethernety
@@ -125,6 +125,11 @@ Example:
   if (!moduleName) {
     console.error('Error: --module is required');
     console.error('Usage: npx tsx src/tools/export-module-data.ts --module <name>');
+    process.exit(1);
+  }
+
+  if (!/^[a-zA-Z0-9_-]+$/.test(moduleName)) {
+    console.error(`Error: Invalid module name "${moduleName}". Only alphanumeric, hyphens, and underscores allowed.`);
     process.exit(1);
   }
 
@@ -218,16 +223,28 @@ function writeCSV(outputDir: string, classType: string, records: ClassRecord[]):
 }
 
 /**
+ * Escape a string for safe embedding in a Cypher single-quoted string literal.
+ */
+function escapeCypherString(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+}
+
+/**
  * Generate the module Cypher script
  */
 function writeModuleCypher(outputDir: string, moduleInfo: ModuleInfo): void {
   const filePath = path.join(outputDir, '01-module.cypher');
   // Note: No // comments - Memgraph mgconsole doesn't handle them when piped via stdin
-  const content = `MERGE (m:DTModule {name: '${moduleInfo.name}'})
-SET m.description = '${moduleInfo.description.replace(/'/g, "\\'")}',
-    m.version = '${moduleInfo.version}',
-    m.author = '${moduleInfo.author.replace(/'/g, "\\'")}',
-    m.icon = '${moduleInfo.icon}',
+  const content = `MERGE (m:DTModule {name: '${escapeCypherString(moduleInfo.name)}'})
+SET m.description = '${escapeCypherString(moduleInfo.description)}',
+    m.version = '${escapeCypherString(moduleInfo.version)}',
+    m.author = '${escapeCypherString(moduleInfo.author)}',
+    m.icon = '${escapeCypherString(moduleInfo.icon)}',
     m.updatedAt = datetime();
 `;
 

@@ -124,7 +124,7 @@ const sha256 = async (plain: string): Promise<ArrayBuffer> => {
     const encoder = new TextEncoder()
     const data = encoder.encode(plain)
     return crypto.subtle.digest('SHA-256', data)
-  } else if (config.nodeEnv === 'development') {
+  } else if (import.meta.env.DEV && config.nodeEnv === 'development') {
     // Use fallback in development mode (HTTP)
     console.warn('Using fallback SHA-256 implementation for development. This is NOT secure for production!')
     return sha256Fallback(plain)
@@ -208,7 +208,8 @@ const retryWithBackoff = async <T>(
         throw new Error(`${operationName} failed after ${maxAttempts} attempts: ${lastError.message}`)
       }
       
-      const delay = baseDelay * Math.pow(2, attempt - 1) // Exponential backoff
+      const jitter = Math.random() * baseDelay * 0.5
+      const delay = baseDelay * Math.pow(2, attempt - 1) + jitter // Exponential backoff with jitter
       await new Promise(resolve => setTimeout(resolve, delay))
     }
   }
@@ -236,6 +237,7 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
 
   // Promise-based mutex for preventing concurrent token refresh attempts
   let refreshPromise: Promise<void> | null = null
+  let ensureValidPromise: Promise<void> | null = null
   let refreshTimeoutId: ReturnType<typeof setTimeout> | null = null
 
   // Computed
@@ -291,23 +293,41 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
       refreshTimeoutId = setTimeout(() => {
         debugLog(authConfig, 'Automatic token refresh triggered')
         performTokenRefresh().catch(error => {
-          console.error('Automatic token refresh failed:', error)
+          if (import.meta.env.DEV) {
+            console.error('Automatic token refresh failed:', error)
+          }
         })
       }, timeUntilRefresh)
     } else if (timeUntilRefresh > -authConfig.tokenRefreshThreshold) {
       // Token is expiring soon, refresh immediately
       debugLog(authConfig, 'Token expiring soon, refreshing immediately')
       performTokenRefresh().catch(error => {
-        console.error('Immediate token refresh failed:', error)
+        if (import.meta.env.DEV) {
+          console.error('Immediate token refresh failed:', error)
+        }
       })
     }
   }
 
   const safeRedirect = (url: string): void => {
     try {
-      window.location.href = url
+      // Validate URL scheme to prevent javascript: XSS and open redirects
+      if (url.startsWith('/') && !url.startsWith('//')) {
+        // Single-slash relative paths are safe (reject protocol-relative //evil.com)
+        window.location.href = url
+      } else {
+        const parsed = new URL(url, window.location.origin)
+        if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+          window.location.href = url
+        } else {
+          debugLog(authConfig, 'Blocked redirect to unsafe URL scheme')
+          window.location.href = ROUTES.HOME
+        }
+      }
     } catch (redirectError) {
-      console.error('Redirect failed:', redirectError)
+      if (import.meta.env.DEV) {
+        console.error('Redirect failed:', redirectError)
+      }
       // Fallback to home page
       window.location.href = ROUTES.HOME
     }
@@ -413,9 +433,12 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
     try {
       setLoadingState(true)
       
-      // Validate state parameter for CSRF protection
+      // Validate state parameter for CSRF protection (fail-closed)
       const storedState = sessionStorage.getItem('auth_state')
-      if (state && storedState && state !== storedState) {
+      if (!storedState) {
+        throw new Error('Missing stored state - authentication flow was not initiated from this session')
+      }
+      if (!state || state !== storedState) {
         throw new Error('Invalid state parameter - possible CSRF attack')
       }
       
@@ -460,6 +483,7 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
       // Redirect to home page
       safeRedirect(ROUTES.HOME)
     } catch (err) {
+      cleanupStoredAuthData()
       const error = err as Error
       const userFriendlyMessage = getUserFriendlyError(error, 'login')
       setLoadingState(false, userFriendlyMessage)
@@ -587,7 +611,9 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
 
         if (response.status === 400 || response.status === 401) {
           // Refresh token is invalid (session terminated elsewhere)
-          console.warn('Refresh token invalid, session terminated elsewhere')
+          if (import.meta.env.DEV) {
+            console.warn('Refresh token invalid, session terminated elsewhere')
+          }
           clearState()
           safeRedirect(ROUTES.LOGIN)
           return
@@ -717,7 +743,9 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
           clearState()
           safeRedirect(logoutUrl.toString())
         } catch (logoutError) {
-          console.error('Logout redirect failed:', logoutError)
+          if (import.meta.env.DEV) {
+            console.error('Logout redirect failed:', logoutError)
+          }
           // Fallback to local logout
           clearState()
           safeRedirect(ROUTES.LOGIN)
@@ -728,7 +756,9 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
       }
         
     } catch (error) {
-      console.error('Logout error:', error)
+      if (import.meta.env.DEV) {
+        console.error('Logout error:', error)
+      }
       // Fallback: clear state and redirect
       clearState()
       safeRedirect(ROUTES.LOGIN)
@@ -750,7 +780,9 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
         }),
       })
     } catch (revokeError) {
-      console.warn('Failed to revoke refresh token:', revokeError)
+      if (import.meta.env.DEV) {
+        console.warn('Failed to revoke refresh token:', revokeError)
+      }
     }
   }
 
@@ -770,14 +802,18 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
       
       if (response.status === 401 || response.status === 403) {
         // Token is invalid, clear local state
-        console.warn('Session is no longer valid, clearing local state')
+        if (import.meta.env.DEV) {
+          console.warn('Session is no longer valid, clearing local state')
+        }
         clearState()
         return false
       }
       
       return response.ok
     } catch (error) {
-      console.warn('Session check failed:', error)
+      if (import.meta.env.DEV) {
+        console.warn('Session check failed:', error)
+      }
       return false
     }
   }
@@ -787,13 +823,27 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
    * This is the main method components should call before API requests
    */
   const ensureValidToken = async (): Promise<void> => {
-    if (!token.value) {
-      throw new Error(ERROR_MESSAGES.INVALID_TOKEN)
+    // Mutex: if another call is already ensuring validity, wait for it
+    if (ensureValidPromise) {
+      return ensureValidPromise
     }
-    
-    if (isTokenExpiringSoon.value) {
-      debugLog(authConfig, 'Token expiring soon, refreshing proactively')
-      await performTokenRefresh()
+
+    const doEnsure = async (): Promise<void> => {
+      if (!token.value) {
+        throw new Error(ERROR_MESSAGES.INVALID_TOKEN)
+      }
+
+      if (isTokenExpiringSoon.value) {
+        debugLog(authConfig, 'Token expiring soon, refreshing proactively')
+        await performTokenRefresh()
+      }
+    }
+
+    ensureValidPromise = doEnsure()
+    try {
+      await ensureValidPromise
+    } finally {
+      ensureValidPromise = null
     }
   }
 
@@ -838,7 +888,8 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
   }
   }, {
     persist: {
-      pick: ['user', 'roles', 'permissions'],
+      pick: ['user', 'roles', 'permissions', 'token', 'refreshToken', 'tokenExpiry'],
+      storage: sessionStorage,
     }
   })
 }

@@ -284,6 +284,9 @@ export class DtUtils {
       let match
       while ((match = regex.exec(flatKey)) !== null) {
         if (match[1] !== undefined) {
+          if (match[1] === '__proto__' || match[1] === 'constructor' || match[1] === 'prototype') {
+            continue
+          }
           keys.push(match[1])
         } else if (match[2] !== undefined) {
           keys.push(parseInt(match[2], 10))
@@ -395,6 +398,9 @@ export class DtUtils {
 
     // Handle dictionaries/objects
     for (const key of Object.keys(obj)) {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+        continue
+      }
       const value = obj[key]
       // Build the new key name
       const prefixedKey = prefix ? `${prefix}.${key}` : key

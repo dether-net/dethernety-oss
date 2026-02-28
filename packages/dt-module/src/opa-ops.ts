@@ -12,17 +12,24 @@ export interface Policy {
 /**
  * OpaOps class for interacting with the OPA server
  */
+export interface OpaLogger {
+  error: (message: string, ...args: any[]) => void;
+}
+
 export class OpaOps {
   private opaServerUrl: string;
   private opaInstance: any = null;
+  private logger: OpaLogger;
 
   /**
    * Constructor for OpaOps
    * @param opaServerUrl - The URL of the OPA server
+   * @param logger - Optional logger instance (defaults to console)
    */
-  constructor(opaServerUrl: string) {
+  constructor(opaServerUrl: string, logger?: OpaLogger) {
     this.opaServerUrl = opaServerUrl;
     this.opaInstance = new OPAClient(opaServerUrl);
+    this.logger = logger || console;
   }
 
   /**
@@ -36,6 +43,10 @@ export class OpaOps {
     if (policyId.includes('..')) {
       throw new Error(`Invalid policy ID: path traversal not allowed`);
     }
+    const segments = policyId.split('/');
+    if (segments.some(s => s === '' || s === '.')) {
+      throw new Error(`Invalid policy ID: contains empty or dot segments`);
+    }
   }
 
   async deleteAllPolicies(): Promise<boolean> {
@@ -43,11 +54,12 @@ export class OpaOps {
       const response = await axios.get(`${this.opaServerUrl}/v1/policies`);
       const existingPolicies = response.data.result || [];
       for (const policy of existingPolicies) {
+        this.validatePolicyId(policy.id);
         await axios.delete(`${this.opaServerUrl}/v1/policies/${policy.id}`);
       }
       return true;
     } catch (error) {
-      console.error("Error deleting OPA policies", error);
+      this.logger.error("Error deleting OPA policies", error);
       return false;
     }
   }
@@ -63,7 +75,7 @@ export class OpaOps {
       await axios.delete(`${this.opaServerUrl}/v1/policies/${id}`);
       return true;
     } catch (error) {
-      console.error("Error deleting OPA policy", error);
+      this.logger.error("Error deleting OPA policy", error);
       return false;
     }
   }
@@ -80,12 +92,13 @@ export class OpaOps {
       const existingPolicies = response.data.result || [];
       for (const policy of existingPolicies) {
         if (policy.id.startsWith(prefix.trim().replaceAll(" ", "_"))) {
+          this.validatePolicyId(policy.id);
           await axios.delete(`${this.opaServerUrl}/v1/policies/${policy.id}`);
         }
       }
       return true;
     } catch (error) {
-      console.error("Error deleting OPA policy", error);
+      this.logger.error("Error deleting OPA policy", error);
       return false;
     }
   }
@@ -111,12 +124,12 @@ export class OpaOps {
         // Extract detailed error information from OPA response
         const opaErrors = error?.response?.data?.errors;
         if (opaErrors && Array.isArray(opaErrors)) {
-          console.error(`OPA policy compilation errors for ${policy.id}:`, JSON.stringify(opaErrors, null, 2));
+          this.logger.error(`OPA policy compilation errors for ${policy.id}:`, JSON.stringify(opaErrors, null, 2));
           // Log first few lines of the policy for context
           const policyPreview = policy.raw.split('\n').slice(0, 5).join('\n');
-          console.error(`Policy preview:\n${policyPreview}`);
+          this.logger.error(`Policy preview:\n${policyPreview}`);
         } else {
-          console.error(`Error installing OPA policy ${policy.id}:`, error?.response?.data || error.message);
+          this.logger.error(`Error installing OPA policy ${policy.id}:`, error?.response?.data || error.message);
         }
         // Continue with other policies instead of failing completely
       }
@@ -135,7 +148,7 @@ export class OpaOps {
       const response = await this.opaInstance.evaluate(path, input);
       return response;
     } catch (error) {
-      console.error("Error evaluating OPA policy", error);
+      this.logger.error("Error evaluating OPA policy", error);
       return null;
     }
   }

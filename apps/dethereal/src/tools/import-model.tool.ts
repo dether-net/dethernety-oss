@@ -27,6 +27,7 @@ import {
   createDirectoryBackup,
   isModelDirectory,
   applyIdMapping,
+  validatePathConfinement,
 } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
 import { getConfig, debugLog } from '../config.js'
@@ -66,6 +67,9 @@ export class ImportModelTool extends ClientDependentTool<ImportInput, ImportOutp
           error: 'Apollo client not available. Please ensure you are authenticated.'
         }
       }
+
+      // Validate path confinement
+      validatePathConfinement(input.directory_path)
 
       // Validate directory exists
       if (!await pathExists(input.directory_path)) {

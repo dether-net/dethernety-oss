@@ -23,7 +23,7 @@
 import { z } from 'zod'
 import { DtUpdateSplit } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
-import { readAttributes, isModelDirectory } from '../utils/directory-utils.js'
+import { readAttributes, isModelDirectory, validatePathConfinement } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
 import { getConfig, debugLog } from '../config.js'
 
@@ -61,6 +61,9 @@ export class UpdateAttributesTool extends ClientDependentTool<UpdateAttributesIn
           error: 'Apollo client not available. Please ensure you are authenticated.'
         }
       }
+
+      // Validate path confinement
+      validatePathConfinement(input.directory_path)
 
       // Validate directory exists
       if (!await pathExists(input.directory_path)) {

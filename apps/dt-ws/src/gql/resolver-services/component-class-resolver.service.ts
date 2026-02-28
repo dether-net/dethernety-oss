@@ -1,8 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ModuleRegistryService } from '../module-management-services/module-registry.service';
 
 @Injectable()
 export class ComponentClassResolverService {
+  private readonly logger = new Logger(ComponentClassResolverService.name);
+
   constructor(
     @Inject('NEO4J_DRIVER') private readonly neo4jDriver: any,
     private readonly moduleRegistry: ModuleRegistryService,
@@ -15,13 +17,13 @@ export class ComponentClassResolverService {
     }
     const moduleInstance = this.moduleRegistry.getModuleByName(moduleName);
     if (!moduleInstance) {
-      console.warn(`No module found for name: ${moduleName}`);
+      this.logger.warn(`No module found for name: ${moduleName}`);
       return '';
     }
     try {
       return await moduleInstance.getClassTemplate(id);
     } catch (err) {
-      console.warn(
+      this.logger.warn(
         `Error fetching template from module ${moduleName}: ${err.message}`,
       );
       return '';

@@ -50,9 +50,21 @@ const server = new Server(
  * @returns idToken or undefined if not available
  */
 async function getIdToken(argsToken?: string): Promise<string | undefined> {
-  // If token is explicitly provided in args, use it
+  // If token is explicitly provided in args, check expiry before using
   if (argsToken) {
     debug('Using token from args')
+    try {
+      const payloadB64 = argsToken.split('.')[1]
+      if (payloadB64) {
+        const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString())
+        if (payload.exp && Date.now() / 1000 > payload.exp) {
+          debug('Token from args is expired, ignoring')
+          return undefined
+        }
+      }
+    } catch {
+      debug('Could not decode token from args, forwarding as-is')
+    }
     return argsToken
   }
 

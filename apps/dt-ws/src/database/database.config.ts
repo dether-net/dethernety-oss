@@ -10,7 +10,7 @@ export class DatabaseConfig {
   username: string = 'neo4j';
 
   @IsString()
-  password: string = 'password';
+  password: string = '';
 
   @IsOptional()
   @IsString()

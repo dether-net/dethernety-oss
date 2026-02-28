@@ -32,6 +32,9 @@ async function bootstrap() {
       disableErrorMessages: process.env.NODE_ENV === 'production',
     }));
 
+    // Disable X-Powered-By header
+    app.getHttpAdapter().getInstance().disable('x-powered-by');
+
     // CORS configuration
     app.enableCors({
       origin: process.env.NODE_ENV === 'production' 
@@ -44,14 +47,24 @@ async function bootstrap() {
 
     // Security headers
     if (process.env.NODE_ENV === 'production') {
+      // Build connect-src dynamically to allow OIDC provider domains
+      const connectSrcParts = ["'self'"];
+      if (process.env.OIDC_ISSUER) {
+        try { connectSrcParts.push(new URL(process.env.OIDC_ISSUER).origin); } catch { /* invalid URL, skip */ }
+      }
+      if (process.env.OIDC_DOMAIN) {
+        const sanitizedDomain = process.env.OIDC_DOMAIN.replace(/[^a-zA-Z0-9.\-:]/g, '');
+        connectSrcParts.push(`https://${sanitizedDomain}`);
+      }
+      const connectSrc = connectSrcParts.join(' ');
+
       app.use((req, res, next) => {
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('X-Frame-Options', 'DENY');
-        res.setHeader('X-XSS-Protection', '1; mode=block');
         res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
         res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
         res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-        res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'");
+        res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src ${connectSrc}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'`);
         next();
       });
     }

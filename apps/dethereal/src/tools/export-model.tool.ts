@@ -29,6 +29,7 @@ import {
   createDirectoryBackup,
   isModelDirectory,
   ensureModelDirectoryStructure,
+  validatePathConfinement,
 } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
 import { getConfig, debugLog } from '../config.js'
@@ -68,8 +69,19 @@ export class ExportModelTool extends ClientDependentTool<ExportInput, ExportOutp
         }
       }
 
+      // Validate model_id doesn't contain path traversal sequences
+      if (input.model_id.includes('/') || input.model_id.includes('\\') || input.model_id.includes('..')) {
+        return {
+          success: false,
+          error: 'Invalid model_id: must not contain path separators or traversal sequences'
+        }
+      }
+
       // Determine directory path: use provided path or default to model ID
       const directoryPath = input.directory_path || path.join(process.cwd(), input.model_id)
+
+      // Validate path confinement for all paths (user-supplied or derived)
+      validatePathConfinement(directoryPath)
 
       debugLog(config, `Exporting model: ${input.model_id} to directory: ${directoryPath}`)
 

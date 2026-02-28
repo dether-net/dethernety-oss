@@ -4,6 +4,7 @@ import { ModuleRegistryService } from '../module-management-services/module-regi
 import { AuthorizationService } from '../services/authorization.service';
 import { MonitoringService } from '../services/monitoring.service';
 import { TemplateCacheService } from '../services/template-cache.service';
+import { safeErrorMessage } from '../../common/utils/safe-error-message';
 import { 
   AuthorizationContext, 
   OperationContext 
@@ -105,7 +106,7 @@ export class TemplateResolverService {
         info.hasTemplate = typeof moduleInstance.getModuleTemplate === 'function';
         info.hasGuide = typeof moduleInstance.getClassGuide === 'function';
       } catch (error) {
-        info.error = error.message;
+        info.error = safeErrorMessage(error);
         info.available = false;
       }
     } else {
@@ -263,7 +264,7 @@ export class TemplateResolverService {
         cached: false,
         duration,
         source: 'fallback',
-        error: error.message,
+        error: safeErrorMessage(error),
       };
     }
   }
@@ -435,7 +436,7 @@ export class TemplateResolverService {
         cached: false,
         duration,
         source: 'fallback',
-        error: error.message,
+        error: safeErrorMessage(error),
       };
     }
   }
@@ -617,7 +618,7 @@ export class TemplateResolverService {
         cached: false,
         duration,
         source: 'fallback',
-        error: error.message,
+        error: safeErrorMessage(error),
       };
     }
   }

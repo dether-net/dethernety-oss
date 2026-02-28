@@ -18,6 +18,7 @@ import { RESOLVER_SERVICES } from '../resolvers.constants';
 import { Inject } from '@nestjs/common';
 import { ResolverService } from '../interfaces/resolver.interface';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { extractBearerToken } from '../../common/utils/extract-bearer-token';
 
 /**
  * GraphQL SSE Controller
@@ -61,8 +62,7 @@ export class GraphQLSseController implements OnModuleInit {
         schema,
         context: (req) => {
           // Extract token from Authorization header
-          const authHeader = req.raw.headers.authorization;
-          const token = authHeader?.replace('Bearer ', '');
+          const token = extractBearerToken(req.raw.headers.authorization);
 
           return {
             token,

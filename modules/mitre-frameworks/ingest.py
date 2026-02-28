@@ -17,7 +17,9 @@ load_dotenv()
 # ------------------------------------------------
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USERNAME", "neo4j")
-NEO4J_PASS = os.getenv("NEO4J_PASSWORD", "password")
+NEO4J_PASS = os.getenv("NEO4J_PASSWORD")
+if not NEO4J_PASS:
+    raise SystemExit("Error: NEO4J_PASSWORD environment variable is required")
 
 D3FEND_OWL_FILE = "https://d3fend.mitre.org/ontologies/d3fend.owl"
 D3F = Namespace("http://d3fend.mitre.org/ontologies/d3fend.owl#")

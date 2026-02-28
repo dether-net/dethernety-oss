@@ -10,7 +10,7 @@ const message = ref('Logging you out...')
 onMounted(async () => {
   try {
     const isValid = await authStore.checkSessionValidity()
-    authStore.logout(isValid)
+    await authStore.logout(isValid)
     message.value = 'You have been successfully logged out.'
     
     // Auto-redirect to login after 3 seconds
@@ -20,7 +20,7 @@ onMounted(async () => {
   } catch (error) {
     console.error('Post-logout cleanup error:', error)
     message.value = 'Logout completed with some issues. Please clear your browser cache.'
-    authStore.logout(false)
+    await authStore.logout(false)
   }
 })
 

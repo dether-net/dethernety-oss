@@ -13,7 +13,16 @@ onMounted(async () => {
     const error = urlParams.get('error')
     
     if (error) {
-      errorMessage.value = `Authentication error: ${error}`
+      const oauthErrors: Record<string, string> = {
+        'invalid_request': 'The authentication request was invalid.',
+        'unauthorized_client': 'This application is not authorized.',
+        'access_denied': 'Access was denied.',
+        'unsupported_response_type': 'Unsupported authentication method.',
+        'invalid_scope': 'The requested permissions are invalid.',
+        'server_error': 'The authentication server encountered an error.',
+        'temporarily_unavailable': 'The authentication server is temporarily unavailable.',
+      }
+      errorMessage.value = oauthErrors[error] || 'Authentication failed. Please try again.'
       return
     }
     

@@ -19,6 +19,7 @@ import {
   writeModelDirectory,
   applyIdMapping,
   ensureModelDirectoryStructure,
+  validatePathConfinement,
 } from '../utils/directory-utils.js'
 
 const ExampleTypeEnum = z.enum(['simple', 'web_app', 'api_service', 'database', 'microservices'])
@@ -133,6 +134,7 @@ export class CreateModelTool extends ClientDependentTool<CreateInput, CreateOutp
 
       // Write to directory if path provided
       if (input.directory_path) {
+        validatePathConfinement(input.directory_path)
         try {
           // Ensure directory structure exists
           await ensureModelDirectoryStructure(input.directory_path)

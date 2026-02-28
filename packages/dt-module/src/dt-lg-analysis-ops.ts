@@ -473,15 +473,16 @@ export class DtLgAnalysisOps {
   /**
    * Extracts messages from nested object structure.
    */
-  private extractMessages(obj: any): Message[] {
+  private extractMessages(obj: any, depth: number = 0): Message[] {
+    if (depth > 20 || !obj || typeof obj !== 'object') {
+      return [];
+    }
     let messages: Message[] = [];
-    if (obj && typeof obj === 'object') {
-      for (const key in obj) {
-        if (key === 'messages' && Array.isArray(obj[key])) {
-          messages = messages.concat(obj[key]);
-        } else {
-          messages = messages.concat(this.extractMessages(obj[key]));
-        }
+    for (const key in obj) {
+      if (key === 'messages' && Array.isArray(obj[key])) {
+        messages = messages.concat(obj[key]);
+      } else {
+        messages = messages.concat(this.extractMessages(obj[key], depth + 1));
       }
     }
     return messages;

@@ -522,6 +522,7 @@ type Mutation {
       MATCH (issue:Issue {id: $issueId})
       UNWIND $elementIds as elementId
       MATCH (element {id: elementId})
+      WHERE any(label IN labels(element) WHERE label IN ['Model','Component','DataFlow','SecurityBoundary','Control','Data','Analysis','Exposure','Countermeasure'])
       MERGE (issue)<-[:HAS_ISSUE]-(element)
       RETURN DISTINCT {
         elementsAdded: size(collect(element))
@@ -538,6 +539,7 @@ type Mutation {
     @cypher(
       statement: """
       MATCH (issue:Issue {id: $issueId})<-[r:HAS_ISSUE]-(element {id: $elementId})
+      WHERE any(label IN labels(element) WHERE label IN ['Model','Component','DataFlow','SecurityBoundary','Control','Data','Analysis','Exposure','Countermeasure'])
       DELETE r
       RETURN TRUE as result
       """
@@ -711,7 +713,9 @@ type AIResponse {
 }
 
 
-# type Subscription @subscriptionsAuthorization(filter: [{ requireAuthentication: true }]) {
+# Note: @authentication is not supported on Subscription by @neo4j/graphql v7
+# (only @node types and root Query/Mutation). Subscription auth is enforced
+# by JwtAuthGuard on the controller and the streamResponse resolver.
 type Subscription {
   streamResponse(sessionId: String!): AIResponse!
 }

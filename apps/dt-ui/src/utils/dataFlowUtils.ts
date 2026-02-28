@@ -193,6 +193,9 @@ export function unflattenProperties (obj: any): any {
     let match
     while ((match = regex.exec(flatKey)) !== null) {
       if (match[1] !== undefined) {
+        if (match[1] === '__proto__' || match[1] === 'constructor' || match[1] === 'prototype') {
+          continue
+        }
         keys.push(match[1])
       } else if (match[2] !== undefined) {
         keys.push(Number(match[2])) // Convert array index to a number.
