@@ -13,6 +13,7 @@ import * as jwt from 'jsonwebtoken';
 import * as jwksClient from 'jwks-rsa';
 import * as https from 'https';
 import * as fs from 'fs';
+import * as path from 'path';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -47,13 +48,13 @@ export class JwtAuthGuard implements CanActivate {
       if (extraCaCertsPath) {
         try {
           const caCerts: Buffer[] = [];
-          const certDir = require('path').dirname(extraCaCertsPath);
+          const certDir = path.dirname(extraCaCertsPath);
 
           // Load the configured cert
           caCerts.push(fs.readFileSync(extraCaCertsPath));
 
           // Also load root.crt from the same directory if it exists
-          const rootCertPath = require('path').join(certDir, 'root.crt');
+          const rootCertPath = path.join(certDir, 'root.crt');
           if (rootCertPath !== extraCaCertsPath && fs.existsSync(rootCertPath)) {
             caCerts.push(fs.readFileSync(rootCertPath));
             this.logger.log('JWKS client loaded root CA', { path: rootCertPath });
