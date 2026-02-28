@@ -12,7 +12,7 @@
     "@langchain/langgraph-sdk": "^0.0.102",
     "@nestjs/common": "^11.1.8",
     "@styra/opa": "^1.7.10",
-    "axios": "^1.13.2",
+    "axios": "^1.13.6",
     "graphql": "^16.12.0",
     "graphql-subscriptions": "^3.0.0",
     "json-logic-js": "^2.0.5"
