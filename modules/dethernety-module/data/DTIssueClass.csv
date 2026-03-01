@@ -1,0 +1,862 @@
+id,name,description,category,type,template,configurationOptionsGuide,regoPolicies
+be634246-cadb-46b0-9db3-d4912c9bee36,Architecture anti-pattern,"An architecture anti-pattern is a common but ineffective solution to a recurring design problem in software development, often leading to poor system structure and maintainability. Examples include ""Big Ball of Mud,"" where a system lacks a clear architecture, and ""Blind Pattern Following,"" where developers adopt practices without understanding their purpose.",Architecture,Issue,"{
+  ""schema"": {
+    ""type"": ""object"",
+    ""properties"": {
+      ""severity"": {
+        ""type"": ""string"",
+        ""title"": ""Severity"",
+        ""enum"": [
+          ""critical"",
+          ""high"",
+          ""medium"",
+          ""low""
+        ],
+        ""default"": ""medium"",
+        ""description"": ""Anti-pattern severity level""
+      },
+      ""status"": {
+        ""type"": ""string"",
+        ""title"": ""Status"",
+        ""enum"": [
+          ""identified"",
+          ""analyzed"",
+          ""planning"",
+          ""refactoring"",
+          ""testing"",
+          ""resolved""
+        ],
+        ""default"": ""identified""
+      },
+      ""antiPatternType"": {
+        ""type"": ""string"",
+        ""title"": ""Anti-Pattern Type"",
+        ""enum"": [
+          ""big-ball-of-mud"",
+          ""god-object"",
+          ""spaghetti-code"",
+          ""copy-paste-programming"",
+          ""golden-hammer"",
+          ""premature-optimization"",
+          ""vendor-lock-in"",
+          ""other""
+        ],
+        ""description"": ""Type of architecture anti-pattern identified""
+      },
+      ""technicalDebtLevel"": {
+        ""type"": ""string"",
+        ""title"": ""Technical Debt Level"",
+        ""enum"": [
+          ""minimal"",
+          ""moderate"",
+          ""significant"",
+          ""severe""
+        ],
+        ""default"": ""moderate"",
+        ""description"": ""Level of technical debt introduced""
+      },
+      ""impactAreas"": {
+        ""type"": ""string"",
+        ""title"": ""Impact Areas"",
+        ""description"": ""System components or areas affected by this anti-pattern""
+      },
+      ""businessImpact"": {
+        ""type"": ""string"",
+        ""title"": ""Business Impact"",
+        ""description"": ""How this anti-pattern affects business operations and goals""
+      },
+      ""recommendedSolution"": {
+        ""type"": ""string"",
+        ""title"": ""Recommended Solution"",
+        ""description"": ""Proposed approach to resolve the anti-pattern""
+      }
+    },
+    ""required"": [
+      ""severity"",
+      ""status"",
+      ""antiPatternType"",
+      ""technicalDebtLevel""
+    ]  
+  },
+  ""uischema"": {
+    ""type"": ""Categorization"",
+    ""elements"": [
+      {
+        ""type"": ""Category"",
+        ""label"": ""Assessment"",
+        ""elements"": [
+          {
+            ""type"": ""HorizontalLayout"",
+            ""elements"": [
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/severity""
+              },
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/status""
+              }
+            ]
+          },
+          {
+            ""type"": ""HorizontalLayout"",
+            ""elements"": [
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/antiPatternType""
+              },
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/technicalDebtLevel""
+              }
+            ]
+          },
+          {
+            ""type"": ""Control"",
+            ""scope"": ""#/properties/impactAreas""
+          }
+        ]
+      },
+      {
+        ""type"": ""Category"",
+        ""label"": ""Resolution"",
+        ""elements"": [
+          {
+            ""type"": ""Control"",
+            ""scope"": ""#/properties/businessImpact"",
+            ""options"": {
+              ""multi"": true,
+              ""rows"": 3
+            }
+          },
+          {
+            ""type"": ""Control"",
+            ""scope"": ""#/properties/recommendedSolution"",
+            ""options"": {
+              ""multi"": true,
+              ""rows"": 4
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+",,
+179b50c8-4025-4b57-9bae-8e1fc4428cad,Vulnerability,"A software vulnerability is a flaw or weakness in software code that can be exploited by attackers to compromise the security and functionality of a system. These vulnerabilities can arise from coding errors, design oversights, or outdated software, posing risks to data and systems.",Vulnerability,Vulnerability,"{
+  ""schema"": {
+    ""type"": ""object"",
+    ""properties"": {
+      ""severity"": {
+        ""type"": ""string"",
+        ""title"": ""Severity"",
+        ""enum"": [
+          ""critical"",
+          ""high"",
+          ""medium"",
+          ""low""
+        ],
+        ""default"": ""medium"",
+        ""description"": ""Vulnerability severity level""
+      },
+      ""status"": {
+        ""type"": ""string"",
+        ""title"": ""Status"",
+        ""enum"": [
+          ""new"",
+          ""confirmed"",
+          ""in-progress"",
+          ""fixed"",
+          ""verified"",
+          ""closed""
+        ],
+        ""default"": ""new""
+      },
+      ""cveId"": {
+        ""type"": ""string"",
+        ""title"": ""CVE ID"",
+        ""description"": ""Common Vulnerabilities and Exposures identifier""
+      },
+      ""cvssScore"": {
+        ""type"": ""number"",
+        ""title"": ""CVSS Score"",
+        ""minimum"": 0,
+        ""maximum"": 10,
+        ""description"": ""Common Vulnerability Scoring System score""
+      },
+      ""affectedComponent"": {
+        ""type"": ""string"",
+        ""title"": ""Affected Component"",
+        ""description"": ""System, library, or component affected""
+      },
+      ""remediationSteps"": {
+        ""type"": ""string"",
+        ""title"": ""Remediation Steps"",
+        ""description"": ""Steps required to fix the vulnerability""
+      }
+    },
+    ""required"": [
+      ""severity"",
+      ""status""
+    ]
+  },
+  ""uischema"": {
+    ""type"": ""Categorization"",
+    ""elements"": [
+      {
+        ""type"": ""Category"",
+        ""label"": ""Assessment"",
+        ""elements"": [
+          {
+            ""type"": ""HorizontalLayout"",
+            ""elements"": [
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/severity""
+              },
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/status""
+              }
+            ]
+          },
+          {
+            ""type"": ""HorizontalLayout"",
+            ""elements"": [
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/cveId""
+              },
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/cvssScore""
+              }
+            ]
+          }
+        ]
+      },
+      {
+        ""type"": ""Category"",
+        ""label"": ""Resolution"",
+        ""elements"": [
+          {
+            ""type"": ""Control"",
+            ""scope"": ""#/properties/remediationSteps"",
+            ""options"": {
+              ""multi"": true,
+              ""rows"": 4
+            }
+          }
+        ]
+      }
+    ]
+  }
+}",,
+3ebf7315-4733-4c00-8c3e-a6a628e5ba16,Configuration Error,"A software configuration error is a mistake in the system settings that can lead to incorrect operations or system failures. Common causes include human error, system malfunctions, and issues during data integration.",Configuration,Error,"{
+  ""schema"": {
+    ""type"": ""object"",
+    ""properties"": {
+      ""severity"": {
+        ""type"": ""string"",
+        ""title"": ""Severity"",
+        ""enum"": [
+          ""critical"",
+          ""high"",
+          ""medium"",
+          ""low""
+        ],
+        ""default"": ""medium"",
+        ""description"": ""Configuration error severity level""
+      },
+      ""status"": {
+        ""type"": ""string"",
+        ""title"": ""Status"",
+        ""enum"": [
+          ""new"",
+          ""investigating"",
+          ""in-progress"",
+          ""resolved"",
+          ""verified"",
+          ""closed""
+        ],
+        ""default"": ""new""
+      },
+      ""configType"": {
+        ""type"": ""string"",
+        ""title"": ""Config Type"",
+        ""enum"": [
+          ""database"",
+          ""network"",
+          ""application"",
+          ""security"",
+          ""infrastructure"",
+          ""deployment""
+        ],
+        ""description"": ""Type of configuration that has the error""
+      },
+      ""environment"": {
+        ""type"": ""string"",
+        ""title"": ""Environment"",
+        ""enum"": [
+          ""development"",
+          ""staging"",
+          ""production"",
+          ""testing""
+        ],
+        ""description"": ""Environment where the error occurred""
+      },
+      ""impactLevel"": {
+        ""type"": ""string"",
+        ""title"": ""Impact Level"",
+        ""enum"": [
+          ""system-down"",
+          ""degraded-performance"",
+          ""feature-unavailable"",
+          ""minor-issue""
+        ],
+        ""description"": ""Level of impact on system operations""
+      },
+      ""rootCause"": {
+        ""type"": ""string"",
+        ""title"": ""Root Cause"",
+        ""description"": ""Identified root cause of the configuration error""
+      },
+      ""resolutionSteps"": {
+        ""type"": ""string"",
+        ""title"": ""Resolution Steps"",
+        ""description"": ""Steps taken or required to resolve the configuration error""
+      }
+    },
+    ""required"": [
+      ""severity"",
+      ""status"",
+      ""configType"",
+      ""environment""
+    ]
+  },
+  ""uischema"": {
+    ""type"": ""Categorization"",
+    ""elements"": [
+      {
+        ""type"": ""Category"",
+        ""label"": ""Assessment"",
+        ""elements"": [
+          {
+            ""type"": ""HorizontalLayout"",
+            ""elements"": [
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/severity""
+              },
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/status""
+              }
+            ]
+          },
+          {
+            ""type"": ""HorizontalLayout"",
+            ""elements"": [
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/configType""
+              },
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/environment""
+              }
+            ]
+          },
+          {
+            ""type"": ""Control"",
+            ""scope"": ""#/properties/impactLevel""
+          }
+        ]
+      },
+      {
+        ""type"": ""Category"",
+        ""label"": ""Resolution"",
+        ""elements"": [
+          {
+            ""type"": ""Control"",
+            ""scope"": ""#/properties/rootCause"",
+            ""options"": {
+              ""multi"": true,
+              ""rows"": 3
+            }
+          },
+          {
+            ""type"": ""Control"",
+            ""scope"": ""#/properties/resolutionSteps"",
+            ""options"": {
+              ""multi"": true,
+              ""rows"": 4
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+",,
+21e27749-78fe-4d90-8619-14be5ff3b7f4,Other,Issues that cannot be classified into other categories.,Other,Issue,"{
+  ""schema"": {
+    ""type"": ""object"",
+    ""properties"": {
+      ""severity"": {
+        ""type"": ""string"",
+        ""title"": ""Severity"",
+        ""enum"": [
+          ""critical"",
+          ""high"",
+          ""medium"",
+          ""low""
+        ],
+        ""default"": ""medium"",
+        ""description"": ""Issue severity level""
+      },
+      ""status"": {
+        ""type"": ""string"",
+        ""title"": ""Status"",
+        ""enum"": [
+          ""new"",
+          ""investigating"",
+          ""in-progress"",
+          ""on-hold"",
+          ""resolved"",
+          ""closed""
+        ],
+        ""default"": ""new""
+      },
+      ""subCategory"": {
+        ""type"": ""string"",
+        ""title"": ""Sub-Category"",
+        ""description"": ""Specific categorization for this issue""
+      },
+      ""priority"": {
+        ""type"": ""string"",
+        ""title"": ""Priority"",
+        ""enum"": [
+          ""urgent"",
+          ""high"",
+          ""normal"",
+          ""low""
+        ],
+        ""default"": ""normal"",
+        ""description"": ""Issue priority level""
+      },
+      ""impactDescription"": {
+        ""type"": ""string"",
+        ""title"": ""Impact Description"",
+        ""description"": ""Description of how this issue affects the system or users""
+      },
+      ""proposedSolution"": {
+        ""type"": ""string"",
+        ""title"": ""Proposed Solution"",
+        ""description"": ""Suggested approach to resolve this issue""
+      }
+    },
+    ""required"": [
+      ""severity"",
+      ""status""
+    ]
+  },
+  ""uischema"": {
+    ""type"": ""Categorization"",
+    ""elements"": [
+      {
+        ""type"": ""Category"",
+        ""label"": ""Assessment"",
+        ""elements"": [
+          {
+            ""type"": ""HorizontalLayout"",
+            ""elements"": [
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/severity""
+              },
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/status""
+              }
+            ]
+          },
+          {
+            ""type"": ""HorizontalLayout"",
+            ""elements"": [
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/subCategory""
+              },
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/priority""
+              }
+            ]
+          },
+          {
+            ""type"": ""Control"",
+            ""scope"": ""#/properties/impactDescription"",
+            ""options"": {
+              ""multi"": true,
+              ""rows"": 3
+            }
+          }
+        ]
+      },
+      {
+        ""type"": ""Category"",
+        ""label"": ""Resolution"",
+        ""elements"": [
+          {
+            ""type"": ""Control"",
+            ""scope"": ""#/properties/proposedSolution"",
+            ""options"": {
+              ""multi"": true,
+              ""rows"": 4
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+",,
+4121f1ce-37e2-4adc-acda-123a78605fd6,Threat Vector,"A potential attack path or method that could be used by threat actors to compromise system security, identified through threat modeling analysis.",Threat Vector,Issue,"{
+  ""schema"": {
+    ""type"": ""object"",
+    ""properties"": {
+      ""severity"": {
+        ""type"": ""string"",
+        ""title"": ""Severity"",
+        ""enum"": [
+          ""critical"",
+          ""high"",
+          ""medium"",
+          ""low""
+        ],
+        ""default"": ""medium"",
+        ""description"": ""Threat vector severity level""
+      },
+      ""status"": {
+        ""type"": ""string"",
+        ""title"": ""Status"",
+        ""enum"": [
+          ""identified"",
+          ""analyzing"",
+          ""mitigating"",
+          ""monitored"",
+          ""resolved"",
+          ""accepted""
+        ],
+        ""default"": ""identified""
+      },
+      ""strideCategory"": {
+        ""type"": ""string"",
+        ""title"": ""STRIDE Category"",
+        ""enum"": [
+          ""spoofing"",
+          ""tampering"",
+          ""repudiation"",
+          ""information-disclosure"",
+          ""denial-of-service"",
+          ""elevation-of-privilege""
+        ],
+        ""description"": ""STRIDE threat model classification""
+      },
+      ""likelihood"": {
+        ""type"": ""string"",
+        ""title"": ""Likelihood"",
+        ""enum"": [
+          ""very-low"",
+          ""low"",
+          ""medium"",
+          ""high"",
+          ""very-high""
+        ],
+        ""default"": ""medium"",
+        ""description"": ""Probability of threat exploitation""
+      },
+      ""threatActorType"": {
+        ""type"": ""string"",
+        ""title"": ""Threat Actor Type"",
+        ""enum"": [
+          ""insider"",
+          ""cybercriminal"",
+          ""nation-state"",
+          ""hacktivist"",
+          ""script-kiddie"",
+          ""competitor"",
+          ""unknown""
+        ],
+        ""description"": ""Type of potential threat actor""
+      },
+      ""assetAtRisk"": {
+        ""type"": ""string"",
+        ""title"": ""Asset at Risk"",
+        ""description"": ""System component, data, or resource that could be compromised""
+      },
+      ""attackScenario"": {
+        ""type"": ""string"",
+        ""title"": ""Attack Scenario"",
+        ""description"": ""Detailed description of how the attack could be executed""
+      },
+      ""mitigationStrategy"": {
+        ""type"": ""string"",
+        ""title"": ""Mitigation Strategy"",
+        ""description"": ""Proposed approach to mitigate or prevent this threat vector""
+      }
+    },
+    ""required"": [
+      ""severity"",
+      ""status"",
+      ""strideCategory"",
+      ""likelihood""
+    ]
+  },
+  ""uischema"": { 
+    ""type"": ""Categorization"",
+    ""elements"": [
+      {
+        ""type"": ""Category"",
+        ""label"": ""Assessment"",
+        ""elements"": [
+          {
+            ""type"": ""HorizontalLayout"",
+            ""elements"": [
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/severity""
+              },
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/status""
+              }
+            ]
+          },
+          {
+            ""type"": ""HorizontalLayout"",
+            ""elements"": [
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/strideCategory""
+              },
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/likelihood""
+              }
+            ]
+          },
+          {
+            ""type"": ""HorizontalLayout"",
+            ""elements"": [
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/threatActorType""
+              },
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/assetAtRisk""
+              }
+            ]
+          }
+        ]
+      },
+      {
+        ""type"": ""Category"",
+        ""label"": ""Details & Mitigation"",
+        ""elements"": [
+          {
+            ""type"": ""Control"",
+            ""scope"": ""#/properties/attackScenario"",
+            ""options"": {
+              ""multi"": true,
+              ""rows"": 3
+            }
+          },
+          {
+            ""type"": ""Control"",
+            ""scope"": ""#/properties/mitigationStrategy"",
+            ""options"": {
+              ""multi"": true,
+              ""rows"": 4
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+",,
+e28f6cde-e517-4229-9a6c-dce19195bf3e,Missing Security Control,An absent or insufficient security control that should be implemented to mitigate identified threats and reduce system risk.,Security Control,Issue,"{
+  ""schema"": {
+    ""type"": ""object"",
+    ""properties"": {
+      ""severity"": {
+        ""type"": ""string"",
+        ""title"": ""Severity"",
+        ""enum"": [
+          ""critical"",
+          ""high"",
+          ""medium"",
+          ""low""
+        ],
+        ""default"": ""medium"",
+        ""description"": ""Missing control severity level""
+      },
+      ""status"": {
+        ""type"": ""string"",
+        ""title"": ""Status"",
+        ""enum"": [
+          ""identified"",
+          ""planned"",
+          ""in-progress"",
+          ""implemented"",
+          ""testing"",
+          ""deployed""
+        ],
+        ""default"": ""identified""
+      },
+      ""controlType"": {
+        ""type"": ""string"",
+        ""title"": ""Control Type"",
+        ""enum"": [
+          ""preventive"",
+          ""detective"",
+          ""corrective"",
+          ""deterrent"",
+          ""compensating""
+        ],
+        ""description"": ""Type of security control needed""
+      },
+      ""securityDomain"": {
+        ""type"": ""string"",
+        ""title"": ""Security Domain"",
+        ""enum"": [
+          ""authentication"",
+          ""authorization"",
+          ""encryption"",
+          ""audit-logging"",
+          ""input-validation"",
+          ""session-management"",
+          ""data-protection"",
+          ""network-security""
+        ],
+        ""description"": ""Security area that needs the control""
+      },
+      ""implementationComplexity"": {
+        ""type"": ""string"",
+        ""title"": ""Implementation Complexity"",
+        ""enum"": [
+          ""low"",
+          ""medium"",
+          ""high"",
+          ""very-high""
+        ],
+        ""default"": ""medium"",
+        ""description"": ""Complexity level for implementing this control""
+      },
+      ""riskReductionLevel"": {
+        ""type"": ""string"",
+        ""title"": ""Risk Reduction Level"",
+        ""enum"": [
+          ""minimal"",
+          ""moderate"",
+          ""significant"",
+          ""major""
+        ],
+        ""default"": ""moderate"",
+        ""description"": ""Expected risk reduction after implementation""
+      },
+      ""controlDescription"": {
+        ""type"": ""string"",
+        ""title"": ""Control Description"",
+        ""description"": ""Detailed description of the missing security control""
+      },
+      ""implementationPlan"": {
+        ""type"": ""string"",
+        ""title"": ""Implementation Plan"",
+        ""description"": ""Proposed approach and steps to implement this control""
+      }
+    },
+    ""required"": [
+      ""severity"",
+      ""status"",
+      ""controlType"",
+      ""securityDomain""
+    ]
+  },
+  ""uischema"": {
+    ""type"": ""Categorization"",
+    ""elements"": [
+      {
+        ""type"": ""Category"",
+        ""label"": ""Assessment"",
+        ""elements"": [
+          {
+            ""type"": ""HorizontalLayout"",
+            ""elements"": [
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/severity""
+              },
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/status""
+              }
+            ]
+          },
+          {
+            ""type"": ""HorizontalLayout"",
+            ""elements"": [
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/controlType""
+              },
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/securityDomain""
+              }
+            ]
+          },
+          {
+            ""type"": ""HorizontalLayout"",
+            ""elements"": [
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/implementationComplexity""
+              },
+              {
+                ""type"": ""Control"",
+                ""scope"": ""#/properties/riskReductionLevel""
+              }
+            ]
+          }
+        ]
+      },
+      {
+        ""type"": ""Category"",
+        ""label"": ""Implementation"",
+        ""elements"": [
+          {
+            ""type"": ""Control"",
+            ""scope"": ""#/properties/controlDescription"",
+            ""options"": {
+              ""multi"": true,
+              ""rows"": 3
+            }
+          },
+          {
+            ""type"": ""Control"",
+            ""scope"": ""#/properties/implementationPlan"",
+            ""options"": {
+              ""multi"": true,
+              ""rows"": 4
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+",,

@@ -1,0 +1,8 @@
+{
+  "name": "mitre-frameworks",
+  "version": "1.0.0",
+  "displayName": "MITRE ATT&CK & D3FEND Data",
+  "description": "Pre-exported MITRE ATT&CK and D3FEND framework data in Cypher format",
+  "author": "Dethermine Team",
+  "tags": ["data", "mitre", "attack", "defend"]
+}

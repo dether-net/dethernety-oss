@@ -1,0 +1,140 @@
+/* Vue Flow styles */
+.vue-flow {
+  width: 100%;
+  height: 100%;
+  font-family: 'JetBrains Mono', monospace;
+  background-color: rgb(var(--v-theme-background));
+}
+
+/* Node styles */
+.vue-flow__node {
+  font-size: 10px;
+  border: 1px solid #ccc;
+  display: flex;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center;
+}
+
+.vue-flow__node-PROCESS {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 0px;
+  background-color: #4a5568;
+  background: 
+    radial-gradient(circle at 65% 35%, 
+      rgb(var(--v-theme-nodecolor-1)) 10%,
+      rgb(var(--v-theme-nodecolor-2)) 60%,
+      rgb(var(--v-theme-nodecolor-3)) 100%); 
+  box-shadow: 
+    0 8px 20px rgba(0,0,0,0.2),
+    inset 0 -4px 8px rgba(0,0,0,0.3); 
+}
+
+.vue-flow__node-STORE {
+  width: 100px;
+  height: 50px;
+  border: 0px;
+  border-top: 3px solid #ccc;
+  border-bottom: 3px solid #ccc;
+  background-color: rgba(255, 255, 255, 0.07);
+}
+
+.vue-flow__node-EXTERNAL_ENTITY {
+  width: 80px;
+  height: 80px;
+  border: 0px;
+  background-color: #4a5568;
+  background: 
+    radial-gradient(circle at 65% 35%, 
+      rgb(var(--v-theme-nodecolor-1)) 10%,
+      rgb(var(--v-theme-nodecolor-2)) 60%,
+      rgb(var(--v-theme-nodecolor-3)) 100%); 
+  box-shadow: 
+    0 8px 20px rgba(0,0,0,0.2),
+    inset 0 -4px 8px rgba(0,0,0,0.3);
+}
+
+.vue-flow__node-BOUNDARY {
+  width: 90px;
+  height: 80px;
+  border: 3px dashed rgb(173, 27, 27);
+  background: transparent;
+}
+
+.vue-flow__node-STORE.selected {
+  background-color: rgba(42, 61, 70, 0.6);
+}
+
+.vue-flow__node-PROCESS.selected {
+  background: 
+    radial-gradient(circle at 65% 35%, 
+      rgb(var(--v-theme-nodecolor-selected-1)) 10%,
+      rgb(var(--v-theme-nodecolor-selected-2)) 60%,
+      rgb(var(--v-theme-nodecolor-selected-3)) 100%); 
+}
+
+.vue-flow__node-EXTERNAL_ENTITY.selected {
+  background: 
+    radial-gradient(circle at 65% 35%, 
+      rgb(var(--v-theme-nodecolor-selected-1)) 10%,
+      rgb(var(--v-theme-nodecolor-selected-2)) 60%,
+      rgb(var(--v-theme-nodecolor-selected-3)) 100%); 
+}
+
+/* Selected and intersecting styles */
+.vue-flow__node-BOUNDARY.selected,
+.intersecting {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Controls styles */
+.vue-flow .vue-flow__controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* .vue-flow__container {
+  position: fixed !important;
+} */
+
+.vue-flow__controls {
+  border: 1px solid #fffffb;
+}
+
+.vue-flow .vue-flow__controls .vue-flow__controls-button {
+  border: none;
+  border-right: 1px solid #eee;
+}
+
+.vue-flow__controls .vue-flow__controls-button {
+  background-color: rgb(var(--background-color));
+  /* background: #333; */
+  fill: #fffffb;
+}
+
+.vue-flow .vue-flow__controls .vue-flow__controls-button:hover {
+  background-color: var(--background-color);
+}
+
+/* Edge styles */
+.vue-flow .vue-flow__edge-textbg {
+  fill: #292524;
+}
+
+.vue-flow .vue-flow__edge-text {
+  fill: #fffffb;
+}
+
+/* Dropzone background */
+.dropzone-background {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+.vue-flow__edge-path, .vue-flow__connection-path {
+  stroke-width: 2;
+}

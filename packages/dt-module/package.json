@@ -1,0 +1,24 @@
+{
+  "name": "@dethernety/dt-module",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b -w"
+  },
+  "dependencies": {
+    "@dethernety/dt-core": "workspace:*",
+    "@langchain/langgraph-sdk": "^1.6.5",
+    "@nestjs/common": "^11.1.8",
+    "@styra/opa": "^1.7.10",
+    "axios": "^1.13.2",
+    "graphql": "^16.12.0",
+    "graphql-subscriptions": "^3.0.0",
+    "json-logic-js": "^2.0.5"
+  },
+  "devDependencies": {
+    "@types/json-logic-js": "^2.0.8",
+    "@types/node": "^25.3.2"
+  }
+}

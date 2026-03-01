@@ -1,0 +1,1112 @@
+#graphql
+
+scalar JSON
+
+"""Component type (process, database, external entity, etc.)."""
+enum ComponentType {
+  "A running process or service"
+  PROCESS
+  "An external actor or system outside the model boundary"
+  EXTERNAL_ENTITY
+  "A data store (database, file system, cache)"
+  STORE
+  "A logical grouping boundary"
+  BOUNDARY
+  "A trust boundary separating zones of different trust levels"
+  SECURITY_BOUNDARY
+  "A data flow connection between components"
+  DATA_FLOW
+}
+
+"""Trust level assigned to a security boundary."""
+enum TrustLevel {
+  "No trust — external or hostile zone"
+  UNTRUSTED
+  "Partial trust — DMZ or shared zone"
+  SEMI_TRUSTED
+  "Full trust — internal or protected zone"
+  TRUSTED
+}
+
+"""Value types for dynamic attributes."""
+enum ValueType {
+  "A text value"
+  STRING
+  "A numeric value (integer or float)"
+  NUMBER
+  "A true/false value"
+  BOOLEAN
+  "A date or datetime value"
+  DATE
+}
+
+"""Base interface implemented by all graph-stored entities."""
+interface Element {
+  "Unique identifier"
+  id: ID!
+  "Display name"
+  name: String!
+  "Free-text description"
+  description: String
+}
+
+"""Organizational folder for grouping models and controls."""
+type Folder implements Element @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Folder name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Parent folder (if nested)"
+  parentFolder: [Folder!]! @relationship(type: "FOLDER_CONTAINS", direction: IN)
+  "Child folders"
+  childrenFolders: [Folder!]! @relationship(type: "FOLDER_CONTAINS", direction: OUT)
+  "Models in this folder"
+  models: [Model!]! @relationship(type: "FOLDER_CONTAINS", direction: OUT)
+  "Controls in this folder"
+  controls: [Control!]! @relationship(type: "FOLDER_CONTAINS", direction: OUT)
+}
+
+"""A threat model containing components, data flows, boundaries, and analysis results."""
+type Model implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Model name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Top-level security boundaries in this model"
+  defaultBoundary: [SecurityBoundary!]! @relationship(type: "CONTAINS", direction: OUT)
+  "Modules loaded for this model"
+  modules: [Module!]! @relationship(type: "HAS_MODULE", direction: OUT)
+  "Controls applied to this model"
+  controls: [Control!]! @relationship(type: "SUPPORTS", direction: IN)
+  "Data elements defined in this model"
+  dataItems: [Data!]! @relationship(type: "CONTAINS", direction: OUT)
+  "Components that represent this model (for model-in-model composition)"
+  representedBy: [Element!]! @relationship(type: "REPRESENTS_MODEL", direction: IN)
+  "Analyses run against this model"
+  analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT)
+  "Issues associated with this model"
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
+  "Folder containing this model"
+  folder: [Folder!]! @relationship(type: "FOLDER_CONTAINS", direction: IN)
+}
+
+"""A modeled entity in the system (process, database, external entity, etc.)."""
+type Component implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Component name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Component type (process, store, external entity, etc.)"
+  type: ComponentType!
+  "Security boundary this component belongs to"
+  parentBoundary: [SecurityBoundary!]! @relationship(type: "BELONGS_TO", direction: OUT)
+  "Outgoing data flows from this component"
+  flowsFrom: [DataFlow!]! @relationship(type: "FLOWS", direction: OUT)
+  "Incoming data flows to this component"
+  flowsTo: [DataFlow!]! @relationship(type: "FLOWS", direction: IN)
+  "Security exposures identified on this component"
+  exposures: [Exposure!]! @relationship(type: "HAS_EXPOSURE", direction: OUT)
+  "Controls applied to this component"
+  controls: [Control!]! @relationship(type: "SUPPORTS", direction: IN)
+  "Data elements handled by this component"
+  dataItems: [Data!]! @relationship(type: "HANDLES", direction: OUT)
+  "Class this component is an instance of"
+  componentClass: [ComponentClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  "Model represented by this component (for model-in-model composition)"
+  representedModel: [Model!]! @relationship(type: "REPRESENTS_MODEL", direction: OUT)
+  "Analyses run against this component"
+  analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT)
+  "Issues associated with this component"
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
+  "X position on the canvas"
+  positionX: Float
+  "Y position on the canvas"
+  positionY: Float
+  "Width on the canvas"
+  dimensionsWidth: Float
+  "Height on the canvas"
+  dimensionsHeight: Float
+}
+
+"""A directed data flow between two components."""
+type DataFlow implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Data flow name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Source component of this data flow"
+  source: [Component!]! @relationship(type: "FLOWS", direction: IN)
+  "Target component of this data flow"
+  target: [Component!]! @relationship(type: "FLOWS", direction: OUT)
+  "Source handle identifier (for canvas rendering)"
+  sourceHandle: String
+  "Target handle identifier (for canvas rendering)"
+  targetHandle: String
+  "Data flow protocol or transport types (e.g., HTTP, gRPC)"
+  dataFlowTypes: [String!]
+  "Analyses run against this data flow"
+  analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT)
+  "Security exposures identified on this data flow"
+  exposures: [Exposure!]! @relationship(type: "HAS_EXPOSURE", direction: OUT)
+  "Controls applied to this data flow"
+  controls: [Control!]! @relationship(type: "SUPPORTS", direction: IN)
+  "Data elements carried by this data flow"
+  dataItems: [Data!]! @relationship(type: "HANDLES", direction: OUT)
+  "Class this data flow is an instance of"
+  dataFlowClass: [DataFlowClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  "Issues associated with this data flow"
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
+}
+
+"""A trust boundary separating zones of different trust levels (e.g., network boundary, DMZ)."""
+type SecurityBoundary implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Boundary name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Model this boundary belongs to"
+  model: [Model!]! @relationship(type: "CONTAINS", direction: IN)
+  "Trust level of this boundary (untrusted, semi-trusted, trusted)"
+  trustLevel: TrustLevel!
+  "Components inside this boundary"
+  components: [Component!]! @relationship(type: "BELONGS_TO", direction: IN)
+  "Nested child boundaries"
+  childBoundaries: [SecurityBoundary!]! @relationship(type: "BELONGS_TO", direction: IN)
+  "Parent boundary (if nested)"
+  parentBoundary: [SecurityBoundary!]! @relationship(type: "BELONGS_TO", direction: OUT)
+  "Security exposures identified on this boundary"
+  exposures: [Exposure!]! @relationship(type: "HAS_EXPOSURE", direction: OUT)
+  "Controls applied to this boundary"
+  controls: [Control!]! @relationship(type: "SUPPORTS", direction: IN)
+  "Data elements handled within this boundary"
+  dataItems: [Data!]! @relationship(type: "HANDLES", direction: OUT)
+  "Class this boundary is an instance of"
+  securityBoundaryClass: [SecurityBoundaryClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  "Model represented by this boundary (for model-in-model composition)"
+  representedModel: [Model!]! @relationship(type: "REPRESENTS_MODEL", direction: OUT)
+  "Analyses run against this boundary"
+  analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT)
+  "Issues associated with this boundary"
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
+  "X position on the canvas"
+  positionX: Float
+  "Y position on the canvas"
+  positionY: Float
+  "Width on the canvas"
+  dimensionsWidth: Float
+  "Height on the canvas"
+  dimensionsHeight: Float
+  "Minimum width on the canvas"
+  dimensionsMinWidth: Float
+  "Minimum height on the canvas"
+  dimensionsMinHeight: Float
+  "All nested boundaries at any depth (computed via Cypher traversal)"
+  allDescendantBoundaries: [SecurityBoundary!]!
+    @cypher(
+      statement: """
+      MATCH (this)<-[:BELONGS_TO*1..10]-(sb:SecurityBoundary)
+      RETURN DISTINCT sb
+      """,
+      columnName: "sb"
+    )
+  "All components inside this boundary or any nested boundary (computed)"
+  allDescendantComponents: [Component!]!
+    @cypher(
+      statement: """
+      MATCH (this)<-[:BELONGS_TO*0..10]-(sb:SecurityBoundary)
+      WITH DISTINCT sb
+      MATCH (sb)<-[:BELONGS_TO]-(c:Component)
+      RETURN DISTINCT c
+      """,
+      columnName: "c"
+    )
+  "All data flows touching components in this boundary or nested boundaries (computed)"
+  allDescendantDataFlows: [DataFlow!]!
+    @cypher(
+      statement: """
+      MATCH (this)<-[:BELONGS_TO*0..10]-(sb:SecurityBoundary)
+      WITH DISTINCT sb
+      MATCH (sb)<-[:BELONGS_TO]-(c:Component)
+      WITH DISTINCT c
+      MATCH (c)-[:FLOWS]-(df:DataFlow)
+      RETURN DISTINCT df
+      """,
+      columnName: "df"
+    )
+}
+
+"""A data element handled by components and data flows (e.g., PII, credentials, API keys)."""
+type Data implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Data element name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Model this data element belongs to"
+  model: [Model!]! @relationship(type: "CONTAINS", direction: IN)
+  "Class this data element is an instance of"
+  dataClass: [DataClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  "Components that handle this data"
+  component: [Component!]! @relationship(type: "HANDLES", direction: IN)
+  "Data flows that carry this data"
+  dataFlow: [DataFlow!]! @relationship(type: "HANDLES", direction: IN)
+  "Boundaries that contain this data"
+  securityBoundary: [SecurityBoundary!]! @relationship(type: "HANDLES", direction: IN)
+  "All elements that handle this data"
+  elements: [Element!]! @relationship(type: "HANDLES", direction: IN)
+  "Security exposures related to this data"
+  exposures: [Exposure!]! @relationship(type: "HAS_EXPOSURE", direction: OUT)
+  "Analyses involving this data"
+  analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT)
+  "Issues associated with this data"
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
+}
+
+"""A security control applied to one or more elements (e.g., encryption, authentication, firewall rule)."""
+type Control implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Control name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Control type (e.g., technical, procedural, administrative)"
+  type: String
+  "Control category"
+  category: String
+  "Class this control is an instance of"
+  controlClasses: [ControlClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  "Elements this control is applied to"
+  elements: [Element!]! @relationship(type: "SUPPORTS", direction: OUT)
+  "Countermeasures provided by this control"
+  countermeasures: [Countermeasure!]! @relationship(type: "HAS_COUNTERMEASURE", direction: OUT)
+  "Folder containing this control"
+  folder: [Folder!]! @relationship(type: "FOLDER_CONTAINS", direction: IN)
+  "Analyses involving this control"
+  analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT)
+  "Issues associated with this control"
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
+}
+
+"""An executable module that provides component classes, analysis logic, controls, and other domain-specific functionality."""
+type Module implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Module name"
+  name: String!
+  "Module version"
+  version: String!
+  "Free-text description"
+  description: String
+  "Models this module is loaded in"
+  model: [Model!]! @relationship(type: "HAS_MODULE", direction: IN)
+  "Component classes provided by this module"
+  componentClasses: [ComponentClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  "Data flow classes provided by this module"
+  dataFlowClasses: [DataFlowClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  "Security boundary classes provided by this module"
+  securityBoundaryClasses: [SecurityBoundaryClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  "Control classes provided by this module"
+  controlClasses: [ControlClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  "Data classes provided by this module"
+  dataClasses: [DataClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  "Analysis classes provided by this module"
+  analysisClasses: [AnalysisClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  "Module configuration template (resolved at runtime)"
+  template: String @customResolver(requires: "name")
+  "Module configuration attributes (JSON string)"
+  attributes: String
+  "File system path to the module"
+  path: String
+}
+
+"""A component class definition provided by a module (e.g., Web Server, Database, API Gateway)."""
+type ComponentClass implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Class name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Component type this class represents"
+  type: ComponentType!
+  "Grouping category within the module"
+  category: String
+  "Module that provides this class"
+  module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
+  "File path within the module"
+  path: String
+  "Components that are instances of this class"
+  components: [Component!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  "Configuration template (resolved at runtime)"
+  template: String @customResolver(requires: "id module { name }")
+  "User-facing guide content (resolved at runtime)"
+  guide: String @customResolver(requires: "id module { name }")
+}
+
+"""A security boundary class definition provided by a module (e.g., Network Segment, Cloud VPC)."""
+type SecurityBoundaryClass implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Class name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Component type this class represents"
+  type: ComponentType!
+  "Grouping category within the module"
+  category: String
+  "Module that provides this class"
+  module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
+  "File path within the module"
+  path: String
+  "Security boundaries that are instances of this class"
+  securityBoundaries: [SecurityBoundary!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  "Configuration template (resolved at runtime)"
+  template: String @customResolver(requires: "id module { name }")
+  "User-facing guide content (resolved at runtime)"
+  guide: String @customResolver(requires: "id module { name }")
+}
+
+"""A data flow class definition provided by a module (e.g., HTTP Request, Database Query)."""
+type DataFlowClass implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Class name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Component type this class represents"
+  type: ComponentType!
+  "Grouping category within the module"
+  category: String
+  "Module that provides this class"
+  module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
+  "File path within the module"
+  path: String
+  "Data flows that are instances of this class"
+  dataFlows: [DataFlow!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  "Configuration template (resolved at runtime)"
+  template: String @customResolver(requires: "id module { name }")
+  "User-facing guide content (resolved at runtime)"
+  guide: String @customResolver(requires: "id module { name }")
+}
+
+"""A control class definition provided by a module (e.g., Encryption at Rest, MFA)."""
+type ControlClass implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Class name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Control type"
+  type: String
+  "Grouping category within the module"
+  category: String
+  "Component types this control class can be applied to"
+  supportedTypes: [ComponentType!]
+  "Component categories this control class can be applied to"
+  supportedCategories: [String!]
+  "Module that provides this class"
+  module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
+  "File path within the module"
+  path: String
+  "Controls that are instances of this class"
+  controls: [Control!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  "Countermeasures associated with this control class"
+  countermeasures: [Countermeasure!]! @relationship(type: "IS_COUNTERMEASURE_OF", direction: IN)
+  "Configuration template (resolved at runtime)"
+  template: String @customResolver(requires: "id module { name }")
+  "User-facing guide content (resolved at runtime)"
+  guide: String @customResolver(requires: "id module { name }")
+}
+
+"""A data class definition provided by a module (e.g., PII, Authentication Token, API Key)."""
+type DataClass implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Class name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Data type"
+  type: String
+  "Grouping category within the module"
+  category: String
+  "Module that provides this class"
+  module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
+  "File path within the module"
+  path: String
+  "Data elements that are instances of this class"
+  data: [Data!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  "Configuration template (resolved at runtime)"
+  template: String @customResolver(requires: "id module { name }")
+  "User-facing guide content (resolved at runtime)"
+  guide: String @customResolver(requires: "id module { name }")
+}
+
+"""A security exposure (vulnerability or weakness) identified on a model element."""
+type Exposure implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Exposure name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Exposure type"
+  type: String
+  "Exposure category"
+  category: String
+  "Risk score"
+  score: Int
+  "External references (URLs, CVE IDs)"
+  references: String
+  "Suggested mitigations"
+  mitigationSuggestions: [String!]
+  "Detection methods"
+  detectionMethods: [String!]
+  "Tags for filtering and grouping"
+  tags: [String!]
+  "MITRE ATT&CK technique IDs"
+  techniques: [String!]
+  "Components affected by this exposure"
+  component: [Component!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
+  "Boundaries affected by this exposure"
+  securityBoundary: [SecurityBoundary!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
+  "Data flows affected by this exposure"
+  dataFlow: [DataFlow!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
+  "Data elements affected by this exposure"
+  data: [Data!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
+  "All elements affected by this exposure"
+  element: [Element!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
+  "ATT&CK techniques that exploit this exposure"
+  exploitedBy: [MitreAttackTechnique!]! @relationship(type: "EXPLOITED_BY", direction: OUT)
+  "Issues associated with this exposure"
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
+}
+
+"""A MITRE ATT&CK tactic (e.g., Initial Access, Persistence, Exfiltration)."""
+type MitreAttackTactic implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Tactic name"
+  name: String!
+  "Free-text description"
+  description: String
+  "ATT&CK tactic ID (e.g., TA0001)"
+  attack_id: String
+  "ATT&CK version this tactic was introduced or updated in"
+  attack_version: String
+  "STIX identifier"
+  stix_id: String
+  "STIX specification version"
+  stix_spec_version: String
+  "STIX object type"
+  stix_type: String
+  "Techniques associated with this tactic"
+  techniques: [MitreAttackTechnique!]! @relationship(type: "TACTIC_INCLUDES_TECHNIQUE", direction: OUT)
+}
+
+"""A MITRE ATT&CK technique or sub-technique (e.g., T1566 Phishing)."""
+type MitreAttackTechnique implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Technique name"
+  name: String!
+  "Free-text description"
+  description: String
+  "ATT&CK technique ID (e.g., T1566, T1566.001)"
+  attack_id: String
+  "ATT&CK specification version"
+  attack_spec_version: String
+  "Whether this technique has decreased usage"
+  attack_decreased: Boolean
+  "Whether this is a sub-technique"
+  attack_subtechnique: Boolean
+  "ATT&CK version this technique was introduced or updated in"
+  attack_version: String
+  "Reference URL on attack.mitre.org"
+  ref_url: String
+  "STIX identifier"
+  stix_id: String
+  "STIX specification version"
+  stix_spec_version: String
+  "STIX object type"
+  stix_type: String
+  "Sub-techniques of this technique"
+  subTechniques: [MitreAttackTechnique!]! @relationship(type: "SUBTECHNIQUE_OF", direction: IN)
+  "Parent technique (if this is a sub-technique)"
+  parentTechnique: [MitreAttackTechnique!]! @relationship(type: "SUBTECHNIQUE_OF", direction: OUT)
+  "Exposures that this technique can exploit"
+  exposures: [Exposure!]! @relationship(type: "EXPLOITED_BY", direction: IN)
+  "ATT&CK mitigations that defend against this technique"
+  mitigations: [MitreAttackMitigation!]! @relationship(type: "MITIGATION_DEFENDS_AGAINST_TECHNIQUE", direction: IN)
+  "Tactics this technique belongs to"
+  tactics: [MitreAttackTactic!]! @relationship(type: "TACTIC_INCLUDES_TECHNIQUE", direction: IN)
+}
+
+"""A MITRE ATT&CK mitigation (e.g., M1036 Account Use Policies)."""
+type MitreAttackMitigation implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Mitigation name"
+  name: String!
+  "Free-text description"
+  description: String
+  "ATT&CK mitigation ID (e.g., M1036)"
+  attack_id: String
+  "Whether this mitigation has been deprecated"
+  attack_deprecated: Boolean
+  "Reference URL on attack.mitre.org"
+  ref_url: String
+  "ATT&CK specification version"
+  attack_spec_version: String
+  "STIX specification version"
+  stix_spec_version: String
+  "STIX last-modified timestamp"
+  stix_modified: String
+  "STIX identifier"
+  stix_id: String
+  "ATT&CK version this mitigation was introduced or updated in"
+  attack_version: String
+  "STIX creation timestamp"
+  stix_created: String
+  "Whether this STIX object has been revoked"
+  stix_revoked: Boolean
+  "STIX object type"
+  stix_type: String
+  "Techniques this mitigation defends against"
+  attackTechniqueMitigated: [MitreAttackTechnique!]! @relationship(type: "MITIGATION_DEFENDS_AGAINST_TECHNIQUE", direction: OUT)
+  "Countermeasures that implement this mitigation"
+  countermeasures: [Countermeasure!]! @relationship(type: "RESPONDS_WITH", direction: IN)
+}
+
+"""A MITRE D3FEND tactic (e.g., Detect, Isolate, Deceive)."""
+type MitreDefendTactic implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Tactic name"
+  name: String!
+  "Free-text description"
+  description: String
+  "D3FEND tactic ID"
+  attack_id: String
+  "D3FEND knowledge graph URI"
+  uri: String
+  "Techniques that enable this tactic"
+  techniques: [MitreDefendTechnique!]! @relationship(type: "ENABLES", direction: IN)
+}
+
+"""A MITRE D3FEND defensive technique (e.g., Network Traffic Filtering)."""
+type MitreDefendTechnique implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Technique name"
+  name: String!
+  "D3FEND technique ID"
+  d3fendId: String
+  "Free-text description"
+  description: String
+  "D3FEND knowledge graph URI"
+  uri: String
+  "Tactics this technique enables"
+  tactics: [MitreDefendTactic!]! @relationship(type: "ENABLES", direction: OUT)
+  "Sub-techniques of this technique"
+  subTechniques: [MitreDefendTechnique!]! @relationship(type: "SUB_TECHNIQUE_OF", direction: IN)
+  "Parent technique (if this is a sub-technique)"
+  parentTechnique: [MitreDefendTechnique!]! @relationship(type: "SUB_TECHNIQUE_OF", direction: OUT)
+  "Countermeasures that implement this technique"
+  countermeasures: [Countermeasure!]! @relationship(type: "RESPONDS_WITH", direction: IN)
+}
+
+"""A defensive countermeasure linked to MITRE ATT&CK mitigations and D3FEND techniques."""
+type Countermeasure implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Countermeasure name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Countermeasure type"
+  type: String
+  "Countermeasure category"
+  category: String
+  "Effectiveness score"
+  score: Int
+  "External references"
+  references: String
+  "Exposure names this countermeasure addresses"
+  addressedExposures: [String!]
+  "Tags for filtering and grouping"
+  tags: [String!]
+  "ATT&CK mitigations implemented by this countermeasure"
+  mitigations: [MitreAttackMitigation!]! @relationship(type: "RESPONDS_WITH", direction: OUT)
+  "D3FEND techniques implemented by this countermeasure"
+  defendedTechniques: [MitreDefendTechnique!]! @relationship(type: "RESPONDS_WITH", direction: OUT)
+  "Control that provides this countermeasure"
+  control: [Control!]! @relationship(type: "HAS_COUNTERMEASURE", direction: IN)
+  "Control class this countermeasure belongs to"
+  controlClass: [ControlClass!]! @relationship(type: "IS_COUNTERMEASURE_OF", direction: OUT)
+  "Issues associated with this countermeasure"
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
+}
+
+"""Status of a running or completed analysis."""
+type AnalysisStatus  @authentication @node {
+  "When the analysis was started"
+  createdAt: String!
+  "When the status was last updated"
+  updatedAt: String!
+  "Current status (e.g., running, completed, failed)"
+  status: String!
+  "Pending human-in-the-loop interrupts"
+  interrupts: JSON
+  "Analysis messages and log entries"
+  messages: [JSON!]
+  "Additional metadata"
+  metadata: JSON
+}
+
+"""An analysis instance run against model elements."""
+type Analysis implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Analysis name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Analysis type"
+  type: String
+  "Analysis category"
+  category: String
+  "Class this analysis is an instance of"
+  analysisClass: [AnalysisClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  "Current execution status (resolved at runtime)"
+  status: AnalysisStatus @customResolver(requires: "id analysisClass { id module { name } }")
+  "Available value keys for retrieving analysis results (resolved at runtime)"
+  valueKeys: [String!]! @customResolver(requires: "id analysisClass { id module { name } }")
+  "Model being analyzed"
+  model: [Model!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  "Components being analyzed"
+  component: [Component!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  "Data flows being analyzed"
+  dataFlow: [DataFlow!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  "Security boundaries being analyzed"
+  securityBoundary: [SecurityBoundary!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  "Controls being analyzed"
+  control: [Control!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  "Data elements being analyzed"
+  data: [Data!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  "All elements being analyzed"
+  element: [Element!]! @relationship(type: "ANALYZED_BY", direction: IN)
+  "Issues associated with this analysis"
+  issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
+}
+
+"""An analysis class definition provided by a module."""
+type AnalysisClass implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Class name"
+  name: String!
+  "Module that provides this class"
+  module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
+  "Free-text description"
+  description: String
+  "Analysis type"
+  type: String
+  "Analysis category"
+  category: String
+  "Analysis instances of this class"
+  analyses: [Analysis!]! @relationship(type: "IS_INSTANCE_OF", direction: IN)
+}
+
+"""Extended element info returned by Issue.elementsWithExtendedInfo (computed via Cypher)."""
+type IssueElement  @authentication @node {
+  "Element identifier"
+  id: ID!
+  "Element name"
+  name: String
+  "Element description"
+  description: String
+  "Element type"
+  type: String
+  "Graph label of the element (e.g., Component, DataFlow)"
+  element_type: String
+  "Element category"
+  category: String
+  "ID of the model containing this element"
+  model_id: ID
+  "Name of the model containing this element"
+  model_name: String
+  "Description of the model containing this element"
+  model_description: String
+  "ID of the component affected by the exposure (if element is an Exposure)"
+  exposed_component_id: ID
+  "Name of the exposed component"
+  exposed_component_name: String
+  "Description of the exposed component"
+  exposed_component_description: String
+}
+
+"""A tracked issue created from analysis findings, linked to affected model elements."""
+type Issue implements Element  @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Issue name"
+  name: String!
+  "Free-text description"
+  description: String
+  "Issue type"
+  type: String
+  "Issue category"
+  category: String
+  "Current status (e.g., open, in_progress, resolved)"
+  issueStatus: String
+  "Discussion comments"
+  comments: [String!]
+  # Explicit per-type relationships (the Element interface can't be used here for performance reasons)
+  "Affected models"
+  models: [Model!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  "Affected components"
+  components: [Component!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  "Affected data flows"
+  dataFlows: [DataFlow!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  "Affected security boundaries"
+  securityBoundaries: [SecurityBoundary!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  "Affected controls"
+  controls: [Control!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  "Affected data elements"
+  data: [Data!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  "Related analyses"
+  analyses: [Analysis!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  "Related exposures"
+  exposures: [Exposure!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  "Related countermeasures"
+  countermeasures: [Countermeasure!]! @relationship(type: "HAS_ISSUE", direction: IN)
+  "External system attributes (JSON string)"
+  attributes: String
+  "Timestamp of last external sync"
+  lastSyncAt: String
+  "Creation timestamp"
+  createdAt: String
+  "Last update timestamp"
+  updatedAt: String
+  "Attributes synced from external system (resolved at runtime)"
+  syncedAttributes: JSON @customResolver(requires: "id lastSyncAt attributes issueClass { module { name } }")
+  "Class this issue is an instance of"
+  issueClass: [IssueClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
+  "All linked elements with model context and exposure info (computed via Cypher)"
+  elementsWithExtendedInfo: [IssueElement!]! @cypher(
+    statement: """
+    MATCH (this)-[:HAS_ISSUE]-(e)
+    OPTIONAL MATCH (e)-[:CONTAINS|BELONGS_TO|FLOWS|HANDLES|HAS_EXPOSURE|ANALYZED_BY*1..10]-(m:Model)
+    OPTIONAL MATCH (e)<-[:HAS_EXPOSURE]-(c)
+    RETURN DISTINCT {
+      id: e.id,
+      name: e.name,
+      description: e.description,
+      type: COALESCE(e.type, labels(e)[0]),
+      element_type: labels(e)[0],
+      category: COALESCE(e.category, ''),
+      model_id: CASE WHEN 'Model' IN labels(e) THEN e.id ELSE m.id END,
+      model_name: CASE WHEN 'Model' IN labels(e) THEN e.name ELSE m.name END,
+      model_description: CASE WHEN 'Model' IN labels(e) THEN e.description ELSE m.description END,
+      exposed_component_id: COALESCE(c.id, ''),
+      exposed_component_name: COALESCE(c.name, ''),
+      exposed_component_description: COALESCE(c.description, '')
+    } AS issueElement
+    """
+    columnName: "issueElement"
+  )
+}
+
+"""An issue class definition provided by a module."""
+type IssueClass implements Element @authentication @node {
+  "Unique identifier"
+  id: ID! @id
+  "Class name"
+  name: String!
+  "Module that provides this class"
+  module: [Module!]! @relationship(type: "HAS_CLASS", direction: IN)
+  "Free-text description"
+  description: String
+  "Issue type"
+  type: String
+  "Issue category"
+  category: String
+  "Configuration template (resolved at runtime)"
+  template: String @customResolver(requires: "id module { name }")
+  "Issues that are instances of this class"
+  issues: [Issue!]! @relationship(type: "IS_INSTANCE_OF", direction: IN)
+}
+
+"""Statistics returned after deleting a model."""
+type DeletionStats @authentication @node {
+  "Number of graph nodes deleted"
+  nodesDeleted: Int!
+  "Number of graph relationships deleted"
+  relationshipsDeleted: Int!
+}
+
+"""An analysis session identifier."""
+type Session {
+  "Session ID for subscribing to analysis results via streamResponse"
+  sessionId: ID!
+}
+
+"""Result of adding elements to an issue."""
+type AddElementsToIssueResult {
+  "Number of elements successfully added"
+  elementsAdded: String!
+}
+
+type Mutation {
+  "Link one or more elements to an issue"
+  addElementsToIssue(
+    issueId: String!
+    elementIds: [String!]!
+  ): AddElementsToIssueResult!
+    @cypher(
+      statement: """
+      MATCH (issue:Issue {id: $issueId})
+      UNWIND $elementIds as elementId
+      MATCH (element {id: elementId})
+      WHERE any(label IN labels(element) WHERE label IN ['Model','Component','DataFlow','SecurityBoundary','Control','Data','Analysis','Exposure','Countermeasure'])
+      MERGE (issue)<-[:HAS_ISSUE]-(element)
+      RETURN DISTINCT {
+        elementsAdded: size(collect(element))
+      } AS result
+      """
+      columnName: "result"
+    )
+    @authentication
+
+  "Remove an element from an issue"
+  removeElementFromIssue(
+    issueId: String!
+    elementId: String!
+  ): Boolean!
+    @cypher(
+      statement: """
+      MATCH (issue:Issue {id: $issueId})<-[r:HAS_ISSUE]-(element {id: $elementId})
+      WHERE any(label IN labels(element) WHERE label IN ['Model','Component','DataFlow','SecurityBoundary','Control','Data','Analysis','Exposure','Countermeasure'])
+      DELETE r
+      RETURN TRUE as result
+      """
+      columnName: "result"
+    )
+    @authentication
+
+  "Set configuration attributes on a component's class instantiation relationship"
+  setInstantiationAttributes(
+    componentId: String!
+    classId: String!
+    attributes: JSON!
+  ): Boolean!
+    @authentication
+
+  "Reset a module, clearing its cached state and reloading from disk"
+  resetModule(moduleId: ID!): Boolean!
+    @authentication
+
+  "Delete a model and all its contained elements (boundaries, components, data flows, exposures)"
+  deleteModel(modelId: ID!): DeletionStats!
+    @cypher(
+      statement: """
+      MATCH (model:Model {id: $modelId})-[:CONTAINS]->(defbound:SecurityBoundary)
+      OPTIONAL MATCH (defbound)<-[:BELONGS_TO*0..]-(secbound:SecurityBoundary)
+      OPTIONAL MATCH (secbound)<-[:BELONGS_TO]-(comp:Component)
+      OPTIONAL MATCH (comp)-[:FLOWS]-(flow:DataFlow)
+      OPTIONAL MATCH (comp)-[:HANDLES]->(compdat:Data)
+      OPTIONAL MATCH (flow)-[:HANDLES]->(flowdat:Data)
+      OPTIONAL MATCH (secbound)-[:HANDLES]->(bounddat:Data)
+      OPTIONAL MATCH (comp)-[:HAS_EXPOSURE]->(excomp:Exposure)
+      OPTIONAL MATCH (flow)-[:HAS_EXPOSURE]->(exflow:Exposure)
+      OPTIONAL MATCH (secbound)-[:HAS_EXPOSURE]->(exbound:Exposure)
+      OPTIONAL MATCH (compdat)-[:HAS_EXPOSURE]->(exdat:Exposure)
+      OPTIONAL MATCH (flowdat)-[:HAS_EXPOSURE]->(exflowdat:Exposure)
+      OPTIONAL MATCH (bounddat)-[:HAS_EXPOSURE]->(exbounddat:Exposure)
+      // Collect all nodes into a single list
+      WITH collect(model) + collect(defbound) + collect(secbound) 
+          + collect(comp) + collect(flow) + collect(compdat) 
+          + collect(flowdat) + collect(bounddat)
+          + collect(excomp) + collect(exflow) + collect(exbound)
+          + collect(exdat) + collect(exflowdat) as nodesToDelete
+
+      // Remove null entries and get distinct nodes
+      UNWIND nodesToDelete as n
+      WITH collect(distinct n) as distinctNodes
+
+      // Count relationships that will be deleted
+      UNWIND distinctNodes as dn
+      MATCH (dn)-[r]-()
+      WITH distinctNodes, count(r) as relCount
+
+      // Delete all nodes
+      UNWIND distinctNodes as node
+      DETACH DELETE node
+
+      // Return stats
+      RETURN DISTINCT { 
+        nodesDeleted: size(distinctNodes), 
+        relationshipsDeleted: relCount 
+      } AS result
+      """
+      columnName: "result"
+    )
+    @authentication
+
+  "Start an analysis run, returns a session ID for subscribing to results"
+  runAnalysis(
+    analysisId: String!
+    additionalParams: JSON
+  ): Session!
+    @authentication
+
+  "Start a chat session with an analysis agent"
+  startChat(
+    analysisId: String!
+    userQuestion: String!
+    additionalParams: JSON
+  ): Session!
+    @authentication
+
+  "Resume a paused analysis with user input (human-in-the-loop)"
+  resumeAnalysis(
+    analysisId: String!
+    userInput: String!
+  ): Session!
+    @authentication
+
+  "Delete an analysis and its associated data"
+  deleteAnalysis(
+    analysisId: String!
+  ): Boolean!
+    @authentication
+}
+
+type Query {
+  "Get all exposures attached to a specific element"
+  getExposuresForElement(elementId: String!): [Exposure!]!
+    @cypher(
+      statement: """
+      MATCH (e {id: $elementId})-[:HAS_EXPOSURE]->(ex:Exposure)
+      RETURN ex
+      """
+      columnName: "ex"
+    )
+    @authentication
+
+  "Get the instantiation attributes from a component-to-class relationship"
+  getAttributesFromClassRel(
+    componentId: String!
+    classId: String!
+  ): JSON
+    @cypher(
+      statement: """
+      MATCH (c {id: $componentId})
+      MATCH (t {id: $classId})
+      OPTIONAL MATCH (c)-[r:IS_INSTANCE_OF]->(t)
+      RETURN COALESCE(r, {}) AS attributes
+      """
+      columnName: "attributes"
+    )
+    @authentication
+
+  "Get models that are not already represented by a component in the given model"
+  getNotRepreseningModels(
+    modelId: String!
+  ): [Model!]
+    @cypher(
+      statement: """
+      MATCH (src:Model {id:$modelId})
+      MATCH (src)<-[:REPRESENTS_MODEL]-(comp)
+      MATCH (comp)-[:BELONGS_TO|CONTAINS*1..]-(mod:Model)
+      WITH COLLECT(DISTINCT mod) AS connectedModels
+      MATCH (m:Model)
+      WHERE m.id <> $modelId
+        AND NOT m IN connectedModels
+      RETURN m
+      """
+      columnName: "m"
+    )
+    @authentication
+
+  "Get analysis result values by key"
+  getAnalysisValues(
+    analysisId: String!
+    valueKey: String!
+  ): JSON!
+    @authentication
+
+  "Get a document from the analysis document store"
+  getDocument(
+    analysisId: String!
+    filter: JSON!
+  ): JSON!
+    @authentication
+
+  "List module names that have frontend bundles available"
+  getAvailableFrontendModules: [String!]!
+    @authentication
+
+  "Get the compiled frontend bundle for a module"
+  getModuleFrontendBundle(moduleName: String!): String!
+    @authentication
+}
+
+"""Metadata about the AI model response."""
+type ResponseMetadata {
+  "Why the model stopped generating (e.g., stop, length, tool_use)"
+  finish_reason: String
+  "Name of the AI model that produced the response"
+  model_name: String
+  "Backend system fingerprint for reproducibility"
+  system_fingerprint: String
+}
+
+"""A streamed response from an AI analysis agent."""
+type AIResponse {
+  "Text content of the response"
+  content: String
+  "Provider-specific extra fields"
+  additional_kwargs: JSON
+  "Model response metadata (finish reason, model name)"
+  response_metadata: ResponseMetadata
+  "Message type (e.g., ai, human, tool)"
+  type: String
+  "Agent or tool name"
+  name: String
+  "Message identifier"
+  id: String
+  "Whether this is an example message used for few-shot prompting"
+  example: Boolean
+  "Tool calls requested by the agent"
+  tool_calls: [JSON!]
+  "Tool calls that failed validation"
+  invalid_tool_calls: [JSON!]
+  "Token usage statistics"
+  usage_metadata: JSON
+  "Partial tool call data from streaming chunks"
+  tool_call_chunks: [JSON!]
+}
+
+# Note: @authentication is not supported on Subscription by @neo4j/graphql v7.
+# Subscription auth is enforced by JwtAuthGuard on the controller.
+type Subscription {
+  "Subscribe to streamed AI responses for a given analysis session"
+  streamResponse(sessionId: String!): AIResponse!
+}

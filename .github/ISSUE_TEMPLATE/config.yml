@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security Vulnerability
+    url: https://github.com/dether-net/dethernety-oss/security/advisories/new
+    about: Report security vulnerabilities privately via GitHub Security Advisories
+  - name: Questions & Discussion
+    url: https://github.com/dether-net/dethernety-oss/discussions
+    about: Ask questions and start discussions

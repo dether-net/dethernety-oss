@@ -1,0 +1,239 @@
+# Configuration Guide
+
+This guide covers all environment variables for the Dethernety platform. The backend (dt-ws) reads environment variables at startup and validates them. The frontend (dt-ui) fetches its configuration from the backend's `GET /config` endpoint at runtime — in production, there is no separate frontend configuration.
+
+---
+
+## Backend Configuration (dt-ws)
+
+### Application
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `NODE_ENV` | String | `development` | Environment mode (`development`, `production`, `test`) |
+| `PORT` | Number | `3003` | Server port (1–65535) |
+| `LOG_LEVEL` | String | `log` | Logging level (`error`, `warn`, `log`, `debug`, `verbose`) |
+| `ALLOWED_ORIGINS` | String | — | Comma-separated CORS origins. Required in production. |
+
+### Database (Bolt/Cypher)
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `NEO4J_URI` | String | `bolt://localhost:7687` | Database connection URI |
+| `NEO4J_USERNAME` | String | `neo4j` | Database username |
+| `NEO4J_PASSWORD` | String | — | Database password. **Required.** |
+| `NEO4J_DATABASE` | String | `neo4j` | Database name |
+| `NEO4J_ENCRYPTED` | Boolean | `true` | Enable TLS encryption |
+| `NEO4J_TRUST_CERT` | Boolean | `false` | Trust self-signed certificates. Must be `false` in production. |
+
+The URI scheme determines the connection type:
+- `bolt://` — unencrypted (local development)
+- `bolt+s://` or `neo4j+s://` — TLS-encrypted (production)
+
+### Authentication (OIDC)
+
+All OIDC variables are configured on the backend. In production, the backend serves them to the frontend via the `/config` endpoint.
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OIDC_JKWS_URI` | URL | — | JWKS endpoint for JWT validation. **Required in production.** |
+| `OIDC_ISSUER` | URL | — | OIDC provider issuer URL. **Required in production.** |
+| `OIDC_CLIENT_ID` | String | — | OIDC client identifier. **Required in production.** |
+| `OIDC_REDIRECT_URI` | URL | — | OAuth2 callback URL (e.g., `https://app.example.com/auth/callback`) |
+| `OIDC_AUDIENCE` | String | — | JWT audience claim for token validation. **Required in production.** |
+| `OIDC_PROVIDER` | String | auto-detect | Provider preset: `cognito`, `zitadel`, `auth0`, `keycloak`, or `generic`. Auto-detected from issuer URL if not set. |
+| `OIDC_DOMAIN` | String | — | Cognito hosted UI domain (only needed for AWS Cognito, where the OAuth2 domain differs from the issuer) |
+
+Provider presets configure OAuth2 endpoint paths and token claim names automatically. See [environment.ts](../apps/dt-ui/src/config/environment.ts) for the preset definitions.
+
+**Example configurations:**
+```bash
+# Zitadel
+OIDC_JKWS_URI=https://your-instance.zitadel.cloud/oauth/v2/keys
+OIDC_ISSUER=https://your-instance.zitadel.cloud
+OIDC_AUDIENCE=your-project-id
+
+# Auth0
+OIDC_JKWS_URI=https://your-tenant.auth0.com/.well-known/jwks.json
+OIDC_ISSUER=https://your-tenant.auth0.com
+OIDC_AUDIENCE=https://your-api-identifier
+
+# Keycloak
+OIDC_JKWS_URI=https://keycloak.example.com/realms/your-realm/protocol/openid-connect/certs
+OIDC_ISSUER=https://keycloak.example.com/realms/your-realm
+OIDC_AUDIENCE=your-client-id
+```
+
+### GraphQL
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `GQL_QUERY_DEPTH_LIMIT` | Number | `10` | Maximum query nesting depth (1–50) |
+| `GQL_QUERY_COMPLEXITY_LIMIT` | Number | `1000` | Maximum query complexity score (100–10000) |
+| `GQL_ENABLE_SUBSCRIPTIONS` | Boolean | `true` | Enable GraphQL subscriptions |
+| `SUBSCRIPTION_TRANSPORT` | String | `sse` | Subscription transport: `sse` (Server-Sent Events) or `ws` (WebSocket) |
+
+### Module Registry
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `CUSTOM_MODULES_PATH` | String | `custom_modules` | Path to the modules directory |
+| `ALLOWED_MODULES` | String | — | Comma-separated module whitelist. Supports exact names, prefix patterns (`mitre-*`), or `*` for all. **Required in production.** |
+| `ENABLE_MODULE_HOT_RELOAD` | Boolean | `false` | Enable hot reloading of modules. Must be `false` in production. |
+| `MODULE_LOAD_TIMEOUT` | Number | `30000` | Module loading timeout in ms (1000–300000) |
+
+### Frontend Settings (served via /config)
+
+These backend environment variables are served to the frontend through the `GET /config` endpoint:
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `APP_URL` | URL | auto-detect | Application base URL (e.g., `https://app.example.com`) |
+| `APP_BASE_URL` | String | `/` | Base path for routing |
+| `DEBUG_AUTH` | Boolean | `false` | Enable auth debug logging. Not served in production. |
+| `ENABLE_DEV_TOOLS` | Boolean | `false` | Enable development tools. Not served in production. |
+
+### Advanced Tuning
+
+These variables have sensible defaults and typically don't need to be changed.
+
+#### Database Connection Pool
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `NEO4J_MAX_POOL_SIZE` | Number | `50` | Maximum connections (1–1000) |
+| `NEO4J_CONNECTION_TIMEOUT` | Number | `30000` | Connection acquisition timeout in ms |
+| `NEO4J_CONNECT_TIMEOUT` | Number | `5000` | Initial connect timeout in ms |
+| `NEO4J_MAX_CONNECTION_LIFETIME` | Number | `3600000` | Max connection lifetime in ms (1 hour) |
+| `NEO4J_MAX_RETRY_TIME` | Number | `30000` | Max transaction retry time in ms |
+
+#### Caching
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `TEMPLATE_CACHE_SIZE` | Number | `100` | Maximum cached templates (10–1000) |
+| `TEMPLATE_CACHE_TTL_MS` | Number | `300000` | Template cache TTL in ms (5 min) |
+| `ANALYSIS_CACHE_SIZE` | Number | `50` | Maximum cached analyses (10–500) |
+| `ANALYSIS_CACHE_TTL_MS` | Number | `600000` | Analysis cache TTL in ms (10 min) |
+
+#### Operation Timeouts
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `TEMPLATE_OPERATION_TIMEOUT_MS` | Number | `30000` | Template operation timeout (5000–300000) |
+| `ISSUE_SYNC_TIMEOUT_MS` | Number | `30000` | Issue sync timeout (5000–300000) |
+| `BATCH_PROCESSING_DEBOUNCE_MS` | Number | `1000` | Debounce delay for batch operations (100–10000) |
+| `BATCH_PROCESSING_MAX_SIZE` | Number | `50` | Maximum batch size (1–1000) |
+| `BATCH_PROCESSING_TIMEOUT_MS` | Number | `5000` | Batch processing timeout (1000–60000) |
+
+#### Monitoring
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `MONITORING_ENABLED` | Boolean | `true` | Enable performance monitoring |
+| `HEALTH_CHECK_INTERVAL_MS` | Number | `60000` | Health check interval in ms (10000–300000) |
+| `STATISTICS_RETENTION_HOURS` | Number | `24` | Statistics retention period (1–168) |
+| `NEO4J_ENABLE_METRICS` | Boolean | `true` | Enable database metrics |
+| `NEO4J_ENABLE_LOGGING` | Boolean | `true` | Enable database operation logging |
+| `NEO4J_HEALTH_CHECK_INTERVAL` | Number | `60000` | Database health check interval in ms |
+| `NEO4J_DEBUG` | Boolean | `false` | Enable database debug logging |
+
+---
+
+## Frontend Configuration (dt-ui)
+
+### Production
+
+In production, the frontend has no separate configuration. It fetches all settings from the backend's `GET /config` endpoint at startup. Configure the OIDC and application variables on the backend and they will be served to the frontend automatically.
+
+### Development
+
+In development mode, the frontend reads `VITE_`-prefixed environment variables from a `.env.local` file (not committed to version control):
+
+```bash
+# .env.local (dt-ui development)
+VITE_OIDC_ISSUER=http://localhost:8080
+VITE_OIDC_CLIENT_ID=dev-client-id
+VITE_OIDC_REDIRECT_URI=http://localhost:3005/auth/callback
+
+VITE_GRAPHQL_URL=http://localhost:3003/graphql
+VITE_API_BASE_URL=http://localhost:3003
+
+# Optional
+VITE_OIDC_PROVIDER=zitadel
+VITE_OIDC_DOMAIN=                          # Cognito only
+VITE_SUBSCRIPTION_TRANSPORT=sse            # sse (default) or ws
+VITE_DEBUG_AUTH=true
+VITE_ENABLE_DEV_TOOLS=true
+VITE_USER_PROFILE_URL=http://localhost:8080/ui/console/users/me
+```
+
+---
+
+## Production Requirements
+
+The following variables are validated as **required** when `NODE_ENV=production`:
+
+| Variable | Reason |
+|----------|--------|
+| `NEO4J_PASSWORD` | Database access |
+| `OIDC_JKWS_URI` | JWT token validation |
+| `OIDC_ISSUER` | Authentication |
+| `OIDC_CLIENT_ID` | Authentication |
+| `OIDC_AUDIENCE` | JWT audience validation |
+| `ALLOWED_MODULES` | Module security whitelist |
+| `ALLOWED_ORIGINS` | CORS security |
+
+Additionally, the following are enforced in production:
+- `NEO4J_TRUST_CERT` must be `false` (no self-signed certificates)
+- `ENABLE_MODULE_HOT_RELOAD` should be `false`
+- `DEBUG_AUTH` and `ENABLE_DEV_TOOLS` are not served to the frontend
+
+---
+
+## Quick Start
+
+Minimal `.env` for local development:
+
+```bash
+# Application
+NODE_ENV=development
+PORT=3003
+
+# Database
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=your-password
+NEO4J_ENCRYPTED=false
+NEO4J_TRUST_CERT=true
+
+# Modules
+CUSTOM_MODULES_PATH=custom_modules
+ALLOWED_MODULES=dethernety-module
+
+# OIDC (configure to match your identity provider)
+OIDC_ISSUER=http://localhost:8080
+OIDC_CLIENT_ID=your-client-id
+OIDC_REDIRECT_URI=http://localhost:3005/auth/callback
+OIDC_JKWS_URI=http://localhost:8080/.well-known/jwks.json
+```
+
+---
+
+## Health Endpoints
+
+The backend exposes health check endpoints:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Detailed health status (database, GraphQL, modules). Minimal response in production. |
+| `GET /health/simple` | Quick liveness check (database only). Returns 200 or 503. |
+| `GET /ready` | Readiness check (database + GraphQL). Returns `{ ready: true/false }`. |
+
+---
+
+## Configuration Validation
+
+All environment variables are validated at startup using [class-validator](https://github.com/typestack/class-validator). Invalid configuration causes the application to fail fast with descriptive error messages.
+
+The validation schema is defined in [environment.validation.ts](../apps/dt-ws/src/config/environment.validation.ts). Database-specific validation is in [database.config.ts](../apps/dt-ws/src/database/database.config.ts).

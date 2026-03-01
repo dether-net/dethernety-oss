@@ -1,0 +1,42 @@
+name: Docker Build
+
+on:
+  pull_request:
+    paths:
+      - "Dockerfile.production"
+      - "apps/**"
+      - "packages/**"
+      - "modules/**"
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.13.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm turbo build --filter='!mitre-frameworks'
+
+      - name: Prepare Docker assets
+        run: |
+          mkdir -p apps/dt-ws/public
+          cp -r apps/dt-ui/dist/* apps/dt-ws/public/
+
+      - name: Build Docker image
+        run: docker build -f Dockerfile.production -t dethernety:test .
