@@ -1,35 +1,38 @@
 <script setup lang="ts">
   import { ref } from 'vue'
   import { useApolloClient } from '@vue/apollo-composable'
-  import { DtImport, ImportProgress, ImportResult } from '@dethernety/dt-core'
+  import { DtImportSplit } from '@dethernety/dt-core'
+  import type { ImportProgress, ImportSplitResult, Model } from '@dethernety/dt-core'
   import { useFolderStore } from '@/stores/folderStore'
+  import { useModelsStore } from '@/stores/modelsStore'
+  import { zipToSplitModel } from '@/utils/modelZipUtils'
 
   interface Props {
     show: boolean
   }
 
-
-
   const props = defineProps<Props>()
-  const emits = defineEmits(['update:show'])
+  const emits = defineEmits(['update:show', 'import:success'])
 
   const dialog = ref(props.show)
   const fileInput = ref<HTMLInputElement | null>(null)
   const importedFile = ref<File | null>(null)
   const isImporting = ref(false)
+  const importedModel = ref<Model | null>(null)
   const errorMessages = ref<string[]>([])
   const warningMessages = ref<string[]>([])
   const successMessage = ref('')
   const importProgress = ref<ImportProgress>({
     currentStep: 0,
-    totalSteps: 7,
+    totalSteps: 8,
     stepName: 'Ready to import',
     percentage: 0
   })
 
   const { client } = useApolloClient()
   const folderStore = useFolderStore()
-  const dtImport = new DtImport(client!)
+  const modelsStore = useModelsStore()
+  const dtImportSplit = new DtImportSplit(client!)
 
   const onProgressUpdate = (progress: ImportProgress) => {
     importProgress.value = progress
@@ -54,20 +57,20 @@
     }
   }
 
-  const readFileAsText = (file: File): Promise<string> => {
+  const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = () => {
-        if (typeof reader.result === 'string') {
+        if (reader.result instanceof ArrayBuffer) {
           resolve(reader.result)
         } else {
-          reject(new Error('File could not be read as text'))
+          reject(new Error('File could not be read as binary'))
         }
       }
       reader.onerror = () => {
         reject(reader.error)
       }
-      reader.readAsText(file)
+      reader.readAsArrayBuffer(file)
     })
   }
 
@@ -83,24 +86,24 @@
       warningMessages.value = []
       successMessage.value = ''
 
-      // Read and parse the file
-      const content = await readFileAsText(importedFile.value)
-      const importData = JSON.parse(content)
+      const arrayBuffer = await readFileAsArrayBuffer(importedFile.value)
+      const splitModel = zipToSplitModel(new Uint8Array(arrayBuffer))
 
-      // Use the new DtImport class
-      const result: ImportResult = await dtImport.importModel(importData, {
+      const result: ImportSplitResult = await dtImportSplit.importSplitModel(splitModel, {
         folderId: folderStore.selectedFolder?.id,
         onProgress: onProgressUpdate
       })
 
       if (result.success) {
         successMessage.value = 'Model imported successfully!'
+        importedModel.value = result.model || null
         if (result.warnings.length > 0) {
           warningMessages.value = result.warnings
         }
-        setTimeout(() => {
-          handleClose()
-        }, 10000)
+        await modelsStore.fetchModels({
+          folderId: folderStore.selectedFolder?.id
+        })
+        emits('import:success', result.model?.id)
       } else {
         errorMessages.value = result.errors.map(err => `${err.step}: ${err.error}`)
         if (result.warnings.length > 0) {
@@ -110,17 +113,11 @@
 
     } catch (error) {
       console.error('Error importing model:', error)
-      if (error instanceof SyntaxError) {
-        errorMessages.value = ['Invalid JSON format in import file']
-      } else {
-        errorMessages.value = [error instanceof Error ? error.message : 'An error occurred during import']
-      }
+      errorMessages.value = [error instanceof Error ? error.message : 'An error occurred during import']
     } finally {
       isImporting.value = false
     }
   }
-
-
 </script>
 
 <template>
@@ -148,13 +145,13 @@
         </v-sheet>
       </v-card-title>
       <v-card-text>
-        <p class="mb-4">Select a JSON file to import a previously exported model.</p>
+        <p class="mb-4">Select a ZIP archive to import a previously exported model.</p>
 
         <div class="d-flex align-center mb-4">
           <v-btn
             class="mr-2"
             color="primary"
-            :disabled="isImporting"
+            :disabled="isImporting || !!importedModel"
             @click="triggerFileInput"
           >
             Select File
@@ -162,7 +159,7 @@
 
           <input
             ref="fileInput"
-            accept=".json"
+            accept=".zip"
             style="display: none"
             type="file"
             @change="handleFileSelected"
@@ -221,6 +218,7 @@
 
       <v-card-actions class="py-4 px-6">
         <v-btn
+          v-if="!importedModel"
           color="secondary"
           :disabled="!importedFile || isImporting"
           icon="mdi-import"
@@ -228,6 +226,14 @@
           size="x-large"
           variant="outlined"
           @click="importModel"
+        />
+        <v-btn
+          v-else
+          color="secondary"
+          icon="mdi-close"
+          size="x-large"
+          variant="outlined"
+          @click="handleClose"
         />
       </v-card-actions>
     </v-card>

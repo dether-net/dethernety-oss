@@ -372,13 +372,6 @@
                       <v-btn
                         class="ma-3"
                         color="secondary"
-                        icon="mdi-content-duplicate"
-                        size="x-large"
-                        variant="outlined"
-                      />
-                      <v-btn
-                        class="ma-3"
-                        color="secondary"
                         icon="mdi-file-move-outline"
                         size="x-large"
                         variant="outlined"
