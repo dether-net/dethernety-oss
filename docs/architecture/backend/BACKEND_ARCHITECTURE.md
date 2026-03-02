@@ -220,6 +220,10 @@ Request → JWT Validation → Query Protection → Authorization → Execution 
 - **Error Sanitization**: Internal errors hidden in production
 - **Input Validation**: All inputs validated before processing
 
+**Auth-Disabled Mode (non-production only):**
+
+For local development and demos, authentication can be disabled when `NODE_ENV !== 'production'`, no OIDC is configured, and `ENABLE_NOAUTH=true`. In this mode the `jwt-auth.guard` creates a mock `dev-user` for unauthenticated requests. The GraphQL schema is loaded from `schema-noauth.graphql` (a build-time generated file, excluded from git, with `@authentication` directives stripped) — if this file is not present, the schema service falls back to the standard `schema.graphql` with a warning. See the [Configuration Guide](../../CONFIGURATION_GUIDE.md#auth-disabled-mode-demo--development) for details. This mode is blocked in production.
+
 ### 2. Monitoring
 
 All services implement structured logging and health monitoring:
@@ -606,6 +610,7 @@ NEO4J_CONNECTION_TIMEOUT=60000
 | Error Details | Full stack traces | Sanitized messages |
 | Query Limits | Relaxed | Strict |
 | Module Hot Reload | Enabled | Disabled |
+| Auth-Disabled Mode | Available (`ENABLE_NOAUTH=true`) | Blocked |
 | Logging Level | Debug | Info |
 
 ---

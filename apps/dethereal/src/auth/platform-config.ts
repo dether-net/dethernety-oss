@@ -12,6 +12,8 @@ import { getConfig, debug } from '../config.js'
  * Platform configuration returned from /config endpoint
  */
 export interface PlatformConfig {
+  /** Whether authentication is disabled (demo/development mode) */
+  authDisabled?: boolean
   /** OIDC issuer URL (e.g., https://your-oidc-provider.example.com) */
   oidcIssuer: string
   /** OIDC client ID for the application */
@@ -66,23 +68,29 @@ export async function fetchPlatformConfig(baseUrl?: string): Promise<PlatformCon
 
     const platformConfig = (await response.json()) as PlatformConfig
 
-    // Validate required fields
-    if (!platformConfig.oidcClientId) {
-      throw new Error('Platform config missing oidcClientId')
-    }
-    if (!platformConfig.oidcDomain) {
-      throw new Error('Platform config missing oidcDomain')
+    // When auth is disabled (demo/development mode), skip OIDC validation
+    if (!platformConfig.authDisabled) {
+      if (!platformConfig.oidcClientId) {
+        throw new Error('Platform config missing oidcClientId')
+      }
+      if (!platformConfig.oidcDomain) {
+        throw new Error('Platform config missing oidcDomain')
+      }
     }
 
     // Cache the config
     cachedConfig = platformConfig
     cacheBaseUrl = url
 
-    debug('Platform config loaded successfully', {
-      oidcProvider: platformConfig.oidcProvider,
-      oidcDomain: platformConfig.oidcDomain,
-      graphqlUrl: platformConfig.graphqlUrl
-    })
+    if (platformConfig.authDisabled) {
+      debug('Platform config loaded — authentication is DISABLED (demo/development mode)')
+    } else {
+      debug('Platform config loaded successfully', {
+        oidcProvider: platformConfig.oidcProvider,
+        oidcDomain: platformConfig.oidcDomain,
+        graphqlUrl: platformConfig.graphqlUrl
+      })
+    }
 
     return platformConfig
   } catch (error) {
@@ -136,6 +144,13 @@ export function getOAuthUrls(platformConfig?: PlatformConfig) {
     logout: `https://${domain}/logout`,
     userInfo: `https://${domain}/oauth2/userInfo`
   }
+}
+
+/**
+ * Check if authentication is disabled (demo/development mode)
+ */
+export function isAuthDisabled(): boolean {
+  return cachedConfig?.authDisabled === true
 }
 
 /**

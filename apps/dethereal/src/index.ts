@@ -22,7 +22,8 @@ import {
   fetchPlatformConfig,
   loadStoredTokens,
   isTokenExpired,
-  getCachedPlatformConfig
+  getCachedPlatformConfig,
+  isAuthDisabled
 } from './auth/index.js'
 import { allTools, clientDependentTools, BaseTool, ToolContext } from './tools/index.js'
 
@@ -92,8 +93,25 @@ async function getIdToken(argsToken?: string): Promise<string | undefined> {
  */
 async function buildToolContext(args: Record<string, unknown>): Promise<ToolContext> {
   const config = getConfig()
+  const authDisabled = isAuthDisabled()
 
-  // Extract token from args if provided
+  // In auth-disabled mode, create an unauthenticated Apollo client directly
+  if (authDisabled) {
+    debug('Auth disabled — creating unauthenticated Apollo client')
+    let apolloClient = undefined
+    try {
+      if (!getCachedPlatformConfig()) {
+        await fetchPlatformConfig()
+      }
+      apolloClient = createApolloClient()
+      debug('Unauthenticated Apollo client created successfully')
+    } catch (error) {
+      debug(`Failed to create Apollo client: ${error}`)
+    }
+    return { apolloClient, token: undefined, debug: config.debug }
+  }
+
+  // Normal auth flow: extract token from args if provided
   const argsToken = args._token as string | undefined
 
   // Get the best available token

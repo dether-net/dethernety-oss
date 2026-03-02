@@ -143,6 +143,12 @@ export class EnvironmentVariables {
   @Transform(({ value }) => value !== 'false')
   GQL_ENABLE_SUBSCRIPTIONS?: boolean = true;
 
+  // Auth-less mode (demo / development only — NEVER allowed in production)
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true')
+  ENABLE_NOAUTH?: boolean = false;
+
   // Module Registry Configuration
   @IsOptional()
   @IsString()
@@ -296,6 +302,10 @@ export function validateEnvironment(config: Record<string, unknown>): Environmen
 
     if (!validatedConfig.ALLOWED_MODULES) {
       productionErrors.push('ALLOWED_MODULES must be specified in production for security');
+    }
+
+    if (validatedConfig.ENABLE_NOAUTH) {
+      productionErrors.push('ENABLE_NOAUTH must not be set in production — authentication is mandatory');
     }
 
     if (!validatedConfig.ALLOWED_ORIGINS) {

@@ -60,6 +60,7 @@
 │     Authentication via OIDC OAuth with PKCE. Opens browser for              │
 │     login, receives callback on localhost, caches tokens locally.           │
 │     Automatic token refresh when possible.                                  │
+│     Supports auth-disabled mode for demo/development (no login needed).     │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -263,6 +264,44 @@ export abstract class ClientDependentTool extends BaseTool { requiresClient = tr
        │                   │                   │                   │
 ```
 
+### Auth-Disabled Mode
+
+When the platform's `/config` endpoint returns `authDisabled: true` (demo/development mode), the MCP server bypasses all OAuth flows:
+
+```
+┌─────────────┐     ┌─────────────┐                    ┌─────────────┐
+│ AI Assistant│     │  Dethereal  │                    │  Platform   │
+└──────┬──────┘     └──────┬──────┘                    └──────┬──────┘
+       │                   │                                  │
+       │                   │ GET /config                      │
+       │                   │─────────────────────────────────>│
+       │                   │<─────────────────────────────────│
+       │                   │ { authDisabled: true, ... }      │
+       │                   │                                  │
+       │ any tool call     │                                  │
+       │──────────────────>│                                  │
+       │                   │                                  │
+       │                   │ GraphQL (no Authorization header)│
+       │                   │─────────────────────────────────>│
+       │                   │   Backend creates mock dev-user  │
+       │                   │<─────────────────────────────────│
+       │                   │                                  │
+       │<──────────────────│                                  │
+       │ Tool result       │                                  │
+```
+
+In this mode:
+
+| Component | Behavior |
+|-----------|----------|
+| **Platform config** | Skips `oidcClientId` / `oidcDomain` validation |
+| **Apollo client** | Created without `Authorization` header |
+| **buildToolContext()** | Skips token resolution, creates unauthenticated client |
+| **Client-dependent tools** | Work without authentication (backend creates mock user) |
+| **Auth tools** (login, logout, refresh) | Return immediately with "auth not needed" message |
+
+See [Configuration Guide](../../CONFIGURATION_GUIDE.md#auth-disabled-mode-demo--development) for the backend requirements.
+
 ### Token Management
 
 ```typescript
@@ -278,6 +317,7 @@ interface StoredTokens {
 // Token priority for authenticated requests:
 // 1. Token passed in tool arguments (_token parameter)
 // 2. Cached tokens from ~/.dethernety/tokens.json (if not expired)
+// 3. No token needed when authDisabled is true
 ```
 
 ### Auth Component Files
@@ -309,15 +349,18 @@ interface StoredTokens {
    │
    ▼
 3. Build ToolContext
-   ├─ Extract token from args or cache
-   ├─ Fetch platform config if needed
-   └─ Create Apollo client (if token available)
+   ├─ If authDisabled:
+   │  └─ Create unauthenticated Apollo client (no Authorization header)
+   ├─ Else:
+   │  ├─ Extract token from args or cache
+   │  ├─ Fetch platform config if needed
+   │  └─ Create Apollo client with Bearer token (if token available)
    │
    ▼
 4. Check client requirement
    ├─ If requiresClient && !apolloClient
    │  └─ Return "Authentication required" error
-   └─ Continue if satisfied
+   └─ Continue if satisfied (always satisfied when authDisabled)
    │
    ▼
 5. Validate input with Zod schema
@@ -461,13 +504,17 @@ Map {
 ### Apollo Client Configuration
 
 ```typescript
-// Created per-request with authenticated token
+// Created with optional authenticated token
+// When authDisabled, idToken is omitted and no Authorization header is sent
+const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+if (idToken) {
+  headers.Authorization = `Bearer ${idToken}`
+}
+
 const apolloClient = new ApolloClient({
   link: new HttpLink({
     uri: `${platformConfig.graphqlUrl}`,
-    headers: {
-      Authorization: `Bearer ${idToken}`
-    }
+    headers
   }),
   cache: new InMemoryCache()
 })
@@ -479,6 +526,7 @@ Fetched from `{DETHERNETY_URL}/config` (the backend's runtime config endpoint):
 
 ```typescript
 interface PlatformConfig {
+  authDisabled?: boolean      // True when auth is disabled (demo/development mode)
   oidcIssuer: string          // OIDC provider issuer URL
   oidcClientId: string        // OIDC client identifier
   oidcDomain: string          // Cognito hosted UI domain (Cognito only)
@@ -493,6 +541,8 @@ interface PlatformConfig {
 }
 ```
 
+When `authDisabled` is `true`, the OIDC fields (`oidcClientId`, `oidcDomain`) are not validated and may be empty.
+
 ---
 
 ## Security Model
@@ -505,6 +555,7 @@ interface PlatformConfig {
 | **PKCE** | Protects against authorization code interception |
 | **Local Token Storage** | `~/.dethernety/tokens.json` with filesystem permissions |
 | **Token Expiration** | Access tokens expire in hours, refresh tokens in 30 days |
+| **Auth-Disabled Mode** | For demo/development only; backend creates mock user for unauthenticated requests |
 
 ### API Security
 

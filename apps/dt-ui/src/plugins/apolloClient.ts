@@ -44,14 +44,18 @@ async function createApolloClient() {
   })
 
   const authLink = setContext(async (_, { headers }) => {
-    // Get the auth store (make sure it's available)
     const authStore = useAuthStore()
-    
+
+    // When auth is disabled (demo / dev mode) skip token handling entirely
+    if (authStore.authDisabled) {
+      return { headers }
+    }
+
     // Ensure token is still valid before making request
     await authStore.ensureValidToken()
-    
+
     const token = authStore.token
-    
+
     return {
       headers: {
         ...headers,

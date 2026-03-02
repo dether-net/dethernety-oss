@@ -235,6 +235,11 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
   const isLoading = ref(false)
   const error = ref('')
 
+  // When auth is disabled (demo / local dev without OIDC) the store
+  // behaves as if a user is always authenticated.  This flag is set
+  // once during initialisation via initializeAuthMode().
+  const authDisabled = ref(false)
+
   // Promise-based mutex for preventing concurrent token refresh attempts
   let refreshPromise: Promise<void> | null = null
   let ensureValidPromise: Promise<void> | null = null
@@ -242,6 +247,7 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
 
   // Computed
   const isAuthenticated = computed(() => {
+    if (authDisabled.value) return true
     return token.value !== '' && Date.now() < tokenExpiry.value
   })
 
@@ -395,10 +401,31 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
     return { codeChallenge, challengeMethod }
   }
 
+  /**
+   * Check backend config and enter auth-disabled mode when appropriate.
+   * Called once at app startup (before the router guard runs).
+   */
+  const initializeAuthMode = async (): Promise<void> => {
+    try {
+      const config = await getConfig()
+      if (config.authDisabled) {
+        authDisabled.value = true
+        // Inject a mock user that mirrors the backend's dev-user (jwt-auth.guard.ts)
+        user.value = { id: 'dev-user', email: 'dev@example.com', name: 'Demo User' }
+        roles.value = []
+        permissions.value = []
+        debugLog(authConfig, 'Auth disabled — running in demo / development mode')
+      }
+    } catch {
+      // Config fetch failed — leave auth enabled (safe default)
+    }
+  }
+
   const login = async (): Promise<void> => {
+    if (authDisabled.value) return
     try {
       setLoadingState(true)
-      
+
       // Validate environment variables
       const config = await validateAuthConfig()
       
@@ -823,6 +850,8 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
    * This is the main method components should call before API requests
    */
   const ensureValidToken = async (): Promise<void> => {
+    if (authDisabled.value) return
+
     // Mutex: if another call is already ensuring validity, wait for it
     if (ensureValidPromise) {
       return ensureValidPromise
@@ -876,13 +905,13 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
 
   return {
     // State
-    token, user, roles, permissions, refreshToken, tokenExpiry, isLoading, error,
+    token, user, roles, permissions, refreshToken, tokenExpiry, isLoading, error, authDisabled,
     // Computed
     isAuthenticated, isTokenExpired, isTokenExpiringSoon, isRefreshInProgress,
     // Helper functions
     hasRole, hasPermission,
     // Actions
-    login, handleCallback, logout, refreshTokenIfNeeded, performTokenRefresh, ensureValidToken, checkSessionValidity, clearState,
+    initializeAuthMode, login, handleCallback, logout, refreshTokenIfNeeded, performTokenRefresh, ensureValidToken, checkSessionValidity, clearState,
     // Setters (for manual token handling)
     setToken, setUser, setRoles, setPermissions, setRefreshToken, setTokenExpiry,
   }

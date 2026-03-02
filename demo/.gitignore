@@ -1,0 +1,13 @@
+# Runtime data (created by setup.sh and docker compose)
+data/
+modules/
+installed-modules.json
+
+# SSL certs (if Zitadel profile is used later)
+config/ssl/
+
+# Zitadel PAT
+login-client.pat
+
+# OS
+.DS_Store

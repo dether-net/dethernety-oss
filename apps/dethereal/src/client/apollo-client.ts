@@ -26,17 +26,22 @@ export type { ApolloClientType }
 const clientCache = new Map<string, ApolloClientType>()
 
 /**
- * Create an Apollo Client with JWT authentication
+ * Create an Apollo Client with optional JWT authentication
  *
  * Uses the idToken from Cognito as the Bearer token.
+ * When idToken is omitted (auth-disabled mode), requests are sent without
+ * an Authorization header — the backend creates a mock user automatically.
  * The GraphQL endpoint is derived from the platform config.
  *
- * @param idToken - JWT idToken from Cognito authentication
+ * @param idToken - JWT idToken from Cognito authentication (optional in auth-disabled mode)
  * @returns Configured Apollo Client instance
  */
-export function createApolloClient(idToken: string): ApolloClientType {
+export function createApolloClient(idToken?: string): ApolloClientType {
+  // Cache key: use token if available, otherwise a sentinel for unauthenticated client
+  const cacheKey = idToken || '__noauth__'
+
   // Check cache first
-  const cached = clientCache.get(idToken)
+  const cached = clientCache.get(cacheKey)
   if (cached) {
     debug('Using cached Apollo Client')
     return cached
@@ -49,15 +54,19 @@ export function createApolloClient(idToken: string): ApolloClientType {
   }
 
   const graphqlEndpoint = getGraphQLEndpoint(platformConfig)
-  debug(`Creating Apollo Client for endpoint: ${graphqlEndpoint}`)
+  debug(`Creating Apollo Client for endpoint: ${graphqlEndpoint}${idToken ? '' : ' (no auth)'}`)
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  }
+  if (idToken) {
+    headers.Authorization = `Bearer ${idToken}`
+  }
 
   const httpLink = new HttpLink({
     uri: graphqlEndpoint,
     fetch,
-    headers: {
-      Authorization: `Bearer ${idToken}`,
-      'Content-Type': 'application/json'
-    }
+    headers
   })
 
   const client = new ApolloClient({
@@ -76,7 +85,7 @@ export function createApolloClient(idToken: string): ApolloClientType {
   })
 
   // Cache the client
-  clientCache.set(idToken, client)
+  clientCache.set(cacheKey, client)
 
   return client
 }

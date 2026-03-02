@@ -24,19 +24,28 @@ Everything domain-specific -- component types, analysis logic, security controls
 
 ## Quick start
 
-### Docker Compose (recommended)
+### Demo (recommended)
+
+The fastest way to try Dethernety. No OIDC provider needed — authentication is
+disabled for local evaluation.
+
+Prerequisites: Node.js 18+, pnpm 9+, Docker (with Compose v2).
+Python 3 is optional (needed for MITRE ATT&CK/D3FEND data).
 
 ```bash
 cd demo
-cp .env.example .env    # Edit with your settings
-docker compose up -d
+./demo.sh   # builds, starts, and installs modules
 ```
 
-Starts Dethernety with Memgraph and a pre-configured environment. See [demo/docker-compose.yml](demo/docker-compose.yml) for the full configuration.
+Open **http://localhost:3003** — no login required.
+
+The script builds the workspace, creates a Docker image, starts three services
+(Memgraph + OPA + Dethernety), and installs modules. Subsequent runs skip the
+build. See [demo/README.md](demo/README.md) for details and troubleshooting.
 
 ### From source
 
-Prerequisites: Node.js 18+, pnpm 9.13+, Neo4j or Memgraph.
+Prerequisites: Node.js 18+, pnpm 9.13+, Neo4j or Memgraph, an OIDC provider.
 
 ```bash
 git clone https://github.com/dether-net/dethernety-oss.git
@@ -45,7 +54,7 @@ cd dethernety-oss
 pnpm install
 
 cp env.production.template .env
-# Edit .env with your database and auth settings
+# Edit .env with your database and OIDC settings
 
 pnpm m-ingest    # Load MITRE framework data
 pnpm dev         # Start development servers
@@ -55,13 +64,9 @@ Frontend: `http://localhost:5173` | GraphQL API: `http://localhost:3000/graphql`
 
 ### Production
 
-```bash
-pnpm build
-
-# Or with Docker
-pnpm docker:build
-pnpm docker:run
-```
+Production deployment requires configuring authentication (OIDC), database,
+policy engine, and module installation. See the
+[Configuration Guide](docs/CONFIGURATION_GUIDE.md) for the full setup.
 
 ## Features
 
@@ -145,8 +150,8 @@ dethernety-oss/
 │   ├── dethernety-module/  Default threat modeling module
 │   └── mitre-frameworks/   MITRE ATT&CK and D3FEND data
 ├── docs/                   Documentation
-├── demo/                   Docker Compose demo environment
-└── scripts/                Build and utility scripts
+├── demo/                   One-command demo (Memgraph + OPA + Dethernety)
+└── scripts/                Build scripts and module-manager CLI
 ```
 
 ## Contributing

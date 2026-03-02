@@ -53,8 +53,18 @@ export class AppController {
     const subscriptionTransport = process.env.SUBSCRIPTION_TRANSPORT?.toLowerCase() === 'ws' ? 'ws' : 'sse';
     const isProduction = process.env.NODE_ENV === 'production';
 
+    // Authentication is the default. It can only be disabled when ALL of:
+    //   1. NODE_ENV is NOT 'production'
+    //   2. OIDC is NOT configured
+    //   3. ENABLE_NOAUTH is explicitly 'true'
+    const oidcConfigured = !!(process.env.OIDC_ISSUER && process.env.OIDC_CLIENT_ID);
+    const authDisabled = !isProduction && !oidcConfigured && process.env.ENABLE_NOAUTH === 'true';
+
     // Base configuration (always exposed)
     const config: Record<string, unknown> = {
+      // Auth state — frontend uses this to skip OIDC flows when true
+      authDisabled,
+
       // OIDC Configuration
       oidcIssuer: process.env.OIDC_ISSUER || '',
       oidcClientId: process.env.OIDC_CLIENT_ID || '',
