@@ -35,9 +35,15 @@ pnpm docker:run           # Run Docker container
 - Module registry loads modules at startup
 - WebSocket/SSE for real-time subscriptions
 
+### MCP Server (`apps/dethereal`)
+- TypeScript MCP server for Claude/AI integration via Model Context Protocol
+- Threat model CRUD, analysis tools, auth flow
+
 ### Shared Packages
-- `packages/dt-core` — Core TypeScript interfaces (`src/interfaces/core-types-interface.ts`)
+- `packages/dt-core` — Core TypeScript interfaces and data access layer (`src/interfaces/core-types-interface.ts`)
 - `packages/dt-module` — Module system base classes and utilities
+- `packages/eslint-config` — Shared ESLint configuration
+- `packages/typescript-config` — Shared TypeScript configuration
 
 ### Modules
 - `modules/dethernety-module` — Default module with component classes, controls, exposures
@@ -45,7 +51,7 @@ pnpm docker:run           # Run Docker container
 
 ### Database
 - Bolt/Cypher compatible (Neo4j or Memgraph)
-- Schema documented in `docs/schema.md`
+- Schema defined in `apps/dt-ws/schema/schema.graphql`
 
 ## Key Patterns
 
@@ -63,8 +69,23 @@ pnpm docker:run           # Run Docker container
 
 ## Documentation
 
-- `docs/schema.md` — Graph database schema reference
-- `docs/export-import-schema.json` — Model export/import format
+Architecture documentation lives in `docs/architecture/`:
+
+| Path | Description |
+|------|-------------|
+| `docs/architecture/README.md` | Platform architecture overview (start here) |
+| `docs/architecture/frontend/` | Vue.js frontend architecture and LLD |
+| `docs/architecture/backend/` | NestJS backend architecture and LLD |
+| `docs/architecture/dt-core/` | Shared data access layer |
+| `docs/architecture/modules/` | DTModule system and development guide |
+| `docs/architecture/dethereal/` | MCP server architecture |
+| `docs/architecture/decisions/` | Architecture Decision Records (ADR 001–006) |
+
+Other documentation:
+- `docs/CONFIGURATION_GUIDE.md` — Environment and deployment configuration
+- `docs/GLOSSARY.md` — Project terminology
+- `docs/SECURITY_MODEL.md` — Security architecture and trust model
+- `docs/user/` — End-user guides
 
 ## Build Tools
 
