@@ -79,6 +79,9 @@ export class GqlConfig {
   enableSubscriptions: boolean = true;
   subscriptionTransport: SubscriptionTransport = 'sse';
 
+  // Auth-less mode
+  enableNoauth: boolean = false;
+
   // Module Registry Configuration
   customModulesPath: string = 'custom_modules';
   allowedModules: string[] = [];
@@ -103,6 +106,9 @@ export default registerAs('gql', () => {
     queryComplexityLimit: parseInt(process.env.GQL_QUERY_COMPLEXITY_LIMIT || '1000', 10),
     enableSubscriptions: process.env.GQL_ENABLE_SUBSCRIPTIONS !== 'false',
     subscriptionTransport,
+
+    // Auth-less mode (requires NODE_ENV !== 'production')
+    enableNoauth: process.env.ENABLE_NOAUTH === 'true',
 
     // Module Registry Configuration
     customModulesPath: process.env.CUSTOM_MODULES_PATH || 'custom_modules',

@@ -18,7 +18,10 @@
     "docs:api": "node scripts/generate-api-docs.mjs"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
+    "neo4j-driver": "^5.28.2",
     "prettier": "^3.8.1",
+    "tsx": "^4.7.0",
     "turbo": "^2.8.0",
     "typescript": "5.5.4"
   },

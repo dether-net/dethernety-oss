@@ -2,6 +2,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Neo4jGraphQL } from '@neo4j/graphql';
 import * as fs from 'fs/promises';
+import { accessSync } from 'fs';
 import * as path from 'path';
 import { ResolverService, ResolverMap, SchemaService as ISchemaService } from '../interfaces/resolver.interface';
 import { GqlConfig } from '../gql.config';
@@ -12,8 +13,9 @@ export class SchemaService implements ISchemaService {
   private schema: any;
   private readonly config: GqlConfig;
   
-  // Build-time constant - schema file is part of the application codebase
+  // Build-time constants — schema files are part of the application codebase
   private readonly SCHEMA_PATH = 'schema/schema.graphql';
+  private readonly SCHEMA_NOAUTH_PATH = 'schema/schema-noauth.graphql';
 
   constructor(
     private readonly configService: ConfigService,
@@ -94,11 +96,49 @@ export class SchemaService implements ISchemaService {
     }
   }
 
+  /**
+   * Resolve which schema file to load.
+   *
+   * Uses schema-noauth.graphql (no @authentication directives) ONLY when
+   * all three conditions are met:
+   *   1. NODE_ENV is NOT 'production'
+   *   2. OIDC is NOT configured
+   *   3. ENABLE_NOAUTH is explicitly set to 'true'
+   *
+   * The platform is secure by default — disabling auth requires deliberate
+   * opt-in via ENABLE_NOAUTH=true.
+   */
+  private resolveSchemaPath(): string {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const oidcConfigured = !!this.config.oidcJwksUri;
+    const noauthEnabled = !!this.config.enableNoauth;
+
+    if (!isProduction && !oidcConfigured && noauthEnabled) {
+      const noauthAbsolute = path.join(process.cwd(), this.SCHEMA_NOAUTH_PATH);
+      try {
+        // Synchronous existence check — runs once at startup
+        accessSync(noauthAbsolute);
+        this.logger.warn(
+          'ENABLE_NOAUTH is set — using schema-noauth.graphql (authentication disabled)',
+        );
+        return this.SCHEMA_NOAUTH_PATH;
+      } catch {
+        this.logger.warn(
+          'ENABLE_NOAUTH is set but schema-noauth.graphql not found — falling back to schema.graphql. ' +
+          'Run "node scripts/generate-noauth-schema.js" to generate it.',
+        );
+      }
+    }
+
+    return this.SCHEMA_PATH;
+  }
+
   private async loadSchemaFile(): Promise<string> {
+    const schemaRelPath = this.resolveSchemaPath();
     try {
-      const schemaPath = path.join(process.cwd(), this.SCHEMA_PATH);
+      const schemaPath = path.join(process.cwd(), schemaRelPath);
       const typeDefs = await fs.readFile(schemaPath, 'utf8');
-      
+
       if (!typeDefs.trim()) {
         throw new Error('Schema file is empty');
       }
@@ -107,7 +147,7 @@ export class SchemaService implements ISchemaService {
       return typeDefs;
     } catch (error) {
       if (error.code === 'ENOENT') {
-        throw new Error(`Schema file not found: ${this.SCHEMA_PATH}`);
+        throw new Error(`Schema file not found: ${schemaRelPath}`);
       }
       throw new Error(`Failed to load schema file: ${error.message}`);
     }

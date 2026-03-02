@@ -7,7 +7,7 @@
 import { z } from 'zod'
 import { ClientFreeTool, ToolContext, ToolResult } from '../base-tool.js'
 import { getConfig } from '../../config.js'
-import { clearTokens, getTokenStoragePath } from '../../auth/index.js'
+import { clearTokens, getTokenStoragePath, isAuthDisabled } from '../../auth/index.js'
 import { clearClientCache } from '../../client/apollo-client.js'
 
 /**
@@ -46,6 +46,16 @@ you may also want to sign out from the Cognito hosted UI.`
   readonly inputSchema = InputSchema
 
   async execute(input: LogoutInput, context: ToolContext): Promise<ToolResult<LogoutOutput>> {
+    if (isAuthDisabled()) {
+      return {
+        success: true,
+        data: {
+          message: 'Authentication is disabled. No logout needed.',
+          tokenStoragePath: ''
+        }
+      }
+    }
+
     try {
       const config = getConfig()
 

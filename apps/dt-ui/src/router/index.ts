@@ -16,9 +16,24 @@ const router = createRouter({
   routes: setupLayouts(routes),
 })
 
+// Ensure auth mode is resolved once before the first navigation.
+let authInitialized = false
+
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
-  
+
+  // One-time check: detect whether authentication is required
+  if (!authInitialized) {
+    await authStore.initializeAuthMode()
+    authInitialized = true
+  }
+
+  // When auth is disabled (demo / development) allow all routes
+  if (authStore.authDisabled) {
+    next()
+    return
+  }
+
   // Allow access to auth-related routes
   if (to.path === '/login' || to.path.startsWith('/auth/')) {
     next()

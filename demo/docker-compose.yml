@@ -1,27 +1,24 @@
-# Dethernety Demo Environment
-# Starts the core platform with Memgraph, OPA, and Zitadel (OIDC provider).
+# Dethernety Demo — minimal 3-service stack (no authentication)
 #
 # Usage:
-#   docker compose up -d
-#
-# Prerequisites:
-#   - Build the dethernety image first: see the project README
-#   - Replace placeholder passwords below with your own values
+#   cd oss/demo
+#   ./demo.sh   # builds, starts, and installs modules
 #
 # Services:
-#   - memgraph:        Graph database (Bolt on port 7687)
-#   - opa:             Open Policy Agent (port 8181)
-#   - dethernety:      Main application (port 3003)
-#   - postgres-zitadel: PostgreSQL for Zitadel (port 5432)
-#   - zitadel:         OIDC identity provider (port 8080)
-#   - login:           Zitadel Login UI
+#   - memgraph:   Graph database (Bolt on port 7687)
+#   - opa:        Open Policy Agent (port 8181)
+#   - dethernety: Application UI + API (port 3003)
+#
+# Authentication is DISABLED — this is for local evaluation only.
+# For production, deploy with an OIDC provider (see docs).
 
 services:
+  # --- Graph database ---------------------------------------------------
   memgraph:
     image: memgraph/memgraph-mage:3.6.2
-    container_name: memgraph
+    container_name: demo-memgraph
     networks:
-      - dethernety-network
+      - demo-network
     ports:
       - "7687:7687"
     command:
@@ -34,8 +31,8 @@ services:
       - "--memory-limit=4096"
       - "--query-vertex-count-to-expand-existing=10"
     volumes:
-      - $PWD/data/memgraph_data:/var/lib/memgraph
-      - $PWD/data/memgraph_log:/var/log/memgraph
+      - ./data/memgraph_data:/var/lib/memgraph
+      - ./data/memgraph_log:/var/log/memgraph
     ulimits:
       nofile:
         soft: 65536
@@ -50,55 +47,69 @@ services:
     mem_reservation: 3g
     shm_size: 2g
     healthcheck:
-      test: ["CMD-SHELL", "echo 'RETURN 1;' | mgconsole -username neo4j -password your-neo4j-password || exit 1"]
+      test: ["CMD-SHELL", "echo 'RETURN 1;' | mgconsole -username dethernety -password demo || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 0s
     environment:
-      - MEMGRAPH_USER=neo4j
-      - MEMGRAPH_PASSWORD=your-neo4j-password
+      - MEMGRAPH_USER=dethernety
+      - MEMGRAPH_PASSWORD=demo
 
-  # Open Policy Agent (OPA) Server
+  # --- Policy engine ----------------------------------------------------
   opa:
     image: openpolicyagent/opa:latest
-    container_name: opa
+    container_name: demo-opa
     ports:
       - "8181:8181"
     command: ["run", "--server", "--addr", "0.0.0.0:8181"]
     networks:
-      - dethernety-network
+      - demo-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8181/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
 
-  # Dethernety Application
+  # --- Dethernety application -------------------------------------------
   dethernety:
-    image: dethernety:latest
-    container_name: dethernety
+    image: dethernety:demo
+    container_name: demo-dethernety
     ports:
       - "3003:3003"
     environment:
+      - NODE_ENV=development
       - PORT=3003
+      # Database
       - NEO4J_URI=bolt://memgraph:7687
-      - NEO4J_USERNAME=neo4j
-      - NEO4J_PASSWORD=your-neo4j-password
-      - OPA_URL=http://opa:8181
+      - NEO4J_USERNAME=dethernety
+      - NEO4J_PASSWORD=demo
       - NEO4J_ENCRYPTED=false
       - NEO4J_DATABASE=memgraph
       - NEO4J_TRUST_CERT=true
+      # Policy engine
+      - OPA_URL=http://opa:8181
       - OPA_COMPILE_SERVER_URL=http://opa:8181
-      - OIDC_JKWS_URI=http://zitadel:8080/.well-known/jwks.json
+      # GraphQL
+      - GQL_ENABLE_SUBSCRIPTIONS=true
+      - GQL_QUERY_DEPTH_LIMIT=10
+      - GQL_QUERY_COMPLEXITY_LIMIT=1000
+      # Modules
+      - CUSTOM_MODULES_PATH=custom_modules
+      - ALLOWED_MODULES=*
+      - ENABLE_MODULE_HOT_RELOAD=false
+      # Auth-less mode — deliberate opt-in (no OIDC provider needed for demo)
+      - ENABLE_NOAUTH=true
     depends_on:
       memgraph:
         condition: service_healthy
       opa:
         condition: service_started
     networks:
-      - dethernety-network
+      - demo-network
+    volumes:
+      - ./modules:/app/apps/dt-ws/custom_modules:ro
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3003/health/simple', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
       interval: 30s
@@ -106,113 +117,6 @@ services:
       retries: 3
       start_period: 60s
 
-  # PostgreSQL Database for Zitadel
-  postgres-zitadel:
-    restart: unless-stopped
-    image: postgres:17-alpine
-    container_name: postgres-zitadel
-    environment:
-      PGUSER: postgres
-      POSTGRES_PASSWORD: your-zitadel-db-password
-    healthcheck:
-      test:
-      - CMD-SHELL
-      - pg_isready
-      - -d
-      - zitadel
-      - -U
-      - postgres
-      interval: 10s
-      timeout: 30s
-      retries: 5
-      start_period: 20s
-    networks:
-      - dethernety-network
-    ports:
-      - "5432:5432"
-    volumes:
-      - zitadel_data:/var/lib/postgresql/data:rw
-
-  # Zitadel Identity & Access Management
-  zitadel:
-    restart: unless-stopped
-    image: ghcr.io/zitadel/zitadel:latest
-    container_name: zitadel
-    command: start-from-init --masterkey "YourMasterkeyMustBe32Characters!"
-    environment:
-      ZITADEL_EXTERNALDOMAIN: localhost
-      ZITADEL_EXTERNALSECURE: false
-      ZITADEL_TLS_ENABLED: false
-      ZITADEL_EXTERNALPORT: 8080
-
-      # Database connection settings
-      ZITADEL_DATABASE_POSTGRES_HOST: postgres-zitadel
-      ZITADEL_DATABASE_POSTGRES_PORT: 5432
-      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
-      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: postgres
-      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: your-zitadel-db-password
-      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
-      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
-      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: zitadel
-      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
-
-      # Login client configuration
-      ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /current-dir/login-client.pat
-      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: false
-      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client
-      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: Automatically Initialized IAM_LOGIN_CLIENT
-      ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: '2029-01-01T00:00:00Z'
-
-      # Login v2 configuration
-      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: true
-      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: http://localhost:8080/ui/v2/login
-      ZITADEL_OIDC_DEFAULTLOGINURLV2: http://localhost:8080/ui/v2/login/login?authRequest=
-      ZITADEL_OIDC_DEFAULTLOGOUTURLV2: http://localhost:8080/ui/v2/login/logout?post_logout_redirect=
-      ZITADEL_SAML_DEFAULTLOGINURLV2: http://localhost:8080/ui/v2/login/login?samlRequest=
-
-    healthcheck:
-      test:
-        - CMD
-        - /app/zitadel
-        - ready
-      interval: 10s
-      timeout: 60s
-      retries: 5
-      start_period: 10s
-    user: "0"
-    ports:
-      - "8080:8080"
-    volumes:
-      - .:/current-dir:rw
-    networks:
-      - dethernety-network
-    depends_on:
-      postgres-zitadel:
-        condition: service_healthy
-
-  # Zitadel Login UI
-  login:
-    restart: unless-stopped
-    image: ghcr.io/zitadel/zitadel-login:latest
-    container_name: login
-    environment:
-      - ZITADEL_API_URL=http://zitadel:8080
-      - NEXT_PUBLIC_BASE_PATH=/ui/v2/login
-      - ZITADEL_SERVICE_USER_TOKEN_FILE=/current-dir/login-client.pat
-      - CUSTOM_REQUEST_HEADERS=Host:localhost
-    networks:
-      - dethernety-network
-    user: "0"
-    volumes:
-      - .:/current-dir:ro
-    depends_on:
-      zitadel:
-        condition: service_healthy
-        restart: false
-
-volumes:
-  zitadel_data:
-
 networks:
-  dethernety-network:
+  demo-network:
     driver: bridge

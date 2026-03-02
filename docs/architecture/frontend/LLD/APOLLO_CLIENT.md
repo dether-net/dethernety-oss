@@ -167,6 +167,7 @@ const authLink = setContext(async (_, { headers }) => {
 - `ensureValidToken()` is async - waits for refresh if needed
 - Token refresh uses mutex to prevent concurrent refreshes
 - Empty token results in no Authorization header (unauthenticated request)
+- In [auth-disabled mode](./AUTHENTICATION.md#auth-disabled-mode), the token is always empty — requests are sent without `Authorization` and the backend creates a mock user
 
 ### ensureValidToken Flow
 

@@ -12,7 +12,8 @@ import {
   refreshTokens,
   saveTokens,
   fetchPlatformConfig,
-  getTokenStoragePath
+  getTokenStoragePath,
+  isAuthDisabled
 } from '../../auth/index.js'
 
 /**
@@ -58,6 +59,18 @@ Cognito refresh tokens are typically valid for 30 days.`
     input: RefreshTokenInput,
     context: ToolContext
   ): Promise<ToolResult<RefreshTokenOutput>> {
+    if (isAuthDisabled()) {
+      return {
+        success: true,
+        data: {
+          expiresIn: 0,
+          tokenType: 'none',
+          refreshed: false,
+          tokenStoragePath: ''
+        }
+      }
+    }
+
     try {
       const config = getConfig()
 

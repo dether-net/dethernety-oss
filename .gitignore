@@ -57,6 +57,9 @@ demo/*.log
 demo/.DS_Store
 demo/login-client.pat
 
+# Generated schema without @authentication (demo / development only)
+apps/dt-ws/schema/schema-noauth.graphql
+
 # Frontend build outputs served by dt-ws
 apps/dt-ws/public/assets/
 apps/dt-ws/public/index.html

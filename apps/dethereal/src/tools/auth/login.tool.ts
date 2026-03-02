@@ -7,7 +7,7 @@
 
 import { z } from 'zod'
 import { ClientFreeTool, ToolContext, ToolResult } from '../base-tool.js'
-import { performLogin, AuthTokens, getTokenStoragePath } from '../../auth/index.js'
+import { performLogin, AuthTokens, getTokenStoragePath, isAuthDisabled } from '../../auth/index.js'
 
 /**
  * Input schema for login tool
@@ -61,6 +61,18 @@ Tokens are cached at: ~/.dethernety/tokens.json`
   readonly inputSchema = InputSchema
 
   async execute(input: LoginInput, context: ToolContext): Promise<ToolResult<LoginOutput>> {
+    if (isAuthDisabled()) {
+      return {
+        success: true,
+        data: {
+          expiresIn: 0,
+          tokenType: 'none',
+          tokenStoragePath: '',
+          message: 'Authentication is disabled. No login needed — all tools work without authentication.'
+        }
+      }
+    }
+
     try {
       const result = await performLogin({
         timeout: input.timeout ?? 120000,

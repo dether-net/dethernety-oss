@@ -69,6 +69,8 @@ Please log in to Dethernety
 
 The AI will use the `login` tool, which opens your browser to the login page. After authentication, tokens are cached locally at `~/.dethernety/tokens.json`.
 
+> **Demo / development mode:** If the platform is running with authentication disabled (`ENABLE_NOAUTH=true`), the MCP server detects this automatically and skips the login step. All tools work without authentication. See the [demo setup](../../demo/README.md#ai-assisted-modeling-mcp) for details.
+
 ### 3. Create Your First Model
 
 Simply describe what you want to model:

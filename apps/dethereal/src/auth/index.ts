@@ -11,6 +11,7 @@ export {
   getCachedPlatformConfig,
   getGraphQLEndpoint,
   getOAuthUrls,
+  isAuthDisabled,
   clearPlatformConfigCache
 } from './platform-config.js'
 

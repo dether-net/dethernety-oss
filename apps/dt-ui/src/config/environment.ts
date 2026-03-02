@@ -104,6 +104,10 @@ export interface FrontendConfig {
   subscriptionTransport: SubscriptionTransport;
   graphqlWsUrl?: string; // Only used when subscriptionTransport is 'ws'
 
+  // Authentication is the default. This flag is only true when the backend
+  // has ENABLE_NOAUTH=true in a non-production environment without OIDC.
+  authDisabled: boolean;
+
   // OIDC Authentication
   oidcIssuer: string;
   oidcClientId: string;
@@ -202,6 +206,9 @@ async function fetchRuntimeConfig(): Promise<FrontendConfig> {
         ? config.graphqlWsUrl || autoDetectWebSocketUrl()
         : undefined,
 
+      // Authentication is the default — only disabled when backend explicitly says so
+      authDisabled: config.authDisabled === true,
+
       // OIDC Authentication
       oidcIssuer: config.oidcIssuer || '',
       oidcClientId: config.oidcClientId || '',
@@ -270,6 +277,9 @@ function getDevelopmentConfig(): FrontendConfig {
       ? getEnvValue('GRAPHQL_WS_URL', isDev ? 'ws://localhost:3003/graphql' : autoDetectWebSocketUrl())
       : undefined,
 
+    // Auth — only disabled when explicitly opted in and no OIDC configured
+    authDisabled: getEnvValue('ENABLE_NOAUTH', 'false') === 'true' && !getEnvValue('OIDC_ISSUER'),
+
     // OIDC Authentication
     oidcIssuer: getEnvValue('OIDC_ISSUER', ''),
     oidcClientId: getEnvValue('OIDC_CLIENT_ID', ''),
@@ -327,29 +337,37 @@ async function loadConfig(): Promise<FrontendConfig> {
  */
 function validateConfig(config: FrontendConfig): void {
   const errors: string[] = [];
-  
-  // Required OIDC configuration
-  if (!config.oidcIssuer) {
-    errors.push('OIDC_ISSUER is required');
+
+  if (!config.authDisabled) {
+    // OIDC is required when authentication is active (the default)
+    if (!config.oidcIssuer) {
+      errors.push('OIDC_ISSUER is required');
+    }
+
+    if (!config.oidcClientId) {
+      errors.push('OIDC_CLIENT_ID is required');
+    }
+
+    if (!config.oidcRedirectUri) {
+      errors.push('OIDC_REDIRECT_URI is required');
+    }
+
+    // Validate URL formats
+    try {
+      if (config.oidcIssuer) new URL(config.oidcIssuer);
+      if (config.oidcRedirectUri) new URL(config.oidcRedirectUri);
+    } catch {
+      errors.push('Invalid URL format in OIDC configuration');
+    }
   }
-  
-  if (!config.oidcClientId) {
-    errors.push('OIDC_CLIENT_ID is required');
-  }
-  
-  if (!config.oidcRedirectUri) {
-    errors.push('OIDC_REDIRECT_URI is required');
-  }
-  
-  // Validate URL formats
+
+  // Always validate app URL if present
   try {
-    if (config.oidcIssuer) new URL(config.oidcIssuer);
-    if (config.oidcRedirectUri) new URL(config.oidcRedirectUri);
     if (config.appUrl) new URL(config.appUrl);
   } catch {
-    errors.push('Invalid URL format in configuration');
+    errors.push('Invalid appUrl format');
   }
-  
+
   if (errors.length > 0) {
     throw new Error(`Frontend configuration validation failed:\n${errors.join('\n')}`);
   }

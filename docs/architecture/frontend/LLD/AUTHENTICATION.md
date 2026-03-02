@@ -2,6 +2,7 @@
 
 ## Table of Contents
 - [Overview](#overview)
+- [Auth-Disabled Mode](#auth-disabled-mode)
 - [OIDC/PKCE Flow](#oidcpkce-flow)
 - [Token Refresh Architecture](#token-refresh-architecture)
 - [Multi-Provider Support](#multi-provider-support)
@@ -45,6 +46,43 @@ The frontend authentication system implements OIDC (OpenID Connect) with PKCE (P
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Auth-Disabled Mode
+
+When the backend returns `authDisabled: true` from the `/config` endpoint (see [Configuration Guide](../../../CONFIGURATION_GUIDE.md#auth-disabled-mode-demo--development)), the frontend bypasses all OIDC flows and operates without authentication.
+
+### How it works
+
+On startup, `authStore` calls `initializeAuthMode()` which checks the `authDisabled` flag from the runtime config:
+
+```typescript
+// authStore.ts — simplified
+const initializeAuthMode = async () => {
+  const config = await fetchRuntimeConfig()
+  if (config.authDisabled) {
+    authDisabled.value = true
+    user.value = { name: 'dev-user', email: 'dev@localhost' }
+    // isAuthenticated computed returns true when authDisabled is true
+  }
+}
+```
+
+When `authDisabled` is true:
+
+| Component | Behavior |
+|-----------|----------|
+| **authStore** | `isAuthenticated` returns `true`, `login()` returns immediately, mock user injected |
+| **Router guard** | Skips auth check — all routes are accessible |
+| **Apollo authLink** | Omits `Authorization` header (no token available) |
+| **Config validation** | Skips OIDC field validation (`oidcIssuer`, `oidcClientId`, etc.) |
+
+The backend's `jwt-auth.guard.ts` handles unauthenticated requests by creating a mock `dev-user` context, so GraphQL operations work normally.
+
+### Safety
+
+Auth-disabled mode requires three conditions on the backend: `NODE_ENV !== 'production'`, no OIDC configured, and `ENABLE_NOAUTH=true`. The frontend cannot enable this mode on its own — it only reads the flag from the backend.
 
 ---
 
