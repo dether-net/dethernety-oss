@@ -1,4 +1,4 @@
-import { OPAClient } from "@styra/opa";
+import { OPAClient } from "@open-policy-agent/opa";
 import axios from "axios";
 
 /**

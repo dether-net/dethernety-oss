@@ -159,7 +159,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
       const result = await tx.run(
         `
-        MATCH (c:Component {id: $elementId})-[:${request.elementToOriginRelation}]->(e {name: $originName})
+        MATCH (c {id: $elementId})-[:${request.elementToOriginRelation}]->(e {name: $originName})
         OPTIONAL MATCH (t:${request.target.label}) WHERE t.${request.target.property} = $value
         WITH e, t
         WHERE t IS NOT NULL
@@ -259,8 +259,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
       const result = await tx.run(
         `
-        MATCH (class:DTComponentClass {id: $classId})
-        MATCH (c:Component {id: $elementId})-[r:${request.relation}]->(e)-[]->(class)
+        MATCH (class {id: $classId})
+        MATCH (c {id: $elementId})-[r:${request.relation}]->(e)-[]->(class)
         WHERE NOT e.name IN $validNames
         DETACH DELETE e
         RETURN COUNT(e) as deletedCount
@@ -342,8 +342,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           // Upsert exposure node
           await tx.run(
             `
-            MATCH (c:Component {id: $componentId})
-            MATCH (t:DTComponentClass {id: $classId})
+            MATCH (c {id: $componentId})
+            MATCH (t {id: $classId})
             MERGE (c)-[:HAS_EXPOSURE]->(e:Exposure {name: $attributes.name})-[:IS_EXPOSURE_OF]->(t)
             ON CREATE SET e.id = randomUUID()
             SET e += $attributes
@@ -478,8 +478,8 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
           // Upsert countermeasure node
           await tx.run(
             `
-            MATCH (c:Component {id: $componentId})
-            MATCH (t:DTComponentClass {id: $classId})
+            MATCH (c {id: $componentId})
+            MATCH (t {id: $classId})
             MERGE (c)-[:HAS_COUNTERMEASURE]->(cm:Countermeasure {name: $attributes.name})-[:IS_COUNTERMEASURE_OF]->(t)
             ON CREATE SET cm.id = randomUUID()
             SET cm += $attributes
@@ -618,11 +618,13 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       });
 
       // Get component metadata using modern Neo4j v5 executeWrite
+      // Use label-free matching to support all element types
+      // (Component, SecurityBoundary, DataFlow, Data, Control)
       const metadata = await session.executeWrite(async (tx: DatabaseTransaction) => {
         const result = await tx.run(
           `
-          MATCH (c:Component {id: $componentId})
-          MATCH (t:DTComponentClass {id: $classId})<-[:HAS_CLASS]-(m:Module)
+          MATCH (c {id: $componentId})
+          MATCH (t {id: $classId})<-[:HAS_CLASS]-(m:Module)
           MATCH (c)-[r:IS_INSTANCE_OF]->(t)
           SET r += $attributes
           RETURN m.name AS moduleName, labels(c)[0] AS type

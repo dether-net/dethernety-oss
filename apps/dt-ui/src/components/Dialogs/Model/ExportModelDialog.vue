@@ -1,7 +1,8 @@
 <script setup lang="ts">
   import { ref } from 'vue'
   import { useApolloClient } from '@vue/apollo-composable'
-  import { DtExport } from '@dethernety/dt-core'
+  import { DtExportSplit } from '@dethernety/dt-core'
+  import { splitModelToZip } from '@/utils/modelZipUtils'
 
   interface Props {
     modelId: string
@@ -12,21 +13,41 @@
   const emits = defineEmits(['update:show'])
   const dialog = ref(props.show)
   const modelId = ref(props.modelId)
-  
+  const isExporting = ref(false)
+  const errorMessage = ref('')
+
   const { client } = useApolloClient()
-  const dtExport = new DtExport(client!)
-  
+  const dtExportSplit = new DtExportSplit(client!)
+
   const handleClose = () => {
     emits('update:show', false)
   }
 
   const exportModel = async () => {
     try {
-      await dtExport.exportAndDownload(modelId.value, modelId.value)
+      isExporting.value = true
+      errorMessage.value = ''
+
+      const splitModel = await dtExportSplit.exportModelToSplit(modelId.value)
+      const zipData = splitModelToZip(splitModel)
+
+      const blob = new Blob([new Uint8Array(zipData)], { type: 'application/zip' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${splitModel.manifest.model.name || modelId.value}-export.zip`
+
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+
       handleClose()
     } catch (error) {
       console.error('Error exporting model:', error)
-      handleClose()
+      errorMessage.value = error instanceof Error ? error.message : 'An error occurred during export'
+    } finally {
+      isExporting.value = false
     }
   }
 </script>
@@ -56,13 +77,24 @@
         </v-sheet>
       </v-card-title>
       <v-card-text>
-        This will export the current model layout (boundaries, components, data flows) as a JSON file.
+        <p>This will export the current model layout (boundaries, components, data flows) as a ZIP archive.</p>
+
+        <v-alert
+          v-if="errorMessage"
+          class="mt-4"
+          dismissible
+          type="error"
+        >
+          {{ errorMessage }}
+        </v-alert>
       </v-card-text>
       <v-card-actions class="py-6 mx-6">
         <v-spacer />
         <v-btn
           color="secondary"
+          :disabled="isExporting"
           icon="mdi-download-outline"
+          :loading="isExporting"
           size="x-large"
           variant="outlined"
           @click="exportModel"

@@ -99,6 +99,9 @@ importers:
       core-js:
         specifier: ^3.46.0
         version: 3.48.0
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.2
       graphql:
         specifier: ^16.12.0
         version: 16.13.0
@@ -268,9 +271,9 @@ importers:
       '@nestjs/serve-static':
         specifier: ^5.0.4
         version: 5.0.4(@nestjs/common@11.1.14(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.14)(express@5.1.0)
-      '@styra/opa':
-        specifier: ^1.7.10
-        version: 1.7.10(zod@4.3.6)
+      '@open-policy-agent/opa':
+        specifier: ^2.0.0
+        version: 2.0.0(zod@4.3.6)
       '@types/json-logic-js':
         specifier: ^2.0.8
         version: 2.0.8
@@ -465,9 +468,9 @@ importers:
       '@nestjs/common':
         specifier: ^11.1.8
         version: 11.1.14(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
-      '@styra/opa':
-        specifier: ^1.7.10
-        version: 1.7.10(zod@4.3.6)
+      '@open-policy-agent/opa':
+        specifier: ^2.0.0
+        version: 2.0.0(zod@4.3.6)
       axios:
         specifier: ^1.13.2
         version: 1.13.5
@@ -1917,6 +1920,14 @@ packages:
   '@open-policy-agent/opa-wasm@1.10.0':
     resolution: {integrity: sha512-ymR/nFS3nO9o24j9xowGGQaf+Gmb813QcxUpVZkfRlJkawKWqSIllnEH15agyWjijmOIyhA+OBErenx6N3jphw==}
 
+  '@open-policy-agent/opa@2.0.0':
+    resolution: {integrity: sha512-gtSZKm9eWU9FC7lJ7A2sbyNc+ukTddZ2t6WtJGCtHc+ze6tvhJ7xtLQmlCWLmkyIu+6TGVRn/fr2JGdKgVLdtQ==}
+    peerDependencies:
+      zod: 4.3.6
+
+  '@open-policy-agent/ucast-prisma@0.1.6':
+    resolution: {integrity: sha512-4bnz9aZzQQyfoo6OrXCWA8IH6Kp6pB34e4A2vGv2B0S/dbfFVN8TzmUn+WTJg7Eyr/NiF2EPFShiFgBwbUhhrA==}
+
   '@oxc-project/runtime@0.115.0':
     resolution: {integrity: sha512-Rg8Wlt5dCbXhQnsXPrkOjL1DTSvXLgb2R/KYfnf1/K+R0k6UMLEmbQXPM+kwrWqSmWA2t0B1EtHy2/3zikQpvQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -2275,14 +2286,6 @@ packages:
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
     peerDependencies:
       eslint: ^9.0.0 || ^10.0.0
-
-  '@styra/opa@1.7.10':
-    resolution: {integrity: sha512-ME4g/QW7sgPPem5AStGCGSXWNn+lPK/d4esYmxULrIVW2ZiTO5qmMKBttfyM2e4akAZ7wx/b+RoRZ9oqfy2rRA==}
-    peerDependencies:
-      zod: 4.3.6
-
-  '@styra/ucast-prisma@0.1.5':
-    resolution: {integrity: sha512-z0p/cUT1pJyowH0lwxQsNPf0F3gOOaVSK+y9BoZkTvfzDIUwewIG7zLOCyF8qupTli/ZexjT7p5AR3ZCm+zpxg==}
 
   '@tokenizer/inflate@0.4.1':
     resolution: {integrity: sha512-2mAv+8pkG6GIZiF1kNg1jAjh27IDxEPKwdGul3snfztFerfPGI1LjDezZp3i7BElXompqEtPmoPx6c2wgtWsOA==}
@@ -4700,6 +4703,9 @@ packages:
     peerDependenciesMeta:
       picomatch:
         optional: true
+
+  fflate@0.8.2:
+    resolution: {integrity: sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A==}
 
   file-entry-cache@8.0.0:
     resolution: {integrity: sha512-XXTUwCvisa5oacNGRP9SfNtYBNAMi+RPwBFmblZEF7N7swHYQS6/Zfk7SRwx4D5j3CH211YNRco1DEMNVfZCnQ==}
@@ -9294,6 +9300,16 @@ snapshots:
       sprintf-js: 1.1.3
       yaml: 1.10.2
 
+  '@open-policy-agent/opa@2.0.0(zod@4.3.6)':
+    dependencies:
+      '@open-policy-agent/ucast-prisma': 0.1.6
+      zod: 4.3.6
+
+  '@open-policy-agent/ucast-prisma@0.1.6':
+    dependencies:
+      '@ucast/core': 1.10.2
+      lodash.merge: 4.6.2
+
   '@oxc-project/runtime@0.115.0': {}
 
   '@oxc-project/types@0.115.0': {}
@@ -9534,16 +9550,6 @@ snapshots:
       espree: 10.4.0
       estraverse: 5.3.0
       picomatch: 4.0.3
-
-  '@styra/opa@1.7.10(zod@4.3.6)':
-    dependencies:
-      '@styra/ucast-prisma': 0.1.5
-      zod: 4.3.6
-
-  '@styra/ucast-prisma@0.1.5':
-    dependencies:
-      '@ucast/core': 1.10.2
-      lodash.merge: 4.6.2
 
   '@tokenizer/inflate@0.4.1':
     dependencies:
@@ -12550,6 +12556,8 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.3):
     optionalDependencies:
       picomatch: 4.0.3
+
+  fflate@0.8.2: {}
 
   file-entry-cache@8.0.0:
     dependencies:

@@ -59,7 +59,7 @@ export class DtImport {
   private warnings: string[] = []
   private currentModelId: string = ''
   private defaultBoundaryId: string = ''
-  private pendingControlAssociations: Array<{elementId: string, controls: any[], elementType: 'component' | 'boundary' | 'dataflow'}> = []
+  private pendingControlAssociations: Array<{elementId: string, controls: any[], elementType: 'component' | 'boundary' | 'dataflow'}> = [] // kept for backwards compat; no longer used
   private progress: ImportProgress = {
     currentStep: 0,
     totalSteps: 8,
@@ -432,11 +432,13 @@ export class DtImport {
       }
 
       const classId = await this.resolveComponentClass(componentData.classData)
-      
-      // Create component without class first, then set class separately
+
+      // Create component with class assigned at creation time
+      // This ensures the IS_INSTANCE_OF relationship is properly established
+      // (required by setInstantiationAttributes on the backend)
       const newComponent = await this.dtComponent.createComponentNode({
         newNode,
-        classId: '', // Don't set class during creation
+        classId: classId || '',
         defaultBoundaryId: parentBoundaryId
       })
 
@@ -451,38 +453,28 @@ export class DtImport {
 
       this.idMapping.set(componentData.id, newComponent.id)
 
-      // Set class explicitly after creation if available
-      if (classId) {
+      // Set attributes after creation (class was already assigned during creation)
+      if (classId && componentData.attributes) {
         try {
-          const success = await this.dtComponent.updateComponentClass({
+          await this.dtClass.setInstantiationAttributes({
             componentId: newComponent.id,
-            classId
+            classId,
+            attributes: componentData.attributes
           })
-          if (success) {
-            // Set attributes after class is assigned
-            if (componentData.attributes) {
-              await this.dtClass.setInstantiationAttributes({
-                componentId: newComponent.id,
-                classId,
-                attributes: componentData.attributes
-              })
-            }
-          } else {
-            this.warnings.push(`Failed to set class for component ${componentData.name}`)
-          }
         } catch (error) {
-          this.warnings.push(`Could not set class for component ${componentData.name}: ${error}`)
+          this.warnings.push(`Could not set attributes for component ${componentData.name}: ${error}`)
         }
       }
 
-      // Queue controls for later association
-      if (componentData.controls && componentData.controls.length > 0) {
-        this.pendingControlAssociations.push({
-          elementId: newComponent.id,
-          controls: componentData.controls,
-          elementType: 'component'
-        })
-      }
+      // Set controls directly (same pattern as boundaries and dataflows)
+      await this.setElementControlsDirect(newComponent.id, componentData.controls || [], 'component', {
+        type: componentData.type,
+        name: componentData.name,
+        description: componentData.description,
+        positionX: componentData.positionX,
+        positionY: componentData.positionY,
+        parentBoundaryId: parentBoundaryId
+      })
 
       // Handle represented model if present
       if (componentData.representedModel?.id) {
@@ -540,11 +532,11 @@ export class DtImport {
       }
 
       const classId = await this.resolveBoundaryClass(boundaryData.classData)
-      
-      // Create boundary without class first, then set class separately
+
+      // Create boundary with class assigned at creation time
       const newBoundary = await this.dtBoundary.createBoundaryNode({
         newNode,
-        classId: '', // Don't set class during creation
+        classId: classId || '',
         defaultBoundaryId: parentBoundaryId
       })
 
@@ -559,27 +551,16 @@ export class DtImport {
 
       this.idMapping.set(boundaryData.id, newBoundary.id)
 
-      // Set class explicitly after creation if available
-      if (classId) {
+      // Set attributes after creation (class was already assigned during creation)
+      if (classId && boundaryData.attributes) {
         try {
-          const success = await this.dtBoundary.updateBoundaryClass({
-            boundaryId: newBoundary.id,
-            classId
+          await this.dtClass.setInstantiationAttributes({
+            componentId: newBoundary.id,
+            classId,
+            attributes: boundaryData.attributes
           })
-          if (success) {
-            // Set attributes after class is assigned
-            if (boundaryData.attributes) {
-              await this.dtClass.setInstantiationAttributes({
-                componentId: newBoundary.id,
-                classId,
-                attributes: boundaryData.attributes
-              })
-            }
-          } else {
-            this.warnings.push(`Failed to set class for boundary ${boundaryData.name}`)
-          }
         } catch (error) {
-          this.warnings.push(`Could not set class for boundary ${boundaryData.name}: ${error}`)
+          this.warnings.push(`Could not set attributes for boundary ${boundaryData.name}: ${error}`)
         }
       }
 
@@ -655,11 +636,11 @@ export class DtImport {
         }
 
         const classId = await this.resolveDataFlowClass(dataFlowData.classData)
-        
-        // Create data flow without class first, then set class separately
+
+        // Create data flow with class assigned at creation time
         const newDataFlow = await this.dtDataflow.createDataFlow({
           newEdge,
-          classId: '' // Don't set class during creation
+          classId: classId || ''
         })
 
         if (!newDataFlow) {
@@ -673,27 +654,16 @@ export class DtImport {
 
         this.idMapping.set(dataFlowData.id, newDataFlow.id)
 
-        // Set class explicitly after creation if available
-        if (classId) {
+        // Set attributes after creation (class was already assigned during creation)
+        if (classId && dataFlowData.attributes) {
           try {
-            const success = await this.dtDataflow.updateDataFlowClass({
-              dataFlowId: newDataFlow.id,
-              classId
+            await this.dtClass.setInstantiationAttributes({
+              componentId: newDataFlow.id,
+              classId,
+              attributes: dataFlowData.attributes
             })
-            if (success) {
-              // Set attributes after class is assigned
-              if (dataFlowData.attributes) {
-                await this.dtClass.setInstantiationAttributes({
-                  componentId: newDataFlow.id,
-                  classId,
-                  attributes: dataFlowData.attributes
-                })
-              }
-            } else {
-              this.warnings.push(`Failed to set class for data flow ${dataFlowData.name}`)
-            }
           } catch (error) {
-            this.warnings.push(`Could not set class for data flow ${dataFlowData.name}: ${error}`)
+            this.warnings.push(`Could not set attributes for data flow ${dataFlowData.name}: ${error}`)
           }
         }
 
@@ -919,58 +889,6 @@ export class DtImport {
   private getCurrentModelId = (): string => {
     return this.currentModelId
   }
-
-  private findElementInComponents = (modelData: any, elementId: string): any => {
-    const searchInBoundary = (boundary: any): any => {
-      if (boundary.components) {
-        for (const component of boundary.components) {
-          if (component.id === elementId) {
-            return component
-          }
-        }
-      }
-      if (boundary.boundaries) {
-        for (const childBoundary of boundary.boundaries) {
-          const found = searchInBoundary(childBoundary)
-          if (found) return found
-        }
-      }
-      return null
-    }
-
-    if (modelData.defaultBoundary) {
-      return searchInBoundary(modelData.defaultBoundary)
-    }
-    return null
-  }
-
-  private findElementInBoundaries = (modelData: any, elementId: string): any => {
-    const searchInBoundary = (boundary: any): any => {
-      if (boundary.id === elementId) {
-        return boundary
-      }
-      if (boundary.boundaries) {
-        for (const childBoundary of boundary.boundaries) {
-          const found = searchInBoundary(childBoundary)
-          if (found) return found
-        }
-      }
-      return null
-    }
-
-    if (modelData.defaultBoundary) {
-      return searchInBoundary(modelData.defaultBoundary)
-    }
-    return null
-  }
-
-  private findElementInDataFlows = (modelData: any, elementId: string): any => {
-    if (modelData.dataFlows) {
-      return modelData.dataFlows.find((df: any) => df.id === elementId) || null
-    }
-    return null
-  }
-
 
 
   private resolveComponentClass = async (classData: any): Promise<string | null> => {
@@ -1212,83 +1130,105 @@ export class DtImport {
 
   private associateControlsWithElement = async (elementId: string, controlIds: string[]): Promise<void> => {
     try {
-      // Try to get the element from the model data to determine its type
+      // dumpModelData returns flat Vue Flow arrays (components: Node[], boundaries: Node[], dataFlows: Edge[])
       const modelData = await this.dtModel.dumpModelData({ modelId: this.getCurrentModelId() })
       if (!modelData) return
 
-      // Find the element in components
-      const component = this.findElementInComponents(modelData, elementId)
+      const defaultBoundaryId = modelData.defaultBoundary?.id || ''
+
+      // Search flat components array
+      const component = modelData.components?.find((c: any) => c.id === elementId)
       if (component) {
-        // Update component with the controls
         const updatedNode = {
           id: elementId,
           type: component.type,
           data: {
-            label: component.name,
-            description: component.description || '',
+            label: component.data.label,
+            description: component.data.description || '',
             controls: controlIds,
-            dataItems: component.dataItems?.map((di: any) => di.id) || [],
+            dataItems: component.data.dataItems || [],
           },
           position: {
-            x: component.positionX || 0,
-            y: component.positionY || 0,
+            x: component.position?.x || 0,
+            y: component.position?.y || 0,
           },
-          parentNode: component.parentBoundary?.id || modelData.defaultBoundary?.id || '',
+          parentNode: component.parentNode || defaultBoundaryId,
         }
 
         await this.dtComponent.updateComponent({
           updatedNode,
-          defaultBoundaryId: modelData.defaultBoundary?.id || ''
+          defaultBoundaryId
         })
         return
       }
 
-      // Find the element in boundaries
-      const boundary = this.findElementInBoundaries(modelData, elementId)
+      // Search flat boundaries array
+      const boundary = modelData.boundaries?.find((b: any) => b.id === elementId)
       if (boundary) {
-        // Update boundary with the controls
         const updatedNode = {
           id: elementId,
           type: 'BOUNDARY',
           data: {
-            label: boundary.name,
-            description: boundary.description || '',
+            label: boundary.data.label,
+            description: boundary.data.description || '',
             controls: controlIds,
-            dataItems: boundary.dataItems?.map((di: any) => di.id) || [],
-            minWidth: boundary.dimensionsMinWidth || 200,
-            minHeight: boundary.dimensionsMinHeight || 150,
+            dataItems: boundary.data.dataItems || [],
+            minWidth: boundary.data.minWidth || 200,
+            minHeight: boundary.data.minHeight || 150,
           },
           position: {
-            x: boundary.positionX || 0,
-            y: boundary.positionY || 0,
+            x: boundary.position?.x || 0,
+            y: boundary.position?.y || 0,
           },
-          width: boundary.dimensionsWidth || 400,
-          height: boundary.dimensionsHeight || 300,
-          parentNode: boundary.parentBoundary?.id || undefined,
+          width: boundary.width || 400,
+          height: boundary.height || 300,
+          parentNode: boundary.parentNode || undefined,
         }
 
         await this.dtBoundary.updateBoundaryNode({
           updatedNode,
-          defaultBoundaryId: modelData.defaultBoundary?.id || ''
+          defaultBoundaryId
         })
         return
       }
 
-      // Find the element in data flows
-      const dataFlow = this.findElementInDataFlows(modelData, elementId)
+      // Check if it's the default boundary itself
+      if (modelData.defaultBoundary?.id === elementId) {
+        const db = modelData.defaultBoundary
+        const updatedNode = {
+          id: elementId,
+          type: 'BOUNDARY',
+          data: {
+            label: db.data.label,
+            description: db.data.description || '',
+            controls: controlIds,
+            dataItems: db.data.dataItems || [],
+          },
+          position: db.position || { x: 0, y: 0 },
+          parentNode: undefined,
+        }
+
+        await this.dtBoundary.updateBoundaryNode({
+          updatedNode,
+          defaultBoundaryId
+        })
+        return
+      }
+
+      // Search flat data flows array
+      const dataFlow = modelData.dataFlows?.find((df: any) => df.id === elementId)
       if (dataFlow) {
-        // Update data flow with the controls
         const updatedEdge = {
           id: elementId,
-          source: dataFlow.source?.id || '',
-          target: dataFlow.target?.id || '',
+          source: dataFlow.source || '',
+          target: dataFlow.target || '',
           sourceHandle: dataFlow.sourceHandle,
           targetHandle: dataFlow.targetHandle,
-          label: dataFlow.name,
+          label: dataFlow.label,
           data: {
-            description: dataFlow.description || '',
+            description: dataFlow.data?.description || '',
             controls: controlIds,
-            dataItems: dataFlow.dataItems?.map((di: any) => di.id) || [],
+            dataItems: dataFlow.data?.dataItems || [],
           },
           markerEnd: 'arrowclosed',
         }
@@ -1323,36 +1263,8 @@ export class DtImport {
         return
       }
 
-      // Direct component update approach
-      if (elementType === 'component') {
-        try {
-          // Create a minimal node structure for the update
-          const updatedNode = {
-            id: elementId,
-            type: 'PROCESS',
-            data: {
-              label: 'Component', // Generic label since we don't have the original data
-              description: '',
-              controls: resolvedControlIds,
-              dataItems: [],
-            },
-            position: {
-              x: 0,
-              y: 0,
-            },
-            parentNode: this.defaultBoundaryId,
-          }
-
-          await this.dtComponent.updateComponent({
-            updatedNode,
-            defaultBoundaryId: this.defaultBoundaryId
-          })
-          
-        } catch (error) {
-          this.warnings.push(`Failed to update component ${elementId} with controls: ${error}`)
-        }
-      }
-
+      // Fetch current server state and update only controls, preserving all other properties
+      await this.associateControlsWithElement(elementId, resolvedControlIds)
     } catch (error) {
       this.warnings.push(`Could not set controls for ${elementType}: ${error}`)
     }

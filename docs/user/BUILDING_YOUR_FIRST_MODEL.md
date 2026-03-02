@@ -531,6 +531,53 @@ Convert findings into actionable tasks:
    - **Timeline**: 3 days
    - **Acceptance Criteria**: Maximum 20 concurrent connections, timeout handling
 
+## Exporting and Importing Models
+
+Once your model is built, you can export it as a portable ZIP archive for backup, sharing, or version control. You can also import models that were previously exported.
+
+### Exporting a Model
+
+1. **Open the model dialog**: Right-click your model in Browser, or click the model name in the data flow editor
+2. **Click "Export"**: The export button downloads a ZIP archive containing your complete model
+3. **File is saved**: The browser downloads `{model-name}-export.zip` automatically
+
+The ZIP archive contains individual JSON files using a split-file format:
+
+```
+model-name-export.zip
+├── manifest.json        # Model metadata and module references
+├── structure.json       # Boundary and component hierarchy
+├── dataflows.json       # Data flow connections
+├── data-items.json      # Data classification items
+└── attributes/          # Per-element configuration files
+    ├── boundaries/
+    │   └── {id}.json
+    ├── components/
+    │   └── {id}.json
+    ├── dataFlows/
+    │   └── {id}.json
+    └── dataItems/
+        └── {id}.json
+```
+
+This format is the same split-file structure used by the [Dethereal MCP Server](MCP_SERVER_GUIDE.md), so exported models can also be used with AI-assisted workflows.
+
+### Importing a Model
+
+1. **Open the import dialog**: From Browser, use the import option in the menu
+2. **Select a ZIP file**: Click "Select File" and choose a `.zip` archive
+3. **Click "Import"**: The import process runs through 8 steps with a progress bar showing each step
+4. **Review results**: A success message confirms the import; the model appears in your folder immediately
+
+If the import encounters non-critical issues, warnings are displayed alongside the success message. Critical errors are shown in red and the import is aborted.
+
+### Use Cases
+
+- **Backup**: Export before making major changes to your model
+- **Sharing**: Send a ZIP to colleagues who can import it into their own instance
+- **Version control**: Store exported ZIPs alongside your source code
+- **AI enrichment**: Export, enrich with the [MCP server](MCP_SERVER_GUIDE.md) or AI agent, then re-import
+
 ---
 
 You now have a working threat model with components, data flows, boundaries, analysis results, and tracked issues.
@@ -539,3 +586,4 @@ You now have a working threat model with components, data flows, boundaries, ana
 - **[Security Analysis Workflow](SECURITY_ANALYSIS_WORKFLOW.md)**: Advanced analysis techniques
 - **[Working with Security Controls](WORKING_WITH_SECURITY_CONTROLS.md)**: Implementing countermeasures
 - **[Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md)**: Track and manage findings with your team
+- **[MCP Server Guide](MCP_SERVER_GUIDE.md)**: AI-assisted threat modeling with the Dethereal MCP server

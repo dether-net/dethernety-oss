@@ -36,7 +36,7 @@
     "@nestjs/graphql": "^13.2.0",
     "@nestjs/platform-express": "^11.1.8",
     "@nestjs/serve-static": "^5.0.4",
-    "@styra/opa": "^1.7.10",
+    "@open-policy-agent/opa": "^2.0.0",
     "@types/json-logic-js": "^2.0.8",
     "@types/jsonwebtoken": "^9.0.10",
     "apollo-server-express": "^3.13.0",
