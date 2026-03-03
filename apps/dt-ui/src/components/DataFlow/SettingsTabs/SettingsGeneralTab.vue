@@ -57,6 +57,7 @@
   const fetchTimer = ref<number | null>(null)
   const analysis = ref<Analysis | null>(null)
   const analysisStatus = ref<string | undefined>(undefined)
+  const hasAnalysisClasses = ref(false)
 
   const nameRules = [
     (v: string) => !!v || 'Name is required',
@@ -146,10 +147,27 @@
     availableClasses.value = allClasses.sort((a, b) => a.name.localeCompare(b.name))
   }
 
+  const checkAnalysisClasses = async (): Promise<boolean> => {
+    if (!selectedItem.value) return false
+    try {
+      const classes = await analysisStore.fetchAnalysisClasses({
+        classType: 'component_class_graph',
+      })
+      return classes.length > 0
+    } catch {
+      return false
+    }
+  }
+
   const getAnalysis = async () => {
     analysis.value = null
     analysisStatus.value = undefined
+    hasAnalysisClasses.value = false
     if (!selectedItem.value) return
+
+    const classesExist = await checkAnalysisClasses()
+    hasAnalysisClasses.value = classesExist
+    if (!classesExist) return
 
     try {
       const a = await analysisStore.getOrCreateAnalysis({
@@ -385,7 +403,7 @@
               :model-value="isFromClass"
               @update:model-value="val => updateIsFromClass(val === true)"
             />
-            <div v-if="isFromClass" class="mx-3 mt-1">
+            <div v-if="isFromClass && hasAnalysisClasses" class="mx-3 mt-1">
               <v-btn
                 v-if="selectedItem?.id && (analysis === null || ['idle'].includes(analysis.status?.status || ''))"
                 color="amber"
