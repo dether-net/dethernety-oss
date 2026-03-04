@@ -8,6 +8,7 @@
 #   cd oss/demo
 #   ./demo.sh            # first run builds everything, subsequent runs just start
 #   ./demo.sh --rebuild  # force a full rebuild
+#   ./demo.sh --tools    # also start optional tools (Memgraph Lab on port 3030)
 #   ./demo.sh --down     # stop and remove containers
 #   ./demo.sh --reset    # stop, remove containers, and wipe data
 
@@ -33,45 +34,52 @@ die()   { echo -e "${RED}[demo]${NC} $*" >&2; exit 1; }
 
 # ── handle flags ─────────────────────────────────────────────────────────
 FORCE_REBUILD=false
+COMPOSE_PROFILES=()
 
-case "${1:-}" in
-  --down)
-    step "Stopping demo"
-    docker compose -f "${COMPOSE_FILE}" down
-    log "Containers stopped."
-    exit 0
-    ;;
-  --reset)
-    step "Resetting demo (removing containers and data)"
-    docker compose -f "${COMPOSE_FILE}" down -v
-    rm -rf "${DEMO_DIR}/data" "${DEMO_DIR}/modules" "${STATE_FILE}"
-    log "Demo data wiped. Run ./demo.sh to start fresh."
-    exit 0
-    ;;
-  --rebuild)
-    FORCE_REBUILD=true
-    ;;
-  --help|-h)
-    cat <<EOF
+for arg in "$@"; do
+  case "${arg}" in
+    --down)
+      step "Stopping demo"
+      docker compose -f "${COMPOSE_FILE}" --profile tools down
+      log "Containers stopped."
+      exit 0
+      ;;
+    --reset)
+      step "Resetting demo (removing containers and data)"
+      docker compose -f "${COMPOSE_FILE}" --profile tools down -v
+      rm -rf "${DEMO_DIR}/data" "${DEMO_DIR}/modules" "${STATE_FILE}"
+      log "Demo data wiped. Run ./demo.sh to start fresh."
+      exit 0
+      ;;
+    --rebuild)
+      FORCE_REBUILD=true
+      ;;
+    --tools)
+      COMPOSE_PROFILES+=(--profile tools)
+      ;;
+    --help|-h)
+      cat <<EOF
 ${BOLD}Dethernety Demo${NC}
 
 Usage:
   ./demo.sh              Start the demo (builds on first run)
   ./demo.sh --rebuild    Force a full rebuild
+  ./demo.sh --tools      Also start Memgraph Lab (graph explorer on port 3030)
   ./demo.sh --down       Stop and remove containers
   ./demo.sh --reset      Stop, remove containers, and wipe all data
+
+Flags can be combined: ./demo.sh --rebuild --tools
 
 The demo runs Dethernety + Memgraph + OPA without authentication.
 Open http://localhost:3003 after startup.
 EOF
-    exit 0
-    ;;
-  "")
-    ;; # default — start/resume
-  *)
-    die "Unknown option: $1\nRun './demo.sh --help' for usage."
-    ;;
-esac
+      exit 0
+      ;;
+    *)
+      die "Unknown option: ${arg}\nRun './demo.sh --help' for usage."
+      ;;
+  esac
+done
 
 # ── prerequisites ────────────────────────────────────────────────────────
 step "Checking prerequisites"
@@ -139,7 +147,7 @@ mkdir -p "${DEMO_DIR}/data/memgraph_log"
 
 # ── start docker compose ─────────────────────────────────────────────────
 step "Starting services"
-docker compose -f "${COMPOSE_FILE}" up -d
+docker compose -f "${COMPOSE_FILE}" ${COMPOSE_PROFILES[@]+"${COMPOSE_PROFILES[@]}"} up -d
 
 # ── wait for services ────────────────────────────────────────────────────
 wait_healthy() {
@@ -238,6 +246,9 @@ fi
 step "Demo is running!"
 echo ""
 log "Open ${BOLD}http://localhost:3003${NC} in your browser."
+if [ ${#COMPOSE_PROFILES[@]} -gt 0 ]; then
+  log "Memgraph Lab: ${BOLD}http://localhost:3030${NC}"
+fi
 echo ""
 log "No login required — authentication is disabled for this demo."
 echo ""
