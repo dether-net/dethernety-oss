@@ -9,6 +9,9 @@
 #   - opa:        Open Policy Agent (port 8181)
 #   - dethernety: Application UI + API (port 3003)
 #
+# Optional (--profile tools):
+#   - memgraph-lab: Graph explorer UI (port 3030)
+#
 # Authentication is DISABLED — this is for local evaluation only.
 # For production, deploy with an OIDC provider (see docs).
 
@@ -116,6 +119,23 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+
+  # --- Graph explorer (optional) ------------------------------------------
+  memgraph-lab:
+    image: memgraph/lab:latest
+    container_name: demo-memgraph-lab
+    profiles:
+      - tools
+    ports:
+      - "3030:3000"
+    depends_on:
+      memgraph:
+        condition: service_healthy
+    environment:
+      - QUICK_CONNECT_MG_HOST=memgraph
+      - QUICK_CONNECT_MG_PORT=7687
+    networks:
+      - demo-network
 
 networks:
   demo-network:
