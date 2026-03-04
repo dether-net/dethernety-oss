@@ -10,7 +10,7 @@
     "build:package": "node scripts/package.js",
     "dev": "tsc -w",
     "clean": "rm -rf dist",
-    "test": "./scripts/test-memgraph.sh",
+    "test:integration": "./scripts/test-memgraph.sh",
     "export": "npx tsx src/tools/export-module-data.ts --module dethernety --output ./data"
   },
   "dependencies": {
