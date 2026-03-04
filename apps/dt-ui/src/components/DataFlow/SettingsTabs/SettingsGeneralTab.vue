@@ -192,7 +192,7 @@
       clearInterval(fetchTimer.value)
       fetchTimer.value = null
     }
-    fetchTimer.value = setInterval(async () => {
+    fetchTimer.value = window.setInterval(async () => {
       // Fetch fresh analysis data to get current status
       const freshAnalysis = await analysisStore.findAnalysis({ analysisId: analysis.value?.id })
       if (freshAnalysis) {
