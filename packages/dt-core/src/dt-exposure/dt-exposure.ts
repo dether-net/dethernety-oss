@@ -116,14 +116,14 @@ export class DtExposure {
         const variables = {
           exposureId,
           input: {
-            name: exposure.name,
-            description: exposure.description,
-            type: exposure.type,
-            category: exposure.category,
-            score: exposure.score,
+            name: { set: exposure.name },
+            description: { set: exposure.description },
+            type: { set: exposure.type },
+            category: { set: exposure.category },
+            score: { set: exposure.score },
             exploitedBy: {
               disconnect: {},
-              connect: attackTechniqueIds.map(id => ({ where: { node: { id } } })),
+              connect: attackTechniqueIds.map(id => ({ where: { node: { id: { eq: id } } } })),
             },
           },
         }

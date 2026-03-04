@@ -222,7 +222,7 @@
                                           <v-col cols="12">
                                             <v-list>
                                               <v-list-group
-                                                v-for="technique in mitreAttackTechniques.sort((a: MitreAttackTechnique, b: MitreAttackTechnique) => a.attack_id.localeCompare(b.attack_id))"
+                                                v-for="technique in [...mitreAttackTechniques].sort((a: MitreAttackTechnique, b: MitreAttackTechnique) => a.attack_id.localeCompare(b.attack_id))"
                                                 :key="technique.id"
                                                 class="mb-1"
                                                 :collapse-icon="technique.subTechniques?.length ? 'mdi-chevron-up' : 'mdi-circle-small'"
@@ -257,7 +257,7 @@
                                                   </v-list-item>
                                                 </template>
                                                 <v-list-item
-                                                  v-for="subTechnique in technique.subTechniques?.sort((a: MitreAttackTechnique, b: MitreAttackTechnique) => a.attack_id.localeCompare(b.attack_id))"
+                                                  v-for="subTechnique in [...(technique.subTechniques || [])].sort((a: MitreAttackTechnique, b: MitreAttackTechnique) => a.attack_id.localeCompare(b.attack_id))"
                                                   :key="subTechnique.id"
                                                   class="ml-5 mb-1"
                                                   density="compact"
