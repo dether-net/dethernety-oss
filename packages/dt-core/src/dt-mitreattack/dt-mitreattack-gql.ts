@@ -7,7 +7,7 @@ export const GET_MITRE_ATTACK_TECHNIQUES_BY_TACTIC = gql`
       name
       attack_id
       description
-      techniques(where: { parentTechnique: null }) {
+      techniques(where: { parentTechnique: { none: {} } }) {
         id
         name
         attack_id
