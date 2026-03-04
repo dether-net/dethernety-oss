@@ -109,7 +109,7 @@ describe('ValidateModelTool', () => {
 
       expect(result.success).toBe(true)
       expect(result.data?.valid).toBe(false)
-      expect(result.data!.errors[0].message).toContain('Invalid JSON')
+      expect(result.data?.errors[0]?.message).toContain('Invalid JSON')
     })
 
     it('should return error when neither directory_path nor data provided', async () => {
