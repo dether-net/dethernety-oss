@@ -39,20 +39,26 @@ Steps 8–10 are skipped if modules are already installed.
 
 ## Services
 
-| Service      | Port | Description                    |
-| ------------ | ---- | ------------------------------ |
-| memgraph     | 7687 | Graph database (Bolt protocol) |
-| opa          | 8181 | Open Policy Agent              |
-| dethernety   | 3003 | Application UI + GraphQL API   |
+| Service       | Port | Description                    |
+| ------------- | ---- | ------------------------------ |
+| memgraph      | 7687 | Graph database (Bolt protocol) |
+| opa           | 8181 | Open Policy Agent              |
+| dethernety    | 3003 | Application UI + GraphQL API   |
+| memgraph-lab* | 3030 | Graph explorer UI              |
+
+\* Optional — started with `--tools`.
 
 ## Commands
 
 ```bash
 ./demo.sh              # start (builds on first run)
 ./demo.sh --rebuild    # force a full rebuild
+./demo.sh --tools      # also start Memgraph Lab (graph explorer on port 3030)
 ./demo.sh --down       # stop and remove containers
 ./demo.sh --reset      # stop, remove containers, and wipe all data
 ```
+
+Flags can be combined, e.g. `./demo.sh --rebuild --tools`.
 
 ## Module management
 
