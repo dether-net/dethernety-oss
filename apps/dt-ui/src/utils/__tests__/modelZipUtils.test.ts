@@ -46,8 +46,8 @@ describe('modelZipUtils', () => {
       expect(restored.structure).toEqual(minimalModel.structure)
       expect(restored.dataFlows).toEqual(minimalModel.dataFlows)
       expect(restored.dataItems).toEqual(minimalModel.dataItems)
-      expect(restored.attributes.components['c-1']).toEqual(
-        minimalModel.attributes.components['c-1'],
+      expect(restored.attributes.components?.['c-1']).toEqual(
+        minimalModel.attributes.components?.['c-1'],
       )
     })
   })
