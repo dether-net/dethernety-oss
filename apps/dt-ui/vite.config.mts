@@ -20,6 +20,7 @@ export default defineConfig(({ command, mode }) => {
   const isProduction = mode === 'production'
   
   return {
+    base: process.env.VITE_BASE_PATH || '/',
     plugins: [
       // visualizer({
       //   filename: 'dist/bundle-analysis.html',
