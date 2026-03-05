@@ -18,7 +18,7 @@
   const configError = ref<string | null>(null)
 
   function goToHome () {
-    router.push({ path: '/' })
+    window.location.href = '/'
   }
 
   const mainContentClass = computed(() => {
