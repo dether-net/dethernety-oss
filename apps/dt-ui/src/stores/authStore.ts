@@ -26,11 +26,13 @@ const DEFAULT_CONFIG: Required<AuthStoreConfig> = {
   permissionClaimPath: 'permissions' // Legacy: now configured via oidcEndpoints.permissionsClaim
 }
 
-// Routes
+// Routes — use Vite's BASE_URL so redirects stay within the app's base path
+// (e.g. '/app/' in cloud deployments, '/' in OSS/self-hosted)
+const BASE = import.meta.env.BASE_URL || '/' 
 const ROUTES = {
-  HOME: '/',
-  LOGIN: '/login',
-  LOGOUT: '/auth/logout'
+  HOME: BASE,
+  LOGIN: `${BASE}login`,
+  LOGOUT: `${BASE}auth/logout`
 } as const
 
 // User-friendly error messages
