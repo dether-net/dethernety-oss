@@ -65,7 +65,7 @@ async function createApolloClient() {
   })
 
   // Error link to handle authentication errors
-  const errorLink = onError(({ graphQLErrors, networkError, operation, forward }) => {
+  const errorLink = onError(({ graphQLErrors, networkError }) => {
     if (graphQLErrors && import.meta.env.DEV) {
       graphQLErrors.forEach(({ message, locations, path }) => {
         console.error(`GraphQL error: Message: ${message}, Location: ${locations}, Path: ${path}`)
