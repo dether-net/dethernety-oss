@@ -84,7 +84,7 @@ async function createApolloClient() {
           console.warn('[ApolloClient] GraphQL request unauthorized, clearing session')
         }
         authStore.clearState()
-        window.location.href = '/login'
+        window.location.href = `${import.meta.env.BASE_URL}login`
       }
     }
   })
@@ -107,14 +107,18 @@ async function createApolloClient() {
         return token ? { Authorization: `Bearer ${token}` } : {}
       },
       on: {
-        error: (error: unknown) => {
+        error: async (error: unknown) => {
           if (import.meta.env.DEV) {
             console.error('[ApolloClient] WebSocket error:', error)
           }
           if (error instanceof Error && (error.message?.includes('Unauthorized') || error.message?.includes('401'))) {
             const authStore = useAuthStore()
-            authStore.clearState()
-            window.location.href = '/login'
+            try {
+              await authStore.ensureValidToken()
+            } catch {
+              authStore.clearState()
+              window.location.href = `${import.meta.env.BASE_URL}login`
+            }
           }
         }
       }
@@ -139,6 +143,21 @@ async function createApolloClient() {
         }
         return {}
       },
+      retryAttempts: 10,
+      retry: async (retries) => {
+        // Refresh token before reconnecting (headers function will pick up new token)
+        const authStore = useAuthStore()
+        try {
+          await authStore.ensureValidToken()
+        } catch {
+          // Token refresh failed — stop retrying by throwing
+          throw new Error('Token refresh failed, stopping SSE retry')
+        }
+        // Exponential backoff: 1s, 2s, 4s, ... capped at 30s
+        await new Promise(resolve =>
+          setTimeout(resolve, Math.min(1000 * 2 ** retries, 30000))
+        )
+      },
     })
 
     const sseLink = new ApolloLink((operation) => {
@@ -147,14 +166,19 @@ async function createApolloClient() {
           { ...operation, query: print(operation.query) },
           {
             next: (data: unknown) => observer.next(data as any),
-            error: (err: unknown) => {
+            error: async (err: unknown) => {
               if (import.meta.env.DEV) {
                 console.error('[ApolloClient] SSE error:', err)
               }
               if (err instanceof Error && (err.message?.includes('Unauthorized') || err.message?.includes('401'))) {
                 const authStore = useAuthStore()
-                authStore.clearState()
-                window.location.href = '/login'
+                try {
+                  await authStore.ensureValidToken()
+                } catch {
+                  authStore.clearState()
+                  window.location.href = `${import.meta.env.BASE_URL}login`
+                  return
+                }
               }
               observer.error(err)
             },
