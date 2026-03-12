@@ -14,6 +14,10 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "deps"
+    ignore:
+      # Memgraph only supports @neo4j/graphql 7.2.0
+      # https://memgraph.com/docs/client-libraries/graphql
+      - dependency-name: "@neo4j/graphql"
     open-pull-requests-limit: 10
 
   - package-ecosystem: "github-actions"
