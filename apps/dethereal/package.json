@@ -16,7 +16,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@apollo/client": "^3.14.0",
+    "@apollo/client": "^4.1.6",
     "@dethernety/dt-core": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "cross-fetch": "^4.0.0",

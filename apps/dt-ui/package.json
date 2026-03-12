@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@apollo/client": "^3.14.0",
+    "@apollo/client": "^4.1.6",
     "@dethernety/dt-core": "workspace:*",
     "@jsonforms/core": "3.7.0-alpha.1",
     "@jsonforms/vue": "3.7.0",
