@@ -179,6 +179,7 @@ export async function startCallbackServer(options: {
   const timeout = options.timeout || DEFAULT_TIMEOUT
 
   return new Promise((resolve, reject) => {
+    // eslint-disable-next-line prefer-const
     let server: Server
     let callbackPromise: {
       resolve: (result: CallbackResult) => void

@@ -271,9 +271,8 @@
     router.push({ path: '/issues' })
   }
 
-  onBeforeRouteLeave((to, from, next) => {
+  onBeforeRouteLeave(() => {
     modelsStore.resetStore()
-    next()
   })
 </script>
 

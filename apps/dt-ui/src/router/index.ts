@@ -13,13 +13,13 @@ import { useAuthStore } from '@/stores/authStore'
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   // history: createWebHashHistory(import.meta.env.BASE_URL), // Use hash mode instead of history mode
-  routes: setupLayouts(routes),
+  routes: setupLayouts([...routes]),
 })
 
 // Ensure auth mode is resolved once before the first navigation.
 let authInitialized = false
 
-router.beforeEach(async (to, from, next) => {
+router.beforeEach(async (to) => {
   const authStore = useAuthStore()
 
   // One-time check: detect whether authentication is required
@@ -30,21 +30,19 @@ router.beforeEach(async (to, from, next) => {
 
   // When auth is disabled (demo / development) allow all routes
   if (authStore.authDisabled) {
-    next()
-    return
+    return true
   }
 
   // Allow access to auth-related routes
   if (to.path === '/login' || to.path.startsWith('/auth/')) {
-    next()
-    return
+    return true
   }
 
   if (!authStore.isAuthenticated) {
-    next('/login')
-  } else {
-    next()
+    return '/login'
   }
+
+  return true
 })
 
 

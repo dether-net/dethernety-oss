@@ -220,7 +220,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     }
 
     // Validate data flows
-    let allDataFlowIds = new Set<string>()
+    const allDataFlowIds = new Set<string>()
     try {
       const dataFlows = await readDataFlows(dirPath)
       for (const flow of dataFlows) {
@@ -263,7 +263,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     }
 
     // Validate data items
-    let allDataItemIds = new Set<string>()
+    const allDataItemIds = new Set<string>()
     try {
       const dataItems = await readDataItems(dirPath)
       for (const item of dataItems) {
