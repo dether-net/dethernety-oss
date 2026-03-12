@@ -130,7 +130,7 @@ export class CreateModelTool extends ClientDependentTool<CreateInput, CreateOutp
       }
 
       let directoryWritten: string | undefined
-      let idMappingsCount = result.idMapping.size
+      const idMappingsCount = result.idMapping.size
 
       // Write to directory if path provided
       if (input.directory_path) {
