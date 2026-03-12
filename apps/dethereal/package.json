@@ -18,15 +18,15 @@
   "dependencies": {
     "@apollo/client": "^3.14.0",
     "@dethernety/dt-core": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "cross-fetch": "^4.0.0",
-    "graphql": "^16.8.0",
+    "graphql": "^16.13.1",
     "open": "^11.0.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",
-    "typescript": "^5.3.0",
+    "typescript": "^5.9.3",
     "vitest": "^2.0.0"
   },
   "engines": {
