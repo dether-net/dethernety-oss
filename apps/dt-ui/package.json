@@ -15,7 +15,7 @@
     "@dethernety/dt-core": "workspace:*",
     "@jsonforms/core": "3.7.0-alpha.1",
     "@jsonforms/vue": "3.7.0",
-    "@jsonforms/vue-vuetify": "3.7.0-alpha.1",
+    "@jsonforms/vue-vuetify": "3.7.0",
     "@mdi/font": "7.4.47",
     "@vue-flow/background": "^1.3.2",
     "@vue-flow/controls": "^1.1.3",
