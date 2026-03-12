@@ -29,7 +29,7 @@
     "@dethernety/dt-module": "workspace:*",
     "@graphql-tools/schema": "^10.0.31",
     "@langchain/langgraph-sdk": "^1.6.5",
-    "@neo4j/graphql": "7.4.3",
+    "@neo4j/graphql": "7.2.0",
     "@nestjs/apollo": "^13.2.4",
     "@nestjs/common": "^11.1.16",
     "@nestjs/config": "^4.0.3",
