@@ -45,7 +45,7 @@
     "@babel/types": "^7.29.0",
     "@types/node": "^25.3.2",
     "@types/vue": "^2.0.0",
-    "@vitejs/plugin-vue": "^6.0.1",
+    "@vitejs/plugin-vue": "^6.0.5",
     "@vue/eslint-config-typescript": "^14.7.0",
     "@vue/test-utils": "^2.4.6",
     "eslint": "^10.0.3",
