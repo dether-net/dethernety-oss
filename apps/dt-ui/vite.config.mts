@@ -88,16 +88,28 @@ export default defineConfig(({ command, mode }) => {
       outDir: 'dist',
       assetsDir: 'assets',
       sourcemap: !isProduction,
-      minify: isProduction ? 'terser' : false,
+      minify: isProduction,
       rollupOptions: {
         output: {
-          manualChunks: {
-            'vendor-vue': ['vue', 'vue-router', 'pinia'],
-            'vendor-apollo': ['@apollo/client', 'graphql'],
-            'vendor-ui': ['vuetify'],
-            'vue-flow': ['@vue-flow/core', '@vue-flow/background', '@vue-flow/controls', '@vue-flow/minimap'],
-            'json-forms': ['@jsonforms/core', '@jsonforms/vue'],
-            'json-forms-vue-vuetify': ['@jsonforms/vue-vuetify'], // this is still slightly bigger than 500kB, but acceptable
+          manualChunks(id) {
+            if (id.includes('node_modules/vue/') || id.includes('node_modules/vue-router/') || id.includes('node_modules/pinia/')) {
+              return 'vendor-vue'
+            }
+            if (id.includes('node_modules/@apollo/client/') || id.includes('node_modules/graphql/')) {
+              return 'vendor-apollo'
+            }
+            if (id.includes('node_modules/vuetify/')) {
+              return 'vendor-ui'
+            }
+            if (id.includes('node_modules/@vue-flow/')) {
+              return 'vue-flow'
+            }
+            if (id.includes('node_modules/@jsonforms/vue-vuetify/')) {
+              return 'json-forms-vue-vuetify'
+            }
+            if (id.includes('node_modules/@jsonforms/')) {
+              return 'json-forms'
+            }
           },
         },
       },

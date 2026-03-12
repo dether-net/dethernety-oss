@@ -28,7 +28,7 @@
   }
 
   .palette-node {
-    box-sizing: border-box!; /* Ensure padding and border are included in the element's total width and height */
+    box-sizing: border-box; /* Ensure padding and border are included in the element's total width and height */
     position: relative;
     color: #fff;
   }
