@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@dethernety/dt-core": "workspace:*",
-    "@langchain/langgraph-sdk": "^1.6.5",
+    "@langchain/langgraph-sdk": "^1.7.2",
     "@nestjs/common": "^11.1.16",
     "@open-policy-agent/opa": "^2.0.0",
     "axios": "^1.13.6",
