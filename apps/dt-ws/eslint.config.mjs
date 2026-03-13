@@ -26,7 +26,6 @@ export default tseslint.config(
       'no-unused-vars': 'off',
       'no-prototype-builtins': 'off',
       'no-useless-escape': 'off',
-      'preserve-caught-error': 'off',
     },
   },
 );

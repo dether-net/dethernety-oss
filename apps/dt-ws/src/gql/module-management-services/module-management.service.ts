@@ -281,7 +281,7 @@ export class ModuleManagementService {
         excludeKeys,
         objectType: typeof obj,
       });
-      throw new Error(`Property flattening failed: ${error.message}`);
+      throw new Error(`Property flattening failed: ${error.message}`, { cause: error });
     }
   }
 
@@ -345,7 +345,7 @@ export class ModuleManagementService {
         validModuleNames,
         duration,
       });
-      throw new Error(`Module cleanup failed: ${error.message}`);
+      throw new Error(`Module cleanup failed: ${error.message}`, { cause: error });
     }
   }
 
@@ -424,7 +424,7 @@ export class ModuleManagementService {
         stack: error.stack,
         duration,
       });
-      throw new Error(`Class upsert failed for ${classLabel}/${cls?.name}: ${error.message}`);
+      throw new Error(`Class upsert failed for ${classLabel}/${cls?.name}: ${error.message}`, { cause: error });
     }
   }
 
@@ -576,7 +576,7 @@ export class ModuleManagementService {
         duration,
         classesProcessed,
       });
-      throw new Error(`Module upsert failed for ${metadata?.name}: ${error.message}`);
+      throw new Error(`Module upsert failed for ${metadata?.name}: ${error.message}`, { cause: error });
     }
   }
 
@@ -675,7 +675,7 @@ export class ModuleManagementService {
         stack: error.stack,
         duration,
       });
-      throw new Error(`Module reset failed: ${error.message}`);
+      throw new Error(`Module reset failed: ${error.message}`, { cause: error });
     } finally {
       await session.close();
     }
@@ -769,7 +769,7 @@ export class ModuleManagementService {
         errorCount,
         duration,
       });
-      throw new Error(`Bulk module update failed: ${error.message}`);
+      throw new Error(`Bulk module update failed: ${error.message}`, { cause: error });
     } finally {
       await session.close();
     }
@@ -939,11 +939,11 @@ export class ModuleManagementService {
         bundleContent = await fs.readFile(frontendBundlePath, 'utf8');
       } catch (error) {
         if (error.code === 'ENOENT') {
-          throw new Error(`Frontend bundle not found for module '${moduleName}' at path: ${frontendBundlePath}`);
+          throw new Error(`Frontend bundle not found for module '${moduleName}' at path: ${frontendBundlePath}`, { cause: error });
         } else if (error.code === 'EACCES') {
-          throw new Error(`Access denied to frontend bundle for module '${moduleName}'`);
+          throw new Error(`Access denied to frontend bundle for module '${moduleName}'`, { cause: error });
         } else {
-          throw new Error(`Failed to read frontend bundle for module '${moduleName}': ${error.message}`);
+          throw new Error(`Failed to read frontend bundle for module '${moduleName}': ${error.message}`, { cause: error });
         }
       }
 
