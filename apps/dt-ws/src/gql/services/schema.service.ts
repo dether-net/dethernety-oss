@@ -92,7 +92,7 @@ export class SchemaService implements ISchemaService {
         stack: error?.stack,
         fullError: error,
       });
-      throw new Error(`Schema build failed: ${error?.message || JSON.stringify(error)}`);
+      throw new Error(`Schema build failed: ${error?.message || JSON.stringify(error)}`, { cause: error });
     }
   }
 
@@ -147,9 +147,9 @@ export class SchemaService implements ISchemaService {
       return typeDefs;
     } catch (error) {
       if (error.code === 'ENOENT') {
-        throw new Error(`Schema file not found: ${schemaRelPath}`);
+        throw new Error(`Schema file not found: ${schemaRelPath}`, { cause: error });
       }
-      throw new Error(`Failed to load schema file: ${error.message}`);
+      throw new Error(`Failed to load schema file: ${error.message}`, { cause: error });
     }
   }
 
@@ -159,7 +159,7 @@ export class SchemaService implements ISchemaService {
       await session.run('RETURN 1');
       this.logger.log('Neo4j connection validated');
     } catch (error) {
-      throw new Error(`Neo4j connection failed: ${error.message}`);
+      throw new Error(`Neo4j connection failed: ${error.message}`, { cause: error });
     } finally {
       await session.close();
     }
