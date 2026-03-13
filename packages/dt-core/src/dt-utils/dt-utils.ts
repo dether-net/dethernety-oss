@@ -1,7 +1,5 @@
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 
 export interface RetryConfig {
   maxRetries: number
@@ -16,12 +14,12 @@ const DEFAULT_NETWORK_RETRY: RetryConfig = {
 }
 
 export class DtUtils {
-  private apolloClient: ApolloClient<NormalizedCacheObject> | null = null
+  private apolloClient: Apollo.ApolloClient | null = null
   private mutex: Map<string, Promise<any>> = new Map()
   private requestDeduplicator = new Map<string, Promise<any>>()
   private requestMetadata = new Map<string, { timestamp: number; count: number }>()
 
-  constructor(client: ApolloClient<NormalizedCacheObject>) {
+  constructor(client: Apollo.ApolloClient) {
     this.apolloClient = client
   }
 

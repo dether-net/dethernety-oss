@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import { ref } from 'vue'
-  import { useApolloClient } from '@vue/apollo-composable'
+  import { useApolloClient } from '@/plugins/apolloComposable'
   import { DtExportSplit } from '@dethernety/dt-core'
   import { splitModelToZip } from '@/utils/modelZipUtils'
 

@@ -5,14 +5,14 @@
  */
 
 import { z, ZodType } from 'zod'
-import type { ApolloClient, NormalizedCacheObject } from '@apollo/client'
+import type { ApolloClient } from '@apollo/client'
 
 /**
  * Tool execution context
  */
 export interface ToolContext {
   /** Apollo Client for GraphQL operations (only available for client-dependent tools) */
-  apolloClient?: ApolloClient<NormalizedCacheObject>
+  apolloClient?: ApolloClient
   /** JWT token for authentication (for client-dependent tools) */
   token?: string
   /** Debug mode flag */

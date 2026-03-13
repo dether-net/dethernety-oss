@@ -11,8 +11,6 @@
  */
 
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 
 import { DtImport, ImportResult, ImportOptions, ImportProgress, ImportError } from './dt-import.js'
 import {
@@ -53,9 +51,9 @@ export interface ImportSplitOptions extends ImportOptions {
  */
 export class DtImportSplit {
   private dtImport: DtImport
-  private apolloClient: ApolloClient<NormalizedCacheObject>
+  private apolloClient: Apollo.ApolloClient
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtImport = new DtImport(apolloClient)
   }
@@ -261,7 +259,7 @@ export class DtImportSplit {
   /**
    * Get the Apollo client instance.
    */
-  getApolloClient(): ApolloClient<NormalizedCacheObject> {
+  getApolloClient(): Apollo.ApolloClient {
     return this.apolloClient
   }
 }

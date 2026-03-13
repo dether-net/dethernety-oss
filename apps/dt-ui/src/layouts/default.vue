@@ -90,10 +90,10 @@
       <v-divider />
 
       <v-list density="compact" nav>
-        <v-list-item prepend-icon="mdi-home-outline" title="Home" :to="{ name: '/' }" value="home" />
-        <v-list-item prepend-icon="mdi-file-tree-outline" title="Browser" :to="{ name: '/browser' }" value="browser" />
-        <v-list-item prepend-icon="mdi-alert-outline" title="Issues" :to="{ name: '/issues' }" value="issues" />
-        <v-list-item prepend-icon="mdi-toy-brick-outline" title="Modules" :to="{ name: '/modules' }" value="modules" />
+        <v-list-item prepend-icon="mdi-home-outline" title="Home" :to="{ name: 'home' }" value="home" />
+        <v-list-item prepend-icon="mdi-file-tree-outline" title="Browser" :to="{ name: 'browser' }" value="browser" />
+        <v-list-item prepend-icon="mdi-alert-outline" title="Issues" :to="{ name: 'issues' }" value="issues" />
+        <v-list-item prepend-icon="mdi-toy-brick-outline" title="Modules" :to="{ name: 'modules' }" value="modules" />
       </v-list>
     </v-navigation-drawer>
 
@@ -166,6 +166,7 @@ body,
   font-family: 'JetBrains Mono', monospace !important;
   width: 30%;
   text-align: left;
+  cursor: pointer;
 }
 
 .title-text {

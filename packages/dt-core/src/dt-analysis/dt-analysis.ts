@@ -2,8 +2,6 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 type FetchResult<T> = Apollo.FetchResult<T>
 type Observable<T> = Apollo.Observable<T>
 import { Analysis, AnalysisClass } from '../interfaces/core-types-interface.js'
@@ -23,9 +21,9 @@ import {
 
 export class DtAnalysis {
   private dtUtils: DtUtils
-  private apolloClient: ApolloClient<NormalizedCacheObject>
+  private apolloClient: Apollo.ApolloClient
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUtils = new DtUtils(apolloClient)
   }

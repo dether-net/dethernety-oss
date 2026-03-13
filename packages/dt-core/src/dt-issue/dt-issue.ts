@@ -1,16 +1,14 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 import { ADD_ELEMENTS_TO_ISSUE, CREATE_ISSUE, DELETE_ISSUE, FIND_ISSUES, FIND_ISSUE_CLASSES, REMOVE_ELEMENT_FROM_ISSUE, UPDATE_ISSUE } from './dt-issue-gql.js'
 import { Issue, Class } from '../interfaces/core-types-interface.js'
 
 export class DtIssue {
   private dtUtils: DtUtils
-  private apolloClient: ApolloClient<NormalizedCacheObject>
+  private apolloClient: Apollo.ApolloClient
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUtils = new DtUtils(apolloClient)
   }

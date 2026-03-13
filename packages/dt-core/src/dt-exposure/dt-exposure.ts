@@ -1,16 +1,14 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 import { Exposure } from '../interfaces/core-types-interface.js'
 import { GET_EXPOSURES, GET_EXPOSURE, ADD_EXPOSURE, UPDATE_EXPOSURE, DELETE_EXPOSURE } from './dt-exposure-gql.js'
 
 export class DtExposure {
   private dtUtils: DtUtils
-  private apolloClient: ApolloClient<NormalizedCacheObject>
+  private apolloClient: Apollo.ApolloClient
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUtils = new DtUtils(this.apolloClient)
   }
@@ -49,7 +47,7 @@ export class DtExposure {
           variables: { exposureId },
           fetchPolicy: 'network-only',
         })
-        return response.data.exposures[0]
+        return (response.data as any).exposures[0]
       } catch (error) {
         this.dtUtils.handleError({ action: 'getExposure', error })
         throw error

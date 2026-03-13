@@ -2,10 +2,7 @@
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
 import Fonts from 'unplugin-fonts/vite'
-import Layouts from 'vite-plugin-vue-layouts'
 import Vue from '@vitejs/plugin-vue'
-import VueRouter from 'unplugin-vue-router/vite'
-import Pages from 'vite-plugin-pages'
 import Vuetify, { transformAssetUrls } from 'vite-plugin-vuetify'
 
 // Utilities
@@ -27,17 +24,10 @@ export default defineConfig(({ command, mode }) => {
       //   open: true,
       //   gzipSize: true
       // }) as any,
-      VueRouter({
-        dts: 'src/typed-router.d.ts',
-      }) as any,
-      Pages() as any,
-      Layouts() as any,
       AutoImport({
         imports: [
           'vue',
-          {
-            'vue-router/auto': ['useRoute', 'useRouter'],
-          },
+          'vue-router',
         ],
         dts: 'src/auto-imports.d.ts',
         eslintrc: {

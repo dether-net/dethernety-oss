@@ -1,18 +1,16 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 import { MitreDefendTactic, MitreDefendTechnique } from '../interfaces/core-types-interface.js'
 import { GET_MITRE_DEFEND_TACTICS, GET_MITRE_DEFEND_TECHNIQUE_BY_TACTIC, GET_MITRE_DEFEND_TECHNIQUE } from './dt-mitredefend-gql.js'
 
 export class DtMitreDefend {
   private dtUtils: DtUtils
-  private apolloClient: ApolloClient<NormalizedCacheObject>
+  private apolloClient: Apollo.ApolloClient
 
   private tacticsOrder = (['Model', 'Harden', 'Detect', 'Isolate', 'Deceive', 'Evict', 'Restore'])
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUtils = new DtUtils(this.apolloClient)
   }

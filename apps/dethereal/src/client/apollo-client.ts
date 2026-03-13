@@ -7,7 +7,7 @@
  */
 
 import { createRequire } from 'module'
-import type { ApolloClient as ApolloClientTypeImport, NormalizedCacheObject } from '@apollo/client'
+import type { ApolloClient as ApolloClientTypeImport } from '@apollo/client'
 import fetch from 'cross-fetch'
 import { debug } from '../config.js'
 import { getCachedPlatformConfig, getGraphQLEndpoint } from '../auth/platform-config.js'
@@ -17,7 +17,7 @@ const require = createRequire(import.meta.url)
 const { ApolloClient, InMemoryCache, HttpLink } = require('@apollo/client')
 
 // Re-export the type for external use
-type ApolloClientType = ApolloClientTypeImport<NormalizedCacheObject>
+type ApolloClientType = ApolloClientTypeImport
 export type { ApolloClientType }
 
 /**
@@ -132,7 +132,7 @@ export async function testConnection(client: ApolloClientType): Promise<boolean>
         ]
       } as any
     })
-    return !result.errors || result.errors.length === 0
+    return !result.error
   } catch (error) {
     debug(`Connection test failed: ${error}`)
     return false

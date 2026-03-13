@@ -1,16 +1,14 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 import { GET_AVAILABLE_FRONTEND_MODULES, GET_MODULE_BY_ID, GET_MODULE_BY_NAME, GET_MODULE_FRONTEND_BUNDLE, GET_MODULES, RESET_MODULE, SAVE_MODULE } from './dt-module-gql.js'
 import { Module } from '../interfaces/core-types-interface.js'
 
 export class DtModule {
   private dtUtils: DtUtils
-  private apolloClient: ApolloClient<NormalizedCacheObject>
+  private apolloClient: Apollo.ApolloClient
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUtils = new DtUtils(apolloClient)
   }

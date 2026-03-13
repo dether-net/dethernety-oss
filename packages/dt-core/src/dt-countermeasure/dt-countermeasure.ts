@@ -1,16 +1,14 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 import { Countermeasure } from '../interfaces/core-types-interface.js'
 import { CREATE_COUNTERMEASURE, GET_COUNTERMEASURES_FROM_CONTROL, GET_COUNTERMEASURE, UPDATE_COUNTERMEASURE, DELETE_COUNTERMEASURE } from './dt-countermeasure-gql.js'
 
 export class DtCountermeasure {
   private dtUtils: DtUtils
-  private apolloClient: ApolloClient<NormalizedCacheObject>
+  private apolloClient: Apollo.ApolloClient
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUtils = new DtUtils(this.apolloClient)
   }

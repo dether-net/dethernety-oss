@@ -2,7 +2,7 @@
 import { createApp, h, provide } from 'vue'
 import App from './App.vue'
 import { registerPlugins } from '@/plugins'
-import { DefaultApolloClient } from '@vue/apollo-composable'
+import { DefaultApolloClient } from '@/plugins/apolloComposable'
 import apolloClient, { initializeApolloClient } from '@/plugins/apolloClient'
 import * as VueRuntime from 'vue'
 import { moduleLoader, ModuleLoader } from './services/ModuleLoader'
