@@ -40,11 +40,12 @@ export async function openBrowser(url: string): Promise<void> {
     if (message.includes('spawn')) {
       throw new Error(
         `Failed to open browser. No default browser found. ` +
-          `Please manually open: ${url}`
+          `Please manually open: ${url}`,
+        { cause: error }
       )
     }
 
-    throw new Error(`Failed to open browser: ${message}. Please manually open: ${url}`)
+    throw new Error(`Failed to open browser: ${message}. Please manually open: ${url}`, { cause: error })
   }
 }
 

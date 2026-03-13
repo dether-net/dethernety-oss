@@ -134,7 +134,7 @@ export async function saveTokens(tokens: StoredTokens): Promise<void> {
     debug(`Saved tokens for ${key}`)
   } catch (error) {
     debug(`Error saving tokens: ${error}`)
-    throw new Error(`Failed to save tokens: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    throw new Error(`Failed to save tokens: ${error instanceof Error ? error.message : 'Unknown error'}`, { cause: error })
   }
 }
 
@@ -163,7 +163,7 @@ export async function clearTokens(baseUrl: string): Promise<void> {
     debug(`Cleared tokens for ${key}`)
   } catch (error) {
     debug(`Error clearing tokens: ${error}`)
-    throw new Error(`Failed to clear tokens: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    throw new Error(`Failed to clear tokens: ${error instanceof Error ? error.message : 'Unknown error'}`, { cause: error })
   }
 }
 
