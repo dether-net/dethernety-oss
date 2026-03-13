@@ -12,8 +12,6 @@
  */
 
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 
 import { DtUpdate, UpdateResult, UpdateOptions, UpdateProgress, UpdateError, UpdateStats } from './dt-update.js'
 import { DtClass } from '../dt-class/dt-class.js'
@@ -74,9 +72,9 @@ export interface UpdateSplitOptions extends UpdateOptions {
 export class DtUpdateSplit {
   private dtUpdate: DtUpdate
   private dtClass: DtClass
-  private apolloClient: ApolloClient<NormalizedCacheObject>
+  private apolloClient: Apollo.ApolloClient
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUpdate = new DtUpdate(apolloClient)
     this.dtClass = new DtClass(apolloClient)
@@ -347,7 +345,7 @@ export class DtUpdateSplit {
   /**
    * Get the Apollo client instance.
    */
-  getApolloClient(): ApolloClient<NormalizedCacheObject> {
+  getApolloClient(): Apollo.ApolloClient {
     return this.apolloClient
   }
 }

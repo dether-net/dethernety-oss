@@ -1,8 +1,6 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 import { Model, ComponentData, BoundaryData, DataFlowData, DataItem, Module, Class } from '../interfaces/core-types-interface.js'
 import { DtModel } from '../dt-model/dt-model.js'
 import { DtClass } from '../dt-class/dt-class.js'
@@ -46,14 +44,14 @@ export interface ExportedModel extends Omit<Model, '__typename'> {
 
 export class DtExport {
   private dtUtils: DtUtils
-  private apolloClient: ApolloClient<NormalizedCacheObject>
+  private apolloClient: Apollo.ApolloClient
   private dtModel: DtModel
   private dtClass: DtClass
   private dtComponent: DtComponent
   private dtBoundary: DtBoundary
   private dtDataflow: DtDataflow
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUtils = new DtUtils(apolloClient)
     this.dtModel = new DtModel(apolloClient)

@@ -217,6 +217,7 @@
   left: 80px;
   z-index: 1000;
   font-family: 'JetBrains Mono', monospace !important;
+  cursor: pointer;
 }
 
 .model-name {

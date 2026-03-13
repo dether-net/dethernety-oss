@@ -1,6 +1,6 @@
-import { ApolloClient, HttpLink, InMemoryCache, split, from, ApolloLink, Observable } from '@apollo/client/core'
+import { ApolloClient, HttpLink, InMemoryCache, split, from, ApolloLink, Observable, CombinedGraphQLErrors } from '@apollo/client/core'
 import { setContext } from '@apollo/client/link/context'
-import { onError } from '@apollo/client/link/error'
+import { ErrorLink } from '@apollo/client/link/error'
 import { GraphQLWsLink } from '@apollo/client/link/subscriptions'
 import { getMainDefinition } from '@apollo/client/utilities'
 import { createClient as createSseClient } from 'graphql-sse'
@@ -10,7 +10,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { getConfig } from '@/config/environment'
 
 // Initialize Apollo client with runtime configuration
-let apolloClient: ApolloClient<any> | null = null;
+let apolloClient: ApolloClient | null = null;
 
 // Create Apollo client with runtime configuration
 async function createApolloClient() {
@@ -65,20 +65,20 @@ async function createApolloClient() {
   })
 
   // Error link to handle authentication errors
-  const errorLink = onError(({ graphQLErrors, networkError }) => {
-    if (graphQLErrors && import.meta.env.DEV) {
-      graphQLErrors.forEach(({ message, locations, path }) => {
-        console.error(`GraphQL error: Message: ${message}, Location: ${locations}, Path: ${path}`)
-      })
-    }
-
-    if (networkError) {
+  const errorLink = new ErrorLink(({ error }) => {
+    if (CombinedGraphQLErrors.is(error)) {
       if (import.meta.env.DEV) {
-        console.error(`[ApolloClient] Network error: ${networkError}`)
+        error.errors.forEach(({ message, locations, path }: { message: string, locations?: unknown, path?: unknown }) => {
+          console.error(`GraphQL error: Message: ${message}, Location: ${locations}, Path: ${path}`)
+        })
+      }
+    } else {
+      if (import.meta.env.DEV) {
+        console.error(`[ApolloClient] Network error: ${error}`)
       }
 
       // Handle 401/403 errors - token might be invalid
-      if ('statusCode' in networkError && (networkError.statusCode === 401 || networkError.statusCode === 403)) {
+      if (error && 'statusCode' in error && ((error as any).statusCode === 401 || (error as any).statusCode === 403)) {
         const authStore = useAuthStore()
         if (import.meta.env.DEV) {
           console.warn('[ApolloClient] GraphQL request unauthorized, clearing session')
@@ -276,7 +276,7 @@ export async function getApolloClient() {
 }
 
 // Proxy object that lazily initializes the client
-const apolloClientProxy = new Proxy({} as ApolloClient<any>, {
+const apolloClientProxy = new Proxy({} as ApolloClient, {
   get(target, prop) {
     if (!apolloClient) {
       throw new Error('Apollo client not initialized yet. Call initializeApolloClient() in your app startup.');
@@ -286,7 +286,7 @@ const apolloClientProxy = new Proxy({} as ApolloClient<any>, {
 });
 
 // Initialize function to be called during app startup
-export async function initializeApolloClient(): Promise<ApolloClient<any>> {
+export async function initializeApolloClient(): Promise<ApolloClient> {
   if (!apolloClient) {
     apolloClient = await createApolloClient();
   }

@@ -1,15 +1,13 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 import { DataItem } from '../interfaces/core-types-interface.js'
 import { ADD_DATA_ITEM, UPDATE_DATA_ITEM, DELETE_DATA_ITEM } from './dt-dataitem-gql.js'
 export class DtDataItem {
   private dtUtils: DtUtils
-  private apolloClient: ApolloClient<NormalizedCacheObject>
+  private apolloClient: Apollo.ApolloClient
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUtils = new DtUtils(this.apolloClient)
   }

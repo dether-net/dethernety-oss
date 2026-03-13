@@ -7,8 +7,6 @@
 
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 import { Node, Edge } from '@vue-flow/core'
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { Model, Module } from '../interfaces/core-types-interface.js'
@@ -57,7 +55,7 @@ export interface UpdateOptions {
 }
 
 export class DtUpdate {
-  private apolloClient: ApolloClient<NormalizedCacheObject>
+  private apolloClient: Apollo.ApolloClient
   private dtUtils: DtUtils
   private dtModel: DtModel
   private dtClass: DtClass
@@ -97,7 +95,7 @@ export class DtUpdate {
   }
   private onProgress?: (progress: UpdateProgress) => void
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUtils = new DtUtils(apolloClient)
     this.dtModel = new DtModel(apolloClient)

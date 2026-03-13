@@ -12,9 +12,7 @@
     },
     "resolveJsonModule": true,
     "types": [
-      "vite/client",
-      "unplugin-vue-router/client",
-      "vite-plugin-vue-layouts/client"
+      "vite/client"
     ],
     "allowJs": true,
     "strict": true,

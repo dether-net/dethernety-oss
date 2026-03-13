@@ -6,8 +6,6 @@
  */
 
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 
 import { DtExport, ExportedModel, ExportedBoundary, ExportedComponent, ExportedDataFlow, ExportedDataItem } from './dt-export.js'
 import {
@@ -31,7 +29,7 @@ import {
 export class DtExportSplit {
   private dtExport: DtExport
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.dtExport = new DtExport(apolloClient)
   }
 

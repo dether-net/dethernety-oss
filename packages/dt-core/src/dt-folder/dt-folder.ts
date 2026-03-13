@@ -1,16 +1,14 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 import { Folder } from '../interfaces/core-types-interface.js'
 import { GET_FOLDERS, CREATE_FOLDER, DELETE_FOLDER, UPDATE_FOLDER } from './dt-folder-gql.js'
 
 export class DtFolder {
   private dtUtils: DtUtils
-  private apolloClient: ApolloClient<NormalizedCacheObject>
+  private apolloClient: Apollo.ApolloClient
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUtils = new DtUtils(this.apolloClient)
   }

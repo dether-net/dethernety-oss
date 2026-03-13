@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import { ref } from 'vue'
-  import { useApolloClient } from '@vue/apollo-composable'
+  import { useApolloClient } from '@/plugins/apolloComposable'
   import { DtImportSplit } from '@dethernety/dt-core'
   import type { ImportProgress, ImportSplitResult, Model } from '@dethernety/dt-core'
   import { useFolderStore } from '@/stores/folderStore'

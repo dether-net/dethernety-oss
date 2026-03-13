@@ -1,8 +1,6 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 import { MitreAttackTechnique, MitreAttackTactic, MitreAttackMitigation } from '../interfaces/core-types-interface.js'
 import {
   GET_MITRE_ATTACK_TACTICS,
@@ -15,10 +13,10 @@ import {
 
 export class DtMitreAttack {
   private dtUtils: DtUtils
-  private apolloClient: ApolloClient<NormalizedCacheObject>
+  private apolloClient: Apollo.ApolloClient
   private  tacticsOrder = (['Reconnaissance', 'Resource Development', 'Initial Access', 'Execution', 'Persistence', 'Privilege Escalation', 'Defense Evasion', 'Credential Access', 'Discovery', 'Lateral Movement', 'Collection', 'Command and Control', 'Exfiltration', 'Impact'])
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUtils = new DtUtils(this.apolloClient)
   }

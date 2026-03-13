@@ -1,19 +1,35 @@
 /**
  * router/index.ts
  *
- * Automatic routes for `./src/pages/*.vue`
+ * Route definitions for the application.
  */
 
-// Composables
 import { createRouter, createWebHistory } from 'vue-router'
-import { setupLayouts } from 'virtual:generated-layouts'
-import { routes } from 'vue-router/auto-routes'
 import { useAuthStore } from '@/stores/authStore'
+
+// Layout wrapper — wraps page components in the default layout
+import DefaultLayout from '@/layouts/default.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
-  // history: createWebHashHistory(import.meta.env.BASE_URL), // Use hash mode instead of history mode
-  routes: setupLayouts([...routes]),
+  routes: [
+    {
+      path: '/',
+      component: DefaultLayout,
+      children: [
+        { path: '', name: 'home', component: () => import('@/pages/index.vue') },
+        { path: 'browser', name: 'browser', component: () => import('@/pages/browser.vue') },
+        { path: 'dataflow', name: 'dataflow', component: () => import('@/pages/dataflow.vue') },
+        { path: 'analysisresults', name: 'analysisresults', component: () => import('@/pages/analysisresults.vue') },
+        { path: 'issues', name: 'issues', component: () => import('@/pages/issues.vue') },
+        { path: 'modules', name: 'modules', component: () => import('@/pages/modules.vue') },
+      ],
+    },
+    // Auth routes (no layout)
+    { path: '/login', name: 'login', component: () => import('@/pages/login.vue') },
+    { path: '/auth/callback', name: 'auth-callback', component: () => import('@/pages/auth/callback.vue') },
+    { path: '/auth/logout', name: 'auth-logout', component: () => import('@/pages/auth/logout.vue') },
+  ],
 })
 
 // Ensure auth mode is resolved once before the first navigation.

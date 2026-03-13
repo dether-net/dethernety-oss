@@ -19,7 +19,7 @@
     "dev": "tsc -b -w"
   },
   "dependencies": {
-    "@apollo/client": "^3.14.0",
+    "@apollo/client": "^4.1.6",
     "@vue-flow/core": "^1.48.2",
     "graphql-tag": "^2.12.6",
     "js-yaml": "^4.1.1"

@@ -2,17 +2,15 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-type ApolloClient<T> = Apollo.ApolloClient<T>
-type NormalizedCacheObject = Apollo.NormalizedCacheObject
 import { BoundaryData, Control, DataItem, DirectDescendant, Model } from '../interfaces/core-types-interface.js'
 import { Node } from '@vue-flow/core'
 import { ADD_BOUNDARY, UPDATE_BOUNDARY, GET_DIRECT_DESCENDANTS, DELETE_BOUNDARY, GET_BOUNDARY_REPRESENTED_MODEL } from './dt-boundary-gql.js'
 
 export class DtBoundary {
   private dtUtils: DtUtils
-  private apolloClient: ApolloClient<NormalizedCacheObject>
+  private apolloClient: Apollo.ApolloClient
 
-  constructor(apolloClient: ApolloClient<NormalizedCacheObject>) {
+  constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUtils = new DtUtils(apolloClient)
   }
