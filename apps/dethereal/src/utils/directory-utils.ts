@@ -98,7 +98,7 @@ export async function readManifest(dirPath: string): Promise<ModelManifest> {
   try {
     return JSON.parse(content) as ModelManifest
   } catch (parseError) {
-    throw new Error(`Invalid JSON in manifest at ${manifestPath}: ${parseError instanceof Error ? parseError.message : String(parseError)}`)
+    throw new Error(`Invalid JSON in manifest at ${manifestPath}: ${parseError instanceof Error ? parseError.message : String(parseError)}`, { cause: parseError })
   }
 }
 
@@ -111,7 +111,7 @@ export async function readStructure(dirPath: string): Promise<ModelStructure> {
   try {
     return JSON.parse(content) as ModelStructure
   } catch (parseError) {
-    throw new Error(`Invalid JSON in structure at ${structurePath}: ${parseError instanceof Error ? parseError.message : String(parseError)}`)
+    throw new Error(`Invalid JSON in structure at ${structurePath}: ${parseError instanceof Error ? parseError.message : String(parseError)}`, { cause: parseError })
   }
 }
 

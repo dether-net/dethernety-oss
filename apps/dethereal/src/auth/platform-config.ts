@@ -95,7 +95,8 @@ export async function fetchPlatformConfig(baseUrl?: string): Promise<PlatformCon
     return platformConfig
   } catch (error) {
     throw new Error(
-      `Failed to fetch platform config from ${configUrl}: ${error instanceof Error ? error.message : 'Unknown error'}`
+      `Failed to fetch platform config from ${configUrl}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      { cause: error }
     )
   }
 }
