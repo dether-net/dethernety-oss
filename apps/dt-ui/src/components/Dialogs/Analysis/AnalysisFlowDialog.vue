@@ -1,5 +1,6 @@
 <script setup lang="ts">
   import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+  import { useRouter } from 'vue-router'
   import { useAnalysisStore } from '@/stores/analysisStore'
   import { Analysis } from '@dethernety/dt-core'
   import UserQuestionDialog from '@/components/Dialogs/Analysis/UserQuestionDialog.vue'
@@ -12,6 +13,7 @@
   const props = defineProps<Props>()
   const emit = defineEmits(['close'])
 
+  const router = useRouter()
   const analysisStore = useAnalysisStore()
   const analysisId = ref(props.analysisId)
   const dialog = ref(props.show)
@@ -60,6 +62,12 @@
                   analysisMessages.value = messages?.map((message: any) => message.content) || []
                 }
               })
+          }
+          if (analysis.value.status?.status === 'idle') {
+            // Graph run completed — navigate to results page
+            closeDialog()
+            router.push({ path: '/analysisresults', query: { id } })
+            return
           }
           if (analysis.value.status?.status === 'interrupted') {
             // Populate interrupts BEFORE showing dialog to avoid accessing undefined
