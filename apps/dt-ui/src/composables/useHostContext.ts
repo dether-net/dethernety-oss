@@ -4,6 +4,8 @@ import { useAnalysisStore } from '@/stores/analysisStore'
 import { useIssueStore } from '@/stores/issueStore'
 import { componentRegistry } from '@/services/ComponentRegistry'
 import { getPageDisplayName } from '@/utils/dataFlowUtils'
+import { DtUtils } from '@dethernety/dt-core'
+import apolloClient from '@/plugins/apolloClient'
 
 import { 
   resolveComponent, 
@@ -60,7 +62,8 @@ export function useHostContext() {
     },
     utils: {
       resolveComponent: safeResolveComponent,
-      getPageDisplayName
+      getPageDisplayName,
+      dtUtils: new DtUtils(apolloClient)
     }
   }
 }

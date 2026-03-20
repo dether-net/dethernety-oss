@@ -7,6 +7,7 @@ import { AnalysisClassMetadata } from './interfaces/analysis-class-metadata-inte
 import { LgAnalysisConfig, LgModuleMetadata, LgModuleOptions } from './interfaces/lg-analysis-config-interface';
 import { DtLgAnalysisOps } from './dt-lg-analysis-ops';
 import { DtLgDocumentOps } from './dt-lg-document-ops';
+import { readSchemaExtension } from './schema-utils';
 
 /**
  * Default template for LangGraph modules.
@@ -405,5 +406,18 @@ export class DtLgModule implements DTModule {
     }
 
     return this.documentOps.getDocument(scope, analysisId, assistant.name, filter);
+  }
+
+  /**
+   * Returns a GraphQL SDL fragment to extend the platform schema.
+   *
+   * Default implementation reads `schema.graphql` from the compiled module's
+   * directory (__dirname). Modules that ship a schema.graphql alongside their
+   * compiled .Module.js file get schema extension automatically.
+   *
+   * Override this method to provide SDL from a different source.
+   */
+  async getSchemaExtension(): Promise<string | undefined> {
+    return readSchemaExtension(__dirname);
   }
 }

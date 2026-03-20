@@ -713,6 +713,16 @@ type Analysis implements Element  @authentication @node {
   element: [Element!]! @relationship(type: "ANALYZED_BY", direction: IN)
   "Issues associated with this analysis"
   issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
+  "Analysis lifecycle status (active, complete, archived)"
+  analysisStatus: String
+  "Free-text scope description"
+  scope_description: String
+  "Element IDs defining the analysis scope (soft marker, not enforced)"
+  scope_elements: [String!]
+  "Risk assessment mode (simple or graph_informed)"
+  risk_mode: String
+  "Analysis-level notes"
+  notes: [String!]
 }
 
 """An analysis class definition provided by a module."""

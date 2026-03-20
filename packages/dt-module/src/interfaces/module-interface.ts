@@ -27,4 +27,7 @@ export interface DTModule {
   stopAnalysis?(id: string): Promise<boolean>;
 
   getSyncedIssueAttributes?(issueId: string, attributes: string, lastSyncAt: string): Promise<string>;
+
+  /** Return a GraphQL SDL fragment to extend the platform schema. Optional. */
+  getSchemaExtension?(): string | Promise<string | undefined> | undefined;
 }

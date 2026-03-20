@@ -336,10 +336,15 @@ export class ModuleRegistryService implements OnModuleInit {
     return { module: moduleInstance, metadata };
   }
 
+  private modulesLoaded = false;
+
   /**
    * Loads all modules from the custom modules directory.
+   * Safe to call multiple times — skips loading if already done.
    */
-  private async loadModules() {
+  async loadModules() {
+    if (this.modulesLoaded) return;
+    this.modulesLoaded = true;
     const customModuleDir = path.isAbsolute(this.config.customModulesPath)
       ? this.config.customModulesPath
       : path.join(process.cwd(), this.config.customModulesPath);
@@ -403,6 +408,22 @@ export class ModuleRegistryService implements OnModuleInit {
                 loadAttempts: 1,
                 isHealthy: true,
               };
+
+              // Collect schema extension if the module provides one
+              if (typeof loadResult.module.getSchemaExtension === 'function') {
+                try {
+                  const fragment = await loadResult.module.getSchemaExtension();
+                  if (fragment?.trim()) {
+                    moduleEntry.schemaFragment = fragment;
+                    this.logger.log('Module provided schema extension', { moduleName });
+                  }
+                } catch (error) {
+                  this.logger.warn('Failed to get schema extension from module', {
+                    moduleName,
+                    error: safeErrorMessage(error),
+                  });
+                }
+              }
 
               this.customModules.set(moduleName, moduleEntry);
               loadedCount++;
@@ -625,6 +646,21 @@ export class ModuleRegistryService implements OnModuleInit {
    */
   getAllModuleEntries(): Map<string, ModuleEntry> {
     return new Map(this.customModules);
+  }
+
+  /**
+   * Gets GraphQL schema fragments from all healthy modules that provide them.
+   * @returns Array of GraphQL SDL strings
+   */
+  getSchemaFragments(): string[] {
+    const fragments: string[] = [];
+    for (const [name, entry] of this.customModules) {
+      if (entry.isHealthy && entry.schemaFragment) {
+        fragments.push(entry.schemaFragment);
+        this.logger.debug('Including schema fragment from module', { moduleName: name });
+      }
+    }
+    return fragments;
   }
 
   /**

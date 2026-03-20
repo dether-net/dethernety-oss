@@ -24,13 +24,6 @@ export interface FrontendModuleConfig {
   name: string
 }
 
-export interface HostDependencies {
-  useHostContext: typeof useHostContext
-  services: {
-    componentRegistry: typeof componentRegistry
-  }
-}
-
 export class ModuleLoader {
   private loadedModules = new Set<string>()
   

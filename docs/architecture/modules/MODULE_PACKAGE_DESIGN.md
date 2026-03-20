@@ -37,6 +37,7 @@ A module package is a **deployment unit** that can contain multiple components:
 │   └── {module-name}/            # One directory per module (can have multiple)
 │       ├── {ModuleName}Module.js # Main module entry point (must end with Module.js)
 │       ├── *.js                  # Supporting files
+│       ├── schema.graphql        # Optional GraphQL schema extension (SDL)
 │       └── frontend/             # Optional UI components
 │           └── bundle.js         # Vite-bundled Vue.js
 │

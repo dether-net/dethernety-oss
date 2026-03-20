@@ -1,6 +1,7 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Neo4jGraphQL } from '@neo4j/graphql';
+import { parse } from 'graphql';
 import * as fs from 'fs/promises';
 import { accessSync } from 'fs';
 import * as path from 'path';
@@ -12,6 +13,7 @@ export class SchemaService implements ISchemaService {
   private readonly logger = new Logger(SchemaService.name);
   private schema: any;
   private readonly config: GqlConfig;
+  private moduleSchemaFragments: string[] = [];
   
   // Build-time constants — schema files are part of the application codebase
   private readonly SCHEMA_PATH = 'schema/schema.graphql';
@@ -45,9 +47,10 @@ export class SchemaService implements ISchemaService {
     try {
       this.logger.log('Building GraphQL schema with custom resolvers...');
       
-      // Load and validate schema file
-      const typeDefs = await this.loadSchemaFile();
-      
+      // Load and validate schema file, merge module fragments
+      const baseTypeDefs = await this.loadSchemaFile();
+      const typeDefs = this.mergeModuleSchemas(baseTypeDefs);
+
       // Validate Neo4j connection
       await this.validateNeo4jConnection();
 
@@ -151,6 +154,43 @@ export class SchemaService implements ISchemaService {
       }
       throw new Error(`Failed to load schema file: ${error.message}`, { cause: error });
     }
+  }
+
+  /**
+   * Sets module-contributed schema fragments to be merged with the base schema.
+   * Call this before buildSchemaWithResolvers().
+   */
+  setModuleSchemaFragments(fragments: string[]): void {
+    this.moduleSchemaFragments = fragments;
+    if (fragments.length > 0) {
+      this.logger.log(`Received ${fragments.length} module schema fragment(s) for merging`);
+    }
+  }
+
+  /**
+   * Merges module schema fragments with the base schema.
+   * Each fragment is validated with graphql.parse() — invalid fragments are skipped with a warning.
+   */
+  private mergeModuleSchemas(baseSchema: string): string {
+    if (this.moduleSchemaFragments.length === 0) return baseSchema;
+
+    const validFragments: string[] = [];
+    for (const fragment of this.moduleSchemaFragments) {
+      try {
+        parse(fragment);
+        validFragments.push(fragment);
+      } catch (error) {
+        this.logger.warn('Skipping invalid module schema fragment', {
+          error: error?.message,
+          fragmentPreview: fragment.substring(0, 200),
+        });
+      }
+    }
+
+    if (validFragments.length === 0) return baseSchema;
+
+    this.logger.log(`Merging ${validFragments.length} valid module schema fragment(s) with base schema`);
+    return [baseSchema, ...validFragments].join('\n\n');
   }
 
   private async validateNeo4jConnection(): Promise<void> {
