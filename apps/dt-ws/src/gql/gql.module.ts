@@ -6,6 +6,7 @@ import { CustomResolverModule } from './custom-resolver.module';
 import { RESOLVER_SERVICES } from './resolvers.constants';
 import { DatabaseModule } from '../database/database.module';
 import { SchemaService } from './services/schema.service';
+import { ModuleRegistryService } from './module-management-services/module-registry.service';
 import { GqlHealthService } from './health/gql-health.service';
 import { GraphQLSseController } from './sse/graphql-sse.controller';
 import { ResolverService, GraphQLContext } from './interfaces/resolver.interface';
@@ -24,11 +25,12 @@ import { getComplexity, simpleEstimator } from 'graphql-query-complexity';
     GraphQLModule.forRootAsync<ApolloDriverConfig>({
       driver: ApolloDriver,
       imports: [ConfigModule, CustomResolverModule],
-      inject: [ConfigService, RESOLVER_SERVICES, 'NEO4J_DRIVER'],
+      inject: [ConfigService, RESOLVER_SERVICES, 'NEO4J_DRIVER', ModuleRegistryService],
       useFactory: async (
         configService: ConfigService,
         resolverServices: ResolverService[],
         neo4jDriver: any,
+        moduleRegistryService: ModuleRegistryService,
       ) => {
         const logger = new Logger('GqlModule');
         const config = configService.get<GqlConfig>('gql')!;
@@ -38,6 +40,14 @@ import { getComplexity, simpleEstimator } from 'graphql-query-complexity';
 
           // Create schema service instance
           const schemaService = new SchemaService(configService, neo4jDriver);
+
+          // Ensure modules are loaded before collecting schema fragments
+          // (useFactory runs before onModuleInit, so modules may not be loaded yet)
+          await moduleRegistryService.loadModules();
+
+          // Pass module-contributed schema fragments
+          const schemaFragments = moduleRegistryService.getSchemaFragments();
+          schemaService.setModuleSchemaFragments(schemaFragments);
 
           // Merge custom resolvers
           const customResolvers = schemaService.mergeResolvers(resolverServices);

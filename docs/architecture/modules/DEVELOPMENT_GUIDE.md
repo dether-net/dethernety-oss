@@ -9,6 +9,7 @@
 - [Writing JSON Logic Rules](#writing-json-logic-rules)
 - [Configuration Templates](#configuration-templates)
 - [Analysis Modules](#analysis-modules)
+- [Schema Extensions](#schema-extensions)
 - [Testing and Debugging](#testing-and-debugging)
 
 ## Overview
@@ -534,6 +535,90 @@ class MyAnalysisModule implements DTModule {
 
 export default MyAnalysisModule;
 ```
+
+---
+
+## Schema Extensions
+
+Modules can extend the platform's GraphQL schema by providing a `schema.graphql` file. At startup, `ModuleRegistryService` calls `getSchemaExtension()` on each module, and `SchemaService` merges all valid fragments into the base schema.
+
+### Creating a Schema Extension
+
+Place a `schema.graphql` file in your module's root directory (next to `manifest.json`):
+
+```
+modules/my-module/
+├── src/
+│   └── MyModule.ts
+├── schema.graphql          # GraphQL schema extension
+├── manifest.json
+└── package.json
+```
+
+The packaging script copies `schema.graphql` into the compiled output directory alongside the `.Module.js` file.
+
+### Writing schema.graphql
+
+Define new types using standard GraphQL SDL:
+
+```graphql
+type ThreatIntel {
+  id: ID!
+  name: String!
+  severity: String
+  source: String
+  discoveredAt: DateTime
+}
+
+type ComplianceMapping {
+  id: ID!
+  framework: String!
+  controlId: String!
+  description: String
+}
+```
+
+**Rules:**
+- Define new types only. You **must not** redefine existing platform types (see `apps/dt-ws/schema/schema.graphql` for the base schema).
+- Each fragment is validated with `graphql.parse()` at startup. Invalid fragments are skipped with a warning logged to the console.
+
+### How It Works
+
+1. `DtLgModule` provides a default `getSchemaExtension()` that reads `schema.graphql` from the compiled module directory using the `readSchemaExtension(__dirname)` utility.
+2. For other base classes or direct implementations, implement `getSchemaExtension()` on your module class:
+
+```typescript
+import { readSchemaExtension } from '@dethernety/dt-module';
+
+class MyModule implements DTModule {
+  getSchemaExtension(): string | undefined {
+    return readSchemaExtension(__dirname);
+  }
+
+  // ... other methods
+}
+```
+
+3. `ModuleRegistryService` stores the returned SDL string in `ModuleEntry.schemaFragment`.
+4. `SchemaService` merges the base schema with all module fragments and passes the combined schema to `Neo4jGraphQL`.
+
+### Verifying Schema Extensions
+
+After the backend starts, you can introspect the schema to confirm your types are available:
+
+```graphql
+{
+  __type(name: "ThreatIntel") {
+    name
+    fields {
+      name
+      type { name }
+    }
+  }
+}
+```
+
+If the type does not appear, check the backend logs for schema validation warnings.
 
 ---
 

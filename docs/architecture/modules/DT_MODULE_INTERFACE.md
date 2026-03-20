@@ -56,6 +56,11 @@ The `DTModule` interface is the core contract that all Dethernety modules must i
 │  │  • getSyncedIssueAttributes(issueId, attributes, lastSyncAt)    │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │                 Schema Extension (Optional)                     │    │
+│  │  • getSchemaExtension(): string                                 │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -126,6 +131,9 @@ export interface DTModule {
     attributes: string,
     lastSyncAt: string
   ): Promise<string>;
+
+  // Optional - GraphQL schema extension
+  getSchemaExtension?(): string | Promise<string | undefined> | undefined;
 }
 ```
 
@@ -729,6 +737,36 @@ async stopAnalysis(id: string): Promise<boolean>
 ```
 
 **Returns:** `true` if successful
+
+---
+
+### getSchemaExtension()
+
+Returns a GraphQL SDL string that extends the platform's base schema. The `ModuleRegistryService` calls this on each loaded module at startup and stores the result in `ModuleEntry.schemaFragment`. The `SchemaService` merges all valid fragments into the base schema before constructing the `Neo4jGraphQL` instance.
+
+```typescript
+getSchemaExtension?(): string | Promise<string | undefined> | undefined
+```
+
+**Called by:** Module Registry Service at startup
+
+**Returns:** GraphQL SDL string, or `undefined` if the module does not extend the schema
+
+**Rules:**
+- Define new types only. Do not redefine existing platform types.
+- Invalid fragments (those that fail `graphql.parse()`) are skipped at startup with a warning.
+
+**Example Return Value:**
+```graphql
+type ThreatIntel {
+  id: ID!
+  name: String!
+  severity: String
+  source: String
+}
+```
+
+`DtLgModule` provides a default implementation that reads `schema.graphql` from the compiled module directory using the `readSchemaExtension()` utility. See [BASE_CLASSES.md](./BASE_CLASSES.md) for details.
 
 ---
 

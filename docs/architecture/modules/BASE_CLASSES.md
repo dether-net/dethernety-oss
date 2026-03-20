@@ -521,6 +521,16 @@ const analysisConfig: LgAnalysisConfig = {
 
 ### Key Methods
 
+#### getSchemaExtension()
+
+Returns a GraphQL SDL string read from `schema.graphql` in the compiled module directory. This is the default implementation provided by `DtLgModule` using the `readSchemaExtension(__dirname)` utility exported from `@dethernety/dt-module`.
+
+```typescript
+getSchemaExtension(): string | undefined
+```
+
+If `schema.graphql` does not exist in the module directory, the method returns `undefined` and the module does not contribute to the merged schema. Other base classes do not provide a default implementation; see [DEVELOPMENT_GUIDE.md](./DEVELOPMENT_GUIDE.md#schema-extensions) for how to add one manually.
+
 #### getMetadata()
 
 Returns metadata with `analysisClasses` populated from LangGraph assistants.

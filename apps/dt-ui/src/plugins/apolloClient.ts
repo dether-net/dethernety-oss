@@ -135,8 +135,11 @@ async function createApolloClient() {
 
     const sseClient = createSseClient({
       url: sseUrl,
-      headers: (): Record<string, string> => {
+      headers: async (): Promise<Record<string, string>> => {
         const authStore = useAuthStore()
+        if (!authStore.authDisabled) {
+          await authStore.ensureValidToken()
+        }
         const token = authStore.token
         if (token) {
           return { Authorization: `Bearer ${token}` }

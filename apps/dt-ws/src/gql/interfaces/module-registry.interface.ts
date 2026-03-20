@@ -9,6 +9,8 @@ export interface ModuleEntry {
   lastReloadAt?: Date;
   loadAttempts: number;
   isHealthy: boolean;
+  /** GraphQL SDL content from the module's getSchemaExtension() method */
+  schemaFragment?: string;
 }
 
 export interface ModuleHealthStatus {

@@ -19,3 +19,4 @@ export * from './opa-ops';
 export * from './dt-lg-analysis-ops';
 export * from './dt-lg-document-ops';
 export * from './dt-lg-module';
+export * from './schema-utils';

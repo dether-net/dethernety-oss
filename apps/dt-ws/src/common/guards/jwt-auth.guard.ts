@@ -162,19 +162,27 @@ export class JwtAuthGuard implements CanActivate {
 
         const signingKey = key.getPublicKey();
 
-        // Verify token with optional issuer/audience validation
+        // Verify token with optional issuer validation
+        // Note: audience is validated manually after verification because
+        // Cognito access tokens use `client_id` instead of `aud`.
         const verifyOptions: jwt.VerifyOptions = {
           algorithms: ['RS256'],
         };
         if (this.config.oidcIssuer) {
           verifyOptions.issuer = this.config.oidcIssuer;
         }
-        if (this.config.oidcAudience) {
-          verifyOptions.audience = this.config.oidcAudience;
-        }
-        jwt.verify(token, signingKey, verifyOptions, (verifyErr, payload) => {
+        jwt.verify(token, signingKey, verifyOptions, (verifyErr, payload: any) => {
           if (verifyErr) {
             return reject(new Error(`Token verification failed: ${verifyErr.message}`));
+          }
+          // Validate audience: check `aud` (ID tokens) or `client_id` (access tokens)
+          if (this.config.oidcAudience) {
+            const tokenAudience = payload.aud || payload.client_id;
+            if (tokenAudience !== this.config.oidcAudience) {
+              return reject(new Error(
+                `Token audience mismatch: got ${tokenAudience}, expected ${this.config.oidcAudience}`
+              ));
+            }
           }
           resolve(payload);
         });
