@@ -81,6 +81,15 @@
                 interrupts.value = []
               }
             }
+            // Structured interrupts (e.g. scope_review) are handled by the
+            // module's workspace on the results page — navigate there instead
+            // of showing the generic UserQuestionDialog.
+            const firstValue = interrupts.value[0]?.value
+            if (firstValue && typeof firstValue === 'object' && firstValue.type) {
+              closeDialog()
+              router.push({ path: '/analysisresults', query: { id } })
+              return
+            }
             // Only show dialog if we have interrupts with valid data
             if (showUserQuestionDialogEnabled.value && interrupts.value.length > 0 && interrupts.value[0]?.value) {
               showUserQuestionDialog.value = true

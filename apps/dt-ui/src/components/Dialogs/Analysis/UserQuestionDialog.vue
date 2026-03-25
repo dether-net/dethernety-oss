@@ -31,8 +31,11 @@
     emit('close')
   }
 
-  const parseQuestion = (value: string): Question | undefined => {
+  const parseQuestion = (value: string | Record<string, unknown>): Question | undefined => {
     try {
+      if (typeof value === 'object' && value !== null) {
+        return value as unknown as Question
+      }
       return JSON.parse(value)
     } catch (error) {
       console.error(error)
