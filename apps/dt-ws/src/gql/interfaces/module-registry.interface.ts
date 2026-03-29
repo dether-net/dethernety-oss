@@ -1,4 +1,4 @@
-import { DTModule, DTMetadata } from '@dethernety/dt-module';
+import { DTModule, DTMetadata, ResolverMap } from '@dethernety/dt-module';
 
 export interface ModuleEntry {
   instance: DTModule;
@@ -11,6 +11,8 @@ export interface ModuleEntry {
   isHealthy: boolean;
   /** GraphQL SDL content from the module's getSchemaExtension() method */
   schemaFragment?: string;
+  /** Custom resolvers from the module's getResolvers() method */
+  resolverMap?: ResolverMap;
 }
 
 export interface ModuleHealthStatus {

@@ -3,10 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
-import { DTModule, DTMetadata } from '@dethernety/dt-module';
+import { DTModule, DTMetadata, ModuleResolverContext, ResolverMap } from '@dethernety/dt-module';
+import { parse, Kind, type DocumentNode, type DirectiveDefinitionNode, type ObjectTypeDefinitionNode } from 'graphql';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
 import { ModuleManagementService } from './module-management.service';
 import { GqlConfig } from '../gql.config';
+import { extractDeclaredFields } from '../utils/sdl-parser';
 import {
   ModuleEntry,
   ModuleHealthStatus,
@@ -15,6 +17,16 @@ import {
   ModuleSecurityValidation,
   ModuleLoadOptions,
 } from '../interfaces/module-registry.interface';
+
+/** Platform-owned directives that modules must not redefine */
+const PROTECTED_DIRECTIVES = new Set([
+  'authentication', 'authorization', 'cypher', 'node', 'relationship',
+  'query', 'mutation', 'subscription', 'filterable', 'settable',
+  'selectable', 'jwt',
+]);
+
+/** Root type names that require 'extend type' syntax */
+const ROOT_TYPE_NAMES = new Set(['Query', 'Mutation', 'Subscription']);
 
 @Injectable()
 export class ModuleRegistryService implements OnModuleInit {
@@ -176,6 +188,106 @@ export class ModuleRegistryService implements OnModuleInit {
       });
       return false;
     }
+  }
+
+  /**
+   * Validates a module's resolver map against its SDL fragment.
+   * Returns only the valid entries; invalid ones are logged and skipped.
+   */
+  private validateModuleResolvers(
+    moduleName: string,
+    schemaFragment: string,
+    resolverMap: ResolverMap,
+  ): ResolverMap {
+    // Step 1: SDL safety validation (also returns parsed AST to avoid re-parsing)
+    const sdlValidation = this.validateModuleSDL(moduleName, schemaFragment);
+    if (!sdlValidation.isValid) {
+      this.logger.warn(
+        `Module "${moduleName}" SDL validation failed -- all resolvers rejected`,
+        { errors: sdlValidation.errors },
+      );
+      return {};
+    }
+
+    // Step 2: Extract declared fields from the already-parsed AST
+    const declaredFields = extractDeclaredFields(sdlValidation.doc!);
+
+    // Step 3: Validate each resolver against declared fields
+    const validated: ResolverMap = {};
+    for (const [typeName, fields] of Object.entries(resolverMap)) {
+      if (typeName === 'Subscription') {
+        this.logger.warn(
+          `Module "${moduleName}" attempted to register Subscription resolvers -- ` +
+          `not supported, skipping`,
+        );
+        continue;
+      }
+
+      validated[typeName] = {};
+      for (const [fieldName, resolverFn] of Object.entries(fields)) {
+        if (typeof resolverFn !== 'function') {
+          this.logger.warn(
+            `Module "${moduleName}": ${typeName}.${fieldName} is not a function -- skipping`,
+          );
+          continue;
+        }
+        if (!declaredFields.has(`${typeName}.${fieldName}`)) {
+          this.logger.warn(
+            `Module "${moduleName}": ${typeName}.${fieldName} not declared in SDL -- skipping`,
+          );
+          continue;
+        }
+        validated[typeName][fieldName] = resolverFn;
+      }
+
+      if (Object.keys(validated[typeName]).length === 0) {
+        delete validated[typeName];
+      }
+    }
+
+    return validated;
+  }
+
+  /**
+   * Validates module SDL for safety before accepting resolvers.
+   */
+  private validateModuleSDL(
+    moduleName: string,
+    schemaFragment: string,
+  ): { isValid: boolean; errors: string[]; doc?: DocumentNode } {
+    const errors: string[] = [];
+    let doc: DocumentNode | undefined;
+
+    try {
+      doc = parse(schemaFragment);
+
+      for (const def of doc.definitions) {
+        if (def.kind === Kind.DIRECTIVE_DEFINITION) {
+          const directiveName = (def as DirectiveDefinitionNode).name.value;
+          if (PROTECTED_DIRECTIVES.has(directiveName)) {
+            errors.push(`Redefines protected directive @${directiveName}`);
+          }
+        }
+
+        if (def.kind === Kind.SCHEMA_DEFINITION || def.kind === Kind.SCHEMA_EXTENSION) {
+          errors.push('Schema definition/extension is not allowed in module SDL');
+        }
+
+        if (def.kind === Kind.OBJECT_TYPE_DEFINITION) {
+          const typeName = (def as ObjectTypeDefinitionNode).name.value;
+          if (ROOT_TYPE_NAMES.has(typeName)) {
+            errors.push(
+              `Uses 'type ${typeName}' instead of 'extend type ${typeName}' -- ` +
+              `bare root type definitions can shadow the platform schema`,
+            );
+          }
+        }
+      }
+    } catch (parseError) {
+      errors.push(`SDL parse error: ${(parseError as Error)?.message}`);
+    }
+
+    return { isValid: errors.length === 0, errors, doc };
   }
 
   /**
@@ -425,6 +537,43 @@ export class ModuleRegistryService implements OnModuleInit {
                 }
               }
 
+              // Collect custom resolvers if the module provides them
+              if (
+                moduleEntry.schemaFragment &&
+                typeof loadResult.module.getResolvers === 'function'
+              ) {
+                try {
+                  const resolverContext: ModuleResolverContext = {
+                    driver: this.createSecureDriver(),
+                    logger: new Logger(`Module:${moduleName}:Resolvers`),
+                    databaseName: this.configService.get('database.name') || 'neo4j',
+                  };
+                  const resolverMap = await loadResult.module.getResolvers(resolverContext);
+                  if (resolverMap && Object.keys(resolverMap).length > 0) {
+                    const validated = this.validateModuleResolvers(
+                      moduleName,
+                      moduleEntry.schemaFragment,
+                      resolverMap,
+                    );
+                    if (Object.keys(validated).length > 0) {
+                      moduleEntry.resolverMap = validated;
+                      this.logger.log('Module provided custom resolvers', {
+                        moduleName,
+                        types: Object.keys(validated),
+                        fieldCount: Object.values(validated)
+                          .reduce((sum, fields) => sum + Object.keys(fields).length, 0),
+                      });
+                    }
+                  }
+                } catch (error) {
+                  this.logger.warn('Failed to get resolvers from module', {
+                    moduleName,
+                    error: safeErrorMessage(error),
+                  });
+                  // Module remains healthy -- resolvers are optional
+                }
+              }
+
               this.customModules.set(moduleName, moduleEntry);
               loadedCount++;
 
@@ -661,6 +810,25 @@ export class ModuleRegistryService implements OnModuleInit {
       }
     }
     return fragments;
+  }
+
+  /**
+   * Gets custom resolver maps from all healthy modules that provide them.
+   * Returns them in deterministic order (sorted by module name) so that
+   * cross-module collision resolution is predictable.
+   */
+  getModuleResolvers(): Array<{ moduleName: string; resolvers: ResolverMap }> {
+    const result: Array<{ moduleName: string; resolvers: ResolverMap }> = [];
+
+    const sortedEntries = Array.from(this.customModules.entries())
+      .sort(([a], [b]) => a.localeCompare(b));
+
+    for (const [name, entry] of sortedEntries) {
+      if (entry.isHealthy && entry.resolverMap) {
+        result.push({ moduleName: name, resolvers: entry.resolverMap });
+      }
+    }
+    return result;
   }
 
   /**
