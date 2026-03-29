@@ -20,10 +20,11 @@
  */
 
 import { z } from 'zod'
-import { DtUpdateSplit, DtExportSplit, type UpdateProgress } from '@dethernety/dt-core'
+import { DtUpdateSplit, DtExportSplit, mergeAttributes, type UpdateProgress } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 import {
   readModelDirectory,
+  readAttributes,
   writeModelDirectory,
   createDirectoryBackup,
   isModelDirectory,
@@ -31,6 +32,7 @@ import {
 } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
 import { getConfig, debugLog } from '../config.js'
+import { writeSyncJson, readSyncJson, computeContentHash } from '../utils/sync-utils.js'
 
 const InputSchema = z.object({
   model_id: z.string().describe('The ID of the model to update'),
@@ -73,7 +75,7 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
       }
 
       // Validate path confinement
-      validatePathConfinement(input.directory_path)
+      await validatePathConfinement(input.directory_path)
 
       // Validate directory exists
       if (!await pathExists(input.directory_path)) {
@@ -134,6 +136,13 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
         try {
           const dtExportSplit = new DtExportSplit(context.apolloClient)
           const exportedModel = await dtExportSplit.exportModelToSplit(input.model_id)
+
+          // Preserve local attributes that the platform doesn't have.
+          // Platform is the authority for attributes it knows about;
+          // local files are preserved for attributes not yet pushed.
+          const localAttributes = await readAttributes(input.directory_path)
+          exportedModel.attributes = mergeAttributes(localAttributes, exportedModel.attributes)
+
           await writeModelDirectory(input.directory_path, exportedModel)
           sourceFilesUpdated = true
           debugLog(config, `Updated source directory with current state`)
@@ -141,6 +150,21 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
           debugLog(config, `Failed to update source directory: ${error}`)
           result.warnings.push(`Could not update source directory: ${error}`)
         }
+      }
+
+      // Update sync.json push metadata
+      try {
+        const contentHash = await computeContentHash(input.directory_path)
+        const existingSync = await readSyncJson(input.directory_path)
+        await writeSyncJson(input.directory_path, {
+          ...existingSync,
+          platform_model_id: input.model_id,
+          platform_url: config.baseUrl,
+          last_push_at: new Date().toISOString(),
+          push_content_hash: contentHash,
+        })
+      } catch (syncError) {
+        debugLog(config, `Failed to update sync.json: ${syncError}`)
       }
 
       return {

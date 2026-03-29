@@ -560,7 +560,7 @@ model-name-export.zip
         └── {id}.json
 ```
 
-This format is the same split-file structure used by the [Dethereal MCP Server](MCP_SERVER_GUIDE.md), so exported models can also be used with AI-assisted workflows.
+This format is the same split-file structure used by the [Dethereal Claude Code plugin](dethereal/README.md), so exported models can also be used with AI-assisted workflows.
 
 ### Importing a Model
 
@@ -576,7 +576,7 @@ If the import encounters non-critical issues, warnings are displayed alongside t
 - **Backup**: Export before making major changes to your model
 - **Sharing**: Send a ZIP to colleagues who can import it into their own instance
 - **Version control**: Store exported ZIPs alongside your source code
-- **AI enrichment**: Export, enrich with the [MCP server](MCP_SERVER_GUIDE.md) or AI agent, then re-import
+- **AI enrichment**: Export, enrich with the [Dethereal plugin](dethereal/DISCOVERY_AND_ENRICHMENT.md), then re-import
 
 ---
 
@@ -586,4 +586,4 @@ You now have a working threat model with components, data flows, boundaries, ana
 - **[Security Analysis Workflow](SECURITY_ANALYSIS_WORKFLOW.md)**: Advanced analysis techniques
 - **[Working with Security Controls](WORKING_WITH_SECURITY_CONTROLS.md)**: Implementing countermeasures
 - **[Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md)**: Track and manage findings with your team
-- **[MCP Server Guide](MCP_SERVER_GUIDE.md)**: AI-assisted threat modeling with the Dethereal MCP server
+- **[Dethereal Plugin](dethereal/README.md)**: AI-assisted threat modeling with the Claude Code plugin

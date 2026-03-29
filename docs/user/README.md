@@ -34,25 +34,37 @@ For platform overview, installation, and architecture, see the [main README](../
 |-------|-------------|
 | [Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md) | Issue creation, filtering, merging, and external integration |
 
-## AI and Automation
+## AI and Automation — Dethereal (Claude Code Plugin)
+
+For comprehensive documentation on the Dethereal threat modeling plugin, see the [Dethereal documentation](dethereal/README.md):
 
 | Guide | Description |
 |-------|-------------|
-| [AI-Powered Workflows](AI_POWERED_WORKFLOWS.md) | Using MCP-compatible AI agents for model creation and discovery |
-| [MCP Server Guide (Dethereal)](MCP_SERVER_GUIDE.md) | Tool reference, configuration, directory structure, and troubleshooting |
+| [Getting Started](dethereal/GETTING_STARTED.md) | Installation, authentication, first model |
+| [Guided Workflow](dethereal/GUIDED_WORKFLOW.md) | The 11-step threat modeling process |
+| [Command Reference](dethereal/COMMAND_REFERENCE.md) | All 14 slash commands |
+| [Model Concepts](dethereal/MODEL_CONCEPTS.md) | Components, boundaries, flows, quality scoring |
+| [Discovery and Enrichment](dethereal/DISCOVERY_AND_ENRICHMENT.md) | Infrastructure scanning, security attributes, MITRE |
+| [Sync and Version Control](dethereal/SYNC_AND_VERSION_CONTROL.md) | Push/pull, git integration, conflict handling |
+| [Review and Analysis](dethereal/REVIEW_AND_ANALYSIS.md) | Quality review, attack surface analysis |
+| [Agents and Architecture](dethereal/AGENTS_AND_ARCHITECTURE.md) | AI agents, MCP tools, lifecycle hooks |
+| [Glossary](dethereal/GLOSSARY.md) | Plugin-specific terminology |
 
 ---
 
 ## Suggested reading order
 
-**Getting started:** [Building Your First Model](BUILDING_YOUR_FIRST_MODEL.md) -- then [Security Analysis Workflow](SECURITY_ANALYSIS_WORKFLOW.md) to run and interpret analysis.
+**Platform (GUI):** [Building Your First Model](BUILDING_YOUR_FIRST_MODEL.md) -- then [Security Analysis Workflow](SECURITY_ANALYSIS_WORKFLOW.md) to run and interpret analysis.
+
+**Dethereal (Claude Code plugin):**
+1. [Getting Started](dethereal/GETTING_STARTED.md) -- install and create your first model
+2. [Guided Workflow](dethereal/GUIDED_WORKFLOW.md) -- the complete 11-step process
+3. [Command Reference](dethereal/COMMAND_REFERENCE.md) -- all available commands
 
 **Going deeper:**
 1. [Working with Security Controls](WORKING_WITH_SECURITY_CONTROLS.md) -- create and assign controls
 2. [Issue Management Guide](ISSUE_MANAGEMENT_GUIDE.md) -- track findings and coordinate remediation
 3. [Component Configuration Guide](COMPONENT_CONFIGURATION_GUIDE.md) -- advanced component setup
 
-**Modules and automation:**
+**Modules:**
 1. [Understanding Modules](UNDERSTANDING_MODULES.md) -- module system and extensibility
-2. [AI-Powered Workflows](AI_POWERED_WORKFLOWS.md) -- AI-assisted modeling and discovery
-3. [MCP Server Guide (Dethereal)](MCP_SERVER_GUIDE.md) -- programmatic model management

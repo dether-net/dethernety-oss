@@ -13,6 +13,7 @@ import { z } from 'zod'
 import { DtImportSplit, type ImportProgress, type SplitModel } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 import { getConfig, debugLog } from '../config.js'
+import { writeSyncJson, computeContentHash, collectBaselineElementIds } from '../utils/sync-utils.js'
 import { getExample, ExampleType } from '../data/examples.js'
 import { getSchemaTool } from './get-schema.tool.js'
 import {
@@ -134,7 +135,7 @@ export class CreateModelTool extends ClientDependentTool<CreateInput, CreateOutp
 
       // Write to directory if path provided
       if (input.directory_path) {
-        validatePathConfinement(input.directory_path)
+        await validatePathConfinement(input.directory_path)
         try {
           // Ensure directory structure exists
           await ensureModelDirectoryStructure(input.directory_path)
@@ -147,6 +148,21 @@ export class CreateModelTool extends ClientDependentTool<CreateInput, CreateOutp
 
           directoryWritten = input.directory_path
           debugLog(config, `Wrote model to directory: ${input.directory_path}`)
+
+          // Write sync.json for push metadata
+          try {
+            const contentHash = await computeContentHash(input.directory_path)
+            const baselineIds = await collectBaselineElementIds(input.directory_path)
+            await writeSyncJson(input.directory_path, {
+              platform_model_id: result.model.id,
+              platform_url: config.baseUrl,
+              last_push_at: new Date().toISOString(),
+              push_content_hash: contentHash,
+              baseline_element_ids: baselineIds,
+            })
+          } catch (syncError) {
+            debugLog(config, `Failed to write sync.json: ${syncError}`)
+          }
         } catch (error) {
           result.warnings.push(`Failed to write to directory: ${error}`)
           debugLog(config, `Failed to write to directory: ${error}`)

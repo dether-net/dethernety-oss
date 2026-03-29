@@ -88,44 +88,22 @@ pick up changes:
 docker restart demo-dethernety
 ```
 
-## AI-assisted modeling (MCP)
+## AI-assisted modeling (Dethereal Plugin)
 
-The demo supports the [Dethereal](../docs/user/MCP_SERVER_GUIDE.md) MCP server out of
-the box — no login needed. Build it once, then point your AI assistant at the
-running demo.
+The demo supports the [Dethereal](../docs/user/dethereal/README.md) plugin out of
+the box — no login needed. Build it once, then load the full plugin (skills,
+agents, hooks, and MCP server) in Claude Code.
 
 ```bash
-# Build the MCP server (from the oss/ directory)
+# Build the plugin (from the oss/ directory)
 cd apps/dethereal && pnpm build && cd -
+
+# Start Claude Code with the plugin loaded
+DETHERNETY_URL=http://localhost:3003 claude --plugin-dir apps/dethereal
 ```
 
-**Claude Code:**
-
-```bash
-claude mcp add dethereal \
-  --env DETHERNETY_URL=http://localhost:3003 \
-  -- node /path/to/oss/apps/dethereal/dist/index.js
-```
-
-**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "dethereal": {
-      "command": "node",
-      "args": ["/path/to/oss/apps/dethereal/dist/index.js"],
-      "env": {
-        "DETHERNETY_URL": "http://localhost:3003"
-      }
-    }
-  }
-}
-```
-
-Replace `/path/to/oss` with the actual path to your checkout. Authentication is
-skipped automatically — the MCP server detects `authDisabled` from the demo
-backend and creates an unauthenticated client.
+Authentication is skipped automatically — the plugin detects `authDisabled` from
+the demo backend and creates an unauthenticated client.
 
 ## Troubleshooting
 

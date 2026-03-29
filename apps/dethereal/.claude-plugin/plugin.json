@@ -1,0 +1,20 @@
+{
+  "name": "dethereal",
+  "version": "0.1.16",
+  "description": "Professional threat modeling for Claude Code. Discover infrastructure, build data flow diagrams, enrich with MITRE ATT&CK, and sync with the Dethernety platform.",
+  "author": {
+    "name": "dether.net",
+    "url": "https://dether.net"
+  },
+  "homepage": "https://github.com/dether-net/dethernety-oss",
+  "repository": "https://github.com/dether-net/dethernety-oss",
+  "license": "AGPL-3.0",
+  "keywords": [
+    "threat-modeling",
+    "cybersecurity",
+    "mitre-attack",
+    "data-flow-diagram",
+    "security-analysis"
+  ],
+  "mcpServers": "./.mcp.json"
+}

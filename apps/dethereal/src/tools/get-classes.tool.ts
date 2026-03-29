@@ -7,7 +7,7 @@
  */
 
 import { z } from 'zod'
-import { DtModule } from '@dethernety/dt-core'
+import { DtModule, DtClass } from '@dethernety/dt-core'
 import { Class, Module } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 import { getConfig, debugLog } from '../config.js'
@@ -65,6 +65,11 @@ export class GetClassesTool extends ClientDependentTool<GetClassesInput, GetClas
 
       const dtModule = new DtModule(context.apolloClient)
 
+      // Create DtClass instance when template/guide data is needed
+      const needsTemplateData = !input.fields || input.fields.length === 0
+        || input.fields.includes('attributes') || input.fields.includes('guide')
+      const dtClass = needsTemplateData ? new DtClass(context.apolloClient) : undefined
+
       // Get modules based on filter
       let modules: Module[] = []
 
@@ -105,8 +110,17 @@ export class GetClassesTool extends ClientDependentTool<GetClassesInput, GetClas
             if (input.name && !cls.name.toLowerCase().includes(input.name.toLowerCase())) continue
             if (input.category && cls.category !== input.category) continue
 
+            // Fetch individual class with template/guide when needed
+            let classWithTemplate = cls
+            if (dtClass) {
+              const fetched = await dtClass.getClassById({ classId: cls.id, classType })
+              if (fetched) {
+                classWithTemplate = fetched
+              }
+            }
+
             // Build class info based on requested fields
-            const classInfo = this.buildClassInfo(cls, moduleRef, classType, input.fields)
+            const classInfo = this.buildClassInfo(classWithTemplate, moduleRef, classType, input.fields)
             classes.push(classInfo)
           }
         }

@@ -85,7 +85,10 @@ const AttributesSchema = z.object({
 const FileTypeEnum = z.enum(['manifest', 'structure', 'dataflows', 'data-items', 'attributes'])
 type FileType = z.infer<typeof FileTypeEnum>
 
+const ActionEnum = z.enum(['validate', 'quality']).optional().default('validate')
+
 const InputSchema = z.object({
+  action: ActionEnum.describe("Action: 'validate' checks schema/references, 'quality' computes quality score (0-100)"),
   directory_path: z.string().optional().describe('Path to model directory to validate (validates entire directory)'),
   data: z.union([z.string(), z.record(z.string(), z.any())]).optional().describe('JSON data to validate (string or object)'),
   file_type: FileTypeEnum.optional().describe('Type of file to validate when using data parameter')
@@ -112,16 +115,44 @@ interface ValidateOutput {
   files_validated?: string[]
 }
 
-export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOutput> {
+interface QualityFactor {
+  value: number
+  weight: number
+  note?: string
+}
+
+interface QualityOutput {
+  quality_score: number
+  label: string
+  factors: Record<string, QualityFactor>
+  element_counts: {
+    boundaries: number
+    components: number
+    data_flows: number
+    data_items: number
+  }
+  model_name: string
+}
+
+export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOutput | QualityOutput> {
   readonly name = 'validate_model_json'
-  readonly description = 'Validate a threat model JSON structure against the Dethernety schema without importing it into the platform'
+  readonly description = 'Validate a threat model JSON structure or compute a quality score (0-100). Use action "validate" for schema checks or "quality" for enrichment progress tracking.'
   readonly inputSchema = InputSchema
 
-  async execute(input: ValidateInput, context: ToolContext): Promise<ToolResult<ValidateOutput>> {
+  async execute(input: ValidateInput, context: ToolContext): Promise<ToolResult<ValidateOutput | QualityOutput>> {
     try {
+      // Quality score action
+      if (input.action === 'quality') {
+        if (!input.directory_path) {
+          return { success: false, error: 'directory_path is required for quality action' }
+        }
+        await validatePathConfinement(input.directory_path)
+        return await this.computeQuality(input.directory_path)
+      }
+
       // Validate path confinement if directory path provided
       if (input.directory_path) {
-        validatePathConfinement(input.directory_path)
+        await validatePathConfinement(input.directory_path)
         return await this.validateDirectory(input.directory_path)
       }
 
@@ -141,6 +172,209 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         error: error instanceof Error ? error.message : 'Validation failed'
       }
     }
+  }
+
+  private async computeQuality(dirPath: string): Promise<ToolResult<QualityOutput>> {
+    if (!await pathExists(dirPath)) {
+      return { success: false, error: `Directory not found: ${dirPath}` }
+    }
+    if (!await isModelDirectory(dirPath)) {
+      return { success: false, error: `Not a valid model directory: ${dirPath}` }
+    }
+
+    const manifest = await readManifest(dirPath)
+    const structure = await readStructure(dirPath)
+    const dataFlows = await readDataFlows(dirPath)
+    const dataItems = await readDataItems(dirPath)
+    const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems })
+
+    const allComponentIds = this.collectComponentIds(structure.defaultBoundary)
+    const allBoundaryIds = this.collectBoundaryIds(structure.defaultBoundary)
+    const totalComponents = allComponentIds.size
+    const totalBoundaries = allBoundaryIds.size
+
+    // Build component-to-boundary mapping for cross-boundary flow detection
+    const componentBoundaryMap = this.buildComponentBoundaryMap(structure.defaultBoundary)
+
+    // Factor 1: component_classification_rate (weight 25)
+    let classifiedComponents = 0
+    for (const compId of allComponentIds) {
+      const compAttrs = attributes.components?.[compId]
+      if (compAttrs && (compAttrs as any).classData?.id) {
+        classifiedComponents++
+      }
+    }
+    // Also check inline classData in structure
+    classifiedComponents = Math.max(classifiedComponents,
+      this.countClassifiedComponents(structure.defaultBoundary))
+    const componentClassificationRate = totalComponents > 0
+      ? Math.min(classifiedComponents / totalComponents, 1.0) : 0
+
+    // Factor 2: attribute_completion_rate (weight 20)
+    const componentAttrCount = Object.keys(attributes.components || {}).length
+    const attributeCompletionRate = totalComponents > 0
+      ? Math.min(componentAttrCount / totalComponents, 1.0) : 0
+
+    // Factor 3: boundary_hierarchy_quality (weight 15)
+    // Three conditions, each +0.33:
+    // (a) Hierarchy depth >= 2
+    // (b) No boundary contains only one child
+    // (c) No external entities share boundary with internal components
+    let bhq = 0
+    const maxDepth = this.getBoundaryDepth(structure.defaultBoundary)
+    if (maxDepth >= 2) bhq += 0.33
+    if (totalBoundaries === 0 || !this.hasSingleChildBoundary(structure.defaultBoundary)) bhq += 0.33
+    // Condition (c): simplified — check if all components share boundary type correctly
+    // For V1, award this point by default since we can't distinguish external entities
+    bhq += 0.34 // round to 1.0 when all conditions met
+    const boundaryHierarchyQuality = Math.min(bhq, 1.0)
+
+    // Factor 4: data_flow_coverage (weight 15)
+    const componentsWithFlows = new Set<string>()
+    for (const flow of dataFlows) {
+      if (flow.source?.id && allComponentIds.has(flow.source.id)) {
+        componentsWithFlows.add(flow.source.id)
+      }
+      if (flow.target?.id && allComponentIds.has(flow.target.id)) {
+        componentsWithFlows.add(flow.target.id)
+      }
+    }
+    const dataFlowCoverage = totalComponents > 0
+      ? componentsWithFlows.size / totalComponents : 0
+
+    // Factor 5: data_classification_rate (weight 10)
+    const totalDataItems = dataItems.length
+    const classifiedDataItems = dataItems.filter(di => di.classData?.id).length
+    const dataClassificationRate = totalDataItems > 0
+      ? classifiedDataItems / totalDataItems : 0
+
+    // Factor 6: control_coverage_rate (weight 10)
+    // Requires platform data — set to 0 when offline
+    const controlCoverageRate = 0
+
+    // Factor 7: credential_coverage_rate (weight 5)
+    // Percentage of cross-boundary data flows with credential_type set (not "none")
+    let crossBoundaryFlows = 0
+    let crossBoundaryWithCreds = 0
+    for (const flow of dataFlows) {
+      const sourceBoundary = componentBoundaryMap.get(flow.source?.id || '')
+      const targetBoundary = componentBoundaryMap.get(flow.target?.id || '')
+      if (sourceBoundary && targetBoundary && sourceBoundary !== targetBoundary) {
+        crossBoundaryFlows++
+        const flowAttrs = attributes.dataFlows?.[flow.id]
+        if (flowAttrs) {
+          const credType = (flowAttrs as any).credential_type || (flowAttrs as any).attributes?.credential_type
+          if (credType && credType !== 'none') {
+            crossBoundaryWithCreds++
+          }
+        }
+      }
+    }
+    const credentialCoverageRate = crossBoundaryFlows > 0
+      ? crossBoundaryWithCreds / crossBoundaryFlows : 0
+
+    // Compute total score (0-100)
+    const score =
+      componentClassificationRate * 25 +
+      attributeCompletionRate * 20 +
+      boundaryHierarchyQuality * 15 +
+      dataFlowCoverage * 15 +
+      dataClassificationRate * 10 +
+      controlCoverageRate * 10 +
+      credentialCoverageRate * 5
+
+    const roundedScore = Math.round(score * 100) / 100
+
+    let label: string
+    if (roundedScore >= 90) label = 'Comprehensive'
+    else if (roundedScore >= 70) label = 'Good'
+    else if (roundedScore >= 40) label = 'In Progress'
+    else label = 'Starting'
+
+    return {
+      success: true,
+      data: {
+        quality_score: roundedScore,
+        label,
+        factors: {
+          component_classification_rate: { value: componentClassificationRate, weight: 25 },
+          attribute_completion_rate: { value: attributeCompletionRate, weight: 20 },
+          boundary_hierarchy_quality: { value: boundaryHierarchyQuality, weight: 15 },
+          data_flow_coverage: { value: dataFlowCoverage, weight: 15 },
+          data_classification_rate: { value: dataClassificationRate, weight: 10 },
+          control_coverage_rate: { value: controlCoverageRate, weight: 10, note: 'Requires platform — 0 when offline' },
+          credential_coverage_rate: { value: credentialCoverageRate, weight: 5 }
+        },
+        element_counts: {
+          boundaries: totalBoundaries,
+          components: totalComponents,
+          data_flows: dataFlows.length,
+          data_items: totalDataItems
+        },
+        model_name: manifest.model.name
+      }
+    }
+  }
+
+  private countClassifiedComponents(boundary: any): number {
+    let count = 0
+    const process = (b: any): void => {
+      if (b.components) {
+        for (const c of b.components) {
+          if (c.classData?.id) count++
+        }
+      }
+      if (b.boundaries) {
+        for (const nested of b.boundaries) {
+          process(nested)
+        }
+      }
+    }
+    process(boundary)
+    return count
+  }
+
+  private buildComponentBoundaryMap(boundary: any): Map<string, string> {
+    const map = new Map<string, string>()
+    const process = (b: any, boundaryId: string): void => {
+      if (b.components) {
+        for (const c of b.components) {
+          if (c.id) map.set(c.id, boundaryId)
+        }
+      }
+      if (b.boundaries) {
+        for (const nested of b.boundaries) {
+          process(nested, nested.id || boundaryId)
+        }
+      }
+    }
+    process(boundary, boundary.id || 'root')
+    return map
+  }
+
+  private getBoundaryDepth(boundary: any): number {
+    if (!boundary.boundaries || boundary.boundaries.length === 0) return 1
+    let maxChildDepth = 0
+    for (const nested of boundary.boundaries) {
+      maxChildDepth = Math.max(maxChildDepth, this.getBoundaryDepth(nested))
+    }
+    return 1 + maxChildDepth
+  }
+
+  private hasSingleChildBoundary(boundary: any): boolean {
+    // Check if any non-root boundary has exactly one child (component or boundary)
+    const checkNested = (b: any, isRoot: boolean): boolean => {
+      if (b.boundaries) {
+        for (const nested of b.boundaries) {
+          const childCount =
+            (nested.components?.length || 0) + (nested.boundaries?.length || 0)
+          if (childCount === 1) return true
+          if (checkNested(nested, false)) return true
+        }
+      }
+      return false
+    }
+    return checkNested(boundary, true)
   }
 
   private async validateDirectory(dirPath: string): Promise<ToolResult<ValidateOutput>> {
@@ -196,8 +430,12 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     // Validate structure
     let allComponentIds = new Set<string>()
     let allBoundaryIds = new Set<string>()
+    let validatedStructure: Awaited<ReturnType<typeof readStructure>> | undefined
+    let validatedDataFlows: Awaited<ReturnType<typeof readDataFlows>> | undefined
+    let validatedDataItems: Awaited<ReturnType<typeof readDataItems>> | undefined
     try {
       const structure = await readStructure(dirPath)
+      validatedStructure = structure
       const result = StructureSchema.safeParse(structure)
       if (!result.success) {
         for (const issue of result.error.issues) {
@@ -223,6 +461,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     const allDataFlowIds = new Set<string>()
     try {
       const dataFlows = await readDataFlows(dirPath)
+      validatedDataFlows = dataFlows
       for (const flow of dataFlows) {
         const result = DataFlowSchema.safeParse(flow)
         if (!result.success) {
@@ -266,6 +505,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     const allDataItemIds = new Set<string>()
     try {
       const dataItems = await readDataItems(dirPath)
+      validatedDataItems = dataItems
       for (const item of dataItems) {
         const result = DataItemSchema.safeParse(item)
         if (!result.success) {
@@ -291,7 +531,10 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
 
     // Validate attributes
     try {
-      const attributes = await readAttributes(dirPath)
+      const normCtx = validatedStructure && validatedDataFlows && validatedDataItems
+        ? { structure: validatedStructure, dataFlows: validatedDataFlows, dataItems: validatedDataItems }
+        : undefined
+      const attributes = await readAttributes(dirPath, normCtx)
       const result = AttributesSchema.safeParse(attributes)
       if (!result.success) {
         for (const issue of result.error.issues) {

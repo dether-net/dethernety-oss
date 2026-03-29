@@ -108,8 +108,7 @@ Built with Vue 3, NestJS, Neo4j/Memgraph, GraphQL, OPA/Rego. OIDC authentication
 | [Security Controls](docs/user/WORKING_WITH_SECURITY_CONTROLS.md) | Creating, configuring, and assigning controls |
 | [Modules](docs/user/UNDERSTANDING_MODULES.md) | How the module system works |
 | [Issue Management](docs/user/ISSUE_MANAGEMENT_GUIDE.md) | Issue creation, filtering, merging, and integration |
-| [AI-Powered Workflows](docs/user/AI_POWERED_WORKFLOWS.md) | MCP-compatible AI agents for model creation and discovery |
-| [MCP Server Guide](docs/user/MCP_SERVER_GUIDE.md) | Dethereal tool reference, configuration, and troubleshooting |
+| [Dethereal Plugin](docs/user/dethereal/README.md) | AI-assisted threat modeling with the Claude Code plugin |
 
 ### Architecture
 

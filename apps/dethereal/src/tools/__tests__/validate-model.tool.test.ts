@@ -17,7 +17,7 @@ describe('ValidateModelTool', () => {
 
   describe('inline validation', () => {
     it('should validate a valid manifest', async () => {
-      const result = await validateModelTool.execute(
+      const result = await validateModelTool.run(
         {
           data: {
             schemaVersion: '2.0.0',
@@ -35,12 +35,12 @@ describe('ValidateModelTool', () => {
       )
 
       expect(result.success).toBe(true)
-      expect(result.data?.valid).toBe(true)
-      expect(result.data?.errors).toHaveLength(0)
+      expect((result.data as any)?.valid).toBe(true)
+      expect((result.data as any)?.errors).toHaveLength(0)
     })
 
     it('should reject invalid manifest (missing name)', async () => {
-      const result = await validateModelTool.execute(
+      const result = await validateModelTool.run(
         {
           data: {
             schemaVersion: '2.0.0',
@@ -56,12 +56,12 @@ describe('ValidateModelTool', () => {
       )
 
       expect(result.success).toBe(true)
-      expect(result.data?.valid).toBe(false)
-      expect(result.data!.errors.length).toBeGreaterThan(0)
+      expect((result.data as any)?.valid).toBe(false)
+      expect((result.data as any)!.errors.length).toBeGreaterThan(0)
     })
 
     it('should validate a valid structure', async () => {
-      const result = await validateModelTool.execute(
+      const result = await validateModelTool.run(
         {
           data: {
             defaultBoundary: {
@@ -75,7 +75,7 @@ describe('ValidateModelTool', () => {
       )
 
       expect(result.success).toBe(true)
-      expect(result.data?.valid).toBe(true)
+      expect((result.data as any)?.valid).toBe(true)
     })
 
     it('should handle JSON string input', async () => {
@@ -86,7 +86,7 @@ describe('ValidateModelTool', () => {
         },
       })
 
-      const result = await validateModelTool.execute(
+      const result = await validateModelTool.run(
         {
           data: jsonStr,
           file_type: 'structure',
@@ -95,11 +95,11 @@ describe('ValidateModelTool', () => {
       )
 
       expect(result.success).toBe(true)
-      expect(result.data?.valid).toBe(true)
+      expect((result.data as any)?.valid).toBe(true)
     })
 
     it('should reject invalid JSON string', async () => {
-      const result = await validateModelTool.execute(
+      const result = await validateModelTool.run(
         {
           data: '{ invalid json }',
           file_type: 'structure',
@@ -108,12 +108,12 @@ describe('ValidateModelTool', () => {
       )
 
       expect(result.success).toBe(true)
-      expect(result.data?.valid).toBe(false)
-      expect(result.data?.errors[0]?.message).toContain('Invalid JSON')
+      expect((result.data as any)?.valid).toBe(false)
+      expect((result.data as any)?.errors[0]?.message).toContain('Invalid JSON')
     })
 
     it('should return error when neither directory_path nor data provided', async () => {
-      const result = await validateModelTool.execute({}, context)
+      const result = await validateModelTool.run({}, context)
       expect(result.success).toBe(false)
       expect(result.error).toContain('must be provided')
     })

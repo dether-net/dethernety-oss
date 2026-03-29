@@ -107,6 +107,60 @@ export const GET_CONTROL_CLASS_BY_ID = gql`
   }
 `
 
+export const GET_COMPONENT_CLASS_BY_ID = gql`
+  query GetComponentClassById($classId: ID!) {
+    componentClasses( where: { id: { eq: $classId } }) {
+      id
+      name
+      description
+      type
+      category
+      template
+      guide
+      module {
+        id
+        name
+      }
+    }
+  }
+`
+
+export const GET_BOUNDARY_CLASS_BY_ID = gql`
+  query GetBoundaryClassById($classId: ID!) {
+    securityBoundaryClasses( where: { id: { eq: $classId } }) {
+      id
+      name
+      description
+      type
+      category
+      template
+      guide
+      module {
+        id
+        name
+      }
+    }
+  }
+`
+
+export const GET_DATA_FLOW_CLASS_BY_ID = gql`
+  query GetDataFlowClassById($classId: ID!) {
+    dataFlowClasses( where: { id: { eq: $classId } }) {
+      id
+      name
+      description
+      type
+      category
+      template
+      guide
+      module {
+        id
+        name
+      }
+    }
+  }
+`
+
 export const SET_INSTANTIATION_ATTRIBUTES = gql`
   mutation setAttributes(
     $componentId: String!,

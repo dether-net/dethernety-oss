@@ -31,6 +31,7 @@ import {
 } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
 import { getConfig, debugLog } from '../config.js'
+import { writeSyncJson, computeContentHash, collectBaselineElementIds } from '../utils/sync-utils.js'
 
 const InputSchema = z.object({
   directory_path: z.string().describe('Path to the model directory to import'),
@@ -69,7 +70,7 @@ export class ImportModelTool extends ClientDependentTool<ImportInput, ImportOutp
       }
 
       // Validate path confinement
-      validatePathConfinement(input.directory_path)
+      await validatePathConfinement(input.directory_path)
 
       // Validate directory exists
       if (!await pathExists(input.directory_path)) {
@@ -135,6 +136,21 @@ export class ImportModelTool extends ClientDependentTool<ImportInput, ImportOutp
           debugLog(config, `Failed to update source files: ${error}`)
           result.warnings.push(`Could not update source files with server IDs: ${error}`)
         }
+      }
+
+      // Write sync.json for push metadata
+      try {
+        const contentHash = await computeContentHash(input.directory_path)
+        const baselineIds = await collectBaselineElementIds(input.directory_path)
+        await writeSyncJson(input.directory_path, {
+          platform_model_id: result.model.id,
+          platform_url: config.baseUrl,
+          last_push_at: new Date().toISOString(),
+          push_content_hash: contentHash,
+          baseline_element_ids: baselineIds,
+        })
+      } catch (syncError) {
+        debugLog(config, `Failed to write sync.json: ${syncError}`)
       }
 
       return {
