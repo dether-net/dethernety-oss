@@ -623,6 +623,6 @@ When `authDisabled` is `true`, the OIDC fields (`oidcClientId`, `oidcDomain`) ar
 
 ## Related Documentation
 
-- [User Guide](../../user/MCP_SERVER_GUIDE.md) - End-user documentation
+- [User Guide](../../user/dethereal/README.md) - End-user documentation
 - [dt-core Overview](../dt-core/) - Data access layer
 - [Backend Architecture](../backend/BACKEND_ARCHITECTURE.md) - GraphQL API

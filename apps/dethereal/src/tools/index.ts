@@ -1,7 +1,7 @@
 /**
  * Tool Registry for Dethereal MCP Server
  *
- * Exports all available MCP tools.
+ * Exports all 20 available MCP tools.
  */
 
 // Base tool
@@ -26,6 +26,16 @@ export { CreateModelTool, createModelTool } from './create-model.tool.js'
 export { GetClassesTool, getClassesTool } from './get-classes.tool.js'
 export { UpdateAttributesTool, updateAttributesTool } from './update-attributes.tool.js'
 
+// New client-dependent tools (v3.0.0)
+export { ListModelsTool, listModelsTool } from './list-models.tool.js'
+export { SearchMitreAttackTool, searchMitreAttackTool } from './search-mitre-attack.tool.js'
+export { GetMitreDefendTool, getMitreDefendTool } from './get-mitre-defend.tool.js'
+export { ManageExposuresTool, manageExposuresTool } from './manage-exposures.tool.js'
+export { ManageControlsTool, manageControlsTool } from './manage-controls.tool.js'
+export { ManageCountermeasuresTool, manageCountermeasuresTool } from './manage-countermeasures.tool.js'
+export { ManageAnalysesTool, manageAnalysesTool } from './manage-analyses.tool.js'
+export { GenerateAttributeStubsTool, generateAttributeStubsTool } from './generate-attribute-stubs.tool.js'
+
 import { BaseTool } from './base-tool.js'
 // Auth tools
 import { loginTool } from './auth/login.tool.js'
@@ -42,9 +52,18 @@ import { updateModelTool } from './update-model.tool.js'
 import { createModelTool } from './create-model.tool.js'
 import { getClassesTool } from './get-classes.tool.js'
 import { updateAttributesTool } from './update-attributes.tool.js'
+// New client-dependent tools (v3.0.0)
+import { listModelsTool } from './list-models.tool.js'
+import { searchMitreAttackTool } from './search-mitre-attack.tool.js'
+import { getMitreDefendTool } from './get-mitre-defend.tool.js'
+import { manageExposuresTool } from './manage-exposures.tool.js'
+import { manageControlsTool } from './manage-controls.tool.js'
+import { manageCountermeasuresTool } from './manage-countermeasures.tool.js'
+import { manageAnalysesTool } from './manage-analyses.tool.js'
+import { generateAttributeStubsTool } from './generate-attribute-stubs.tool.js'
 
 /**
- * All registered tools
+ * All registered tools (20 total)
  */
 export const allTools: BaseTool[] = [
   // Authentication tools
@@ -61,11 +80,20 @@ export const allTools: BaseTool[] = [
   updateModelTool,
   createModelTool,
   getClassesTool,
-  updateAttributesTool
+  updateAttributesTool,
+  // New tools (v3.0.0)
+  listModelsTool,
+  searchMitreAttackTool,
+  getMitreDefendTool,
+  manageExposuresTool,
+  manageControlsTool,
+  manageCountermeasuresTool,
+  manageAnalysesTool,
+  generateAttributeStubsTool,
 ]
 
 /**
- * Tools that don't require a GraphQL client
+ * Tools that don't require a GraphQL client (6)
  */
 export const clientFreeTools: BaseTool[] = [
   // Auth tools are client-free
@@ -79,7 +107,7 @@ export const clientFreeTools: BaseTool[] = [
 ]
 
 /**
- * Tools that require a GraphQL client
+ * Tools that require a GraphQL client (14)
  */
 export const clientDependentTools: BaseTool[] = [
   importModelTool,
@@ -87,5 +115,14 @@ export const clientDependentTools: BaseTool[] = [
   updateModelTool,
   createModelTool,
   getClassesTool,
-  updateAttributesTool
+  updateAttributesTool,
+  // New tools (v3.0.0)
+  listModelsTool,
+  searchMitreAttackTool,
+  getMitreDefendTool,
+  manageExposuresTool,
+  manageControlsTool,
+  manageCountermeasuresTool,
+  manageAnalysesTool,
+  generateAttributeStubsTool,
 ]

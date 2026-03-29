@@ -22,6 +22,7 @@
 
 import { promises as fs } from 'fs'
 import path from 'path'
+import { homedir } from 'os'
 import type {
   SplitModel,
   ModelManifest,
@@ -33,10 +34,12 @@ import type {
   ConsolidatedAttributesFile,
   ElementAttributes,
   AttributeElementType,
+  ClassReference,
 } from '@dethernety/dt-core'
 import {
   DEFAULT_FILE_NAMES,
   SCHEMA_VERSION,
+  flattenStructure,
 } from '@dethernety/dt-core'
 
 // =============================================================================
@@ -44,6 +47,38 @@ import {
 // =============================================================================
 
 const ATTRIBUTES_SUBDIRS = ['boundaries', 'components', 'dataFlows', 'dataItems'] as const
+
+/**
+ * Maps attribute subdirectory names to the ID field used in the flat enrichment format
+ * and the corresponding AttributeElementType.
+ */
+const FLAT_FORMAT_META: Record<string, { idField: string; elementType: AttributeElementType }> = {
+  boundaries: { idField: 'boundaryId', elementType: 'boundary' },
+  components: { idField: 'componentId', elementType: 'component' },
+  dataFlows:  { idField: 'flowId',      elementType: 'dataFlow' },
+  dataItems:  { idField: 'dataItemId',  elementType: 'dataItem' },
+}
+
+/**
+ * Metadata fields per element type that are NOT security attributes.
+ * Everything else in the flat JSON becomes an attribute value.
+ */
+const FLAT_METADATA_FIELDS: Record<string, Set<string>> = {
+  boundary:  new Set(['boundaryId', 'name', 'type']),
+  component: new Set(['componentId', 'name', 'type']),
+  dataFlow:  new Set(['flowId', 'name', 'sourceId', 'targetId', 'source_boundary', 'target_boundary', 'crosses_boundary']),
+  dataItem:  new Set(['dataItemId', 'name']),
+}
+
+/**
+ * Context for normalizing flat-format attribute files.
+ * When provided, flat files are converted to structured ElementAttributes format.
+ */
+export interface AttributeNormalizationContext {
+  structure: ModelStructure
+  dataFlows: DataFlow[]
+  dataItems: DataItem[]
+}
 
 /**
  * Validate that an element ID is safe for use in filesystem paths.
@@ -56,20 +91,183 @@ function validateElementId(elementId: string): void {
 }
 
 // =============================================================================
+// Flat-Format Normalization
+// =============================================================================
+
+/**
+ * Detect whether a parsed JSON object is in the flat enrichment format
+ * (written by agents) vs the structured ElementAttributes format.
+ */
+export function isFlatFormat(rawJson: Record<string, unknown>): boolean {
+  // Structured format has 'elementId' AND a nested 'attributes' object
+  if ('elementId' in rawJson && 'attributes' in rawJson && typeof rawJson.attributes === 'object') {
+    return false
+  }
+  // Flat format has a type-specific ID field
+  return ('componentId' in rawJson || 'boundaryId' in rawJson ||
+          'flowId' in rawJson || 'dataItemId' in rawJson)
+}
+
+interface ElementInfo {
+  id: string
+  name: string
+  elementType: AttributeElementType
+  classData?: ClassReference
+}
+
+/**
+ * Build a lookup map from element names to their structure metadata.
+ * Keys are `{elementType}:{name}` (e.g., `component:PostgreSQL`).
+ */
+function buildElementLookup(
+  structure: ModelStructure,
+  dataFlows: DataFlow[],
+  dataItems: DataItem[]
+): Map<string, ElementInfo> {
+  const lookup = new Map<string, ElementInfo>()
+  const { boundaries, components } = flattenStructure(structure)
+
+  for (const b of boundaries) {
+    lookup.set(`boundary:${b.name}`, {
+      id: b.id, name: b.name, elementType: 'boundary', classData: b.classData
+    })
+  }
+  for (const c of components) {
+    lookup.set(`component:${c.name}`, {
+      id: c.id, name: c.name, elementType: 'component', classData: c.classData
+    })
+  }
+  for (const f of dataFlows) {
+    lookup.set(`dataFlow:${f.name}`, {
+      id: f.id, name: f.name, elementType: 'dataFlow', classData: (f as Record<string, unknown>).classData as ClassReference | undefined
+    })
+  }
+  for (const d of dataItems) {
+    lookup.set(`dataItem:${d.name}`, {
+      id: d.id, name: d.name, elementType: 'dataItem', classData: (d as Record<string, unknown>).classData as ClassReference | undefined
+    })
+  }
+
+  return lookup
+}
+
+/**
+ * Normalize a flat-format attribute file into the structured ElementAttributes format.
+ *
+ * @returns The normalized ElementAttributes and the resolved element ID, or null if unresolvable.
+ */
+export function normalizeFlatAttribute(
+  rawJson: Record<string, unknown>,
+  subdir: string,
+  elementLookup: Map<string, ElementInfo>,
+  fileName: string
+): { attrs: ElementAttributes; resolvedId: string } | null {
+  const meta = FLAT_FORMAT_META[subdir]
+  if (!meta) {
+    console.warn(`[dethereal] Unknown attribute subdirectory: ${subdir}`)
+    return null
+  }
+
+  const workNameId = rawJson[meta.idField] as string | undefined
+  const elementName = rawJson.name as string | undefined
+
+  // Resolve to structure element by type:name
+  const lookupKey = elementName ? `${meta.elementType}:${elementName}` : undefined
+  const elementInfo = lookupKey ? elementLookup.get(lookupKey) : undefined
+
+  if (!elementInfo && elementName) {
+    console.warn(
+      `[dethereal] Flat attribute file ${fileName} (name="${elementName}") has no matching ` +
+      `${meta.elementType} in structure. Using work-name ID as fallback.`
+    )
+  }
+
+  const resolvedId = elementInfo?.id ?? workNameId ?? fileName.replace('.json', '')
+
+  // Separate metadata fields from attribute fields
+  const metadataFields = FLAT_METADATA_FIELDS[meta.elementType] ?? new Set()
+  const attributes: Record<string, unknown> = {}
+
+  for (const [key, value] of Object.entries(rawJson)) {
+    if (!metadataFields.has(key)) {
+      attributes[key] = value
+    }
+  }
+
+  const normalized: ElementAttributes = {
+    elementId: resolvedId,
+    elementType: meta.elementType,
+    elementName: elementName,
+    classData: elementInfo?.classData as any,
+    attributes,
+  }
+
+  return { attrs: normalized, resolvedId }
+}
+
+// =============================================================================
 // Path Validation
 // =============================================================================
 
 /**
+ * Load allowed model paths from ~/.dethernety/models.json
+ * Returns registered directory paths that are permitted outside CWD.
+ */
+async function loadAllowedModelPaths(): Promise<string[]> {
+  try {
+    const modelsJsonPath = path.join(homedir(), '.dethernety', 'models.json')
+    const content = await fs.readFile(modelsJsonPath, 'utf-8')
+    const data = JSON.parse(content)
+    return Array.isArray(data.paths) ? data.paths : []
+  } catch {
+    return []
+  }
+}
+
+/**
  * Validate that a path is within the allowed base directory.
  * Prevents path traversal attacks via directory_path parameters.
+ *
+ * Checks (in order):
+ * 1. CWD confinement (or provided baseDir)
+ * 2. Registered model paths from ~/.dethernety/models.json
+ *
+ * Symlink targets are resolved before checking containment.
  */
-export function validatePathConfinement(targetPath: string, baseDir?: string): string {
-  const base = path.resolve(baseDir || process.cwd());
-  const resolved = path.resolve(targetPath);
-  if (!resolved.startsWith(base + path.sep) && resolved !== base) {
-    throw new Error(`Path "${targetPath}" is outside the allowed directory`);
+export async function validatePathConfinement(targetPath: string, baseDir?: string): Promise<string> {
+  const base = path.resolve(baseDir || process.cwd())
+  const resolved = path.resolve(targetPath)
+
+  // Resolve symlinks to prevent symlink-based escapes
+  let realPath: string
+  try {
+    realPath = await fs.realpath(resolved)
+  } catch {
+    // Path doesn't exist yet (creation case) — check parent
+    const parentPath = path.dirname(resolved)
+    try {
+      const realParent = await fs.realpath(parentPath)
+      realPath = path.join(realParent, path.basename(resolved))
+    } catch {
+      realPath = resolved // parent doesn't exist either, use resolved
+    }
   }
-  return resolved;
+
+  // Check CWD confinement
+  if (realPath.startsWith(base + path.sep) || realPath === base) {
+    return realPath
+  }
+
+  // Check models.json allowlist
+  const allowedPaths = await loadAllowedModelPaths()
+  for (const allowed of allowedPaths) {
+    const resolvedAllowed = path.resolve(allowed)
+    if (realPath.startsWith(resolvedAllowed + path.sep) || realPath === resolvedAllowed) {
+      return realPath
+    }
+  }
+
+  throw new Error(`Path "${targetPath}" is outside the allowed directory`)
 }
 
 // =============================================================================
@@ -146,9 +344,19 @@ export async function readDataItems(dirPath: string): Promise<DataItem[]> {
 }
 
 /**
- * Read attributes from directory (assembles from per-element files)
+ * Read attributes from directory (assembles from per-element files).
+ *
+ * Supports two file formats:
+ * - **Structured** (platform format): `{ elementId, elementType, classData, attributes: {...} }`
+ * - **Flat** (agent enrichment format): `{ componentId, name, authentication, ... }`
+ *
+ * When `normCtx` is provided, flat-format files are automatically normalized to
+ * structured format by resolving element names against the structure.
  */
-export async function readAttributes(dirPath: string): Promise<ConsolidatedAttributesFile> {
+export async function readAttributes(
+  dirPath: string,
+  normCtx?: AttributeNormalizationContext
+): Promise<ConsolidatedAttributesFile> {
   const attributesDir = path.join(dirPath, DEFAULT_FILE_NAMES.attributes)
   const result: ConsolidatedAttributesFile = {
     boundaries: {},
@@ -168,6 +376,12 @@ export async function readAttributes(dirPath: string): Promise<ConsolidatedAttri
     }
 
     if (stats.isDirectory()) {
+      // Build element lookup once if normalization context is provided
+      let elementLookup: Map<string, ElementInfo> | null = null
+      if (normCtx) {
+        elementLookup = buildElementLookup(normCtx.structure, normCtx.dataFlows, normCtx.dataItems)
+      }
+
       // Per-element format: read from subdirectories
       for (const subdir of ATTRIBUTES_SUBDIRS) {
         const subdirPath = path.join(attributesDir, subdir)
@@ -176,12 +390,41 @@ export async function readAttributes(dirPath: string): Promise<ConsolidatedAttri
         try {
           const files = await fs.readdir(subdirPath)
           for (const file of files) {
-            if (file.endsWith('.json')) {
-              const filePath = path.join(subdirPath, file)
+            if (!file.endsWith('.json')) continue
+
+            const filePath = path.join(subdirPath, file)
+            try {
               const content = await fs.readFile(filePath, 'utf-8')
-              const attrs = JSON.parse(content) as ElementAttributes
-              validateElementId(attrs.elementId)
-              result[targetKey]![attrs.elementId] = attrs
+              const rawJson = JSON.parse(content) as Record<string, unknown>
+
+              if (isFlatFormat(rawJson)) {
+                // Flat enrichment format — normalize if context available
+                if (!elementLookup) {
+                  console.warn(
+                    `[dethereal] Flat-format attribute file ${file} in ${subdir}/ ` +
+                    `cannot be normalized (no structure context). Skipping.`
+                  )
+                  continue
+                }
+                const normalized = normalizeFlatAttribute(rawJson, subdir, elementLookup, file)
+                if (normalized) {
+                  result[targetKey]![normalized.resolvedId] = normalized.attrs
+                }
+              } else {
+                // Structured format — existing behavior with improved validation
+                const attrs = rawJson as unknown as ElementAttributes
+                if (!attrs.elementId || attrs.elementId === 'undefined') {
+                  console.warn(`[dethereal] Attribute file ${filePath} has invalid elementId: "${attrs.elementId}". Skipping.`)
+                  continue
+                }
+                validateElementId(attrs.elementId)
+                result[targetKey]![attrs.elementId] = attrs
+              }
+            } catch (parseError) {
+              console.warn(
+                `[dethereal] Failed to read attribute file ${filePath}: ` +
+                `${parseError instanceof Error ? parseError.message : String(parseError)}`
+              )
             }
           }
         } catch {
@@ -204,7 +447,8 @@ export async function readModelDirectory(dirPath: string): Promise<SplitModel> {
   const structure = await readStructure(dirPath)
   const dataFlows = await readDataFlows(dirPath)
   const dataItems = await readDataItems(dirPath)
-  const attributes = await readAttributes(dirPath)
+  // Pass structure context so flat-format attribute files are normalized
+  const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems })
 
   return {
     manifest,
@@ -223,7 +467,7 @@ export async function readModelDirectory(dirPath: string): Promise<SplitModel> {
  * Ensure the model directory structure exists
  */
 export async function ensureModelDirectoryStructure(dirPath: string): Promise<void> {
-  validatePathConfinement(dirPath);
+  await validatePathConfinement(dirPath);
   // Create main directory
   await fs.mkdir(dirPath, { recursive: true })
 
@@ -240,7 +484,7 @@ export async function ensureModelDirectoryStructure(dirPath: string): Promise<vo
  * Write manifest to directory
  */
 export async function writeManifest(dirPath: string, manifest: ModelManifest): Promise<void> {
-  validatePathConfinement(dirPath);
+  await validatePathConfinement(dirPath);
   const manifestPath = path.join(dirPath, DEFAULT_FILE_NAMES.manifest)
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8')
 }
@@ -249,7 +493,7 @@ export async function writeManifest(dirPath: string, manifest: ModelManifest): P
  * Write structure to directory
  */
 export async function writeStructure(dirPath: string, structure: ModelStructure): Promise<void> {
-  validatePathConfinement(dirPath);
+  await validatePathConfinement(dirPath);
   const structurePath = path.join(dirPath, DEFAULT_FILE_NAMES.structure)
   await fs.writeFile(structurePath, JSON.stringify(structure, null, 2), 'utf-8')
 }
@@ -258,7 +502,7 @@ export async function writeStructure(dirPath: string, structure: ModelStructure)
  * Write dataflows to directory
  */
 export async function writeDataFlows(dirPath: string, dataFlows: DataFlow[]): Promise<void> {
-  validatePathConfinement(dirPath);
+  await validatePathConfinement(dirPath);
   const dataFlowsPath = path.join(dirPath, DEFAULT_FILE_NAMES.dataFlows)
   await fs.writeFile(dataFlowsPath, JSON.stringify({ dataFlows }, null, 2), 'utf-8')
 }
@@ -267,7 +511,7 @@ export async function writeDataFlows(dirPath: string, dataFlows: DataFlow[]): Pr
  * Write data items to directory
  */
 export async function writeDataItems(dirPath: string, dataItems: DataItem[]): Promise<void> {
-  validatePathConfinement(dirPath);
+  await validatePathConfinement(dirPath);
   const dataItemsPath = path.join(dirPath, DEFAULT_FILE_NAMES.dataItems)
   await fs.writeFile(dataItemsPath, JSON.stringify({ dataItems }, null, 2), 'utf-8')
 }
@@ -279,7 +523,7 @@ export async function writeAttributes(
   dirPath: string,
   attributes: ConsolidatedAttributesFile
 ): Promise<void> {
-  validatePathConfinement(dirPath);
+  await validatePathConfinement(dirPath);
   const attributesDir = path.join(dirPath, DEFAULT_FILE_NAMES.attributes)
 
   // Ensure subdirectories exist
@@ -356,7 +600,7 @@ export async function createDirectoryBackup(dirPath: string): Promise<string> {
   const backupPath = path.join(parentDir, `${baseName}.backup-${timestamp}`)
 
   // Validate backup path stays within confinement boundary
-  validatePathConfinement(backupPath)
+  await validatePathConfinement(backupPath)
 
   // Recursively copy directory
   await copyDirectory(dirPath, backupPath)
@@ -405,7 +649,8 @@ export async function applyIdMapping(
   const structure = await readStructure(dirPath)
   const dataFlows = await readDataFlows(dirPath)
   const dataItems = await readDataItems(dirPath)
-  const attributes = await readAttributes(dirPath)
+  // Pass normalization context so flat-format attribute files are converted
+  const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems })
 
   // Update manifest with model ID and default boundary ID
   manifest.model.id = modelId
@@ -434,6 +679,9 @@ export async function applyIdMapping(
   await writeDataFlows(dirPath, updatedDataFlows)
   await writeDataItems(dirPath, updatedDataItems)
   await writeAttributes(dirPath, updatedAttributes)
+
+  // Clean up stale files (flat-format originals, undefined.json, etc.)
+  await cleanupStaleAttributeFiles(dirPath, updatedAttributes)
 }
 
 /**
@@ -687,5 +935,51 @@ export async function validateModelDirectory(dirPath: string): Promise<{
     valid: errors.length === 0,
     errors,
     warnings,
+  }
+}
+
+// =============================================================================
+// Attribute File Cleanup
+// =============================================================================
+
+/**
+ * Remove attribute files whose filenames don't match any current element ID.
+ * This cleans up flat-format files (e.g., c-postgres.json) and stale
+ * undefined.json files after normalization + ID mapping.
+ */
+async function cleanupStaleAttributeFiles(
+  dirPath: string,
+  currentAttributes: ConsolidatedAttributesFile
+): Promise<void> {
+  const attributesDir = path.join(dirPath, DEFAULT_FILE_NAMES.attributes)
+
+  const currentIdSets: Record<string, Set<string>> = {
+    boundaries: new Set(Object.keys(currentAttributes.boundaries ?? {})),
+    components: new Set(Object.keys(currentAttributes.components ?? {})),
+    dataFlows:  new Set(Object.keys(currentAttributes.dataFlows ?? {})),
+    dataItems:  new Set(Object.keys(currentAttributes.dataItems ?? {})),
+  }
+
+  for (const subdir of ATTRIBUTES_SUBDIRS) {
+    const subdirPath = path.join(attributesDir, subdir)
+    const validIds = currentIdSets[subdir]
+    if (!validIds) continue
+
+    try {
+      const files = await fs.readdir(subdirPath)
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue
+        const stem = file.replace('.json', '')
+        if (!validIds.has(stem)) {
+          try {
+            await fs.unlink(path.join(subdirPath, file))
+          } catch {
+            // File may already be gone
+          }
+        }
+      }
+    } catch {
+      // Subdirectory doesn't exist
+    }
   }
 }

@@ -123,8 +123,8 @@ export function getGraphQLEndpoint(platformConfig?: PlatformConfig): string {
     return config.graphqlUrl
   }
 
-  // Otherwise, combine with appUrl
-  const baseUrl = config.apiBaseUrl || config.appUrl
+  // Otherwise, combine with apiBaseUrl, appUrl, or the configured DETHERNETY_URL
+  const baseUrl = config.apiBaseUrl || config.appUrl || getConfig().baseUrl
   return `${baseUrl}${config.graphqlUrl}`
 }
 

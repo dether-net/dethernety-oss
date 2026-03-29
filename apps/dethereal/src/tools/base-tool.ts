@@ -76,7 +76,7 @@ export abstract class BaseTool<TInput = any, TOutput = any> {
       if (this.requiresClient && !context.apolloClient) {
         return {
           success: false,
-          error: 'This tool requires a GraphQL client connection. Please provide a valid JWT token.'
+          error: 'This tool requires authentication. Please call the "login" tool first.'
         }
       }
 

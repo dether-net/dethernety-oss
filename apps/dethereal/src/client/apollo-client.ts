@@ -8,16 +8,16 @@
 
 import { createRequire } from 'module'
 import type { ApolloClient as ApolloClientTypeImport } from '@apollo/client'
-import fetch from 'cross-fetch'
-import { debug } from '../config.js'
-import { getCachedPlatformConfig, getGraphQLEndpoint } from '../auth/platform-config.js'
 
 // Use createRequire for CommonJS module in ESM context
 const require = createRequire(import.meta.url)
 const { ApolloClient, InMemoryCache, HttpLink } = require('@apollo/client')
 
-// Re-export the type for external use
 type ApolloClientType = ApolloClientTypeImport
+import fetch from 'cross-fetch'
+import { debug } from '../config.js'
+import { getCachedPlatformConfig, getGraphQLEndpoint } from '../auth/platform-config.js'
+
 export type { ApolloClientType }
 
 /**

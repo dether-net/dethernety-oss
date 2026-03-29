@@ -21,7 +21,10 @@ import { createApolloClient } from './client/apollo-client.js'
 import {
   fetchPlatformConfig,
   loadStoredTokens,
+  saveTokens,
   isTokenExpired,
+  isRefreshTokenValid,
+  refreshTokens,
   getCachedPlatformConfig,
   isAuthDisabled
 } from './auth/index.js'
@@ -31,7 +34,7 @@ import { allTools, clientDependentTools, BaseTool, ToolContext } from './tools/i
 const server = new Server(
   {
     name: 'dethereal',
-    version: '2.0.0'
+    version: '3.0.0'
   },
   {
     capabilities: {
@@ -43,33 +46,14 @@ const server = new Server(
 /**
  * Get the idToken to use for authentication
  *
- * Priority:
- * 1. Token passed in args (_token parameter)
- * 2. Stored token from local cache (if not expired)
+ * Resolution order:
+ * 1. Stored token from local cache (if not expired)
+ * 2. Transparent refresh (if access token expired but refresh token valid)
+ * 3. undefined (tool will fail if requiresClient=true)
  *
- * @param argsToken - Token passed in tool arguments
  * @returns idToken or undefined if not available
  */
-async function getIdToken(argsToken?: string): Promise<string | undefined> {
-  // If token is explicitly provided in args, check expiry before using
-  if (argsToken) {
-    debug('Using token from args')
-    try {
-      const payloadB64 = argsToken.split('.')[1]
-      if (payloadB64) {
-        const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString())
-        if (payload.exp && Date.now() / 1000 > payload.exp) {
-          debug('Token from args is expired, ignoring')
-          return undefined
-        }
-      }
-    } catch {
-      debug('Could not decode token from args, forwarding as-is')
-    }
-    return argsToken
-  }
-
-  // Try to get stored token
+async function getIdToken(): Promise<string | undefined> {
   const config = getConfig()
   debug(`Loading stored tokens for baseUrl: ${config.baseUrl}`)
   const storedTokens = await loadStoredTokens(config.baseUrl)
@@ -79,19 +63,41 @@ async function getIdToken(argsToken?: string): Promise<string | undefined> {
     return undefined
   }
 
-  if (isTokenExpired(storedTokens)) {
-    debug(`Stored tokens expired. expiresAt: ${storedTokens.expiresAt}, now: ${Date.now()}`)
-    return undefined
+  // Valid token: use it directly
+  if (!isTokenExpired(storedTokens)) {
+    debug('Using stored idToken for authentication')
+    return storedTokens.idToken
   }
 
-  debug('Using stored idToken for authentication')
-  return storedTokens.idToken
+  // Expired but refresh token valid: attempt transparent refresh
+  if (isRefreshTokenValid(storedTokens)) {
+    try {
+      debug('Token expired, attempting transparent refresh')
+      await fetchPlatformConfig()
+      const newTokens = await refreshTokens(storedTokens.refreshToken)
+      await saveTokens({
+        accessToken: newTokens.accessToken,
+        idToken: newTokens.idToken,
+        refreshToken: newTokens.refreshToken,
+        expiresAt: Date.now() + newTokens.expiresIn * 1000,
+        baseUrl: config.baseUrl,
+        storedAt: Date.now()
+      })
+      debug('Transparent token refresh succeeded')
+      return newTokens.idToken
+    } catch (error) {
+      debug(`Transparent refresh failed: ${error}`)
+    }
+  }
+
+  debug(`Stored tokens expired. expiresAt: ${storedTokens.expiresAt}, now: ${Date.now()}`)
+  return undefined
 }
 
 /**
  * Build tool context for execution
  */
-async function buildToolContext(args: Record<string, unknown>): Promise<ToolContext> {
+async function buildToolContext(): Promise<ToolContext> {
   const config = getConfig()
   const authDisabled = isAuthDisabled()
 
@@ -111,11 +117,8 @@ async function buildToolContext(args: Record<string, unknown>): Promise<ToolCont
     return { apolloClient, token: undefined, debug: config.debug }
   }
 
-  // Normal auth flow: extract token from args if provided
-  const argsToken = args._token as string | undefined
-
-  // Get the best available token
-  const idToken = await getIdToken(argsToken)
+  // Get the best available token (stored → transparent refresh → undefined)
+  const idToken = await getIdToken()
   debug(`Token available: ${idToken ? 'yes' : 'no'}`)
 
   // Create Apollo client if we have a token
@@ -190,7 +193,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   // Check if tool requires client
   const requiresClient = clientDependentTools.includes(tool)
-  const context = await buildToolContext(args as Record<string, unknown>)
+  const context = await buildToolContext()
 
   if (requiresClient && !context.apolloClient) {
     // Return helpful error if authentication is missing
@@ -202,9 +205,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               error: 'Authentication required',
               message:
-                'This tool requires authentication. Please call the "login" tool first, or provide a _token parameter with your JWT idToken.',
-              tool: name,
-              hint: 'Use the login tool to authenticate via browser OAuth'
+                'This tool requires authentication. Please call the "login" tool first to authenticate via browser OAuth.',
+              tool: name
             },
             null,
             2

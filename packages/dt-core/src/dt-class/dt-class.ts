@@ -11,6 +11,9 @@ import {
   GET_ATTRIBUTES_FROM_CLASS_RELATIONSHIP,
   GET_CONTROL_CLASSES,
   GET_CONTROL_CLASS_BY_ID,
+  GET_COMPONENT_CLASS_BY_ID,
+  GET_BOUNDARY_CLASS_BY_ID,
+  GET_DATA_FLOW_CLASS_BY_ID,
 } from './dt-class-gql.js'
 import yaml from 'js-yaml';
 
@@ -252,6 +255,42 @@ export class DtClass {
         return undefined
       }
     })
+  }
+
+  /**
+   * Get any class by its ID and type.
+   * Routes to the correct direct-by-ID GQL query based on class type.
+   * Returns parsed template (JSON) and guide (YAML) when available.
+   */
+  getClassById = async ({ classId, classType }: { classId: string, classType: string }): Promise<Class | undefined> => {
+    const queryConfig: Record<string, { query: any; path: string; idVar: string }> = {
+      component: { query: GET_COMPONENT_CLASS_BY_ID, path: 'componentClasses[0]', idVar: 'classId' },
+      boundary: { query: GET_BOUNDARY_CLASS_BY_ID, path: 'securityBoundaryClasses[0]', idVar: 'classId' },
+      dataflow: { query: GET_DATA_FLOW_CLASS_BY_ID, path: 'dataFlowClasses[0]', idVar: 'classId' },
+      data: { query: GET_DATA_CLASS_BY_ID, path: 'dataClasses[0]', idVar: 'dataClassId' },
+      control: { query: GET_CONTROL_CLASS_BY_ID, path: 'controlClasses[0]', idVar: 'classId' },
+    }
+
+    const config = queryConfig[classType]
+    if (!config) return undefined
+
+    const result = await this.getClass({
+      id: classId,
+      query: config.query,
+      idVariableName: config.idVar,
+      classPath: config.path,
+      action: `getClassById(${classType})`,
+    })
+
+    if (result) {
+      return {
+        ...result,
+        module: result.module && Array.isArray(result.module) && result.module.length > 0
+          ? result.module[0]
+          : result.module,
+      }
+    }
+    return undefined
   }
 
   /**

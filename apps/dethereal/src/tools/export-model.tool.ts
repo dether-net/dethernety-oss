@@ -33,6 +33,7 @@ import {
 } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
 import { getConfig, debugLog } from '../config.js'
+import { writeSyncJson, computeContentHash, collectBaselineElementIds } from '../utils/sync-utils.js'
 
 const InputSchema = z.object({
   model_id: z.string().describe('The ID of the model to export'),
@@ -81,7 +82,7 @@ export class ExportModelTool extends ClientDependentTool<ExportInput, ExportOutp
       const directoryPath = input.directory_path || path.join(process.cwd(), input.model_id)
 
       // Validate path confinement for all paths (user-supplied or derived)
-      validatePathConfinement(directoryPath)
+      await validatePathConfinement(directoryPath)
 
       debugLog(config, `Exporting model: ${input.model_id} to directory: ${directoryPath}`)
 
@@ -131,6 +132,21 @@ export class ExportModelTool extends ClientDependentTool<ExportInput, ExportOutp
         'data-items.json',
         'attributes/',
       ]
+
+      // Write sync.json for pull metadata
+      try {
+        const contentHash = await computeContentHash(directoryPath)
+        const baselineIds = await collectBaselineElementIds(directoryPath)
+        await writeSyncJson(directoryPath, {
+          platform_model_id: input.model_id,
+          platform_url: config.baseUrl,
+          last_pull_at: new Date().toISOString(),
+          pull_content_hash: contentHash,
+          baseline_element_ids: baselineIds,
+        })
+      } catch (syncError) {
+        debugLog(config, `Failed to write sync.json: ${syncError}`)
+      }
 
       return {
         success: true,

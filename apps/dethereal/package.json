@@ -1,7 +1,7 @@
 {
-  "name": "@dethernety/dethereal",
-  "version": "0.1.0",
-  "description": "Dethernety MCP Server - AI-integrated threat modeling interface",
+  "name": "@dether.net/dethereal",
+  "version": "0.1.16",
+  "description": "Dethereal - Claude Code plugin for AI-guided threat modeling with Dethernety",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -9,26 +9,45 @@
     "dethereal": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
+    "build:types": "tsc --emitDeclarationOnly",
     "dev": "tsc -w",
     "start": "node dist/index.js",
     "lint": "eslint src",
     "test": "vitest run"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "agents",
+    "hooks",
+    "docs",
+    ".claude-plugin",
+    ".mcp.json",
+    "settings.json",
+    "scripts",
+    "CLAUDE.md"
+  ],
   "dependencies": {
     "@apollo/client": "^4.1.6",
-    "@dethernety/dt-core": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "cross-fetch": "^4.0.0",
     "graphql": "^16.13.1",
+    "graphql-tag": "^2.12.6",
     "open": "^11.0.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@dethernety/dt-core": "workspace:*",
     "@types/node": "^25.5.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.0"
   },
+  "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=20.0.0"
   }

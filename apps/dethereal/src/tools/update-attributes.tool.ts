@@ -63,7 +63,7 @@ export class UpdateAttributesTool extends ClientDependentTool<UpdateAttributesIn
       }
 
       // Validate path confinement
-      validatePathConfinement(input.directory_path)
+      await validatePathConfinement(input.directory_path)
 
       // Validate directory exists
       if (!await pathExists(input.directory_path)) {

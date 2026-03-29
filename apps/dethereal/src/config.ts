@@ -31,10 +31,20 @@ export function validateConfig(config: DetheralConfig): void {
   }
 
   // Validate URL format
+  let parsedUrl: URL
   try {
-    new URL(config.baseUrl)
+    parsedUrl = new URL(config.baseUrl)
   } catch {
     throw new Error('Invalid DETHERNETY_URL format')
+  }
+
+  // Enforce HTTPS for non-localhost URLs (D61)
+  const isLocalhost = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(parsedUrl.hostname)
+  if (!isLocalhost && parsedUrl.protocol !== 'https:') {
+    throw new Error(
+      'DETHERNETY_URL must use HTTPS for non-localhost connections. ' +
+      'HTTP is only permitted for localhost, 127.0.0.1, and ::1.'
+    )
   }
 }
 

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "dethereal": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["@dether.net/dethereal"],
+      "env": {
+        "DETHERNETY_URL": "${DETHERNETY_URL}",
+        "CLAUDE_PLUGIN_DATA": "${CLAUDE_PLUGIN_DATA}"
+      }
+    }
+  }
+}

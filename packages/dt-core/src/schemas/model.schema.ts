@@ -227,6 +227,7 @@ export function splitToMonolithic(split: SplitModel): MonolithicModel {
     const attrs = split.attributes.dataFlows?.[flow.id];
     return {
       ...flow,
+      classData: flow.classData ?? attrs?.classData,
       attributes: attrs?.attributes ?? flow.attributes,
     } as MonolithicDataFlow;
   });
@@ -236,6 +237,7 @@ export function splitToMonolithic(split: SplitModel): MonolithicModel {
     const attrs = split.attributes.dataItems?.[item.id];
     return {
       ...item,
+      classData: item.classData ?? attrs?.classData,
       attributes: attrs?.attributes ?? item.attributes,
     } as MonolithicDataItem;
   });
@@ -387,7 +389,7 @@ function injectAttributesBoundary(
     dimensionsMinWidth: boundary.dimensionsMinWidth,
     dimensionsMinHeight: boundary.dimensionsMinHeight,
     parentBoundary: boundary.parentBoundary,
-    classData: boundary.classData,
+    classData: boundary.classData ?? boundaryAttrs?.classData,
     attributes: boundaryAttrs?.attributes,
     controls: boundary.controls,
     dataItemIds: boundary.dataItemIds,
@@ -403,7 +405,7 @@ function injectAttributesBoundary(
         positionX: c.positionX,
         positionY: c.positionY,
         parentBoundary: c.parentBoundary,
-        classData: c.classData,
+        classData: c.classData ?? componentAttrs?.classData,
         attributes: componentAttrs?.attributes,
         controls: c.controls,
         dataItemIds: c.dataItemIds,
