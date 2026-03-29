@@ -1,11 +1,11 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Neo4jGraphQL } from '@neo4j/graphql';
-import { parse } from 'graphql';
+import { parse, GraphQLError } from 'graphql';
 import * as fs from 'fs/promises';
 import { accessSync } from 'fs';
 import * as path from 'path';
-import { ResolverService, ResolverMap, SchemaService as ISchemaService } from '../interfaces/resolver.interface';
+import { ResolverService, ResolverMap, ResolverFunction, SchemaService as ISchemaService } from '../interfaces/resolver.interface';
 import { GqlConfig } from '../gql.config';
 
 @Injectable()
@@ -14,6 +14,7 @@ export class SchemaService implements ISchemaService {
   private schema: any;
   private readonly config: GqlConfig;
   private moduleSchemaFragments: string[] = [];
+  private readonly MODULE_RESOLVER_TIMEOUT_MS = 30_000;
   
   // Build-time constants — schema files are part of the application codebase
   private readonly SCHEMA_PATH = 'schema/schema.graphql';
@@ -241,5 +242,126 @@ export class SchemaService implements ISchemaService {
     }
 
     return customResolvers;
+  }
+
+  /**
+   * Merges module-contributed resolvers into the resolver map.
+   * Each module resolver is wrapped with auth, timeout, logging, and error handling.
+   *
+   * @param existingResolvers - Resolver map from hardcoded services (these take precedence)
+   * @param moduleResolvers - Resolver maps from modules (sorted by module name)
+   * @returns Merged resolver map ready for Neo4jGraphQL
+   */
+  mergeModuleResolvers(
+    existingResolvers: ResolverMap,
+    moduleResolvers: Array<{ moduleName: string; resolvers: ResolverMap }>,
+  ): ResolverMap {
+    const merged: ResolverMap = {};
+
+    // Deep-copy top-level type entries so we don't mutate the input
+    for (const [typeName, fields] of Object.entries(existingResolvers)) {
+      merged[typeName] = { ...fields };
+    }
+
+    for (const { moduleName, resolvers } of moduleResolvers) {
+      for (const [typeName, fields] of Object.entries(resolvers)) {
+        if (!merged[typeName]) {
+          merged[typeName] = {};
+        }
+
+        for (const [fieldName, resolverFn] of Object.entries(fields)) {
+          // Hardcoded resolvers and earlier modules win
+          if (merged[typeName][fieldName]) {
+            this.logger.warn(
+              `Module "${moduleName}" resolver for ${typeName}.${fieldName} ` +
+              `conflicts with existing resolver -- skipped`,
+            );
+            continue;
+          }
+
+          merged[typeName][fieldName] = this.wrapModuleResolver(
+            moduleName, typeName, fieldName, resolverFn,
+          );
+        }
+      }
+    }
+
+    return merged;
+  }
+
+  /**
+   * Wraps a module resolver with auth enforcement, timeout, logging,
+   * and error sanitization.
+   */
+  private wrapModuleResolver(
+    moduleName: string,
+    typeName: string,
+    fieldName: string,
+    resolverFn: ResolverFunction,
+  ): ResolverFunction {
+    const logger = this.logger;
+    const timeoutMs = this.MODULE_RESOLVER_TIMEOUT_MS;
+    const fieldPath = `${moduleName}:${typeName}.${fieldName}`;
+
+    return async (parent, args, context, info) => {
+      const start = Date.now();
+
+      // Auth enforcement -- defense-in-depth: even if the module's SDL
+      // lacks @authentication, module resolvers require a valid JWT.
+      if (!context?.jwt && !context?.token) {
+        logger.warn(`Module resolver ${fieldPath} called without authentication`);
+        throw new GraphQLError('Authentication required', {
+          extensions: { code: 'UNAUTHENTICATED' },
+        });
+      }
+
+      // Invoke with timeout
+      let timeoutId: ReturnType<typeof setTimeout>;
+      try {
+        const result = await Promise.race([
+          resolverFn(parent, args, context, info),
+          new Promise((_, reject) => {
+            timeoutId = setTimeout(
+              () => reject(new Error(`Module resolver timeout after ${timeoutMs}ms`)),
+              timeoutMs,
+            );
+          }),
+        ]);
+
+        clearTimeout(timeoutId!);
+        logger.debug(`Module resolver ${fieldPath} completed`, {
+          duration: Date.now() - start,
+        });
+
+        return result;
+      } catch (error: any) {
+        clearTimeout(timeoutId!);
+        const duration = Date.now() - start;
+        const isTimeout = error?.message?.includes('timeout');
+
+        logger.error(`Module resolver ${fieldPath} failed`, {
+          error: error?.message,
+          duration,
+          isTimeout,
+        });
+
+        // Wrap module errors in a GraphQLError with a safe message.
+        // In production, formatError will further sanitize.
+        throw new GraphQLError(
+          isTimeout
+            ? 'Operation timed out'
+            : `Module operation failed: ${moduleName}`,
+          {
+            extensions: {
+              code: isTimeout ? 'MODULE_RESOLVER_TIMEOUT' : 'MODULE_RESOLVER_ERROR',
+              moduleName,
+              ...(process.env.NODE_ENV !== 'production' && {
+                originalMessage: error?.message,
+              }),
+            },
+          },
+        );
+      }
+    };
   }
 }

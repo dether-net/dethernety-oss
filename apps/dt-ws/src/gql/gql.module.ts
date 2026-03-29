@@ -49,11 +49,18 @@ import { getComplexity, simpleEstimator } from 'graphql-query-complexity';
           const schemaFragments = moduleRegistryService.getSchemaFragments();
           schemaService.setModuleSchemaFragments(schemaFragments);
 
-          // Merge custom resolvers
+          // Merge hardcoded resolver services
           const customResolvers = schemaService.mergeResolvers(resolverServices);
 
-          // Get the schema with custom resolvers
-          const schema = await schemaService.buildSchemaWithResolvers(customResolvers);
+          // Collect and merge module-contributed resolvers
+          const moduleResolvers = moduleRegistryService.getModuleResolvers();
+          const allResolvers = schemaService.mergeModuleResolvers(
+            customResolvers,
+            moduleResolvers,
+          );
+
+          // Get the schema with all resolvers
+          const schema = await schemaService.buildSchemaWithResolvers(allResolvers);
 
           // Security rules for production
           const validationRules = [];

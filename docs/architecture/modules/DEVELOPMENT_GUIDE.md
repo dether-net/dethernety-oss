@@ -10,6 +10,7 @@
 - [Configuration Templates](#configuration-templates)
 - [Analysis Modules](#analysis-modules)
 - [Schema Extensions](#schema-extensions)
+- [Custom Resolvers](#custom-resolvers)
 - [Testing and Debugging](#testing-and-debugging)
 
 ## Overview
@@ -622,6 +623,154 @@ If the type does not appear, check the backend logs for schema validation warnin
 
 ---
 
+## Custom Resolvers
+
+Schema extensions (above) add new types to the GraphQL schema, and Neo4j GraphQL auto-generates Cypher-backed resolvers for them. But some operations cannot be expressed as Cypher queries — external API calls, procedural logic, policy evaluation, etc. Custom resolvers let modules provide the resolver functions to back those fields.
+
+### Prerequisites
+
+Your module must implement `getSchemaExtension()` (see above). Custom resolvers are only collected for modules that have a non-empty schema fragment.
+
+### Implementing getResolvers()
+
+Add `getResolvers()` to your module class. It receives a `ModuleResolverContext` at startup and returns a `ResolverMap`:
+
+```typescript
+import {
+  DtNeo4jOpaModule,
+  ModuleResolverContext,
+  ResolverMap,
+} from '@dethernety/dt-module';
+import { Logger } from '@nestjs/common';
+
+class MyModule extends DtNeo4jOpaModule {
+  constructor(driver: any, logger: Logger) {
+    super('my-module', driver, logger);
+  }
+
+  async getResolvers(context: ModuleResolverContext): Promise<ResolverMap> {
+    const { driver, logger, databaseName } = context;
+
+    return {
+      Query: {
+        myCustomQuery: async (_parent, args, gqlContext, _info) => {
+          // Call an external API, run procedural logic, etc.
+          const response = await fetch('https://api.example.com/data');
+          return response.json();
+        },
+      },
+      Mutation: {
+        myCustomMutation: async (_parent, args, gqlContext, _info) => {
+          // Use the driver for database operations
+          const session = driver.session({ database: databaseName });
+          try {
+            const result = await session.executeWrite(async (tx) => {
+              return tx.run('CREATE (n:MyNode {name: $name}) RETURN n', {
+                name: args.name,
+              });
+            });
+            return true;
+          } finally {
+            await session.close();
+          }
+        },
+      },
+    };
+  }
+}
+
+export default MyModule;
+```
+
+### Matching schema.graphql
+
+The resolver map must match the fields declared in your `schema.graphql`. Resolvers for undeclared fields are rejected at startup.
+
+**schema.graphql:**
+
+```graphql
+type MyQueryResult {
+  data: JSON
+}
+
+extend type Query {
+  myCustomQuery: MyQueryResult @authentication
+}
+
+extend type Mutation {
+  myCustomMutation(name: String!): Boolean @authentication
+}
+```
+
+### SDL Rules
+
+Your `schema.graphql` must follow these rules when providing custom resolvers:
+
+| Rule | Correct | Incorrect |
+|------|---------|-----------|
+| Use `extend type` for root types | `extend type Query { ... }` | `type Query { ... }` |
+| Add `@authentication` to fields | `myField: String @authentication` | `myField: String` |
+| Do not redefine platform directives | _(don't include directive definitions)_ | `directive @authentication on FIELD_DEFINITION` |
+| Do not define `schema` blocks | _(omit entirely)_ | `schema { query: MyQuery }` |
+| No Subscription resolvers | _(Query and Mutation only)_ | `extend type Subscription { ... }` |
+
+**Why `@authentication`?** The platform enforces auth on module resolvers as defense-in-depth (even without the directive), but adding `@authentication` is the correct practice. It ensures the field is protected at the Neo4j GraphQL schema level, not just by the resolver wrapper.
+
+### How the Platform Processes Resolvers
+
+1. `ModuleRegistryService` calls `getSchemaExtension()` → stores SDL fragment
+2. `ModuleRegistryService` calls `getResolvers(context)` → validates and stores resolver map
+3. **SDL safety validation**: rejects directive redefinitions, bare root types, schema definitions
+4. **Schema coverage check**: each resolver must map to a field declared in the SDL
+5. **Wrapping**: each resolver is wrapped with auth enforcement, 30s timeout, logging, error sanitization
+6. **Merging**: module resolvers are merged after hardcoded platform resolvers (platform wins on conflict)
+7. **Ordering**: if two modules resolve the same field, the alphabetically-first module wins
+
+### Resolver Function Signature
+
+```typescript
+async (parent: any, args: any, context: GraphQLContext, info: any) => any
+```
+
+- `parent` — the parent object (for nested resolvers)
+- `args` — the GraphQL arguments passed by the client
+- `context` — the per-request GraphQL context containing `token`, `jwt`, `driver`, `sessionConfig`
+- `info` — the GraphQL resolve info (field name, return type, etc.)
+
+The `context` here is the per-request context, not the `ModuleResolverContext` from `getResolvers()`. Use `ModuleResolverContext` to capture shared resources at startup; use the per-request `context` for auth-scoped operations.
+
+### Verifying Custom Resolvers
+
+After starting the backend, check the logs for resolver registration:
+
+```
+[Module:my-module] Module provided custom resolvers { types: ['Query', 'Mutation'], fieldCount: 2 }
+```
+
+Then query the field via GraphQL (with a valid JWT):
+
+```graphql
+query {
+  myCustomQuery {
+    data
+  }
+}
+```
+
+### Common Issues
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| Resolver not registered | Field not declared in `schema.graphql` | Ensure resolver keys match SDL field names exactly |
+| `UNAUTHENTICATED` error | Missing JWT in request | Add Authorization header with valid Bearer token |
+| `MODULE_RESOLVER_TIMEOUT` | Resolver takes > 30 seconds | Optimize the operation or return partial results |
+| Resolver silently skipped | SDL has bare `type Query` instead of `extend type Query` | Change to `extend type Query { ... }` |
+| All resolvers rejected | SDL redefines a protected directive | Remove directive definitions from `schema.graphql` |
+
+For the full architecture and security model, see [MODULE_CUSTOM_RESOLVERS.md](../backend/LLD/MODULE_CUSTOM_RESOLVERS.md).
+
+---
+
 ## Testing and Debugging
 
 ### Local Development
@@ -689,3 +838,4 @@ query {
 | [BASE_CLASSES.md](./BASE_CLASSES.md) | Base class implementations (OPA, JSON Logic, LangGraph) |
 | [UTILITY_CLASSES.md](./UTILITY_CLASSES.md) | Helper classes (DbOps, OpaOps, LangGraph ops) |
 | [MODULE_PACKAGE_DESIGN.md](./MODULE_PACKAGE_DESIGN.md) | Module packaging and deployment system |
+| [MODULE_CUSTOM_RESOLVERS.md](../backend/LLD/MODULE_CUSTOM_RESOLVERS.md) | Custom resolver architecture (LLD) |
