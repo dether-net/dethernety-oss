@@ -9,6 +9,7 @@ export * from './interfaces/module-metadata-interface';
 export * from './interfaces/exposure-interface';
 export * from './interfaces/countermeasure-interface';
 export * from './interfaces/lg-analysis-config-interface';
+export * from './interfaces/module-resolver-interface';
 
 export * from './db-ops';
 export * from './dt-file-json-module';

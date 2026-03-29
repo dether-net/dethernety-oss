@@ -61,6 +61,11 @@ The `DTModule` interface is the core contract that all Dethernety modules must i
 │  │  • getSchemaExtension(): string                                 │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │              Custom Resolvers (Optional)                        │    │
+│  │  • getResolvers(context): ResolverMap                           │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -134,6 +139,9 @@ export interface DTModule {
 
   // Optional - GraphQL schema extension
   getSchemaExtension?(): string | Promise<string | undefined> | undefined;
+
+  // Optional - Custom GraphQL resolvers for fields declared in getSchemaExtension()
+  getResolvers?(context: ModuleResolverContext): ResolverMap | Promise<ResolverMap>;
 }
 ```
 
@@ -770,6 +778,76 @@ type ThreatIntel {
 
 ---
 
+### getResolvers(context)
+
+Returns custom GraphQL resolver functions for fields declared in this module's schema extension. This allows modules to back their SDL types with non-Cypher logic (external API calls, procedural operations, policy evaluation) without hardcoding resolver services in the platform.
+
+**Source File:** `packages/dt-module/src/interfaces/module-interface.ts`
+
+```typescript
+getResolvers?(context: ModuleResolverContext): ResolverMap | Promise<ResolverMap>
+```
+
+**Called by:** Module Registry Service at startup (once, not per-request)
+
+**Parameters:**
+- `context` — A `ModuleResolverContext` providing shared resources for constructing resolver closures
+
+**Returns:** A `ResolverMap` mapping `TypeName.fieldName` to resolver functions, or a Promise thereof
+
+**Contract rules:**
+- Only called if `getSchemaExtension()` returned a non-empty SDL fragment
+- The returned resolver map must only contain fields that appear in the module's SDL
+- Resolvers for undeclared fields are silently rejected at startup
+- Subscription resolvers are not supported — any `Subscription` key is rejected
+- If `getResolvers()` throws, the module remains healthy; resolvers are a best-effort addition
+- Resolver functions are closures — capture shared resources from `context` at construction time; per-request data (auth token, user) arrives via the standard resolver function signature `(parent, args, context, info)`
+
+**Security:**
+- All module resolvers are wrapped with auth enforcement — a valid JWT is required even if the module's SDL omits `@authentication`
+- All module resolvers are wrapped with a 30-second timeout
+- Module errors are sanitized before reaching clients (internal details hidden in production)
+- Hardcoded platform resolvers always take precedence over module resolvers on conflict
+
+For detailed architecture and security model, see [MODULE_CUSTOM_RESOLVERS.md](../backend/LLD/MODULE_CUSTOM_RESOLVERS.md).
+
+### ModuleResolverContext
+
+**Source File:** `packages/dt-module/src/interfaces/module-resolver-interface.ts`
+
+Context passed to `getResolvers()` at startup. Use this to construct resolver functions that close over shared resources. This is NOT a per-request context.
+
+```typescript
+export interface ModuleResolverContext {
+  /** Neo4j/Memgraph driver -- same driver the module received at construction time */
+  driver: any;
+  /** Logger scoped to the module */
+  logger: Logger;
+  /** Database name for session creation */
+  databaseName: string;
+}
+```
+
+### ResolverMap / ResolverFunction
+
+**Source File:** `packages/dt-module/src/interfaces/module-resolver-interface.ts`
+
+```typescript
+export interface ResolverMap {
+  [typeName: string]: {
+    [fieldName: string]: ResolverFunction;
+  };
+}
+
+export interface ResolverFunction {
+  (parent: any, args: any, context: any, info: any): any;
+}
+```
+
+The `context` parameter in `ResolverFunction` is typed as `any` intentionally — modules must not depend on platform-internal types. At runtime, it is the per-request `GraphQLContext` containing `token`, `jwt`, `driver`, `sessionConfig`, etc.
+
+---
+
 ## Related Documentation
 
 | Document | Description |
@@ -777,3 +855,4 @@ type ThreatIntel {
 | [BASE_CLASSES.md](./BASE_CLASSES.md) | Implementation patterns for DTModule |
 | [UTILITY_CLASSES.md](./UTILITY_CLASSES.md) | Helper classes (DbOps, OpaOps) |
 | [DEVELOPMENT_GUIDE.md](./DEVELOPMENT_GUIDE.md) | Step-by-step development guide |
+| [MODULE_CUSTOM_RESOLVERS.md](../backend/LLD/MODULE_CUSTOM_RESOLVERS.md) | Custom resolver architecture (LLD) |

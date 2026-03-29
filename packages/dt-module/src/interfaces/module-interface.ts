@@ -1,6 +1,7 @@
 import { DTMetadata } from './module-metadata-interface';
 import { Exposure } from './exposure-interface';
 import { Countermeasure } from './countermeasure-interface';
+import { ModuleResolverContext, ResolverMap } from './module-resolver-interface';
 import { AnalysisSession, AnalysisStatus } from '@dethernety/dt-core';
 import { PubSubEngine } from 'graphql-subscriptions';
 
@@ -30,4 +31,15 @@ export interface DTModule {
 
   /** Return a GraphQL SDL fragment to extend the platform schema. Optional. */
   getSchemaExtension?(): string | Promise<string | undefined> | undefined;
+
+  /**
+   * Return custom GraphQL resolvers for fields declared in this module's
+   * schema extension. The returned map must only contain fields that appear
+   * in the SDL returned by getSchemaExtension().
+   *
+   * Called once at startup. Resolver functions are closures that capture
+   * shared resources from the context. Per-request data (auth, token)
+   * arrives via the standard resolver function signature.
+   */
+  getResolvers?(context: ModuleResolverContext): ResolverMap | Promise<ResolverMap>;
 }
