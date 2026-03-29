@@ -45,7 +45,7 @@ importers:
     dependencies:
       '@apollo/client':
         specifier: ^4.1.6
-        version: 4.1.6(graphql-ws@6.0.7(graphql@16.13.1)(ws@8.19.0))(graphql@16.13.1)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.13.1))
+        version: 4.1.6(graphql-ws@6.0.7(graphql@16.13.1)(ws@8.20.0))(graphql@16.13.1)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.13.1))
       '@modelcontextprotocol/sdk':
         specifier: ^1.27.1
         version: 1.27.1(zod@4.3.6)
@@ -79,13 +79,13 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.1.0
-        version: 4.1.0(@types/node@25.5.0)(happy-dom@20.8.3)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
+        version: 4.1.0(@types/node@25.5.0)(happy-dom@20.8.9)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
 
   apps/dt-ui:
     dependencies:
       '@apollo/client':
         specifier: ^4.1.6
-        version: 4.1.6(graphql-ws@6.0.7(graphql@16.13.1)(ws@8.19.0))(graphql@16.13.1)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.13.1))
+        version: 4.1.6(graphql-ws@6.0.7(graphql@16.13.1)(ws@8.20.0))(graphql@16.13.1)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.13.1))
       '@dethernety/dt-core':
         specifier: workspace:*
         version: link:../../packages/dt-core
@@ -136,7 +136,7 @@ importers:
         version: 2.12.6(graphql@16.13.1)
       graphql-ws:
         specifier: ^6.0.7
-        version: 6.0.7(graphql@16.13.1)(ws@8.19.0)
+        version: 6.0.7(graphql@16.13.1)(ws@8.20.0)
       jwt-decode:
         specifier: ^4.0.0
         version: 4.0.0
@@ -208,8 +208,8 @@ importers:
         specifier: ^10.8.0
         version: 10.8.0(@stylistic/eslint-plugin@5.9.0(eslint@10.0.3))(@typescript-eslint/parser@8.57.0(eslint@10.0.3)(typescript@5.9.3))(eslint@10.0.3)(vue-eslint-parser@10.4.0(eslint@10.0.3))
       happy-dom:
-        specifier: ^20.8.3
-        version: 20.8.3
+        specifier: ^20.8.9
+        version: 20.8.9
       pinia:
         specifier: ^3.0.4
         version: 3.0.4(typescript@5.9.3)(vue@3.5.30(typescript@5.9.3))
@@ -239,7 +239,7 @@ importers:
         version: 2.1.3(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))(vue@3.5.30(typescript@5.9.3))(vuetify@3.12.3)
       vitest:
         specifier: ^4.1.0
-        version: 4.1.0(@types/node@25.5.0)(happy-dom@20.8.3)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
+        version: 4.1.0(@types/node@25.5.0)(happy-dom@20.8.9)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
       vue-router:
         specifier: ^5.0.3
         version: 5.0.3(@vue/compiler-sfc@3.5.30)(pinia@3.0.4(typescript@5.9.3)(vue@3.5.30(typescript@5.9.3)))(vue@3.5.30(typescript@5.9.3))
@@ -459,7 +459,7 @@ importers:
     dependencies:
       '@apollo/client':
         specifier: ^4.1.6
-        version: 4.1.6(graphql-ws@6.0.7(graphql@16.13.1)(ws@8.19.0))(graphql@16.13.1)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.13.1))
+        version: 4.1.6(graphql-ws@6.0.7(graphql@16.13.1)(ws@8.20.0))(graphql@16.13.1)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.13.1))
       '@vue-flow/core':
         specifier: ^1.48.2
         version: 1.48.2(vue@3.5.30(typescript@5.9.3))
@@ -521,7 +521,7 @@ importers:
         version: 8.57.0(eslint@10.0.3)(typescript@5.9.3)
       '@vercel/style-guide':
         specifier: ^6.0.0
-        version: 6.0.0(eslint@10.0.3)(jest@30.3.0(@types/node@25.5.0))(prettier@3.8.1)(typescript@5.9.3)(vitest@4.1.0(@types/node@25.5.0)(happy-dom@20.8.3)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)))
+        version: 6.0.0(eslint@10.0.3)(jest@30.3.0(@types/node@25.5.0))(prettier@3.8.1)(typescript@5.9.3)(vitest@4.1.0(@types/node@25.5.0)(happy-dom@20.8.9)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)))
       eslint-config-prettier:
         specifier: ^10.1.8
         version: 10.1.8(eslint@10.0.3)
@@ -4937,8 +4937,8 @@ packages:
     engines: {node: '>=0.4.7'}
     hasBin: true
 
-  happy-dom@20.8.3:
-    resolution: {integrity: sha512-lMHQRRwIPyJ70HV0kkFT7jH/gXzSI7yDkQFe07E2flwmNDFoWUTRMKpW2sglsnpeA7b6S2TJPp98EbQxai8eaQ==}
+  happy-dom@20.8.9:
+    resolution: {integrity: sha512-Tz23LR9T9jOGVZm2x1EPdXqwA37G/owYMxRwU0E4miurAtFsPMQ1d2Jc2okUaSjZqAFz2oEn3FLXC5a0a+siyA==}
     engines: {node: '>=20.0.0'}
 
   has-bigints@1.1.0:
@@ -7597,6 +7597,18 @@ packages:
       utf-8-validate:
         optional: true
 
+  ws@8.20.0:
+    resolution: {integrity: sha512-sAt8BhgNbzCtgGbt2OxmpuryO63ZoDk/sqaB/znQm94T4fCEsy/yV+7CdC1kJhOU9lboAEU7R3kquuycDoibVA==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   wsl-utils@0.3.1:
     resolution: {integrity: sha512-g/eziiSUNBSsdDJtCLB8bdYEUMj4jR7AGeUo96p/3dTafgjHhpF4RiCFPiRILwjQoDXx5MqkBr4fwWtR3Ky4Wg==}
     engines: {node: '>=20'}
@@ -7743,7 +7755,7 @@ snapshots:
     dependencies:
       graphql: 16.13.1
 
-  '@apollo/client@4.1.6(graphql-ws@6.0.7(graphql@16.13.1)(ws@8.19.0))(graphql@16.13.1)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.13.1))':
+  '@apollo/client@4.1.6(graphql-ws@6.0.7(graphql@16.13.1)(ws@8.20.0))(graphql@16.13.1)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.13.1))':
     dependencies:
       '@graphql-typed-document-node/core': 3.2.0(graphql@16.13.1)
       '@wry/caches': 1.0.1
@@ -7755,7 +7767,7 @@ snapshots:
       rxjs: 7.8.2
       tslib: 2.8.1
     optionalDependencies:
-      graphql-ws: 6.0.7(graphql@16.13.1)(ws@8.19.0)
+      graphql-ws: 6.0.7(graphql@16.13.1)(ws@8.20.0)
       subscriptions-transport-ws: 0.11.0(graphql@16.13.1)
 
   '@apollo/federation-internals@2.13.1(graphql@16.13.1)':
@@ -10070,7 +10082,7 @@ snapshots:
       d3-selection: 3.0.0
       d3-transition: 3.0.1(d3-selection@3.0.0)
 
-  '@vercel/style-guide@6.0.0(eslint@10.0.3)(jest@30.3.0(@types/node@25.5.0))(prettier@3.8.1)(typescript@5.9.3)(vitest@4.1.0(@types/node@25.5.0)(happy-dom@20.8.3)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)))':
+  '@vercel/style-guide@6.0.0(eslint@10.0.3)(jest@30.3.0(@types/node@25.5.0))(prettier@3.8.1)(typescript@5.9.3)(vitest@4.1.0(@types/node@25.5.0)(happy-dom@20.8.9)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)))':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/eslint-parser': 7.28.6(@babel/core@7.29.0)(eslint@10.0.3)
@@ -10090,7 +10102,7 @@ snapshots:
       eslint-plugin-testing-library: 6.5.0(eslint@10.0.3)(typescript@5.9.3)
       eslint-plugin-tsdoc: 0.2.17
       eslint-plugin-unicorn: 51.0.1(eslint@10.0.3)
-      eslint-plugin-vitest: 0.3.26(@typescript-eslint/eslint-plugin@7.18.0(@typescript-eslint/parser@7.18.0(eslint@10.0.3)(typescript@5.9.3))(eslint@10.0.3)(typescript@5.9.3))(eslint@10.0.3)(typescript@5.9.3)(vitest@4.1.0(@types/node@25.5.0)(happy-dom@20.8.3)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)))
+      eslint-plugin-vitest: 0.3.26(@typescript-eslint/eslint-plugin@7.18.0(@typescript-eslint/parser@7.18.0(eslint@10.0.3)(typescript@5.9.3))(eslint@10.0.3)(typescript@5.9.3))(eslint@10.0.3)(typescript@5.9.3)(vitest@4.1.0(@types/node@25.5.0)(happy-dom@20.8.9)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)))
       prettier-plugin-packagejson: 2.5.22(prettier@3.8.1)
     optionalDependencies:
       eslint: 10.0.3
@@ -12077,13 +12089,13 @@ snapshots:
       semver: 7.7.4
       strip-indent: 4.1.1
 
-  eslint-plugin-vitest@0.3.26(@typescript-eslint/eslint-plugin@7.18.0(@typescript-eslint/parser@7.18.0(eslint@10.0.3)(typescript@5.9.3))(eslint@10.0.3)(typescript@5.9.3))(eslint@10.0.3)(typescript@5.9.3)(vitest@4.1.0(@types/node@25.5.0)(happy-dom@20.8.3)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))):
+  eslint-plugin-vitest@0.3.26(@typescript-eslint/eslint-plugin@7.18.0(@typescript-eslint/parser@7.18.0(eslint@10.0.3)(typescript@5.9.3))(eslint@10.0.3)(typescript@5.9.3))(eslint@10.0.3)(typescript@5.9.3)(vitest@4.1.0(@types/node@25.5.0)(happy-dom@20.8.9)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))):
     dependencies:
       '@typescript-eslint/utils': 7.18.0(eslint@10.0.3)(typescript@5.9.3)
       eslint: 10.0.3
     optionalDependencies:
       '@typescript-eslint/eslint-plugin': 7.18.0(@typescript-eslint/parser@7.18.0(eslint@10.0.3)(typescript@5.9.3))(eslint@10.0.3)(typescript@5.9.3)
-      vitest: 4.1.0(@types/node@25.5.0)(happy-dom@20.8.3)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
+      vitest: 4.1.0(@types/node@25.5.0)(happy-dom@20.8.9)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
     transitivePeerDependencies:
       - supports-color
       - typescript
@@ -12621,6 +12633,12 @@ snapshots:
     optionalDependencies:
       ws: 8.19.0
 
+  graphql-ws@6.0.7(graphql@16.13.1)(ws@8.20.0):
+    dependencies:
+      graphql: 16.13.1
+    optionalDependencies:
+      ws: 8.20.0
+
   graphql@16.13.1: {}
 
   hachure-fill@0.5.2: {}
@@ -12634,14 +12652,14 @@ snapshots:
     optionalDependencies:
       uglify-js: 3.19.3
 
-  happy-dom@20.8.3:
+  happy-dom@20.8.9:
     dependencies:
       '@types/node': 25.5.0
       '@types/whatwg-mimetype': 3.0.2
       '@types/ws': 8.18.1
       entities: 7.0.1
       whatwg-mimetype: 3.0.0
-      ws: 8.19.0
+      ws: 8.20.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -15299,7 +15317,7 @@ snapshots:
       tsx: 4.21.0
       yaml: 2.8.2
 
-  vitest@4.1.0(@types/node@25.5.0)(happy-dom@20.8.3)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)):
+  vitest@4.1.0(@types/node@25.5.0)(happy-dom@20.8.9)(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)):
     dependencies:
       '@vitest/expect': 4.1.0
       '@vitest/mocker': 4.1.0(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(sass@1.98.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
@@ -15323,7 +15341,7 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 25.5.0
-      happy-dom: 20.8.3
+      happy-dom: 20.8.9
     transitivePeerDependencies:
       - msw
 
@@ -15564,6 +15582,8 @@ snapshots:
   ws@7.5.10: {}
 
   ws@8.19.0: {}
+
+  ws@8.20.0: {}
 
   wsl-utils@0.3.1:
     dependencies:
