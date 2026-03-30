@@ -9,11 +9,11 @@
   },
   "dependencies": {
     "@dethernety/dt-core": "workspace:*",
-    "@langchain/langgraph-sdk": "^1.7.2",
-    "@nestjs/common": "^11.1.16",
+    "@langchain/langgraph-sdk": "^1.8.2",
+    "@nestjs/common": "^11.1.17",
     "@open-policy-agent/opa": "^2.0.0",
-    "axios": "^1.13.6",
-    "graphql": "^16.13.1",
+    "axios": "^1.14.0",
+    "graphql": "^16.13.2",
     "graphql-subscriptions": "^3.0.0",
     "json-logic-js": "^2.0.5"
   },

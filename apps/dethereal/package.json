@@ -33,9 +33,9 @@
   ],
   "dependencies": {
     "@apollo/client": "^4.1.6",
-    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "cross-fetch": "^4.0.0",
-    "graphql": "^16.13.1",
+    "graphql": "^16.13.2",
     "graphql-tag": "^2.12.6",
     "open": "^11.0.0",
     "zod": "^4.0.0"
@@ -45,7 +45,7 @@
     "@types/node": "^25.5.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.2"
   },
   "license": "AGPL-3.0-only",
   "engines": {
