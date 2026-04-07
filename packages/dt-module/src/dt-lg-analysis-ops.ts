@@ -161,12 +161,20 @@ export class DtLgAnalysisOps {
         throw new Error(`No config found for graph ${graphName}`);
       }
 
-      const input = await graphConfig.input(scope, sessionId, driver, additionalParams);
-      const payload = {
+      const rawInput = await graphConfig.input(scope, sessionId, driver, additionalParams);
+
+      // Extract _configurable from input if present (e.g., model_name selection).
+      // This allows graph configs to pass RunnableConfig.configurable without
+      // changing the LgGraphConfig interface.
+      const { _configurable, ...input } = rawInput;
+      const payload: Record<string, unknown> = {
         input,
         streamMode: 'updates',
         streamSubgraphs: true,
       };
+      if (_configurable && typeof _configurable === 'object') {
+        payload.config = { configurable: _configurable };
+      }
 
       // Start streaming in background
       this.startStream(sessionId, assistantId, payload, pubSub, 'updates').catch(error => {

@@ -301,6 +301,11 @@ export class SchemaService implements ISchemaService {
   ): ResolverFunction {
     const logger = this.logger;
     const timeoutMs = this.MODULE_RESOLVER_TIMEOUT_MS;
+    const isProduction = process.env.NODE_ENV === 'production';
+    const oidcConfigured = !!this.config.oidcJwksUri;
+    const noauthEnabled = !!this.config.enableNoauth;
+    // noauth only effective in non-production without OIDC — mirrors resolveSchemaPath()
+    const authRequired = isProduction || oidcConfigured || !noauthEnabled;
     const fieldPath = `${moduleName}:${typeName}.${fieldName}`;
 
     return async (parent, args, context, info) => {
@@ -308,7 +313,11 @@ export class SchemaService implements ISchemaService {
 
       // Auth enforcement -- defense-in-depth: even if the module's SDL
       // lacks @authentication, module resolvers require a valid JWT.
-      if (!context?.jwt && !context?.token) {
+      // Skipped ONLY when all three conditions are met:
+      //   1. NODE_ENV is NOT 'production'
+      //   2. OIDC is NOT configured
+      //   3. ENABLE_NOAUTH is explicitly 'true'
+      if (authRequired && !context?.jwt && !context?.token) {
         logger.warn(`Module resolver ${fieldPath} called without authentication`);
         throw new GraphQLError('Authentication required', {
           extensions: { code: 'UNAUTHENTICATED' },
