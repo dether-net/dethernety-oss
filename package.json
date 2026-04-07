@@ -42,7 +42,11 @@
       "webpack": ">=5.105.4",
       "express-rate-limit": ">=8.2.2",
       "dompurify": ">=3.3.2",
-      "file-type": ">=21.3.1"
+      "file-type": ">=21.3.1",
+      "handlebars": ">=4.7.9",
+      "defu": ">=6.1.5",
+      "path-to-regexp@>=8.0.0": ">=8.4.0",
+      "picomatch@<4.0.0": ">=2.3.2"
     }
   }
 }

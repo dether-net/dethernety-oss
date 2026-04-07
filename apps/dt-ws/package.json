@@ -40,7 +40,6 @@
     "@open-policy-agent/opa": "^2.0.0",
     "@types/json-logic-js": "^2.0.8",
     "@types/jsonwebtoken": "^9.0.10",
-    "apollo-server-express": "^3.13.0",
     "axios": "^1.13.6",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
