@@ -18,11 +18,11 @@
     "docs:api": "node scripts/generate-api-docs.mjs"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.5.2",
     "neo4j-driver": "^5.28.2",
     "prettier": "^3.8.1",
     "tsx": "^4.7.0",
-    "turbo": "^2.8.16",
+    "turbo": "^2.9.4",
     "typescript": "5.9.3"
   },
   "engines": {
@@ -36,8 +36,8 @@
       "@hono/node-server": ">=1.19.10",
       "multer": ">=2.1.0",
       "lodash": ">=4.17.23",
-      "ajv@^6.0.0": ">=6.14.0",
-      "ajv@^8.0.0": ">=8.18.0",
+      "ajv@^6.0.0": "^6.14.0",
+      "ajv@^8.0.0": "^8.18.0",
       "minimatch@>=9.0.0": ">=9.0.7",
       "webpack": ">=5.105.4",
       "express-rate-limit": ">=8.2.2",
