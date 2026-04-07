@@ -25,6 +25,7 @@ overrides:
   brace-expansion@<2.0.0: '>=1.1.13 <2.0.0'
   brace-expansion@>=2.0.0 <3.0.0: '>=2.0.3 <3.0.0'
   yaml@<2.0.0: '>=1.10.3 <2.0.0'
+  '@apollo/federation-internals': '>=2.13.2'
 
 importers:
 
@@ -595,8 +596,8 @@ packages:
       subscriptions-transport-ws:
         optional: true
 
-  '@apollo/federation-internals@2.13.1':
-    resolution: {integrity: sha512-3w+pEjew3xDHTjM4INvBiy0+F/Puje7NSnH0S9WkFiiSjYDu9wwHW6yw5Frx8jN1T17lGOgAGbx1S+YTosCs6Q==}
+  '@apollo/federation-internals@2.13.3':
+    resolution: {integrity: sha512-4zHgqznZza5Qx2CZy1qlrh83BB/3Yd8BqD/dmhGzLCvHJQ1LBTyZbWN7xwKs5z5FbxdSPkL5TvPoLm5Rek8/4g==}
     engines: {node: '>=18'}
     peerDependencies:
       graphql: ^16.5.0
@@ -7611,7 +7612,7 @@ snapshots:
       graphql-ws: 6.0.8(graphql@16.13.2)(ws@8.20.0)
       subscriptions-transport-ws: 0.11.0(graphql@16.13.2)
 
-  '@apollo/federation-internals@2.13.1(graphql@16.13.2)':
+  '@apollo/federation-internals@2.13.3(graphql@16.13.2)':
     dependencies:
       '@types/uuid': 9.0.8
       chalk: 4.1.2
@@ -7677,7 +7678,7 @@ snapshots:
   '@apollo/subgraph@2.13.1(graphql@16.13.2)':
     dependencies:
       '@apollo/cache-control-types': 1.0.3(graphql@16.13.2)
-      '@apollo/federation-internals': 2.13.1(graphql@16.13.2)
+      '@apollo/federation-internals': 2.13.3(graphql@16.13.2)
       graphql: 16.13.2
 
   '@apollo/usage-reporting-protobuf@4.1.1':
