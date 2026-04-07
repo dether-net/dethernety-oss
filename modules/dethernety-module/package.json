@@ -15,13 +15,13 @@
   },
   "dependencies": {
     "@dethernety/dt-module": "workspace:*",
-    "@nestjs/common": "^11.1.16",
+    "@nestjs/common": "^11.1.18",
     "@open-policy-agent/opa-wasm": "^1.10.0",
     "json-logic-js": "^2.0.5",
     "neo4j-driver": "^5.28.2"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.5.2",
     "tsx": "^4.7.0"
   }
 }
