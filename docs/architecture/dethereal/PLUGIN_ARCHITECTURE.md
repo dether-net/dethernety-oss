@@ -11,8 +11,9 @@
 - [5. MCP Server](#5-mcp-server)
 - [6. Hooks](#6-hooks)
 - [7. Settings and Configuration](#7-settings-and-configuration)
-- [8. Architecture Decision: MCP vs Skills for Documentation](#8-architecture-decision-mcp-vs-skills-for-documentation)
-- [9. Implementation Phases](#9-implementation-phases)
+- [8. Multi-Module Selection](#8-multi-module-selection)
+- [9. Architecture Decision: MCP vs Skills for Documentation](#9-architecture-decision-mcp-vs-skills-for-documentation-d45d46)
+- [10. Implementation Phases](#10-implementation-phases)
 
 ---
 
@@ -749,7 +750,62 @@ Uses `${CLAUDE_PLUGIN_DATA}` for:
 
 ---
 
-## 8. Architecture Decision: MCP vs Skills for Documentation
+## 8. Multi-Module Selection
+
+### Problem
+
+The platform supports multiple specialized modules (General/dethernety-module, Kubernetes, AWS, Azure, Databases, Studio-created). Each module provides classes with attribute templates (JSON Schema, 30-100 fields per class). Without module scoping, `get_classes()` returns all classes from all installed modules — hundreds of classes to search through, most irrelevant for any given model.
+
+### Design
+
+Module selection happens **post-discovery, before classification**. Discovery output (`discovery.json`) contains IaC source patterns that deterministically map to relevant modules. The agent recommends modules based on these patterns, the user confirms.
+
+**Scope storage:** `activeModules` field in `.dethereal/scope.json`:
+```json
+"activeModules": [
+  { "id": "module-uuid", "name": "dethernety-module" },
+  { "id": "module-uuid", "name": "Kubernetes" }
+]
+```
+
+**Baseline module:** The `dethernety-module` (being refocused as the technology-agnostic General module) is always included and non-removable. Identified by name match: `General` or `dethernety-module`.
+
+**Source-type → module mapping** (maintained in infrastructure-scout agent):
+
+| Discovery Source Pattern | Recommended Module |
+|--------------------------|-------------------|
+| `terraform` with `aws_*` resources | AWS |
+| `terraform` with `azurerm_*` resources | Azure |
+| `terraform` with `google_*` resources | GCP |
+| `kubernetes`, `helm` charts | Kubernetes |
+| `database` (SQL, ORM) | Databases |
+
+### Classification Precedence
+
+When multiple modules offer a matching class:
+1. **Specialized module** (AWS, Kubernetes, Databases) — most targeted attribute schema
+2. **Baseline module** (dethernety-module/General) — technology-agnostic fallback
+3. **All modules** (fallback if quality gate fails)
+
+### Fallback Broadening
+
+If classification coverage falls below the quality gate (100% STOREs, 80% overall), the plugin automatically searches all installed modules for unclassified elements and suggests adding relevant modules.
+
+### Late Module Addition
+
+When a module is added to `activeModules` after initial classification:
+- Existing elements are NOT auto-reclassified
+- Elements with baseline-module classes that have a more specific equivalent in the new module are flagged as reclassification candidates
+- User confirms before reclassification proceeds
+- `generate_attribute_stubs` handles the reclassification (unenriched old fields removed, new class fields added)
+
+### Backward Compatibility
+
+If `activeModules` is absent from `scope.json`, classification searches all installed modules — identical to pre-module-selection behavior. No existing models break.
+
+---
+
+## 9. Architecture Decision: MCP vs Skills for Documentation (D45/D46)
 
 ### Context
 
@@ -776,7 +832,7 @@ The current MCP server has `get_model_schema` (15KB of schema + guidelines) and 
 
 ---
 
-## 9. Implementation Phases
+## 10. Implementation Phases
 
 ### Phase 1 -- Foundation
 

@@ -72,6 +72,24 @@ Use this table for deterministic pre-classification. When a discovered element m
 | K8s NetworkPolicy | Control | Network Policy |
 | K8s Ingress | PROCESS + boundary crossing | API Gateway / Load Balancer |
 
+## Source Type → Module Mapping
+
+Maps discovery source patterns to recommended platform modules. The threat-modeler uses this during module selection (post-discovery) to determine which modules are relevant for classification.
+
+| Discovery Source Pattern | Recommended Module |
+|--------------------------|-------------------|
+| `terraform` with `aws_*` resources | AWS |
+| `terraform` with `azurerm_*` resources | Azure |
+| `terraform` with `google_*` resources | GCP |
+| `kubernetes`, `helm` charts, K8s manifests | Kubernetes |
+| `database` (SQL migrations, ORM models) | Databases |
+
+**Baseline module (always included):** The platform's general-purpose module — either named `General` or `dethernety-module` (the existing module being refocused as the technology-agnostic baseline). The plugin identifies the baseline by matching the module name `General` or `dethernety-module`. This module is always included and non-removable.
+
+**Classification precedence:** specialized module > baseline (dethernety-module/General) > fallback to all modules. When a specialized module has a class that matches an element (e.g., "PostgreSQL" from Databases), it takes priority over the baseline module's broader class (e.g., "Database" from dethernety-module). The specialized class has a more targeted attribute schema with technology-specific OPA policies.
+
+When writing the discovery report, populate `recommendedModules: string[]` at the top level of `discovery.json` based on which source patterns were detected.
+
 ## Application Code Discovery
 
 | Source Pattern | Produces | Mapping |

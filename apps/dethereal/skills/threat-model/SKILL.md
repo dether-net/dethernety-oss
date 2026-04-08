@@ -37,7 +37,7 @@ If `.dethereal/state.json` exists and `currentState` is not `REVIEWED`:
 ```
 Progress: "<Model Name>" (Quality: X/100)
   [done]        1. Scope Definition
-  [done]        2. Discovery
+  [done]        2. Discovery (modules: dethernety-module, Kubernetes)
   [done]        3. Model Review
   [auto-skip]   4. Boundary Refinement (hierarchy already well-structured)
   [>>>>]        5. Data Flow Mapping  — current step
@@ -115,14 +115,54 @@ Delegate to `Agent(infrastructure-scout)` per the Discovery Orchestration Protoc
 
 If the model was created from a description (not IaC), discovery still scans the codebase for IaC corroboration. If no codebase context is available, skip to Step 3 with the description-derived structure.
 
+### Module Selection (post-discovery)
+
+Select which platform modules provide classes for classification and enrichment.
+
+1. Read `.dethereal/discovery.json` — extract `recommendedModules` and source type patterns
+2. Query available modules on the platform: call `mcp__dethereal__get_classes(fields: ['module'])` with no module filter to list all installed modules
+3. Map discovery source patterns to recommended modules using the infrastructure-scout's Source Type → Module Mapping table
+4. Always include the baseline module — match by name `General` or `dethernety-module` (non-removable)
+5. Present a confirmation table:
+
+```
+## Module Selection
+
+Based on discovery, these modules are recommended for classification:
+
+| # | Module | Reason | Include? |
+|---|--------|--------|----------|
+| 1 | dethernety-module | Always included (baseline classes) | yes (locked) |
+| 2 | Kubernetes | K8s manifests found (12 resources) | yes |
+| 3 | AWS | Terraform aws_* resources found (8 resources) | yes |
+
+Available but not recommended:
+| 4 | Databases | No database sources detected | no |
+| 5 | Azure | No azurerm_* resources detected | no |
+
+Confirm selection? (yes / modify)
+```
+
+6. Write confirmed modules to `.dethereal/scope.json` as `activeModules`:
+```json
+"activeModules": [
+  { "id": "module-uuid-1", "name": "dethernety-module" },
+  { "id": "module-uuid-2", "name": "Kubernetes" }
+]
+```
+
+If no discovery was performed (model created from description only), skip module recommendation — classification will search all installed modules.
+
+No state transition — stays at `DISCOVERED` (same as Step 3).
+
 ---
 
 ## Step 3: Model Review
 
 Run deterministic Pass 1 classification and review the discovered model.
 
-1. Call `mcp__dethereal__get_classes(action: 'classify_components')` to run deterministic fuzzy matching against the platform's class library — this saves 3-5K tokens by eliminating LLM-side comparisons (D51)
-2. For components not matched by the deterministic pass, match by name, type, and description against available classes
+1. Read `activeModules` from `.dethereal/scope.json`. For each active module, call `mcp__dethereal__get_classes(module_name: '<name>')` to run deterministic fuzzy matching scoped to that module. If `activeModules` is absent, call `get_classes` without module filter (backward compatibility). Prefer classes from specialized modules over baseline (dethernety-module/General) when both match — specialized classes have more targeted attribute schemas (D51)
+2. For components not matched by the deterministic pass, match by name, type, and description against available classes from active modules
 3. If the component was discovered from IaC (check `.dethereal/discovery.json`), use the pre-classification from IaC mapping
 4. Check decomposition thresholds (21+ components, 9+ boundaries, 36+ flows, 19+ cross-boundary) — follow Decomposition Protocol if exceeded (D56: decomposition check runs after Step 3, not Step 2, because the blind spots interview may add components)
 4. Present batch confirmation table with proposed classifications:
@@ -240,13 +280,15 @@ If the user says **"yes"** (even on a large model): proceed to Step 6 without re
 Delegate classification to `Agent(security-enricher)` per the classify skill workflow.
 
 1. Inventory unclassified elements across all types (components, flows, boundaries, data items)
-2. For each unclassified element:
+2. Read `activeModules` from `.dethereal/scope.json` — classification searches only within active modules (same module-scoped approach as Step 3)
+3. For each unclassified element:
    - Use boundary context — which boundary contains it, what neighbors are classified as
    - Consider connected data flows — protocols, data types
    - Peer inference — siblings in the same boundary likely have similar classes
-3. Crown jewel tagging: match free-text crown jewel names from `scope.json` to components
-4. Present batch confirmation table (same format as `/dethereal:classify`)
-5. Quality gate: 100% STORE classification, 80% overall classification
+   - If no match in active modules, broaden search to all modules and suggest adding the matched module
+4. Crown jewel tagging: match free-text crown jewel names from `scope.json` to components
+5. Present batch confirmation table (same format as `/dethereal:classify`)
+6. Quality gate: 100% STORE classification, 80% overall classification
 6. Write classifications and crown jewel tags to model files. Call `mcp__dethereal__generate_attribute_stubs(directory_path)` to write class template attribute stubs for all classified elements
 
 State: no transition — already at ENRICHING from Step 5.

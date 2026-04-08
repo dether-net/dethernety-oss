@@ -185,9 +185,14 @@ Quality labels: >= 90 "Comprehensive", 70-89 "Good", 40-69 "In Progress", < 40 "
   "crown_jewels": ["User PII", "Payment data"],
   "exclusions": [],
   "trust_assumptions": [],
-  "adversary_classes": []
+  "adversary_classes": [],
+  "activeModules": [
+    { "id": "module-uuid", "name": "dethernety-module" }
+  ]
 }
 ```
+
+`activeModules` is optional. If absent, classification searches all installed modules (backward compatible). The baseline module (`General` or `dethernety-module`) is always included and non-removable. Populated by the module selection step after discovery — the agent recommends modules based on discovered IaC source patterns, the user confirms.
 
 ### Naming Convention
 
