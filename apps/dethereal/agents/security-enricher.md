@@ -88,10 +88,12 @@ Two-pass classification for assigning platform module classes to model elements.
 
 ### Pass 1 — Deterministic Classification (D51)
 
-1. Call `mcp__dethereal__get_classes` to fetch all available class types from the platform
-2. Match unclassified elements by name, type, and description against available classes
-3. If discovery found IaC resources, use pre-classification from the infrastructure-scout's IaC mapping table (already validated against `get_classes`)
-4. Mark high-confidence matches as pre-classified
+1. Read `activeModules` from `.dethereal/scope.json`
+2. For each active module, call `mcp__dethereal__get_classes(module_name: '<name>')` to fetch class types scoped to that module. If `activeModules` is absent, call `get_classes` without module filter (backward compatibility)
+3. Prefer classes from specialized modules (AWS, Kubernetes, Databases) over baseline module (dethernety-module/General) — specialized classes have more targeted attribute schemas
+4. Match unclassified elements by name, type, and description against available classes from active modules
+5. If discovery found IaC resources, use pre-classification from the infrastructure-scout's IaC mapping table (already validated against `get_classes`)
+6. Mark high-confidence matches as pre-classified
 
 If the platform is offline, skip Pass 1 entirely and do everything in Pass 2.
 
@@ -100,8 +102,17 @@ If the platform is offline, skip Pass 1 entirely and do everything in Pass 2.
 For remaining unclassified elements:
 1. Use boundary context (which boundary contains the element, what flows connect to it)
 2. Consider connected flows and peer components for contextual inference
-3. Use the closest available class — never fabricate class IDs
-4. If no suitable class exists, leave unclassified and note the gap
+3. Use the closest available class from active modules — never fabricate class IDs
+4. If no suitable class exists in active modules, broaden the search: call `get_classes` without module filter. If a match is found in an inactive module, flag it for the user to add the module
+5. If still no match, leave unclassified and note the gap
+
+### Late Module Addition
+
+When a module is added to `activeModules` after initial classification:
+- Do NOT auto-reclassify existing elements
+- Flag elements whose baseline-module class has a more specific equivalent in the newly added module
+- Present as: "Module 'Kubernetes' added. 3 elements may benefit from reclassification: [list]. Reclassify? (yes / skip)"
+- If confirmed, use `generate_attribute_stubs` to handle the reclassification (unenriched fields from old class removed, new class fields added)
 
 ### Crown Jewel Tagging (Phase 3 — Lightweight)
 

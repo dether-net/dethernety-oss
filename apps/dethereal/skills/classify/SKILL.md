@@ -45,10 +45,12 @@ All elements are classified. Quality: X/100.
 
 ### 3. Pass 1 — Deterministic Classification (D51)
 
-1. Call `mcp__dethereal__get_classes` to fetch all available class types from the platform
-2. For each unclassified element, match by name, type, and description against available classes
-3. If the element was discovered from IaC (check `.dethereal/discovery.json` for `sources`), use the pre-classification from the infrastructure-scout's IaC mapping table — these were already validated against `get_classes` during discovery
-4. Mark high-confidence matches as pre-classified
+1. Read `activeModules` from `.dethereal/scope.json`
+2. For each active module, call `mcp__dethereal__get_classes(module_name: '<name>')` to fetch class types scoped to that module. If `activeModules` is absent from scope.json, call `get_classes` without module filter (backward compatibility — searches all installed modules)
+3. When matching, prefer classes from specialized modules (AWS, Kubernetes, Databases) over baseline module (dethernety-module/General) — specialized classes have more targeted attribute schemas with technology-specific OPA policies
+4. For each unclassified element, match by name, type, and description against available classes from active modules
+5. If the element was discovered from IaC (check `.dethereal/discovery.json` for `sources`), use the pre-classification from the infrastructure-scout's IaC mapping table — these were already validated against `get_classes` during discovery
+6. Mark high-confidence matches as pre-classified
 
 If the platform is offline, skip Pass 1 entirely and do everything in Pass 2.
 
@@ -58,8 +60,9 @@ For remaining unclassified elements:
 1. Use boundary context — which boundary contains the element, what other elements share that boundary
 2. Consider connected data flows — what protocols, what data types
 3. Consider peer components — if sibling components in the same boundary are all classified as "Microservice", an unclassified sibling is likely similar
-4. Propose the closest available class — never fabricate class IDs
-5. If no suitable class exists, mark as "unclassified" with a gap note
+4. Propose the closest available class from active modules — never fabricate class IDs
+5. If no suitable class exists in active modules, broaden the search: call `mcp__dethereal__get_classes` without a module filter. If a match is found in an inactive module, flag it: "Element 'X' matched class 'Y' from module 'Z' (not in active modules). Add module 'Z'? (yes / skip)"
+6. If still no match, mark as "unclassified" with a gap note
 
 ### 5. Crown Jewel Tagging (D21/D41)
 
@@ -111,6 +114,12 @@ Classification gap: 2 STOREs unclassified (payment-cache, session-store).
 STOREs must be 100% classified for effective analysis.
 Classify now or skip? (classify / skip)
 ```
+
+If unclassified elements exist and `activeModules` is set, check if broadening to additional modules would help: search `get_classes` without module filter for each unclassified element. If matches found:
+```
+Adding modules [Databases, Azure] would classify 2 more elements. Add? (yes / skip)
+```
+If confirmed, update `activeModules` in scope.json and re-run classification for affected elements.
 
 If the user skips, proceed with a warning but do not block.
 
