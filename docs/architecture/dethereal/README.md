@@ -92,6 +92,7 @@ Each step is individually invocable (`/dethereal:discover`, `/dethereal:enrich`,
 | [USER_EXPERIENCE.md](USER_EXPERIENCE.md) | User journey, interaction patterns, file presentation, error handling |
 | [SYNC_AND_SOURCE_OF_TRUTH.md](SYNC_AND_SOURCE_OF_TRUTH.md) | Publish/pull architecture, conflict taxonomy, push flow, state bootstrap |
 | [OPERATIONAL_REQUIREMENTS.md](OPERATIONAL_REQUIREMENTS.md) | Attack surface accuracy, detection readiness, compliance, trustworthiness |
+| [CONTROL_INTEGRATION.md](CONTROL_INTEGRATION.md) | Control integration design — categories, workflow placement, local intent capture |
 | [DECISIONS.md](DECISIONS.md) | All 66 architecture decisions with rationale |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Current MCP server implementation (pre-upgrade reference) |
 
