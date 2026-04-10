@@ -95,17 +95,18 @@ No default agent (D64). Users invoke via skills or `@dethereal:agent-name`.
 - Entry: `src/index.ts` — MCP Server v3.0.0 + Stdio transport
 - Config: `src/config.ts` — validation, HTTPS enforcement, debug mode
 
-### Tools (`src/tools/`) — 20 total
+### Tools (`src/tools/`) — 22 total
 
 | Category | Tools |
 |----------|-------|
 | Auth (3) | login, logout, refresh_token |
 | Reference (2) | get_model_schema, get_example_models |
-| Validation (1) | validate_model_json (validate + quality score) |
+| Validation (1) | validate_model_json (validate + quality score + coverage) |
 | Model CRUD (5) | create_threat_model, import_model, export_model, update_model, list_models |
 | Elements (3) | get_classes, update_attributes, generate_attribute_stubs |
+| Classification (1) | match_classes |
 | MITRE (2) | search_mitre_attack, get_mitre_defend |
-| Security (3) | manage_exposures, manage_controls, manage_countermeasures |
+| Security (4) | manage_exposures, manage_controls, manage_countermeasures, get_control_gaps |
 | Analysis (1) | manage_analyses |
 
 ### Auth (`src/auth/`)

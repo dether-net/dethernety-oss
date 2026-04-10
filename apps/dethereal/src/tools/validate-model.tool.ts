@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod'
+import { DtControl } from '@dethernety/dt-core'
 import { ClientFreeTool, ToolContext, ToolResult } from './base-tool.js'
 import {
   readModelDirectory,
@@ -85,11 +86,12 @@ const AttributesSchema = z.object({
 const FileTypeEnum = z.enum(['manifest', 'structure', 'dataflows', 'data-items', 'attributes'])
 type FileType = z.infer<typeof FileTypeEnum>
 
-const ActionEnum = z.enum(['validate', 'quality']).optional().default('validate')
+const ActionEnum = z.enum(['validate', 'quality', 'coverage']).optional().default('validate')
 
 const InputSchema = z.object({
-  action: ActionEnum.describe("Action: 'validate' checks schema/references, 'quality' computes quality score (0-100)"),
+  action: ActionEnum.describe("Action: 'validate' checks schema/references, 'quality' computes quality score (0-100), 'coverage' analyzes control coverage"),
   directory_path: z.string().optional().describe('Path to model directory to validate (validates entire directory)'),
+  model_id: z.string().optional().describe('Model ID for online coverage analysis (requires authentication)'),
   data: z.union([z.string(), z.record(z.string(), z.any())]).optional().describe('JSON data to validate (string or object)'),
   file_type: FileTypeEnum.optional().describe('Type of file to validate when using data parameter')
 })
@@ -134,13 +136,30 @@ interface QualityOutput {
   model_name: string
 }
 
-export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOutput | QualityOutput> {
+interface CoverageOutput {
+  mode: 'online' | 'offline'
+  coverage_summary: {
+    total_exposures: number
+    mitigated: number
+    unmitigated: number
+    unaddressable: number
+    coverage_pct: number
+  }
+  details?: any
+}
+
+export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOutput | QualityOutput | CoverageOutput> {
   readonly name = 'validate_model_json'
-  readonly description = 'Validate a threat model JSON structure or compute a quality score (0-100). Use action "validate" for schema checks or "quality" for enrichment progress tracking.'
+  readonly description = 'Validate a threat model JSON structure, compute a quality score (0-100), or analyze control coverage. Use action "validate" for schema checks, "quality" for enrichment progress, or "coverage" for control gap analysis.'
   readonly inputSchema = InputSchema
 
-  async execute(input: ValidateInput, context: ToolContext): Promise<ToolResult<ValidateOutput | QualityOutput>> {
+  async execute(input: ValidateInput, context: ToolContext): Promise<ToolResult<ValidateOutput | QualityOutput | CoverageOutput>> {
     try {
+      // Coverage action
+      if (input.action === 'coverage') {
+        return await this.computeCoverage(input, context)
+      }
+
       // Quality score action
       if (input.action === 'quality') {
         if (!input.directory_path) {
@@ -313,6 +332,92 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         },
         model_name: manifest.model.name
       }
+    }
+  }
+
+  private async computeCoverage(
+    input: ValidateInput,
+    context: ToolContext
+  ): Promise<ToolResult<CoverageOutput>> {
+    // Online mode: model_id + apolloClient available
+    if (input.model_id && context.apolloClient) {
+      try {
+        const dtControl = new DtControl(context.apolloClient)
+        const result = await dtControl.controlGaps({
+          modelId: input.model_id,
+          topN: 3,
+          limit: 50,
+        })
+        return {
+          success: true,
+          data: {
+            mode: 'online',
+            coverage_summary: {
+              total_exposures: result.coverageSummary.totalExposures,
+              mitigated: result.coverageSummary.mitigated,
+              unmitigated: result.coverageSummary.unmitigated,
+              unaddressable: result.coverageSummary.unaddressable,
+              coverage_pct: result.coverageSummary.coveragePct,
+            },
+            details: result,
+          },
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to fetch control gaps',
+        }
+      }
+    }
+
+    // Offline mode: directory_path only
+    if (input.directory_path) {
+      await validatePathConfinement(input.directory_path)
+      if (!await pathExists(input.directory_path)) {
+        return { success: false, error: `Directory not found: ${input.directory_path}` }
+      }
+      if (!await isModelDirectory(input.directory_path)) {
+        return { success: false, error: `Not a valid model directory: ${input.directory_path}` }
+      }
+
+      const structure = await readStructure(input.directory_path)
+      const dataFlows = await readDataFlows(input.directory_path)
+      const dataItems = await readDataItems(input.directory_path)
+      const attributes = await readAttributes(input.directory_path, { structure, dataFlows, dataItems })
+
+      // Count elements with classData (proxy for exposure potential)
+      const allComponentIds = this.collectComponentIds(structure.defaultBoundary)
+      let classifiedCount = 0
+      for (const compId of allComponentIds) {
+        const compAttrs = attributes.components?.[compId]
+        if (compAttrs && (compAttrs as any).classData?.id) {
+          classifiedCount++
+        }
+      }
+      classifiedCount = Math.max(classifiedCount,
+        this.countClassifiedComponents(structure.defaultBoundary))
+
+      return {
+        success: true,
+        data: {
+          mode: 'offline',
+          coverage_summary: {
+            total_exposures: classifiedCount,
+            mitigated: 0,
+            unmitigated: classifiedCount,
+            unaddressable: 0,
+            coverage_pct: 0,
+          },
+        },
+        warnings: [
+          'Offline mode: coverage estimated from classified element count. Use model_id with authentication for authoritative MITRE-chain coverage analysis.',
+        ],
+      }
+    }
+
+    return {
+      success: false,
+      error: 'Coverage requires either model_id (online, with authentication) or directory_path (offline estimate)',
     }
   }
 

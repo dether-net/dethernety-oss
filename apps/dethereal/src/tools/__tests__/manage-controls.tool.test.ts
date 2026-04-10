@@ -50,4 +50,74 @@ describe('ManageControlsTool', () => {
     const result = manageControlsTool.inputSchema.safeParse({ action: 'delete' })
     expect(result.success).toBe(false)
   })
+
+  // Sprint 5: assign action
+  it('should accept assign action with control_id and element_ids', () => {
+    const result = manageControlsTool.inputSchema.safeParse({
+      action: 'assign',
+      control_id: 'ctrl-1',
+      element_ids: ['elem-1', 'elem-2'],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('should reject assign action without control_id', () => {
+    const result = manageControlsTool.inputSchema.safeParse({
+      action: 'assign',
+      element_ids: ['elem-1'],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('should reject assign action without element_ids', () => {
+    const result = manageControlsTool.inputSchema.safeParse({
+      action: 'assign',
+      control_id: 'ctrl-1',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('should reject assign action with empty element_ids', () => {
+    const result = manageControlsTool.inputSchema.safeParse({
+      action: 'assign',
+      control_id: 'ctrl-1',
+      element_ids: [],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  // Sprint 5: advanced list filters
+  it('should accept list action with name filter', () => {
+    const result = manageControlsTool.inputSchema.safeParse({
+      action: 'list',
+      name: 'firewall',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('should accept list action with element_ids filter', () => {
+    const result = manageControlsTool.inputSchema.safeParse({
+      action: 'list',
+      element_ids: ['elem-1', 'elem-2'],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('should accept list action with module_name filter', () => {
+    const result = manageControlsTool.inputSchema.safeParse({
+      action: 'list',
+      module_name: 'dethernety-module',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('should accept list action with combined filters', () => {
+    const result = manageControlsTool.inputSchema.safeParse({
+      action: 'list',
+      name: 'encryption',
+      class_type: 'network',
+      module_id: 'mod-1',
+    })
+    expect(result.success).toBe(true)
+  })
 })

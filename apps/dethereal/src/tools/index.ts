@@ -1,7 +1,7 @@
 /**
  * Tool Registry for Dethereal MCP Server
  *
- * Exports all 20 available MCP tools.
+ * Exports all 22 available MCP tools.
  */
 
 // Base tool
@@ -36,6 +36,10 @@ export { ManageCountermeasuresTool, manageCountermeasuresTool } from './manage-c
 export { ManageAnalysesTool, manageAnalysesTool } from './manage-analyses.tool.js'
 export { GenerateAttributeStubsTool, generateAttributeStubsTool } from './generate-attribute-stubs.tool.js'
 
+// Sprint 5 tools
+export { MatchClassesTool, matchClassesTool } from './match-classes.tool.js'
+export { GetControlGapsTool, getControlGapsTool } from './get-control-gaps.tool.js'
+
 import { BaseTool } from './base-tool.js'
 // Auth tools
 import { loginTool } from './auth/login.tool.js'
@@ -61,9 +65,12 @@ import { manageControlsTool } from './manage-controls.tool.js'
 import { manageCountermeasuresTool } from './manage-countermeasures.tool.js'
 import { manageAnalysesTool } from './manage-analyses.tool.js'
 import { generateAttributeStubsTool } from './generate-attribute-stubs.tool.js'
+// Sprint 5 tools
+import { matchClassesTool } from './match-classes.tool.js'
+import { getControlGapsTool } from './get-control-gaps.tool.js'
 
 /**
- * All registered tools (20 total)
+ * All registered tools (22 total)
  */
 export const allTools: BaseTool[] = [
   // Authentication tools
@@ -90,6 +97,9 @@ export const allTools: BaseTool[] = [
   manageCountermeasuresTool,
   manageAnalysesTool,
   generateAttributeStubsTool,
+  // Sprint 5 tools
+  matchClassesTool,
+  getControlGapsTool,
 ]
 
 /**
@@ -107,7 +117,7 @@ export const clientFreeTools: BaseTool[] = [
 ]
 
 /**
- * Tools that require a GraphQL client (14)
+ * Tools that require a GraphQL client (16)
  */
 export const clientDependentTools: BaseTool[] = [
   importModelTool,
@@ -125,4 +135,7 @@ export const clientDependentTools: BaseTool[] = [
   manageCountermeasuresTool,
   manageAnalysesTool,
   generateAttributeStubsTool,
+  // Sprint 5 tools
+  matchClassesTool,
+  getControlGapsTool,
 ]

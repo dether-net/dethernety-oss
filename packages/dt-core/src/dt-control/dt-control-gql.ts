@@ -95,7 +95,7 @@ mutation UpdateControl($controlId: ID!, $input: ControlUpdateInput!, $countermea
     }
     update: $input
   ) {
-    controls { 
+    controls {
       id
       name
       description
@@ -119,4 +119,128 @@ mutation UpdateControl($controlId: ID!, $input: ControlUpdateInput!, $countermea
     }
   }
 }
+`
+
+export const FIND_CONTROLS = gql`
+  query FindControls($condition: ControlWhere) {
+    controls(where: $condition) {
+      id
+      name
+      description
+      type
+      category
+      controlClasses {
+        id
+        name
+        type
+        category
+        supportedTypes
+        supportedCategories
+        module {
+          id
+          name
+        }
+      }
+      elements {
+        ... on Component { id name type }
+        ... on SecurityBoundary { id name }
+        ... on DataFlow { id name }
+        ... on Model { id name }
+      }
+      countermeasures {
+        id
+        name
+        type
+        score
+      }
+      folder {
+        id
+        name
+      }
+    }
+  }
+`
+
+export const CONTROL_IDS_BY_ELEMENTS = gql`
+  query ControlIdsByElements($elementIds: [ID!]!) {
+    controlIdsByElements(elementIds: $elementIds)
+  }
+`
+
+export const CONTROL_GAPS = gql`
+  query ControlGaps($input: ControlGapsInput!) {
+    controlGaps(input: $input) {
+      unmitigatedExposures {
+        elementId
+        elementName
+        exposureId
+        exposureName
+        attackTechniques { id name }
+        recommendedMitigations { id name }
+      }
+      unaddressableExposures {
+        elementId
+        elementName
+        exposureId
+        exposureName
+        attackTechniques { id name }
+        mitreMitigations { id name }
+      }
+      recommendedControls {
+        controlId
+        controlName
+        controlClassId
+        controlClassName
+        d3fendTechniques { id name }
+        addressesCount
+        elementsAffected { id name }
+      }
+      coverageSummary {
+        totalExposures
+        mitigated
+        unmitigated
+        unaddressable
+        coveragePct
+      }
+    }
+  }
+`
+
+export const ASSIGN_CONTROL_TO_ELEMENTS = gql`
+  mutation AssignControlToElements($controlId: ID!, $input: ControlUpdateInput!) {
+    updateControls(
+      where: { id: { eq: $controlId } }
+      update: $input
+    ) {
+      controls {
+        id
+        name
+        description
+        type
+        category
+        elements {
+          ... on Component { id name type }
+          ... on SecurityBoundary { id name }
+          ... on DataFlow { id name }
+          ... on Model { id name }
+        }
+        controlClasses {
+          id
+          name
+          type
+          category
+          supportedTypes
+          supportedCategories
+          module {
+            id
+            name
+          }
+        }
+        folder {
+          id
+          name
+        }
+      }
+    }
+  }
 `

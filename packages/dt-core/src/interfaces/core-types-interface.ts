@@ -62,8 +62,13 @@ export interface Control extends Element {
   id?: string;
   name?: string;
   description?: string;
+  type?: string;
+  category?: string;
   folder?: Folder
   controlClasses?: Class[]
+  elements?: Element[]
+  // eslint-disable-next-line no-use-before-define
+  countermeasures?: Countermeasure[]
 }
 
 export interface Class extends Element {
@@ -250,6 +255,62 @@ export interface Countermeasure extends Element {
   defendedTechniques?: MitreDefendTechnique[];
   control?: Control;
 
+}
+
+
+// Control Gap Analysis
+
+export interface MitreReference {
+  id: string
+  name: string
+}
+
+export interface ElementReference {
+  id: string
+  name: string
+}
+
+export interface UnmitigatedExposure {
+  elementId: string
+  elementName: string
+  exposureId: string
+  exposureName: string
+  attackTechniques: MitreReference[]
+  recommendedMitigations: MitreReference[]
+}
+
+export interface UnaddressableExposure {
+  elementId: string
+  elementName: string
+  exposureId: string
+  exposureName: string
+  attackTechniques: MitreReference[]
+  mitreMitigations: MitreReference[]
+}
+
+export interface RecommendedControl {
+  controlId?: string
+  controlName?: string
+  controlClassId: string
+  controlClassName: string
+  d3fendTechniques: MitreReference[]
+  addressesCount: number
+  elementsAffected: ElementReference[]
+}
+
+export interface CoverageSummary {
+  totalExposures: number
+  mitigated: number
+  unmitigated: number
+  unaddressable: number
+  coveragePct: number
+}
+
+export interface ControlGapsResult {
+  unmitigatedExposures: UnmitigatedExposure[]
+  unaddressableExposures: UnaddressableExposure[]
+  recommendedControls: RecommendedControl[]
+  coverageSummary: CoverageSummary
 }
 
 

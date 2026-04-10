@@ -14,6 +14,7 @@ import {
   GET_COMPONENT_CLASS_BY_ID,
   GET_BOUNDARY_CLASS_BY_ID,
   GET_DATA_FLOW_CLASS_BY_ID,
+  MATCH_CLASSES,
 } from './dt-class-gql.js'
 import yaml from 'js-yaml';
 
@@ -435,5 +436,82 @@ export class DtClass {
       console.error(`Failed to get control class ${classId}:`, error)
       return null
     }
+  }
+
+  /**
+   * Match elements against class catalog nodes using a multi-priority pipeline.
+   * @param elements - Array of elements to match (name, optional type and description)
+   * @param classLabel - Which class node label to search (COMPONENT, CONTROL, etc.)
+   * @param componentType - Filter ComponentClass nodes by type (only when classLabel = COMPONENT)
+   * @param moduleIds - Restrict search to classes from these modules
+   * @param topN - Number of top candidates per element (default 3)
+   * @param fields - Which optional fields to include on candidates (description, category, type)
+   * @returns Match results with candidates per element, plus unmatched element names
+   */
+  matchClasses = async ({
+    elements,
+    classLabel,
+    componentType,
+    moduleIds,
+    topN,
+    fields,
+  }: {
+    elements: Array<{ name: string; type?: string; description?: string }>;
+    classLabel: string;
+    componentType?: string;
+    moduleIds?: string[];
+    topN?: number;
+    fields?: string[];
+  }): Promise<{
+    matches: Array<{
+      elementName: string;
+      candidates: Array<{
+        classId: string;
+        className: string;
+        classDescription?: string;
+        classCategory?: string;
+        classType?: string;
+        moduleName: string;
+        matchType: string;
+        confidence: string;
+        similarityScore?: number;
+      }>;
+    }>;
+    unmatched: string[];
+  }> => {
+    const response = await this.dtUtils.performQuery<{
+      matchClasses: {
+        matches: Array<{
+          elementName: string;
+          candidates: Array<{
+            classId: string;
+            className: string;
+            classDescription?: string;
+            classCategory?: string;
+            classType?: string;
+            moduleName: string;
+            matchType: string;
+            confidence: string;
+            similarityScore?: number;
+          }>;
+        }>;
+        unmatched: string[];
+      };
+    }>({
+      query: MATCH_CLASSES,
+      variables: {
+        input: {
+          elements,
+          classLabel,
+          ...(componentType ? { componentType } : {}),
+          ...(moduleIds ? { moduleIds } : {}),
+          ...(topN !== undefined ? { topN } : {}),
+          ...(fields ? { fields } : {}),
+        },
+      },
+      action: 'matchClasses',
+      fetchPolicy: 'network-only',
+    })
+    return response.matchClasses
   }
 }

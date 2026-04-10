@@ -18,6 +18,42 @@ enum ComponentType {
   DATA_FLOW
 }
 
+"""Class label identifying which node type to match against."""
+enum ClassLabelEnum {
+  "Component classes (PROCESS, STORE, EXTERNAL_ENTITY)"
+  COMPONENT
+  "Security boundary classes"
+  SECURITY_BOUNDARY
+  "Data flow classes"
+  DATA_FLOW
+  "Data classes"
+  DATA
+  "Control classes"
+  CONTROL
+}
+
+"""Optional fields to include on match candidates."""
+enum MatchClassFieldEnum {
+  description
+  category
+  type
+}
+
+"""How the match was determined."""
+enum MatchType {
+  exact_name
+  fuzzy_name
+  vector_similarity
+  type_match
+}
+
+"""Confidence level of the match."""
+enum ConfidenceLevel {
+  high
+  medium
+  low
+}
+
 """Trust level assigned to a security boundary."""
 enum TrustLevel {
   "No trust — external or hostile zone"
@@ -1006,6 +1042,152 @@ type Mutation {
     analysisId: String!
   ): Boolean!
     @authentication
+
+  "Re-embed all class nodes when the embedding model changes"
+  reindexClassEmbeddings(moduleIds: [ID!], capacity: Int): ReindexResult!
+    @authentication
+}
+
+"""A single element to match against the class catalog."""
+input MatchElementInput {
+  "Element name to match"
+  name: String!
+  "Element type (for context; the componentType filter on MatchClassesInput controls catalog filtering)"
+  type: ComponentType
+  "Optional free-text description (used by vector matching in a future phase)"
+  description: String
+}
+
+"""Input for the matchClasses query."""
+input MatchClassesInput {
+  "Elements to match (max 100)"
+  elements: [MatchElementInput!]!
+  "Which class node label to search"
+  classLabel: ClassLabelEnum!
+  "Filter ComponentClass nodes by type (only when classLabel = COMPONENT)"
+  componentType: ComponentType
+  "Restrict search to classes from these modules"
+  moduleIds: [ID!]
+  "Number of top candidates per element"
+  topN: Int = 3
+  "Which optional fields to include on candidates"
+  fields: [MatchClassFieldEnum!]
+}
+
+"""A single candidate class match."""
+type ClassCandidate {
+  "Class node ID"
+  classId: ID!
+  "Class name"
+  className: String!
+  "Class description (included when 'description' is in fields)"
+  classDescription: String
+  "Class category (included when 'category' is in fields)"
+  classCategory: String
+  "Class type (included when 'type' is in fields)"
+  classType: String
+  "Name of the module providing this class"
+  moduleName: String!
+  "How this match was determined"
+  matchType: MatchType!
+  "Confidence level of the match"
+  confidence: ConfidenceLevel!
+  "Similarity score (0.0–1.0, present for vector matches)"
+  similarityScore: Float
+}
+
+"""Match results for a single element."""
+type ElementMatch {
+  "The element name from the input"
+  elementName: String!
+  "Ordered list of candidate matches (best first)"
+  candidates: [ClassCandidate!]!
+}
+
+"""Top-level result for the matchClasses query."""
+type MatchClassesResult {
+  "Match results per element, in input order"
+  matches: [ElementMatch!]!
+  "Element names that matched at no priority level"
+  unmatched: [String!]!
+}
+
+"""Input for the controlGaps query."""
+input ControlGapsInput {
+  "Model ID to analyze"
+  modelId: ID!
+  "Number of top recommended controls to return"
+  topN: Int = 3
+  "Maximum number of unmitigated exposures to return"
+  limit: Int = 50
+}
+
+"""An exposure that has MITRE mitigations but no control implements them."""
+type UnmitigatedExposure {
+  elementId: ID!
+  elementName: String!
+  exposureId: ID!
+  exposureName: String!
+  attackTechniques: [MitreReference!]!
+  recommendedMitigations: [MitreReference!]!
+}
+
+"""An exposure whose MITRE mitigations have no installed ControlClass coverage."""
+type UnaddressableExposure {
+  elementId: ID!
+  elementName: String!
+  exposureId: ID!
+  exposureName: String!
+  attackTechniques: [MitreReference!]!
+  mitreMitigations: [MitreReference!]!
+}
+
+"""A control or control class that addresses unmitigated techniques."""
+type RecommendedControl {
+  controlId: ID
+  controlName: String
+  controlClassId: ID!
+  controlClassName: String!
+  d3fendTechniques: [MitreReference!]!
+  addressesCount: Int!
+  elementsAffected: [ElementReference!]!
+}
+
+"""A reference to a MITRE ATT&CK or D3FEND entity."""
+type MitreReference {
+  id: String!
+  name: String!
+}
+
+"""A reference to a model element."""
+type ElementReference {
+  id: ID!
+  name: String!
+}
+
+"""Coverage summary for the gap analysis."""
+type CoverageSummary {
+  totalExposures: Int!
+  mitigated: Int!
+  unmitigated: Int!
+  unaddressable: Int!
+  coveragePct: Float!
+}
+
+"""Result of the controlGaps query."""
+type ControlGapsResult {
+  unmitigatedExposures: [UnmitigatedExposure!]!
+  unaddressableExposures: [UnaddressableExposure!]!
+  recommendedControls: [RecommendedControl!]!
+  coverageSummary: CoverageSummary!
+}
+
+"""Result of the reindexClassEmbeddings mutation."""
+type ReindexResult {
+  "Number of class nodes that were re-embedded"
+  reindexedCount: Int!
+  "Names of modules whose classes were re-embedded"
+  moduleNames: [String!]!
 }
 
 type Query {
@@ -1075,6 +1257,18 @@ type Query {
 
   "Get the compiled frontend bundle for a module"
   getModuleFrontendBundle(moduleName: String!): String!
+    @authentication
+
+  "Match elements against class catalog nodes using a multi-priority pipeline"
+  matchClasses(input: MatchClassesInput!): MatchClassesResult!
+    @authentication
+
+  "Find control IDs that have a SUPPORTS relationship to any of the given element IDs"
+  controlIdsByElements(elementIds: [ID!]!): [ID!]!
+    @authentication
+
+  "Analyze control gaps for a model by traversing the MITRE framework chain"
+  controlGaps(input: ControlGapsInput!): ControlGapsResult!
     @authentication
 }
 

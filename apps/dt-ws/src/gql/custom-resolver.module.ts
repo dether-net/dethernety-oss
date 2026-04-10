@@ -8,10 +8,13 @@ import { ModuleManagementResolverService } from './resolver-services/module-mana
 import { SetInstantiationAttributesService } from './resolver-services/set-instantiation-attributes.service';
 import { AnalysisResolverService } from './resolver-services/analysis-resolver.service';
 import { IssueResolverService } from './resolver-services/issue-resolver.service';
+import { MatchClassesResolverService } from './resolver-services/match-classes-resolver.service';
+import { ControlGapsResolverService } from './resolver-services/control-gaps-resolver.service';
 import { AuthorizationService } from './services/authorization.service';
 import { MonitoringService } from './services/monitoring.service';
 import { TemplateCacheService } from './services/template-cache.service';
 import { AnalysisCacheService } from './services/analysis-cache.service';
+import { EmbeddingService } from './services/embedding.service';
 import gqlConfig from './gql.config';
 const resolverServiceClasses = [
   TemplateResolverService,
@@ -19,6 +22,8 @@ const resolverServiceClasses = [
   SetInstantiationAttributesService,
   AnalysisResolverService,
   IssueResolverService,
+  MatchClassesResolverService,
+  ControlGapsResolverService,
 ];
 
 @Module({
@@ -35,7 +40,8 @@ const resolverServiceClasses = [
     MonitoringService,
     TemplateCacheService,
     AnalysisCacheService,
-    
+    EmbeddingService,
+
     // Resolver services
     AnalysisResolverService,
     IssueResolverService,
@@ -58,9 +64,10 @@ const resolverServiceClasses = [
     MonitoringService,
     TemplateCacheService,
     AnalysisCacheService,
-    
+    EmbeddingService,
+
     // Resolver services
-    ...resolverServiceClasses, 
+    ...resolverServiceClasses,
     RESOLVER_SERVICES
   ],
 })
