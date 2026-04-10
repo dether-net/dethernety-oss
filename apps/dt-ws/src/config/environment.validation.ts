@@ -255,6 +255,31 @@ export class EnvironmentVariables {
   @Max(168)
   @Transform(({ value }) => value ? parseInt(value, 10) : undefined)
   STATISTICS_RETENTION_HOURS?: number = 24;
+
+  // Embedding Configuration (optional — vector similarity for class matching)
+  @IsOptional()
+  @IsString()
+  EMBEDDING_ENABLED?: string;
+
+  @IsOptional()
+  @IsString()
+  EMBEDDING_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  EMBEDDING_API_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  EMBEDDING_MODEL?: string;
+
+  @IsOptional()
+  @IsString()
+  EMBEDDING_DIMENSIONS?: string;
+
+  @IsOptional()
+  @IsString()
+  EMBEDDING_SIMILARITY_THRESHOLD?: string;
 }
 
 export function validateEnvironment(config: Record<string, unknown>): EnvironmentVariables {

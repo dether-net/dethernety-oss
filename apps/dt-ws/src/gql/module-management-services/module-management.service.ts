@@ -1,6 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DTModule, DTMetadata } from '@dethernety/dt-module';
+import { EmbeddingService } from '../services/embedding.service';
 import { GqlConfig } from '../gql.config';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -33,6 +34,7 @@ export class ModuleManagementService {
   constructor(
     @Inject('NEO4J_DRIVER') private readonly neo4jDriver: any,
     private readonly configService: ConfigService,
+    private readonly embeddingService: EmbeddingService,
   ) {
     this.config = this.configService.get<GqlConfig>('gql')!;
     
@@ -357,10 +359,11 @@ export class ModuleManagementService {
    * @param classLabel The class label
    */
   async upsertClass(
-    tx: DatabaseTransaction, 
-    moduleId: string, 
-    cls: any, 
-    classLabel: string
+    tx: DatabaseTransaction,
+    moduleId: string,
+    cls: any,
+    classLabel: string,
+    embedding?: number[]
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -383,6 +386,7 @@ export class ModuleManagementService {
       const nodeProperties = {
         ...classData,
         updatedAt: new Date().toISOString(),
+        ...(embedding ? { embedding, embeddingModel: this.embeddingService.getModel() } : {}),
       };
 
       await tx.run(
@@ -516,33 +520,44 @@ export class ModuleManagementService {
         moduleName: installedModuleName,
       });
 
-      // Process module classes
+      // Phase 1: Collect all classes from all MODULE_CLASS_CONFIGS
+      const allClasses: { cls: any; label: string }[] = [];
       for (const modClass of MODULE_CLASS_CONFIGS) {
         const classes = metadata[modClass.key];
         if (classes && Array.isArray(classes)) {
-          this.logger.debug(`Processing ${modClass.label} classes`, {
-            moduleId,
-            classCount: classes.length,
-            classLabel: modClass.label,
-          });
-
           for (const cls of classes) {
-            try {
-              await this.upsertClass(tx, moduleId, cls, modClass.label);
-              classesProcessed++;
-            } catch (error) {
-              this.logger.error(`Failed to upsert class`, {
-                moduleId,
-                className: cls?.name,
-                classLabel: modClass.label,
-                error: error.message,
-              });
-              // Continue processing other classes
-            }
+            allClasses.push({ cls, label: modClass.label });
           }
-
-          // Update statistics
           this.statistics.totalClasses += classes.length;
+        }
+      }
+
+      // Phase 2: Batch-embed all classes if embedding enabled
+      let vectors: number[][] | null = null;
+      if (this.embeddingService.isEnabled() && allClasses.length > 0) {
+        const texts = allClasses.map(({ cls }) =>
+          this.embeddingService.composeClassText(cls),
+        );
+        vectors = await this.embeddingService.embedBatch(texts);
+        // embedBatch throws after 3 retries when enabled but unreachable
+        // — propagates to fail the entire module install (no partial state)
+      }
+
+      // Phase 3: Upsert each class with its embedding vector
+      for (let i = 0; i < allClasses.length; i++) {
+        const { cls, label } = allClasses[i];
+        const embedding = vectors ? vectors[i] : undefined;
+        try {
+          await this.upsertClass(tx, moduleId, cls, label, embedding);
+          classesProcessed++;
+        } catch (error) {
+          this.logger.error('Failed to upsert class', {
+            moduleId,
+            className: cls?.name,
+            classLabel: label,
+            error: error.message,
+          });
+          // Continue processing other classes
         }
       }
 

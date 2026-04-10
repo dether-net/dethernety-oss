@@ -7,6 +7,7 @@
 # Services:
 #   - memgraph:   Graph database (Bolt on port 7687)
 #   - opa:        Open Policy Agent (port 8181)
+#   - ollama:     Embedding model server (port 11434)
 #   - dethernety: Application UI + API (port 3003)
 #
 # Optional (--profile tools):
@@ -75,6 +76,21 @@ services:
       retries: 3
       start_period: 10s
 
+  # --- Embedding model server -------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: demo-ollama
+    networks:
+      - demo-network
+    volumes:
+      - ./data/ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list | grep -q nomic-embed-text || ollama pull nomic-embed-text; ollama list | grep -q nomic-embed-text"]
+      interval: 15s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
+
   # --- Dethernety application -------------------------------------------
   dethernety:
     image: dethernety:demo
@@ -102,6 +118,11 @@ services:
       - CUSTOM_MODULES_PATH=custom_modules
       - ALLOWED_MODULES=*
       - ENABLE_MODULE_HOT_RELOAD=false
+      # Embedding (vector similarity for class matching)
+      - EMBEDDING_ENABLED=true
+      - EMBEDDING_URL=http://ollama:11434/api/embed
+      # - EMBEDDING_API_KEY=
+      - EMBEDDING_MODEL=nomic-embed-text
       # Auth-less mode — deliberate opt-in (no OIDC provider needed for demo)
       - ENABLE_NOAUTH=true
     depends_on:
@@ -109,6 +130,8 @@ services:
         condition: service_healthy
       opa:
         condition: service_started
+      ollama:
+        condition: service_healthy
     networks:
       - demo-network
     volumes:

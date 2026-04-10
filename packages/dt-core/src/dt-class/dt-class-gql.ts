@@ -184,6 +184,28 @@ export const GET_ATTRIBUTES_FROM_CLASS_RELATIONSHIP = gql`
   }
 `
 
+export const MATCH_CLASSES = gql`
+  query MatchClasses($input: MatchClassesInput!) {
+    matchClasses(input: $input) {
+      matches {
+        elementName
+        candidates {
+          classId
+          className
+          classDescription
+          classCategory
+          classType
+          moduleName
+          matchType
+          confidence
+          similarityScore
+        }
+      }
+      unmatched
+    }
+  }
+`
+
 export const GET_CONTROL_CLASSES = gql`
 query GetControlClasses(
   $moduleWhere: ModuleWhere,

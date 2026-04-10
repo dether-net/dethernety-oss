@@ -118,4 +118,29 @@ describe('ValidateModelTool', () => {
       expect(result.error).toContain('must be provided')
     })
   })
+
+  // Sprint 5: coverage action
+  describe('coverage action', () => {
+    it('should accept coverage action with model_id', () => {
+      const result = validateModelTool.inputSchema.safeParse({
+        action: 'coverage',
+        model_id: 'model-123',
+      })
+      expect(result.success).toBe(true)
+    })
+
+    it('should accept coverage action with directory_path', () => {
+      const result = validateModelTool.inputSchema.safeParse({
+        action: 'coverage',
+        directory_path: '/tmp/model',
+      })
+      expect(result.success).toBe(true)
+    })
+
+    it('should return error when coverage has neither model_id nor directory_path', async () => {
+      const result = await validateModelTool.run({ action: 'coverage' }, context)
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('Coverage requires')
+    })
+  })
 })
