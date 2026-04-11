@@ -1,0 +1,1760 @@
+[
+  {
+    "option_name": "routing_protocol_in_use",
+    "option_description": "Identifies which dynamic routing protocol (OSPF, BGP, EIGRP, RIP, or none) is actively configured and running on the routing component. This determines the attack surface for route injection and the applicable authentication requirements enforced by downstream policy rules.",
+    "security_impact": "The Rego policy triggers 'unauthenticated_dynamic_routing_protocol' whenever this value is anything other than 'none' AND authentication is missing or weak. Knowing the protocol in use is the prerequisite gate for all routing authentication checks. An unidentified or undocumented protocol cannot be assessed for authentication posture, leaving route injection risk unquantified.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, display all active routing protocols and their parameters including process IDs, router IDs, and participating interfaces.",
+        "command": "show ip protocols",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists each active routing protocol (e.g., 'Routing Protocol is \"ospf 1\"' or 'Routing Protocol is \"bgp 65001\"'). If no dynamic protocol is running, the output will be empty or show only connected/static routes."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based routers running FRR or Quagga, query the running daemon to identify active protocols and their configurations.",
+        "command": "vtysh -c 'show ip protocols' 2>/dev/null || vtysh -c 'show running-config' | grep -E '^router (ospf|bgp|eigrp|rip)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines beginning with 'router ospf', 'router bgp <ASN>', or 'router rip' confirm which protocols are active. No matching lines indicates no dynamic routing is configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the FRR or Quagga daemon configuration files to enumerate which protocol daemons are enabled at startup.",
+        "command": "grep -E '^(ospfd|bgpd|eigrpd|ripd|ripngd)=yes' /etc/frr/daemons 2>/dev/null || cat /etc/quagga/daemons 2>/dev/null",
+        "file_path": "/etc/frr/daemons",
+        "navigation": null,
+        "expected_output": "Lines such as 'ospfd=yes' or 'bgpd=yes' indicate enabled protocol daemons. All entries set to 'no' or absent confirm no dynamic routing."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS devices, display active routing protocol instances and their configured neighbors.",
+        "command": "show route protocol ospf | show route protocol bgp | run show protocols",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The 'show protocols' output lists configured protocol stanzas. Presence of 'ospf', 'bgp', or 'rip' blocks confirms the active protocol."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (static-only or default-route environments, small branch routers)",
+      "ospf (most common in enterprise internal networks)",
+      "bgp (internet edge and large enterprise core)",
+      "eigrp (Cisco-only environments, legacy enterprise networks)",
+      "rip (legacy or small/simple deployments, increasingly rare)",
+      "other (IS-IS on service provider networks, proprietary protocols)"
+    ]
+  },
+  {
+    "option_name": "routing_protocol_authentication_enabled",
+    "option_description": "Boolean flag indicating whether cryptographic authentication (MD5 or stronger) is configured on ALL active interfaces or BGP peers participating in the dynamic routing protocol. Partial deployment—where only some interfaces have authentication—is treated as disabled since unauthenticated interfaces remain exploitable.",
+    "security_impact": "This is the primary trigger in the 'unauthenticated_dynamic_routing_protocol' Rego rule. If this is false and any dynamic routing protocol is active, the exposure fires immediately regardless of the authentication strength attribute. A single unauthenticated interface allows an attacker on that segment to inject crafted OSPF LSAs, BGP UPDATE messages, or EIGRP hello packets to poison the routing table and redirect traffic. The rule requires ALL interfaces/peers to have authentication for this to be considered true.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, inspect each OSPF-participating interface to verify authentication is configured. Cross-reference with the list of OSPF interfaces to ensure full coverage.",
+        "command": "show ip ospf interface | include Interface|authentication",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each interface block should contain 'Message digest authentication enabled' or 'Simple password authentication enabled'. If any interface shows 'No authentication', authentication is not universally enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "For BGP, enumerate all configured neighbors and check each for an MD5 password directive in the running configuration.",
+        "command": "show running-config | section router bgp | include neighbor.*password",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each 'neighbor X.X.X.X password <hash>' line confirms authentication for that peer. Compare the count of password lines against total neighbor count from 'show bgp summary' — they must match."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On FRR/Quagga systems, inspect the protocol-specific configuration files for authentication directives on each interface or neighbor definition.",
+        "command": "grep -E '(ip ospf authentication|neighbor.*password|ip rip authentication|ip authentication mode eigrp)' /etc/frr/frr.conf /etc/quagga/*.conf 2>/dev/null",
+        "file_path": "/etc/frr/frr.conf",
+        "navigation": null,
+        "expected_output": "Each participating interface or neighbor should have a corresponding authentication line. Missing entries for any interface indicates incomplete authentication deployment."
+      },
+      {
+        "type": "command",
+        "instruction": "For EIGRP on Cisco, verify authentication is applied to all EIGRP-participating interfaces by checking key chain and authentication mode configuration.",
+        "command": "show running-config | section interface | include 'ip authentication mode eigrp|ip authentication key-chain eigrp'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Both 'ip authentication mode eigrp <AS> md5' and 'ip authentication key-chain eigrp <AS> <keychain>' must appear under every EIGRP interface. Missing either line on any interface means authentication is incomplete."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in legacy deployments and environments where routing was configured before security hardening was enforced)",
+      "true (hardened environments, CIS/DISA STIG compliant configurations)"
+    ]
+  },
+  {
+    "option_name": "routing_authentication_strength",
+    "option_description": "Specifies the cryptographic algorithm used for routing protocol authentication. Values range from 'none' (no authentication) through 'plaintext' (clear-text password visible in packets) and 'md5' (HMAC-MD5, widely supported but cryptographically dated) to 'sha256_or_stronger' (SHA-256 or SHA-512 HMAC, supported in OSPFv3 with IPsec, BGP with TCP-AO, or EIGRP Named Mode).",
+    "security_impact": "The 'unauthenticated_dynamic_routing_protocol' Rego rule triggers on both 'none' and 'plaintext' values, treating them as equivalent to having no authentication. Plaintext passwords are visible in captured routing protocol packets, allowing an attacker who can sniff traffic to immediately extract the authentication key and forge valid routing updates. MD5 provides integrity protection but is susceptible to offline collision attacks. Only 'sha256_or_stronger' represents cryptographically robust authentication. The policy flags md5 as acceptable but the exposure fires on none or plaintext regardless of the routing_protocol_authentication_enabled flag.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For OSPF on Cisco IOS, determine whether MD5 or plain-text authentication is configured per interface. 'message-digest' indicates MD5; 'simple' indicates plaintext.",
+        "command": "show ip ospf interface detail | include authentication",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output such as 'Message digest authentication enabled' confirms MD5. 'Simple password authentication enabled' indicates plaintext. 'No authentication' confirms none."
+      },
+      {
+        "type": "command",
+        "instruction": "For OSPFv3 using IPsec-based authentication on Cisco IOS-XE or Linux FRR, check for SHA-based authentication area or interface configuration.",
+        "command": "show running-config | include 'ospfv3.*authentication|area.*authentication ipsec|ip ospf authentication|authentication message-digest'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'authentication ipsec spi <n> sha1' or 'authentication ipsec spi <n> sha256' indicates SHA-based auth. 'authentication message-digest' indicates MD5. No match indicates none or simple."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On FRR/Quagga systems, inspect the routing configuration to identify the authentication type keyword used for OSPF or RIP interfaces.",
+        "command": "grep -A2 -E '(ip ospf authentication|ip rip authentication mode)' /etc/frr/frr.conf",
+        "file_path": "/etc/frr/frr.conf",
+        "navigation": null,
+        "expected_output": "'ip ospf authentication message-digest' with a corresponding 'ip ospf message-digest-key' indicates MD5. 'ip ospf authentication' alone (without message-digest) indicates plaintext. Absence indicates none."
+      },
+      {
+        "type": "command",
+        "instruction": "For BGP TCP Authentication Option (TCP-AO) with stronger algorithms on JunOS, or verify BGP MD5 on Cisco, check the neighbor authentication configuration.",
+        "command": "show running-config | section router bgp | include neighbor.*password | wc -l",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "On Cisco IOS, any BGP neighbor password uses MD5 (no SHA option available without TCP-AO). On JunOS, 'authentication-algorithm hmac-sha-1-96' in TCP-AO configuration indicates SHA-based. Count of password lines should match total neighbor count."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (common on routers where authentication was never configured)",
+      "md5 (most common in hardened environments; default recommendation for OSPF/EIGRP/BGP)",
+      "plaintext (legacy or misconfigured environments; equivalent to no authentication for practical attack purposes)",
+      "sha256_or_stronger (rare, seen in OSPFv3 with IPsec, modern FRR deployments, or TCP-AO BGP configurations)"
+    ]
+  },
+  {
+    "option_name": "bgp_md5_authentication_enabled",
+    "option_description": "Boolean indicating whether TCP MD5 Session Option (RFC 2385) authentication is configured for BGP peering sessions. This provides a shared-secret HMAC-MD5 signature on every TCP segment of the BGP session, preventing session hijacking and blocking fraudulent BGP UPDATE injection from sources that do not know the secret.",
+    "security_impact": "The 'weak_bgp_session_authentication' Rego rule triggers when this is false for ANY BGP session type — eBGP, iBGP, or mixed. Without TCP MD5, an attacker with network access between BGP peers can inject forged TCP RST segments to tear down established sessions (BGP session reset DoS) or inject crafted BGP UPDATE messages to hijack prefixes and redirect internet or inter-AS traffic. eBGP sessions face the highest risk since peers may be separated by untrusted transit networks. The rule explicitly covers both ebgp and ibgp session types, treating both as requiring authentication.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, display the running BGP configuration and grep for password directives applied to each neighbor statement.",
+        "command": "show running-config | section router bgp | include neighbor.*password",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each line of the form 'neighbor X.X.X.X password 7 <encrypted>' or 'neighbor X.X.X.X password 0 <plaintext>' confirms MD5 is enabled for that peer. Cross-reference with 'show bgp summary' neighbor list to verify all peers are covered."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, verify the BGP session itself shows MD5 authentication as active in the neighbor detail output.",
+        "command": "show bgp neighbors | include 'BGP neighbor|MD5|password'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should include 'MD5 message digest authentication enabled' and 'EXTERNAL' or 'INTERNAL' for each neighbor. If MD5 line is absent for any neighbor, authentication is not active for that session."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On FRR/Quagga Linux routers, inspect the BGP daemon configuration for password directives on each neighbor declaration.",
+        "command": "grep -E 'neighbor .* password' /etc/frr/frr.conf /etc/quagga/bgpd.conf 2>/dev/null",
+        "file_path": "/etc/frr/frr.conf",
+        "navigation": null,
+        "expected_output": "Each configured BGP neighbor should have a corresponding 'neighbor <ip> password <secret>' line. Count of password lines should equal count of 'neighbor <ip> remote-as' lines."
+      },
+      {
+        "type": "command",
+        "instruction": "On JunOS, check BGP group and neighbor authentication configuration for MD5 or TCP-AO settings.",
+        "command": "show configuration protocols bgp | display set | grep authentication",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines such as 'set protocols bgp group <name> authentication-key <key>' confirm MD5 authentication. Absence of any authentication-key lines means BGP MD5 is not configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common on iBGP sessions within a single AS where operators assume the internal network is trusted)",
+      "false (common on internet-facing eBGP sessions at smaller organizations without a formal BGP hardening process)",
+      "true (required by most ISPs for eBGP peering; enforced in CIS, NIST, and DISA STIG router benchmarks)"
+    ]
+  },
+  {
+    "option_name": "bgp_session_type",
+    "option_description": "Classifies the BGP peering relationships on the router as external BGP (eBGP — peers in different autonomous systems), internal BGP (iBGP — peers within the same AS), or mixed (both types present). This classification affects the risk profile and urgency of missing authentication since eBGP sessions traverse potentially untrusted networks between organizations.",
+    "security_impact": "The 'weak_bgp_session_authentication' Rego rule triggers for ALL session types when BGP MD5 authentication is disabled — explicitly covering 'ebgp', 'ibgp', and 'mixed' in separate rule conditions. eBGP sessions are highest risk because the TCP path between peers traverses ISP infrastructure or internet transit where an attacker could inject RST packets or BGP UPDATE messages. iBGP sessions are lower risk but still vulnerable to insider threats or compromised internal hosts. Mixed environments combine both risk profiles and require authentication universally.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, display the BGP summary to identify all neighbor AS numbers. Peers with different AS numbers are eBGP; same AS number as local router is iBGP.",
+        "command": "show bgp summary | awk 'NR>1 && /^[0-9]/ {print $1, $3}'; show run | include 'bgp router-id\\|router bgp'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each row shows neighbor IP and their AS number. Compare against local AS from 'router bgp <AS>'. If all neighbors share the local AS, type is 'ibgp'. If all differ, type is 'ebgp'. If mixed, type is 'mixed'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, use 'show bgp neighbors' to explicitly identify each neighbor's session type as EXTERNAL or INTERNAL in the BGP neighbor output.",
+        "command": "show bgp neighbors | grep -E '(BGP neighbor|External|Internal)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'BGP neighbor is X.X.X.X, remote AS <N>, external link' indicates eBGP. 'internal link' indicates iBGP. Presence of both types across neighbors confirms 'mixed'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On FRR/Quagga, parse the BGP configuration to compare remote-as values against the local AS number and classify session types.",
+        "command": "LOCAL_AS=$(grep 'router bgp' /etc/frr/frr.conf | awk '{print $3}'); grep 'neighbor.*remote-as' /etc/frr/frr.conf | awk -v las=$LOCAL_AS '{if ($4==las) print $2, \"ibgp\"; else print $2, \"ebgp\"}'",
+        "file_path": "/etc/frr/frr.conf",
+        "navigation": null,
+        "expected_output": "Each neighbor IP followed by 'ibgp' or 'ebgp'. If all lines show the same type, use that value. If both types appear, the session type is 'mixed'."
+      },
+      {
+        "type": "command",
+        "instruction": "On JunOS, display BGP neighbor details to identify external versus internal peering relationships.",
+        "command": "show bgp summary | grep -E 'Peer|Ext|Int'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JunOS labels peers with 'Ext' for eBGP and 'Int' for iBGP in the BGP summary output. Presence of both confirms 'mixed'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "ebgp (internet edge routers peering with upstream ISPs or IX peers)",
+      "ibgp (core routers within a single large-enterprise or service-provider AS)",
+      "mixed (route reflectors, border routers with both upstream ISP peering and internal route distribution)"
+    ]
+  },
+  {
+    "option_name": "management_acl_configured",
+    "option_description": "Boolean indicating whether IP-based access control lists are configured to restrict the source addresses permitted to reach management interfaces including SSH (port 22), Telnet (port 23), SNMP (port 161/162), and HTTP/HTTPS management web interfaces. Without ACLs, management protocols are reachable from any network-accessible source.",
+    "security_impact": "The 'unrestricted_management_plane_access' Rego rule triggers immediately when this is false, regardless of which management protocols are enabled. The rule also triggers even when this is true if the configured source network is 0.0.0.0/0 or 'any' (effectively no restriction). A router management plane accessible from untrusted networks is exposed to brute-force password attacks (T1110.001), credential stuffing (T1110.004), and exploitation of remote service vulnerabilities (T1021). The rule additionally checks for specific insecure protocols (telnet, snmp_v2c) in combination with no ACL, representing compounded risk.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, inspect VTY line configuration for access-class statements that restrict SSH/Telnet management access by source IP.",
+        "command": "show running-config | section line vty",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'access-class <ACL-number> in' or 'access-class <ACL-name> in' under VTY lines confirms management ACL is configured. Absence of any access-class statement means no restriction is in place."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, verify SNMP server access restrictions by checking for SNMP community ACL bindings and SNMP host configurations.",
+        "command": "show running-config | include 'snmp-server community|snmp-server host|access-list.*snmp'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'snmp-server community <string> <RO|RW> <ACL-number>' confirms SNMP is ACL-restricted. Community strings without an ACL number (e.g., 'snmp-server community public RO') indicate unrestricted SNMP access."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based routers, check iptables or nftables rules for INPUT chain restrictions on management ports (22, 23, 80, 443, 161).",
+        "command": "iptables -L INPUT -n -v --line-numbers | grep -E '(dpt:22|dpt:23|dpt:161|dpt:443|dpt:80)' 2>/dev/null || nft list ruleset | grep -E '(ssh|snmp|http|telnet)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules with ACCEPT action and specific source IP ranges (e.g., 'src 10.0.1.0/24') confirm ACL is configured. Rules with 'src anywhere' or no source restriction confirm management ACL is absent."
+      },
+      {
+        "type": "gui",
+        "instruction": "For routers with web management interfaces (e.g., Cisco ASDM, Juniper J-Web, pfSense), navigate to the management access or firewall rules section to verify source IP restrictions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Interface > System > Management Access > Allowed Networks OR Firewall > Rules > Management Interface — verify source address fields are set to specific trusted ranges, not 'any' or '0.0.0.0/0'",
+        "expected_output": "Specific IP ranges or named objects (e.g., 'MGMT-HOSTS', '10.0.100.0/24') in the allowed source field confirm ACL is configured. 'Any' or blank source field confirms no restriction."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (very common in internal network devices where operators assume internal segments are trusted)",
+      "false (default state on most router platforms before hardening; no ACL is applied to VTY lines out-of-the-box)",
+      "true (hardened environments following CIS Router Benchmarks, DISA STIGs, or PCI DSS requirements)"
+    ]
+  },
+  {
+    "option_name": "management_protocols_enabled",
+    "option_description": "An array listing all management protocols currently active on the router, such as 'ssh', 'telnet', 'snmp_v1', 'snmp_v2c', 'snmp_v3', 'http', and 'https'. This inventory is used to identify cleartext or legacy protocols that transmit credentials and configuration data without encryption, and to determine which protocols require ACL protection.",
+    "security_impact": "The 'unrestricted_management_plane_access' Rego rule specifically checks for 'telnet' and 'snmp_v2c' in this array when management_acl_configured is false, treating their combination with unrestricted access as a compounded exposure. Telnet transmits all data including passwords in cleartext (T1040 — Network Sniffing). SNMP v1/v2c use community strings as cleartext authentication. The separate 'cleartext_management_protocol_enabled' rule also triggers based on presence of these protocols. SNMPv3 and SSH are the only protocols in this list that provide encrypted, authenticated management sessions.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, enumerate all enabled management transport protocols on VTY lines and check SSH, HTTP server, and SNMP configuration status.",
+        "command": "show running-config | include 'transport input|ip ssh|ip http|snmp-server community|snmp-server enable'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'transport input telnet ssh' indicates both protocols are enabled. 'ip http server' (not https-only) indicates HTTP is enabled. 'snmp-server community public RO' without 'version 3' indicates SNMPv2c/v1. 'ip ssh version 2' with 'transport input ssh' indicates SSH-only."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, use dedicated show commands to confirm specific protocol states for SSH, SNMP, and HTTP/HTTPS management services.",
+        "command": "show ip ssh; show snmp; show ip http server status; show ip http secure-server status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'SSH Enabled - version 2.0' confirms SSH. 'SNMP agent enabled' with community string listing confirms SNMP version. 'HTTP server status: Enabled' confirms HTTP (plaintext web UI). 'HTTP secure server status: Enabled' confirms HTTPS."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux-based routers, check which management daemons are running and listening on management ports to build the enabled protocol list.",
+        "command": "ss -tlnp | grep -E '(:22|:23|:80|:161|:443)' && systemctl is-active sshd telnet snmpd nginx apache2 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Listening sockets on port 22 confirm SSH, port 23 confirms Telnet, port 161/UDP confirms SNMP, port 80 confirms HTTP, port 443 confirms HTTPS. Active service status confirms each daemon is running."
+      },
+      {
+        "type": "command",
+        "instruction": "For FRR/Quagga routers, inspect SNMP configuration to determine SNMPv1, v2c, or v3 configuration and identify which community-based protocols are active.",
+        "command": "grep -E '(^rocommunity|^rwcommunity|^rouser|^rwuser|^com2sec|agentAddress)' /etc/snmp/snmpd.conf 2>/dev/null",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "'rocommunity public' or 'rwcommunity private' indicate SNMPv1/v2c. 'rouser <username> priv' indicates SNMPv3. 'agentAddress udp:161' confirms SNMP is listening on the network interface versus localhost-only."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['ssh', 'snmp_v2c'] (common in enterprise networks that disabled Telnet but haven't migrated to SNMPv3)",
+      "['telnet', 'snmp_v1', 'snmp_v2c', 'http'] (legacy routers with no hardening applied; high-risk default state)",
+      "['ssh', 'snmp_v3', 'https'] (fully hardened deployment; all protocols use encryption and strong authentication)",
+      "['ssh', 'snmp_v2c', 'snmp_v3'] (transitional state during SNMPv3 migration; v2c left enabled for backward compatibility)",
+      "['ssh'] (minimal management surface; only SSH enabled, SNMP and web UI disabled)"
+    ]
+  },
+  {
+    "option_name": "management_source_network",
+    "option_description": "Defines the specific IP network range (CIDR notation) that is permitted to reach management interfaces on the router. A value of '0.0.0.0/0' or '::/0' means any host on any network can attempt to connect to management services.",
+    "security_impact": "The Rego policy triggers 'unrestricted_management_plane_access' when management_source_network is '0.0.0.0/0', '::/0', or 'any' even if an ACL exists. An overly broad source range exposes the management plane to brute-force password guessing (T1110.001), credential stuffing (T1110.004), and remote service exploitation (T1021) from the entire internet or untrusted networks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, display all ACLs applied to VTY lines to identify permitted source ranges.",
+        "command": "show running-config | section line vty",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'access-class <ACL-NAME> in' on VTY lines; note the ACL name and then run 'show ip access-list <ACL-NAME>' to see the permitted source networks."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper Junos, review firewall filter applied to the management routing instance or loopback interface to identify permitted source prefixes.",
+        "command": "show configuration firewall family inet filter | display set",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists 'set firewall family inet filter <NAME> term <TERM> from source-address <PREFIX>' entries; record any 0.0.0.0/0 entries as unrestricted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the device startup or running configuration export for ACL permit statements on management-plane policies.",
+        "command": null,
+        "file_path": "/flash/startup-config or router configuration backup (e.g., TFTP-exported .cfg file)",
+        "navigation": null,
+        "expected_output": "Search for 'permit' statements within ACLs referenced by VTY or management interface configurations; note the source IP/prefix on each permit line."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS-XE with management-plane protection, review explicitly configured allowed source prefixes.",
+        "command": "show management-plane protection",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lists allowed host or network entries per interface; absence of any entry or presence of 0.0.0.0/0 indicates unrestricted access."
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "0.0.0.0/0",
+      "10.0.0.0/8",
+      "192.168.1.0/24",
+      "172.16.0.0/12",
+      "10.10.10.0/30"
+    ]
+  },
+  {
+    "option_name": "telnet_enabled",
+    "option_description": "Indicates whether Telnet (TCP port 23) is active as a management protocol on the routing device. Telnet transmits all session data, including usernames, passwords, and configuration commands, in cleartext over the network.",
+    "security_impact": "The Rego policy directly triggers 'cleartext_management_protocol_enabled' whenever telnet_enabled is true. It also contributes to 'unrestricted_management_plane_access' when no management ACL exists and Telnet is among enabled protocols. Any passive observer on the network path can capture credentials via network sniffing (T1040) and extract full device configurations (T1602.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, check VTY line transport configuration to determine whether Telnet is permitted as an inbound transport.",
+        "command": "show running-config | section line vty",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing 'transport input telnet' or 'transport input all' or absence of 'transport input ssh' indicate Telnet is enabled; 'transport input ssh' only means Telnet is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper Junos, check services configuration to identify whether Telnet is enabled under system services.",
+        "command": "show configuration system services",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'telnet' under system services indicates Telnet is active; absence or 'ssh' only indicates it is disabled."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a Telnet connection to the management IP to confirm whether the Telnet service is actually listening and accepting connections.",
+        "command": "telnet <management-ip> 23",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A connection banner or login prompt confirms Telnet is enabled; 'Connection refused' or timeout indicates Telnet is not active."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS-XE, verify whether the global Telnet service is explicitly disabled.",
+        "command": "show running-config | include service telnet|no service telnet",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'no service telnet' confirms global Telnet is disabled; absence of this line or 'service telnet' means it may be enabled by default."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "snmp_version",
+    "option_description": "Identifies which SNMP protocol version(s) are configured and active on the router. SNMPv1 and SNMPv2c use community strings transmitted in cleartext for authentication. SNMPv3 supports cryptographic authentication (MD5/SHA) and optional encryption (DES/AES). This attribute captures whether insecure legacy versions are enabled alone or alongside SNMPv3.",
+    "security_impact": "The Rego policy fires 'cleartext_management_protocol_enabled' for snmp_version values of 'v1' or 'v2c', and 'snmp_community_string_exposure' is also evaluated alongside this attribute. Cleartext SNMP allows network sniffing (T1040) to capture community strings and enables full MIB dumps (T1602.001) and configuration extraction (T1602.002). Mixed v1/v2c+v3 configurations are also risky as the weakest version defines the effective security posture.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, list all SNMP server community and group configurations to determine which SNMP versions are in use.",
+        "command": "show running-config | section snmp-server",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'snmp-server community <string>' without a version qualifier indicates v1/v2c; 'snmp-server group <name> v3 auth' or 'snmp-server user' entries indicate SNMPv3. Presence of both indicates v1_v2c_v3."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper Junos, display the complete SNMP configuration including version-specific community and SNMPv3 group settings.",
+        "command": "show configuration snmp",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'community' stanzas indicates v1/v2c; 'v3' stanzas with 'authentication' and 'privacy' settings indicate SNMPv3; mixed presence indicates v1_v2c_v3."
+      },
+      {
+        "type": "command",
+        "instruction": "Use SNMP probing tools to empirically verify which versions the device responds to from a test host.",
+        "command": "snmpwalk -v1 -c public <management-ip> 1.3.6.1.2.1.1.1.0 && snmpwalk -v2c -c public <management-ip> 1.3.6.1.2.1.1.1.0",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful response with community 'public' confirms v1 or v2c is enabled; failed responses indicate those versions are disabled or community string differs."
+      },
+      {
+        "type": "gui",
+        "instruction": "On devices with a web management interface (e.g., Cisco ASDM, router web UI), navigate to the SNMP configuration section to review enabled versions and community strings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Web UI > Configuration > Device Management > Management Access > SNMP",
+        "expected_output": "SNMP version checkboxes or drop-down selections display which versions (v1, v2c, v3) are enabled along with configured community strings."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "v2c",
+      "v3",
+      "v1_v2c",
+      "v1_v2c_v3",
+      "disabled"
+    ]
+  },
+  {
+    "option_name": "ssh_enforced_as_exclusive",
+    "option_description": "Indicates whether SSH is the only permitted management transport protocol across all VTY lines and management interfaces, with all plaintext alternatives (Telnet, rlogin, HTTP) explicitly disabled. True only when every VTY line is restricted to SSH-only transport and no cleartext management listener is active.",
+    "security_impact": "The Rego policy triggers 'cleartext_management_protocol_enabled' whenever ssh_enforced_as_exclusive is false (i.e., not set to true), making this a mandatory condition to avoid that exposure. Without exclusive SSH enforcement, even a single VTY line configured with 'transport input all' or 'transport input telnet' creates a cleartext channel vulnerable to credential theft via network sniffing (T1040) and configuration dumping (T1602.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, review all VTY line configurations to confirm every line specifies 'transport input ssh' exclusively with no other transport permitted.",
+        "command": "show running-config | section line vty",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every VTY line block should contain exactly 'transport input ssh'; any line with 'transport input telnet', 'transport input all', or missing transport input statement means SSH is NOT exclusively enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper Junos, confirm that only SSH is listed under system services and Telnet is explicitly absent.",
+        "command": "show configuration system services | display set",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show only 'set system services ssh' with no 'set system services telnet' or 'set system services rlogin'; presence of any cleartext service means SSH is not exclusively enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS-XE, verify that SSH version 2 is configured and that the global service for Telnet is disabled.",
+        "command": "show ip ssh",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'SSH Enabled - version 2.0'; cross-reference with 'show run | include service telnet' to confirm 'no service telnet' is present."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Search the exported device configuration for any transport or service statements that could allow non-SSH management access.",
+        "command": null,
+        "file_path": "Running configuration backup file (e.g., router-config.txt exported via TFTP or SCP)",
+        "navigation": null,
+        "expected_output": "Grep for 'transport input' — all occurrences should read 'transport input ssh'; any other value means the attribute is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "default_credentials_unchanged",
+    "option_description": "Indicates whether the router still uses factory-default username and password combinations as shipped by the vendor (e.g., admin/admin, admin/password, cisco/cisco, admin/<blank>). This is distinct from weak custom passwords and specifically identifies credentials that have never been changed from their out-of-box state.",
+    "security_impact": "The Rego policy directly fires 'default_or_weak_device_credentials' when default_credentials_unchanged is true. Default credentials are publicly documented by vendors and represent the easiest possible path to unauthorized device access, enabling trivial password guessing (T1110.001), direct credential stuffing (T1110.004), and full device takeover via network device authentication bypass (T1556.004). This is a critical-severity finding requiring immediate remediation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Attempt authentication with known vendor default credentials against the device SSH service to determine if defaults remain active.",
+        "command": "ssh admin@<management-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Successful login with credentials admin/admin, cisco/cisco, admin/password, or vendor-documented defaults confirms default credentials are unchanged. Always perform this in an authorized assessment context only."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, review the local user database for any accounts that match default naming conventions and check whether enable secret is configured.",
+        "command": "show running-config | section username|enable secret",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'username admin privilege 15 password 0 admin' or absence of 'enable secret' with default enable password indicates default credentials are in use; hashed passwords ('secret 5' or 'secret 9') with non-default usernames suggest credentials have been changed."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network operations team or review the device commissioning checklist to confirm whether a credential change procedure was completed during initial deployment.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A signed commissioning checklist or change record documenting that default credentials were changed with a timestamp and approver."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the device configuration export for plaintext or type-0 passwords associated with default account names using vendor-specific patterns.",
+        "command": null,
+        "file_path": "Device running-config backup (.cfg or .txt export)",
+        "navigation": null,
+        "expected_output": "Search for 'password 0' or 'password 7' entries; type-0 passwords can be read directly, and type-7 can be decoded with freely available tools to check against known defaults."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "password_complexity_enforced",
+    "option_description": "Indicates whether the router enforces a password complexity policy that prevents the configuration of trivially weak passwords. This includes minimum length requirements (typically 8+ characters) and mandatory inclusion of mixed character classes (uppercase, lowercase, numbers, special characters) enforced at the platform level.",
+    "security_impact": "The Rego policy fires 'default_or_weak_device_credentials' when both password_complexity_enforced and privileged_access_requires_authentication are false. Without a platform-enforced complexity policy, operators can configure single-character or dictionary-word passwords, making the device trivially vulnerable to password guessing (T1110.001), offline password cracking (T1110.002), and full device takeover via network device authentication subversion (T1556.004).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, check whether a minimum password length policy is configured globally.",
+        "command": "show running-config | include security passwords min-length|password strength",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'security passwords min-length 12' or similar indicates complexity is enforced; absence of this line means no minimum length is enforced and the attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper Junos, review the system login password configuration for complexity requirements.",
+        "command": "show configuration system login password",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'minimum-length', 'minimum-upper-cases', 'minimum-lower-cases', 'minimum-digits', and 'minimum-punctuation' settings confirms complexity enforcement; absence means no policy is configured."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS-XE with AAA, check if a local AAA password policy is configured that enforces character class requirements.",
+        "command": "show running-config | section aaa password|password-policy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'aaa password restriction' or a named password policy with character class minimums confirms enforcement; absence means reliance on defaults with no complexity requirements."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's network device hardening standard to confirm whether password complexity requirements are documented and validated during device audits.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A current hardening standard document specifying minimum password length (e.g., 12+ chars) and character class requirements for network device accounts."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "privileged_access_requires_authentication",
+    "option_description": "Indicates whether escalating to privileged or configuration mode (e.g., Cisco IOS 'enable' mode, Juniper 'configure' mode) requires successful authentication with a password or credential. A value of false means any logged-in user can immediately access full configuration capabilities without an additional authentication step.",
+    "security_impact": "The Rego policy fires 'default_or_weak_device_credentials' when both password_complexity_enforced and privileged_access_requires_authentication are false. Without a privileged-mode password, any successfully authenticated user (or anyone exploiting a session) gains immediate full configuration access, enabling complete device takeover (T1556.004), account manipulation (T1098), and exploitation via valid accounts (T1078). Even a read-only account becomes an administrative account if enable authentication is absent.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, verify that an enable secret (hashed) is configured rather than an enable password (weakly encoded) or no enable credential at all.",
+        "command": "show running-config | include enable secret|enable password",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'enable secret 9 <hash>' or 'enable secret 5 <hash>' confirms privileged access requires authentication with a strongly hashed secret; 'enable password 0' means cleartext and 'no enable secret' or absence means no authentication is required."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE with AAA, confirm that the enable authentication is delegated to a RADIUS/TACACS+ server rather than relying solely on a local enable secret.",
+        "command": "show running-config | section aaa authentication enable",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'aaa authentication enable default group tacacs+ enable' or similar confirms AAA-controlled privileged access; 'aaa authentication enable default none' or absence means unauthenticated enable access is possible."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper Junos, verify that accessing configuration mode requires re-authentication or that operator class accounts do not have configuration privileges without an authenticated escalation step.",
+        "command": "show configuration system login class",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Classes with 'permissions configure' should be restricted to accounts that require authentication; absence of class-based restrictions on 'configure' permission means any login-class user can enter configuration mode."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Test by logging into the device with a standard (non-privileged) account and attempting to enter privileged mode to verify whether a password prompt appears.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A password prompt appearing upon issuing 'enable' on Cisco or 'configure' on Juniper confirms authentication is required; immediate escalation without a prompt means this attribute is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "prefix_list_filter_configured",
+    "option_description": "Controls whether prefix-list filters are applied to routing protocol neighbor statements (BGP, OSPF, EIGRP, RIP) to explicitly restrict which routes are accepted inbound and advertised outbound. Prefix-lists define ordered permit/deny entries matching specific IP prefixes and lengths, forming a whitelist or blacklist of valid routes for each neighbor relationship.",
+    "security_impact": "The Rego policy rule 'missing_route_filtering_prefix_lists' triggers an exposure when BOTH prefix_list_filter_configured AND route_map_filter_configured are false. Without prefix-list or route-map filters, the router accepts and propagates any route received from a neighbor, enabling route injection attacks (T1599 Network Boundary Bridging, T1572 Protocol Tunneling, T1665 Hide Infrastructure). An attacker who gains access to an unfiltered BGP or OSPF neighbor can inject arbitrary prefixes, redirecting traffic through attacker-controlled infrastructure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, inspect running configuration for BGP neighbor prefix-list statements applied in both inbound and outbound directions.",
+        "command": "show running-config | include prefix-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines such as 'neighbor 192.0.2.1 prefix-list INBOUND_FILTER in' and 'neighbor 192.0.2.1 prefix-list OUTBOUND_FILTER out' for each external neighbor confirm the attribute is true."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, view BGP neighbor detail to confirm prefix-list application per neighbor session in both directions.",
+        "command": "show bgp neighbors | include prefix-list|Route map",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show 'Inbound path policy configured' and 'Outgoing update prefix filter list is: <list-name>' for each neighbor."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper Junos, check BGP import and export policy or prefix-list filters applied to each group or neighbor.",
+        "command": "show configuration protocols bgp | display set | match prefix-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines referencing 'prefix-list' within import or export policy statements applied to BGP groups or specific neighbors."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux-based routers running FRRouting (FRR) or Quagga, inspect the BGP or OSPF daemon configuration file for distribute-list or prefix-list directives.",
+        "command": null,
+        "file_path": "/etc/frr/frr.conf",
+        "navigation": null,
+        "expected_output": "Entries like 'neighbor 192.0.2.1 prefix-list INBOUND in' and 'neighbor 192.0.2.1 prefix-list OUTBOUND out' under the BGP router stanza."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in misconfigured or legacy environments)",
+      "true (required for secure routing deployments)"
+    ]
+  },
+  {
+    "option_name": "route_map_filter_configured",
+    "option_description": "Controls whether route-map filters are applied to routing protocol neighbors or redistribution contexts as an alternative or complementary mechanism to prefix-lists. Route-maps use match/set logic to permit or deny routes and can additionally modify route attributes (e.g., local preference, MED, community values) during filtering. This attribute is evaluated as a fallback when prefix_list_filter_configured is false.",
+    "security_impact": "The Rego policy rule 'missing_route_filtering_prefix_lists' triggers only when BOTH prefix_list_filter_configured AND route_map_filter_configured are false. Route-maps provide equivalent protection against route injection attacks (T1599, T1572, T1665). If neither mechanism is present, all received routes from neighbors are accepted and redistributed without restriction, exposing the network to adversarial route manipulation. Route-maps applied to both inbound and outbound neighbor directions satisfy this control even in the absence of explicit prefix-lists.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, check running configuration for route-map clauses applied to BGP neighbors in both inbound and outbound directions.",
+        "command": "show running-config | include route-map",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Entries like 'neighbor 192.0.2.1 route-map POLICY_IN in' and 'neighbor 192.0.2.1 route-map POLICY_OUT out' indicate the attribute is true."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, display route-map configurations to verify permit/deny logic exists and is applied to the correct neighbor directions.",
+        "command": "show route-map",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Route-map entries showing match conditions (e.g., match ip address prefix-list) and permit/deny actions for each relevant routing context."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper Junos, verify import and export policies are applied to BGP groups or neighbors and contain route filtering logic.",
+        "command": "show configuration protocols bgp | display set | match import|export",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy-statement references under BGP group or neighbor import/export directives that contain term match and route-filter actions."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On FRRouting or Quagga routers, inspect the routing daemon configuration for route-map references in BGP neighbor or OSPF distribute-list contexts.",
+        "command": null,
+        "file_path": "/etc/frr/frr.conf",
+        "navigation": null,
+        "expected_output": "Lines such as 'neighbor 192.0.2.1 route-map INBOUND in' and 'redistribute connected route-map REDIST_FILTER' within the BGP or OSPF configuration stanza."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (frequently absent on internal or legacy routers)",
+      "true (present in well-managed BGP environments)"
+    ]
+  },
+  {
+    "option_name": "operator_account_privilege_level",
+    "option_description": "Represents the privilege level assigned to operator or read-only monitoring accounts on the routing device. Privilege levels determine which commands and configuration modes are accessible to a given user. On Cisco IOS, level 15 equals full administrative access; levels 1-14 restrict command access; level 1 is the minimum exec level. Equivalent concepts exist as user roles or authorization profiles on Juniper, Arista, and Linux-based routers.",
+    "security_impact": "The Rego policy rule 'excessive_privilege_on_operator_accounts' triggers when operator_account_privilege_level is 'full_admin' or 'elevated'. Accounts designated for monitoring or read-only operations should never hold full administrative privilege. If compromised, such accounts provide attackers with valid high-privilege access (T1078 Valid Accounts) enabling configuration changes, account manipulation (T1098), and full device takeover. The rule also triggers when least_privilege_policy_enforced is false, so this attribute must be evaluated in conjunction with that control.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, display all configured usernames and their assigned privilege levels from the running configuration.",
+        "command": "show running-config | section username",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines like 'username operator privilege 1 secret <hash>' for read-only accounts. Privilege level 15 on a monitoring account indicates full_admin and a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, display user privilege levels for currently authenticated sessions to correlate accounts with their effective privilege.",
+        "command": "show privilege",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'Current privilege level is X' for the logged-in account. Also use 'show users' to enumerate all active sessions and their levels."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper Junos, list all configured user accounts and their assigned login classes, which map to privilege levels.",
+        "command": "show configuration system login | display set",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines such as 'set system login user monitoruser class read-only' for operator accounts. The class 'super-user' maps to full_admin and would constitute a finding for operator-role accounts."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based routers (FRR/BIRD), check sudo configuration and group membership to determine effective privilege level for operator accounts.",
+        "command": "grep -E 'operator|monitor|netops' /etc/sudoers /etc/sudoers.d/* && id operator",
+        "file_path": "/etc/sudoers",
+        "navigation": null,
+        "expected_output": "Operator accounts should have no sudo entries for vtysh or configuration commands. NOPASSWD ALL or unrestricted sudo access maps to full_admin."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "read_only (ideal for monitoring accounts)",
+      "operator (acceptable with command restrictions)",
+      "elevated (should be reviewed)",
+      "full_admin (finding for non-admin accounts)"
+    ]
+  },
+  {
+    "option_name": "least_privilege_policy_enforced",
+    "option_description": "Controls whether the routing device enforces a least-privilege access policy that explicitly restricts operator and monitoring accounts from entering configuration mode or executing privileged commands. This is implemented through mechanisms such as Cisco IOS parser views, RBAC profiles, AAA authorization with command-level restrictions, or Juniper login classes with limited permissions. It is distinct from the assigned privilege level and represents whether a policy actively prevents privilege misuse.",
+    "security_impact": "The Rego policy rule 'excessive_privilege_on_operator_accounts' triggers independently when least_privilege_policy_enforced is false, even if operator_account_privilege_level appears acceptable. Without active enforcement, privilege levels may be bypassed, misconfigured, or rely solely on convention rather than technical controls. This enables attackers with compromised operator credentials to attempt configuration changes (T1078 Valid Accounts, T1098 Account Manipulation). The rule also feeds into 'insufficient_routing_change_logging' via config_change_logging_enabled, reinforcing that privilege controls must be accompanied by audit trails.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, check whether parser views are configured to restrict commands available to non-admin accounts.",
+        "command": "show running-config | section parser view",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Parser view definitions with explicit command inclusions/exclusions. Absence of parser views for operator accounts when privilege levels are not strictly 1-2 indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS with AAA, verify that command authorization is enabled and mapped to TACACS+ or local privilege levels that restrict configuration mode access.",
+        "command": "show running-config | include aaa authorization commands",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines like 'aaa authorization commands 15 default group tacacs+ local' confirm command-level authorization. Absence of AAA authorization for commands indicates the policy is not technically enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper Junos, verify that operator accounts are assigned to a restricted login class that explicitly denies configuration mode access.",
+        "command": "show configuration system login class | display set",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Login class definitions for operator accounts should include 'deny-commands configure' or equivalent permissions set. A class with 'allow-configuration' or inheriting super-user permissions indicates false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the device access control policy documentation and interview the network operations team to confirm whether RBAC or command authorization is enforced through AAA (TACACS+/RADIUS) and whether operator account restrictions are tested periodically.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of TACACS+ or RADIUS command authorization policies, documented privilege level assignments, and periodic access reviews confirming operators cannot access configuration mode."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in environments relying on policy convention rather than technical controls)",
+      "true (present in environments with AAA, parser views, or RBAC enforcement)"
+    ]
+  },
+  {
+    "option_name": "centralized_syslog_configured",
+    "option_description": "Controls whether the routing device is configured to forward log messages to a centralized syslog server or SIEM platform. This requires an explicit log destination (remote IP address and UDP/TCP port) to be defined in the router's logging configuration, along with an appropriate severity level filter to capture security-relevant events. Without centralized forwarding, log data remains only on the device where it can be lost, tampered with, or inaccessible during incident response.",
+    "security_impact": "The Rego policy rule 'insufficient_routing_change_logging' triggers when centralized_syslog_configured is false regardless of whether routing_change_logging_enabled or config_change_logging_enabled are set. Even if routing events are logged locally, they provide no value for detection or forensics if they are not forwarded off-device. This absence prevents detection of unauthorized route manipulation (T1562.006 Indicator Blocking) and leaves no external audit trail for configuration changes (T1070.007). Both routing_change_logging_enabled AND centralized_syslog_configured must be true to avoid the exposure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, display the current logging configuration to identify remote syslog destinations and confirm they are active.",
+        "command": "show logging",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should include 'Logging to <IP-address> (udp port 514, audit disabled...)' with state 'up'. No remote hosts listed indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper Junos, display the syslog configuration to confirm a remote host destination is defined with appropriate facility and severity filters.",
+        "command": "show configuration system syslog | display set",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines like 'set system syslog host 10.0.1.100 any notice' confirm remote syslog is configured. Only 'set system syslog file messages' without a host entry indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based routers, check rsyslog or syslog-ng configuration for remote forwarding rules targeting a SIEM or syslog collector.",
+        "command": "grep -E '@@?[0-9]|omfwd' /etc/rsyslog.conf /etc/rsyslog.d/*.conf 2>/dev/null || grep -E 'destination|tcp_output|udp_output' /etc/syslog-ng/syslog-ng.conf",
+        "file_path": "/etc/rsyslog.conf",
+        "navigation": null,
+        "expected_output": "Lines like '*.* @@10.0.1.100:514' (TCP) or '*.* @10.0.1.100' (UDP) indicate remote forwarding is configured. No remote destination entries indicate false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From the syslog/SIEM collector, verify that log messages are actively being received from the router's management IP address by querying recent ingested events.",
+        "command": "grep $(router-mgmt-ip) /var/log/syslog | tail -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Recent log entries from the router's IP address appearing in the collector's log stream, confirming active forwarding. No entries suggest misconfiguration or connectivity issues."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in unmanaged or legacy deployments)",
+      "true (required in enterprise and compliant environments)"
+    ]
+  },
+  {
+    "option_name": "routing_change_logging_enabled",
+    "option_description": "Controls whether protocol-level logging is explicitly enabled for routing table changes, BGP/OSPF/IS-IS/EIGRP session state changes, neighbor adjacency resets, and route redistribution events. This requires specific logging flags to be activated within the routing daemon or device OS, such as OSPF log-adjacency-changes, BGP neighbor log-changes, or equivalent directives. General syslog may be enabled without routing-specific event logging, making this a distinct control from centralized_syslog_configured.",
+    "security_impact": "The Rego policy rule 'insufficient_routing_change_logging' triggers when routing_change_logging_enabled is false even if centralized_syslog_configured is true, and vice versa. Both controls must be true simultaneously to avoid the exposure. Without routing-specific event logging, unauthorized route injections, BGP session hijacks, or OSPF neighbor spoofing events will not generate log entries, preventing detection of T1562.006 (Indicator Blocking) and leaving no forensic record consistent with T1070.007 (Clear Network Connection History). Security teams cannot detect route manipulation without explicit routing event logging.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, check whether BGP neighbor state change logging and OSPF adjacency change logging are enabled in the routing configuration.",
+        "command": "show running-config | include log-neighbor-changes|log-adjacency-changes|bgp log",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines like 'bgp log-neighbor-changes' under the BGP router process and 'log-adjacency-changes' under OSPF process confirm routing event logging is enabled. Absence of these lines indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, verify the global logging level is set to capture informational or debug routing events and check for any logging suppression.",
+        "command": "show logging | include Trap logging|Log Buffer",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Trap logging level should be 'informational' or 'debugging'. Level 'warnings' or higher will suppress routing state change messages, effectively rendering routing event logging disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper Junos, verify that routing protocol event tracing or syslog is configured to capture BGP, OSPF, or IS-IS state changes at appropriate verbosity.",
+        "command": "show configuration protocols bgp | display set | match traceoptions; show configuration protocols ospf | display set | match log|traceoptions",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "BGP traceoptions with 'flag state' or 'flag update' and OSPF traceoptions with 'flag state' indicate routing change logging is enabled. For syslog-based logging, 'set protocols bgp log-updown' should appear."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On FRRouting (FRR), inspect the daemon configuration files and log settings to confirm BGP and OSPF event logging flags are active.",
+        "command": null,
+        "file_path": "/etc/frr/frr.conf",
+        "navigation": null,
+        "expected_output": "Within the BGP stanza, 'bgp log-neighbor-changes' should be present. Within the OSPF stanza, 'log-adjacency-changes' should appear. The log file directive should point to a valid destination: 'log syslog informational' or 'log file /var/log/frr/frr.log'."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (often omitted in default configurations)",
+      "true (explicitly configured in security-hardened environments)"
+    ]
+  },
+  {
+    "option_name": "config_change_logging_enabled",
+    "option_description": "Controls whether modifications to the routing device's configuration—including ACL changes, prefix-list updates, redistribution policy edits, and any CLI commit operations—generate audit log entries. This is implemented through mechanisms such as Cisco IOS archive with log config, NETCONF/RESTCONF commit audit trails, auditd rules on Linux-based routers monitoring FRR/BIRD configuration files, or equivalent configuration change notification systems. It ensures an audit trail exists for all administrative changes to routing policy.",
+    "security_impact": "The Rego policy rule 'insufficient_routing_change_logging' triggers when centralized_syslog_configured is false AND config_change_logging_enabled is false. Additionally, 'excessive_privilege_on_operator_accounts' references this attribute, meaning that even if privilege controls fail, config change logging provides a compensating detective control. Without configuration change logging, unauthorized modifications by compromised operator accounts (T1078, T1098) or insider threats will go undetected, consistent with T1562.006 (Indicator Blocking) and T1070.007. It is a medium-criticality control that significantly reduces dwell time for unauthorized configuration changes.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, check whether the archive configuration logging feature is enabled to record all configuration changes with timestamps and user attribution.",
+        "command": "show running-config | section archive",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An archive stanza with 'log config' and 'logging enable' sub-commands indicates config change logging is active. Example: 'archive\\n log config\\n  logging enable\\n  notify syslog contenttype plaintext'. Absence of this stanza indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, review the config log buffer to confirm configuration change events are being captured with user and timestamp information.",
+        "command": "show archive log config all",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Entries showing timestamps, usernames, and specific configuration commands that were executed. An empty output or 'Logging of configuration commands is not enabled' confirms the attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper Junos, verify that commit logging is enabled and that configuration changes are being sent to syslog with the appropriate facility.",
+        "command": "show configuration system syslog | display set | match change-log|interactive-commands",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines like 'set system syslog host 10.0.1.100 change-log any' or 'set system syslog file config-changes change-log any' confirm config change logging. Also check for 'set system syslog user * any emergency' which captures interactive session events."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux-based routers, verify auditd rules are configured to monitor FRR, BIRD, or other routing daemon configuration files for write and attribute-change events.",
+        "command": "auditctl -l | grep frr\\|bird\\|quagga",
+        "file_path": "/etc/audit/rules.d/routing.rules",
+        "navigation": null,
+        "expected_output": "Audit rules such as '-w /etc/frr/frr.conf -p wa -k routing-config-change' should be present. Running 'ausearch -k routing-config-change' should return recent change events. No matching rules indicate false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (frequently absent in environments without formal change management)",
+      "true (present in PCI-DSS, SOC2, or hardened environments)"
+    ]
+  },
+  {
+    "option_name": "firmware_patch_status",
+    "option_description": "Represents the patch currency of the routing device's firmware or operating system relative to the vendor's current security release. The value is classified as 'current' if within one minor patch cycle, 'minor_behind' if one to two patch levels behind the latest release, 'significantly_behind' if more than two patch levels behind or missing any critical security patch, and 'unknown' if the installed version cannot be determined or compared against vendor advisories. This attribute captures the router OS version hygiene as a measurable security posture indicator.",
+    "security_impact": "The Rego policy rule 'unpatched_routing_software_or_firmware' triggers when firmware_patch_status is 'significantly_behind' or 'unknown', and also triggers when status is 'minor_behind' without patch_management_policy_enforced. Unpatched routing software contains known vulnerabilities exploitable via T1210 (Exploitation of Remote Services), T1068 (Exploitation for Privilege Escalation), and T1601.001 (Patch System Image). CVEs in routing OS software frequently involve protocol parsing flaws (BGP, OSPF), memory corruption bugs, and privilege escalation paths. The 'unknown' state is treated equivalently to significantly behind because inability to verify patch status is itself a security control failure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, display the installed software version and build date, then compare against Cisco's published security advisories and IOS release notes.",
+        "command": "show version | include Version|IOS|uptime",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output like 'Cisco IOS XE Software, Version 17.09.04a' provides the exact version string for comparison against Cisco's PSIRT advisories at https://sec.cloudapps.cisco.com/security/center/publicationListing.x"
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper Junos, display the OS version and check against Juniper's Security Advisories (JSA) for any open CVEs affecting the installed release.",
+        "command": "show version | match Junos",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output like 'Junos: 22.4R3-S2.2' provides the exact Junos release for comparison against https://supportportal.juniper.net/s/article/Junos-Security-Advisories"
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based routers running FRRouting, display the installed FRR version and compare against the FRR GitHub releases and security advisories.",
+        "command": "vtysh -c 'show version' || frr --version",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output like 'FRRouting 9.1.0' for comparison against https://github.com/FRRouting/frr/releases and associated CVE notifications. OS patch level should also be checked with 'uname -r' and 'apt list --upgradable' or 'yum check-update'."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Cisco Support API or equivalent vendor patch management API to programmatically query the installed version against current recommended releases and open advisories.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://api.cisco.com/security/advisories/oval?version=<ios-version>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response listing applicable CVEs for the installed version. An empty advisory list with a 'current' version string confirms the device is up to date. Any returned CVEs with CVSS score >= 7.0 should classify the device as 'significantly_behind'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "current (target state for all production routers)",
+      "minor_behind (common in environments with quarterly patch cycles)",
+      "significantly_behind (found in legacy or unmanaged network infrastructure)",
+      "unknown (common when asset inventory lacks version tracking)"
+    ]
+  },
+  {
+    "option_name": "known_cve_unpatched",
+    "option_description": "Tracks whether one or more publicly disclosed CVEs affecting the installed routing OS or firmware version remain unpatched on the device. This is a boolean flag set to true when a vendor-acknowledged vulnerability with an available patch has not been applied.",
+    "security_impact": "The Rego policy triggers the 'unpatched_routing_software_or_firmware' exposure directly when known_cve_unpatched is true. This maps to MITRE T1210 (Exploitation of Remote Services) and T1068 (Exploitation for Privilege Escalation). An unpatched CVE on a routing device can enable remote code execution, privilege escalation, or protocol parsing exploits that hand full control of the routing infrastructure to an attacker.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve the running OS version and cross-reference against NVD/NIST CVE database or the vendor's security advisory portal.",
+        "command": "show version | include (Version|Software|IOS|NX-OS|JunOS)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A version string such as 'Cisco IOS XE Software, Version 17.3.4' or 'Junos: 21.4R3' that can be submitted to NVD (https://nvd.nist.gov/vuln/search) or the vendor advisory portal."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the NIST NVD API for CVEs matching the identified platform and version string to determine if unpatched CVEs exist.",
+        "command": "curl -s 'https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=Cisco+IOS+XE+17.3.4&cvssV3Severity=HIGH' | jq '.vulnerabilities[].cve.id'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of CVE IDs (e.g., CVE-2022-20919) that affect the version. Cross-reference against the vendor's fixed-release table to determine if any are unpatched."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the vendor's security advisory page (e.g., Cisco PSIRT at https://tools.cisco.com/security/center/publicationListing.x or Juniper Security Advisories at https://kb.juniper.net/InfoCenter/index?page=content&channel=SECURITY_ADVISORIES) and filter by the installed platform and version.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco PSIRT > Search Advisories > Filter by Product: IOS XE > Filter by Version; compare listed fixed releases against installed version.",
+        "expected_output": "A list of advisories showing whether the installed version appears in the 'Vulnerable' column with a patch available in a newer release."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security or NOC team to confirm whether vulnerability scanning tools (e.g., Tenable Nessus, Qualys) include network infrastructure in scope and whether the router's IP is present in the most recent scan report with no unresolved high/critical findings.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A recent scan report showing the device was scanned, with no open CVEs of severity High or Critical tied to the routing OS version."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "patch_management_policy_enforced",
+    "option_description": "Indicates whether a documented and actively enforced patch management process exists that covers routing infrastructure devices and ensures security updates are applied within the organization's defined SLA (e.g., 30 days for critical, 90 days for high).",
+    "security_impact": "The Rego policy uses this attribute as a secondary condition in the 'unpatched_routing_software_or_firmware' rule: when firmware is 'minor_behind' AND patch_management_policy_enforced is false, the exposure fires. Without a policy, there is no systematic assurance that CVEs will be remediated, making the router persistently vulnerable to T1210 and T1068 exploitation. Its absence also signals that other firmware-behind states may go undetected indefinitely.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the organization's formal patch management policy document and verify it explicitly scopes network infrastructure devices (routers, switches, firewalls). Confirm the policy defines maximum remediation SLAs by severity tier.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dated, approved policy document referencing network infrastructure and containing SLA timelines (e.g., 'Critical CVEs patched within 30 days')."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review IT change management records (ITSM ticketing system such as ServiceNow or Jira) for evidence of router firmware/OS patching activity in the past 12 months. Look for ticket closure dates relative to CVE disclosure dates.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ITSM portal > Change Management > Filter by CI: [router hostname or device group] > Review closed change tickets for patch activity.",
+        "expected_output": "A pattern of change tickets documenting firmware updates, with closure dates within the policy SLA window from CVE publication."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Verify whether the patch management policy includes automated compliance scanning for network devices. Ask whether tools such as Cisco DNA Center, Juniper Junos Space, or a third-party CAASM platform are used to track patch compliance state.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of a compliance dashboard or scheduled scan report that shows current patch status for all in-scope routers."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check for a configuration baseline or CIS benchmark audit report for the router, which typically includes patch status as a control. Look for automated compliance artifacts in the organization's GRC or security operations tooling.",
+        "command": null,
+        "file_path": "/var/reports/network_compliance/ or equivalent GRC tool export",
+        "navigation": null,
+        "expected_output": "A compliance report dated within the past quarter showing router patch compliance status against a defined baseline."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "snmp_community_strings",
+    "option_description": "The list of SNMP community strings actively configured on the routing device. Community strings function as shared passwords for SNMPv1/v2c authentication and determine read or read-write access to device MIB data. The assessment requires capturing all configured strings to check for default or weak values.",
+    "security_impact": "The Rego policy fires the 'snmp_community_string_exposure' exposure if the strings 'public' or 'private' are present in this array. These default strings are universally known and allow any attacker with network access to perform MIB dumps (T1602.001) and extract full network topology and routing table information. Community strings can also be captured via network sniffing (T1040) since SNMPv1/v2c transmits them in plaintext.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, display all configured SNMP community strings including their access level and any associated ACL.",
+        "command": "show snmp community",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output listing each community string name, access type (RO/RW), and associated ACL number if configured. Example: 'Community name: public, Community Index: com1, security name:public, storage-type: nonvolatile, active'"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Grep the running or startup configuration for all SNMP community definitions to extract community string names and permissions.",
+        "command": "show running-config | include snmp-server community",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines such as 'snmp-server community public RO' or 'snmp-server community MySecret RW 10' revealing all configured strings."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, display SNMP community configuration including names and authorization levels.",
+        "command": "show configuration snmp | display set | match community",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Set-format lines such as 'set snmp community public authorization read-only' listing each community string."
+      },
+      {
+        "type": "gui",
+        "instruction": "For routers managed via a network management platform (e.g., Cisco DNA Center, SolarWinds), navigate to the device's SNMP credential configuration page.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco DNA Center > Inventory > [Select Device] > Device Credentials > SNMP; or SolarWinds NCM > Manage Nodes > [Node] > SNMP Settings.",
+        "expected_output": "A list of SNMP community strings associated with the device, potentially showing RO/RW designation."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"public\"]",
+      "[\"private\"]",
+      "[\"public\", \"private\"]",
+      "[\"customstring\"]",
+      "[]"
+    ]
+  },
+  {
+    "option_name": "snmp_write_access_enabled",
+    "option_description": "Indicates whether any SNMP community string on the device is configured with read-write (RW) access permissions. RW access allows SNMP SET operations, enabling a client with the community string to modify device configuration, routing tables, and interface parameters remotely.",
+    "security_impact": "The Rego policy triggers 'snmp_community_string_exposure' when snmp_write_access_enabled is true AND snmp_acl_configured is false. An attacker who obtains or guesses a RW community string can use SNMP SET operations to modify routing tables, disable interfaces, or alter the running configuration without any authentication challenge, directly enabling T1602.002 (Network Device Configuration Dump) and full device takeover.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, check for any community string defined with 'RW' or 'read-write' access in the running configuration.",
+        "command": "show running-config | include snmp-server community.*RW",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines containing 'RW' indicate write access is enabled, e.g., 'snmp-server community private RW'. No output means no RW communities are configured."
+      },
+      {
+        "type": "command",
+        "instruction": "Use 'show snmp community' to review the access type column for all configured community strings.",
+        "command": "show snmp community",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The output includes an 'access' or 'security level' field for each community. Look for 'read-write' entries. On some platforms this shows as a permission flag in the community line."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, check for any SNMP community with 'read-write' authorization.",
+        "command": "show configuration snmp community | display set | match read-write",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines containing 'authorization read-write' indicate RW access. No output means all communities are read-only."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an authorized test host, attempt an SNMP SET operation using known or suspected community strings to verify whether write access is accepted by the device.",
+        "command": "snmpset -v2c -c public <router_ip> sysContact.0 s 'test'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful SET response confirms RW access is enabled. An error such as 'noAccess' or 'authorizationError' confirms RO-only access."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "snmp_acl_configured",
+    "option_description": "Indicates whether an IP access control list (ACL) is associated with each SNMP community string to restrict which source IP addresses or subnets are permitted to poll or write to the device via SNMP. Without an ACL, any host that knows the community string can access SNMP.",
+    "security_impact": "The Rego policy conditions for 'snmp_community_string_exposure' include a case where snmp_write_access_enabled is true AND snmp_acl_configured is false, triggering the exposure. Even with a non-default community string, the absence of an ACL means that any host on any reachable network segment can attempt SNMP queries. Combined with write access, this enables unrestricted remote configuration modification (T1602.002) and credential extraction via sniffing (T1040).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, list all SNMP community strings and check whether an ACL number or name appears at the end of each community line.",
+        "command": "show running-config | include snmp-server community",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines ending with an ACL reference indicate ACL protection, e.g., 'snmp-server community mystring RO 10' where '10' is the ACL. Lines without a trailing ACL reference indicate no ACL is applied."
+      },
+      {
+        "type": "command",
+        "instruction": "Use 'show snmp community' on Cisco IOS/IOS-XE to see the ACL field for each community.",
+        "command": "show snmp community",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each community entry includes an 'acl' field. A value of '<none>' or empty confirms no ACL is applied. A numeric or named ACL value confirms protection is in place."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, check for client-list or prefix-list restrictions associated with SNMP communities.",
+        "command": "show configuration snmp community",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'clients' block or 'authorization' block under each community entry. Absence of a 'clients' block means the community is accessible from any host."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review device configuration backup files for snmp-server community lines and cross-check whether corresponding access-list definitions exist and are properly restrictive.",
+        "command": "grep -E 'snmp-server community|access-list' /path/to/router_backup.cfg",
+        "file_path": "/tftp/backups/router_running.cfg",
+        "navigation": null,
+        "expected_output": "Matching ACL entries referencing specific management subnets for each community string. An ACL permitting '0.0.0.0/0' or 'any' is functionally equivalent to no ACL."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "copp_policy_configured",
+    "option_description": "Indicates whether a Control Plane Policing (CoPP) policy map is actively configured and applied to the router's control plane, rate-limiting or policing traffic destined to the CPU. CoPP classifies inbound traffic types (routing protocol packets, management traffic, ICMP, etc.) and enforces bandwidth and burst limits per class.",
+    "security_impact": "The Rego policy fires 'missing_control_plane_policing' when both copp_policy_configured and cpu_rate_limit_configured are false. Without CoPP, a volumetric flood of crafted packets targeting the routing CPU can cause 100% CPU utilization, disabling routing protocol processing, BGP session maintenance, and management access—mapping to T1499.001 (OS Exhaustion Flood) and T1499 (Endpoint Denial of Service). CoPP is the primary protection against control plane DoS attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, verify whether a CoPP policy map is applied to the control plane interface.",
+        "command": "show policy-map control-plane",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing a named policy-map applied to the control-plane, with class-map entries and configured police or rate-limit actions. Empty output or 'No policy-map is configured' confirms CoPP is absent."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the running configuration for a 'control-plane' section with an applied service-policy.",
+        "command": "show running-config | section control-plane",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'control-plane' stanza containing 'service-policy input <policy-name>' confirms CoPP is applied. Absence of this section means no CoPP is configured."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco NX-OS, verify CoPP policy configuration and current statistics showing it is actively processing traffic.",
+        "command": "show copp status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Status output showing 'CoPP Enabled: Yes' or equivalent. 'show copp statistics' should show non-zero packet counts for active classes if the policy has been in place."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, check for a firewall filter applied to the loopback (lo0) interface, which serves as the JunOS equivalent of CoPP.",
+        "command": "show interfaces lo0 detail | match filter",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'Input Filter: <filter-name>' on lo0 confirms a receive-path filter is active. Absence confirms no control plane protection."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "cpu_rate_limit_configured",
+    "option_description": "Indicates whether any platform-level CPU rate limiting mechanism—such as receive-path ACLs (rACL), hardware rate limiters, or platform-specific CPU protection features—is configured independently of a formal CoPP policy. This serves as an alternative or supplementary control to CoPP.",
+    "security_impact": "The Rego policy fires 'missing_control_plane_policing' only when both copp_policy_configured AND cpu_rate_limit_configured are false. This means either mechanism satisfies the control requirement. Without at least one of these controls, the router CPU is exposed to T1499.001 (OS Exhaustion Flood). CPU rate limits implemented via hardware rate limiters or rACLs can protect the control plane on platforms where formal CoPP policy-maps are unavailable or not yet deployed.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, check for receive-ACL (rACL) configuration using 'ip receive acl' which restricts which packets are forwarded to the route processor.",
+        "command": "show running-config | include ip receive access-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A line such as 'ip receive access-list 100' confirms an rACL is applied to CPU-bound traffic. No output means rACL is not configured."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, check for hardware rate-limiter configurations that restrict specific CPU-destined traffic types.",
+        "command": "show platform hardware rate-limiter",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A table showing rate limits for traffic categories (e.g., ARP, routing protocols, ICMP). Non-zero configured limits confirm CPU rate limiting is active at the hardware level."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, verify whether a firewall filter with policers is applied to the lo0 interface to rate-limit CPU-bound traffic.",
+        "command": "show firewall filter | match lo0",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output referencing a firewall filter bound to the lo0 interface confirms platform-level CPU protection. Then 'show firewall filter <filter-name>' to see policer actions."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco NX-OS, check for hardware rate limiters applied to control plane traffic categories.",
+        "command": "show hardware rate-limiter",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A table listing rate limiters for traffic classes such as 'ARP', 'BPDU', 'ICMP', etc., with configured limits in packets-per-second. Configured and enforced limits indicate CPU rate limiting is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "plaintext_credential_types_found",
+    "option_description": "An array listing the types of credentials discovered in unencrypted or weakly obfuscated form within router configuration files, startup configs, or backup repositories. Possible values include credential type identifiers such as 'routing_protocol_key', 'snmp_community_string', 'management_password', 'bgp_md5_key', and 'ospf_key'.",
+    "security_impact": "The Rego policy fires 'hardcoded_routing_credentials_in_config' when the count of plaintext_credential_types_found is greater than zero. Any plaintext credential in a config file maps directly to T1552.001 (Credentials in Files). BGP MD5 keys and OSPF authentication keys found in plaintext also enable route injection attacks. On Cisco IOS, Type 7 passwords and Type 0 passwords are considered plaintext equivalents—only Type 8 (SHA-256) and Type 9 (scrypt) are acceptably encrypted. Backup files stored in TFTP servers or version control compound this risk.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Audit the running configuration for Type 0 (cleartext) and Type 7 (reversibly obfuscated) passwords as well as plaintext routing authentication keys. Type 7 is considered plaintext-equivalent.",
+        "command": "show running-config | include (password 0|password 7|key-string|community|md5|authentication-key)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines containing 'password 0 <text>', 'password 7 <hash>' (reversible), or unencrypted key strings indicate plaintext credentials. Lines with 'secret 9' or 'secret 8' indicate properly encrypted secrets."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Retrieve and inspect configuration backup files from TFTP, FTP, SCP repositories, or network management platforms for plaintext credential types using pattern matching.",
+        "command": "grep -E '(password [07]|community|key-string|neighbor.*password|area.*authentication-key|authentication md5)' /tftp/backups/router_*.cfg",
+        "file_path": "/tftp/backups/",
+        "navigation": null,
+        "expected_output": "Matches reveal plaintext or Type 7 credentials. Categorize by type: lines with 'neighbor X.X.X.X password' = bgp_md5_key; 'area X authentication-key' = ospf_key; 'snmp-server community' = snmp_community_string; 'enable password' = management_password."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, specifically check whether 'service password-encryption' is enabled (which applies Type 7 to stored passwords) and whether stronger encryption (Type 8/9) has been applied to privileged-level secrets.",
+        "command": "show running-config | include (service password-encryption|enable secret|username.*secret)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'service password-encryption' present means Type 7 is applied but this is reversible and should be treated as plaintext. 'enable secret 9' or 'enable secret 8' indicates strong encryption. Absence of 'service password-encryption' with plain 'enable password' entries is a clear finding."
+      },
+      {
+        "type": "command",
+        "instruction": "Check BGP neighbor configurations for plaintext MD5 passwords and OSPF/EIGRP interface authentication key configurations.",
+        "command": "show running-config | section (router bgp|router ospf|router eigrp)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "BGP lines with 'neighbor X.X.X.X password <text>' or OSPF lines with 'ip ospf authentication-key <text>' (not encrypted) confirm routing protocol keys stored in plaintext. EIGRP 'authentication key-chain' with plaintext key strings is also a finding."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[]",
+      "[\"management_password\"]",
+      "[\"snmp_community_string\", \"management_password\"]",
+      "[\"bgp_md5_key\", \"ospf_key\", \"management_password\", \"snmp_community_string\"]"
+    ]
+  },
+  {
+    "option_name": "credential_storage_encrypted",
+    "option_description": "Controls whether all credentials stored in router configuration files are protected by strong, irreversible encryption. Covers enable passwords, line passwords, SNMP community strings, and routing protocol keys.",
+    "security_impact": "The Rego rule hardcoded_routing_credentials_in_config fires when credential_storage_encrypted is false, triggering a medium-criticality exposure. Plaintext credentials in config files are directly exploitable via T1552.001 (Credentials In Files) and T1602.002 (Network Device Configuration Dump). Any user with file read access to the running config or a backup can extract credentials immediately.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, display the running configuration and grep for password-related lines to identify plaintext or weakly encrypted credentials.",
+        "command": "show running-config | include password|secret|key",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing 'secret 9' or 'secret 8' indicate strong encryption. Lines showing 'password 7' indicate weak reversible encryption. Lines showing 'password 0' or bare passwords indicate plaintext."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify whether service password-encryption is globally enabled on Cisco IOS.",
+        "command": "show running-config | include service password-encryption",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'service password-encryption' indicates type 7 encoding is applied, but this is weak. Absence means plaintext. Strong posture requires type 8 or type 9 hashes via 'enable secret' or 'username secret'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux-based routers such as those running FRRouting, inspect the daemon configuration files for plaintext credentials.",
+        "command": "grep -rn 'password\\|secret\\|community' /etc/frr/ /etc/quagga/",
+        "file_path": "/etc/frr/frr.conf",
+        "navigation": null,
+        "expected_output": "Credentials should not appear as recognizable plaintext strings. If readable words appear adjacent to password keywords, the attribute should be set to false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS-XE, check the authentication type indicators for all local user accounts.",
+        "command": "show running-config | section username",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each username line should show 'secret 9' (scrypt) or 'secret 8' (PBKDF2). Any entry showing 'password' or 'secret 5' (MD5) fails the strong encryption requirement."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in legacy deployments using service password-encryption with type 7)",
+      "true (hardened deployments using type 8 or type 9 secrets exclusively)"
+    ]
+  },
+  {
+    "option_name": "ip_source_routing_enabled",
+    "option_description": "Controls whether the router accepts and forwards IP packets that carry Loose Source Routing (LSR) or Strict Source Routing (SSR) options in the IP header, allowing the sender to dictate the forwarding path.",
+    "security_impact": "The Rego rule ip_source_routing_enabled fires when this is true and acl_blocks_source_routed_packets is false, or when source_routing_scope is 'all'. This creates a low-criticality exposure mapped to T1599 (Network Boundary Bridging) and T1090.003 (Multi-hop Proxy). Source routing allows attackers to bypass firewall and routing policy controls by forcing packets through specific hops.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS or IOS-XE, check the global configuration for the source-route command.",
+        "command": "show running-config | include ip source-route",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Absence of any output means source routing is enabled by default on older IOS. The string 'no ip source-route' confirms it is disabled. Set attribute to false only when 'no ip source-route' is present."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based routers, query the kernel parameter for each interface and the global default.",
+        "command": "sysctl -a | grep accept_source_route",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All values should return 0 to confirm source routing is disabled. Any interface showing value 1 means source routing is accepted on that interface and the attribute should be set to true."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux, verify the persistent sysctl configuration to ensure source routing is disabled across reboots.",
+        "command": "grep -r 'accept_source_route' /etc/sysctl.conf /etc/sysctl.d/",
+        "file_path": "/etc/sysctl.conf",
+        "navigation": null,
+        "expected_output": "Entries such as 'net.ipv4.conf.all.accept_source_route=0' and 'net.ipv4.conf.default.accept_source_route=0' confirm the setting is persistently disabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (hardened deployments with 'no ip source-route' applied)",
+      "true (default on older Cisco IOS versions prior to 12.3 without explicit hardening)"
+    ]
+  },
+  {
+    "option_name": "source_routing_scope",
+    "option_description": "Defines the scope of interfaces on which the router accepts source-routed packets. Possible values are 'none' (disabled everywhere), 'external_only' (only on interfaces facing untrusted networks), or 'all' (accepted on every interface).",
+    "security_impact": "The Rego rule ip_source_routing_enabled additionally triggers when source_routing_scope is 'all' combined with ip_source_routing_enabled being true. A scope of 'all' is the most dangerous configuration because it allows source-routed packets to traverse even internal trusted segments, amplifying T1599 (Network Boundary Bridging) risk across the entire routing domain.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, identify all interfaces and determine whether source routing is enabled globally or per-interface.",
+        "command": "show running-config | section interface",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If 'no ip source-route' appears globally and no interface overrides exist, scope is 'none'. If only external-facing interfaces lack the command, scope is 'external_only'. If the command is absent globally and on all interfaces, scope is 'all'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, enumerate accept_source_route for every interface to determine which interfaces accept source routing.",
+        "command": "for iface in $(ls /proc/sys/net/ipv4/conf/); do echo \"$iface: $(cat /proc/sys/net/ipv4/conf/$iface/accept_source_route)\"; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All interfaces returning 0 maps to 'none'. Only external interfaces returning 1 maps to 'external_only'. Multiple or all interfaces returning 1 maps to 'all'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the network interface inventory documentation to map interface names to their roles, then cross-reference with the accept_source_route values obtained from the device.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A complete mapping of interface role to source routing acceptance. If any internal interfaces accept source routing, scope should be recorded as 'all' regardless of intent."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (hardened configuration, recommended)",
+      "all (default on many unhardenened IOS and Linux deployments)",
+      "external_only (partial hardening, uncommon but observed in some perimeter designs)"
+    ]
+  },
+  {
+    "option_name": "acl_blocks_source_routed_packets",
+    "option_description": "Indicates whether an ACL is configured to explicitly drop packets carrying IP source routing options, functioning as a compensating control when the global source routing disable command is not available or not applied.",
+    "security_impact": "The Rego rule ip_source_routing_enabled checks this attribute as a compensating control. When ip_source_routing_enabled is true but acl_blocks_source_routed_packets is also true, the rule does not fire because the ACL provides an equivalent mitigation. Without this ACL and with source routing enabled, the exposure to T1599 and T1090.003 is unmitigated.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, search all ACLs for rules matching IP options, specifically LSR and SSR option keywords.",
+        "command": "show ip access-lists | include option",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output containing 'deny ip any any option lsr' or 'deny ip any any option record-route' or similar option-matching deny entries confirms ACL coverage. No output means no ACL is blocking source-routed packets."
+      },
+      {
+        "type": "command",
+        "instruction": "Display the full running configuration and inspect ACLs for source routing option deny rules.",
+        "command": "show running-config | section ip access-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACL entries with 'option lsr' or 'option ssrr' in deny statements confirm the compensating control is present. Verify the ACL is also applied to relevant interfaces with 'ip access-group' statements."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux using iptables, check for rules matching IP options byte patterns that correspond to source routing.",
+        "command": "iptables -L -n -v | grep -i 'opt\\|source-route'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A DROP rule matching IP option type 131 (LSR) or 137 (SSR) confirms the compensating ACL is in place. If nftables is used, run 'nft list ruleset' and inspect for ip option lsr or ssrr matching rules."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most deployments rely on the global disable command rather than an explicit ACL)",
+      "true (defense-in-depth configurations or environments where global disable is not supported)"
+    ]
+  },
+  {
+    "option_name": "icmp_redirects_enabled",
+    "option_description": "Controls whether the router's interfaces accept and process incoming ICMP redirect messages, which can instruct the router to change its routing table to send traffic for a destination through a different next-hop gateway.",
+    "security_impact": "The Rego rule icmp_redirect_messages_enabled fires when this is true and either the interface role is 'external' or 'dmz', or when secure_redirects_enabled is false. This creates a low-criticality exposure tied to T1557 (Adversary-in-the-Middle) and T1090.003 (Multi-hop Proxy). An attacker on a connected subnet can spoof ICMP redirects to silently reroute victim traffic through attacker-controlled infrastructure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, check each interface configuration for the 'no ip redirects' command.",
+        "command": "show running-config | section interface | include interface|ip redirects",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Interfaces showing 'no ip redirects' have redirects disabled. Interfaces where this line is absent have redirects enabled by default. At least one interface without 'no ip redirects' means attribute is true."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, query the ICMP redirect acceptance setting for all interfaces.",
+        "command": "sysctl -a | grep 'accept_redirects'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Values of 0 for all interfaces indicate redirects are disabled. Any interface showing value 1 means ICMP redirects are accepted and the attribute should be set to true for that interface's context."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS-XE, use the show interfaces command to confirm ICMP redirect status per interface.",
+        "command": "show ip interface | include redirects",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'ICMP redirects are never sent' or 'ICMP redirects are not sent' per interface indicates disabled status. 'ICMP redirects are always sent' indicates enabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux, verify the persistent sysctl configuration for redirect acceptance settings.",
+        "command": "grep -r 'accept_redirects' /etc/sysctl.conf /etc/sysctl.d/",
+        "file_path": "/etc/sysctl.d/99-sysctl.conf",
+        "navigation": null,
+        "expected_output": "Lines such as 'net.ipv4.conf.all.accept_redirects=0' confirm persistent disabling. Missing entries mean the kernel default applies, which is typically 1 (enabled) for hosts and variable for routers."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (default on most platforms without explicit hardening)",
+      "false (hardened configurations following CIS benchmarks or vendor hardening guides)"
+    ]
+  },
+  {
+    "option_name": "interface_role",
+    "option_description": "Classifies the functional role of a routing interface to indicate whether it faces external untrusted networks, a DMZ, internal trusted segments, or is used exclusively for device management. This role context is used to apply risk-appropriate security policies.",
+    "security_impact": "The Rego rule icmp_redirect_messages_enabled uses interface_role to determine severity. When icmp_redirects_enabled is true and interface_role is 'external' or 'dmz', the exposure fires unconditionally regardless of secure_redirects_enabled. External and DMZ interfaces carry the highest risk because they are reachable by untrusted parties who can forge ICMP redirects without requiring access to internal segments.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review network topology documentation and interface naming conventions to map each interface to its functional role. Common conventions include naming interfaces with prefixes like ext, wan, dmz, int, or mgmt.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented mapping of interface name to role classification. Interfaces connected to ISP uplinks or untrusted peering are 'external'. Interfaces connecting to server DMZ segments are 'dmz'. Interfaces connecting to internal LAN segments are 'internal'. Out-of-band management interfaces are 'management'."
+      },
+      {
+        "type": "command",
+        "instruction": "List all interfaces with their IP addresses and descriptions to assist with role identification.",
+        "command": "show interfaces description",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Interface descriptions should indicate connected segment purpose. Cross-reference IP subnets with network documentation to confirm role assignments."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, display full interface configurations including descriptions and IP addresses.",
+        "command": "show running-config | section interface",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each interface block with a description field and IP address. Interfaces with RFC1918 addresses connected to internal subnets are typically 'internal'. Interfaces with public IP addresses or direct ISP connections are 'external'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco DNA Center or similar network management platforms, navigate to the device inventory, select the router, and view the interface topology map to confirm each interface's network segment role.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco DNA Center > Inventory > Device Detail > Interfaces > Topology View",
+        "expected_output": "Visual confirmation of each interface's connected network segment and its classification as external, DMZ, internal, or management."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "external (WAN or ISP-facing interfaces)",
+      "internal (LAN-facing interfaces connecting to trusted segments)",
+      "dmz (interfaces connecting to demilitarized zones hosting public-facing services)",
+      "management (out-of-band management interfaces)"
+    ]
+  },
+  {
+    "option_name": "secure_redirects_enabled",
+    "option_description": "Controls whether the router interface restricts ICMP redirect acceptance to only those redirects originating from gateways already present in the routing table, rather than accepting redirects from any host on the connected subnet.",
+    "security_impact": "The Rego rule icmp_redirect_messages_enabled fires when icmp_redirects_enabled is true and secure_redirects_enabled is false, regardless of interface role. This provides a partial mitigation path: if ICMP redirects cannot be fully disabled, accepting only gateway-sourced redirects reduces but does not eliminate the T1557 (Adversary-in-the-Middle) risk. An attacker who has compromised a gateway can still inject redirects, so full disabling is preferred.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux, query the secure_redirects kernel parameter for each interface and the global setting.",
+        "command": "sysctl -a | grep 'secure_redirects'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A value of 1 for an interface indicates only gateway-originated redirects are accepted (secure redirects enabled). A value of 0 means redirects from any host are accepted. On Cisco IOS, this concept does not exist as a distinct setting, so secure_redirects_enabled should be set to false for IOS devices."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the persistent sysctl configuration files for the secure_redirects parameter setting.",
+        "command": "grep -r 'secure_redirects' /etc/sysctl.conf /etc/sysctl.d/",
+        "file_path": "/etc/sysctl.conf",
+        "navigation": null,
+        "expected_output": "An entry 'net.ipv4.conf.all.secure_redirects=1' confirms the setting is persistently enabled. Absence of this setting means the default applies, which is typically 1 on Linux but should be explicitly confirmed."
+      },
+      {
+        "type": "command",
+        "instruction": "Directly read the kernel proc filesystem value for the specific interface of interest.",
+        "command": "cat /proc/sys/net/ipv4/conf/eth0/secure_redirects",
+        "file_path": "/proc/sys/net/ipv4/conf/eth0/secure_redirects",
+        "navigation": null,
+        "expected_output": "Output of '1' confirms secure redirects are enabled for this interface. Replace 'eth0' with the actual interface name. For Cisco IOS and similar platforms that lack this distinction, document as false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (Linux default, only gateway-originated ICMP redirects accepted)",
+      "false (explicitly disabled or not applicable on Cisco IOS and similar platforms)"
+    ]
+  },
+  {
+    "option_name": "ntp_authentication_enabled",
+    "option_description": "Controls whether the router is configured to authenticate NTP time sources using cryptographic keys, validating that time synchronization updates originate from trusted and legitimate NTP servers rather than spoofed or rogue sources.",
+    "security_impact": "The Rego rule ntp_unauthenticated_synchronization fires when ntp_servers_configured is true and ntp_authentication_enabled is false, creating a low-criticality exposure tied to T1557 (Adversary-in-the-Middle) and T1124 (System Time Discovery). Unauthenticated NTP allows attackers to perform NTP spoofing attacks that manipulate system time, which can invalidate TLS certificate windows, corrupt log timestamps critical for forensics, and disrupt time-sensitive routing protocol operations.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, display the NTP configuration including authentication keys and trusted key assignments.",
+        "command": "show running-config | section ntp",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A correctly configured output should contain 'ntp authenticate', one or more 'ntp authentication-key' lines defining key IDs and hashes, and 'ntp trusted-key' entries. All three elements must be present. Absence of 'ntp authenticate' or missing trusted-key assignments means authentication is not fully enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, verify NTP authentication status and the association with configured servers using the show ntp command.",
+        "command": "show ntp associations detail | include authenticated|auth",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output containing 'authenticated' for each NTP server association confirms authentication is active and working. Associations showing 'unauthenticated' indicate that despite configuration, authentication may not be functioning correctly."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux systems using chrony, check the chrony configuration for key file references and server authentication directives.",
+        "command": "grep -E 'keyfile|key [0-9]' /etc/chrony.conf /etc/chrony/chrony.conf 2>/dev/null",
+        "file_path": "/etc/chrony.conf",
+        "navigation": null,
+        "expected_output": "A 'keyfile' directive pointing to a valid key file and server lines containing a 'key' parameter confirm NTP authentication is configured. If using ntpd instead of chrony, check 'grep -E \"trustedkey|requestkey|keys\" /etc/ntp.conf'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux using ntpd, verify the ntp.conf for authentication configuration and confirm keys are loaded.",
+        "command": "grep -E 'trustedkey|requestkey|controlkey|keys' /etc/ntp.conf",
+        "file_path": "/etc/ntp.conf",
+        "navigation": null,
+        "expected_output": "Presence of a 'keys' file directive and 'trustedkey' entries listing key IDs confirms NTP authentication is configured. Cross-reference with 'ntpq -p' to verify server associations are actually using the keys."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most enterprise router deployments do not configure NTP authentication)",
+      "true (hardened deployments following DISA STIG or CIS benchmark requirements)"
+    ]
+  },
+  {
+    "option_name": "ntp_servers_configured",
+    "option_description": "Controls whether one or more NTP servers are explicitly defined on the router, causing the device to actively synchronize its system clock against those time sources. Without NTP server definitions, the router relies on its internal hardware clock, which drifts over time and cannot be validated against a trusted authority.",
+    "security_impact": "The Rego policy rule 'ntp_unauthenticated_synchronization' evaluates this attribute as the primary gate: if 'ntp_servers_configured' is true, the policy then checks whether NTP authentication is also enabled. A router with NTP servers defined but without authentication (ntp_authentication_enabled false) is flagged for the 'Ntp Unauthenticated Synchronization' exposure, which enables clock manipulation attacks that corrupt log timestamps, invalidate certificate validity windows, and disrupt time-sensitive routing protocol operations. Conversely, if no NTP servers are configured at all, the router is not actively synchronizing, which also undermines log integrity and certificate checking but does not trigger this specific rule.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, display all NTP configuration including any defined server or peer addresses.",
+        "command": "show ntp status && show running-config | include ntp server",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more lines such as 'ntp server 10.0.0.1' or 'ntp server pool.ntp.org' indicate ntp_servers_configured = true. If no 'ntp server' lines appear, the value is false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, inspect the NTP configuration stanza within the running configuration.",
+        "command": "show configuration system ntp",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output containing 'server <IP or hostname>' entries confirms NTP servers are configured. An empty or missing stanza indicates false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the stored startup or running configuration file exported from the router, searching for NTP server directives applicable to the platform vendor.",
+        "command": null,
+        "file_path": "/tftp-server/configs/<router-hostname>-running.cfg",
+        "navigation": null,
+        "expected_output": "Grep for 'ntp server' (Cisco), 'server' within the 'system ntp' block (Juniper), or 'ntp-server' (Huawei). Presence of at least one match confirms the attribute is true."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the router via RESTCONF or a network management platform API to retrieve NTP configuration state programmatically.",
+        "command": "curl -sk -u admin:password -H 'Accept: application/yang-data+json' https://<router-ip>/restconf/data/Cisco-IOS-XE-ntp:ntp-oper-data/ntp-status-info",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON response containing 'reference-time' or 'server-address' fields populated with valid NTP server addresses confirms ntp_servers_configured = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (most managed enterprise and ISP routers have at least one NTP server defined)",
+      "false (common on unconfigured, legacy, or isolated routers that have never had a hardening baseline applied)"
+    ]
+  },
+  {
+    "option_name": "ntp_access_group_configured",
+    "option_description": "Controls whether an NTP access-group (Cisco) or equivalent platform ACL is applied to the router's NTP service, restricting which source IP addresses or peers are permitted to query, synchronize with, or act as a peer to the router's NTP process. Without this restriction, any host can interact with the router's NTP daemon, including submitting time updates that could manipulate the clock.",
+    "security_impact": "The Rego policy includes a compound condition where 'ntp_servers_configured == true' AND 'ntp_authentication_enabled' is false AND 'ntp_access_group_configured' is false together reinforce the 'Ntp Unauthenticated Synchronization' finding. Even if NTP authentication is absent, having an access group reduces the attack surface by limiting which hosts can send NTP traffic to the router. An absent access group means any attacker-reachable host can attempt NTP spoofing or amplification attacks using the router as a reflector, or inject crafted NTP responses to shift the router's clock, corrupting log timestamps and disrupting RPKI, BGP timer calculations, or certificate-based authentication.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, display the NTP configuration section and look for access-group statements that define trusted NTP query and peer sources.",
+        "command": "show running-config | section ntp",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines such as 'ntp access-group peer 10', 'ntp access-group serve-only 20', or 'ntp access-group query-only 30' confirm the attribute is true. Absence of any 'ntp access-group' line means false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, check whether restrict or allow statements are defined within the NTP configuration stanza to control peer access.",
+        "command": "show configuration system ntp | display set | match restrict",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output containing 'set system ntp restrict <network>' statements confirms an NTP access restriction is in place (true). No matching output indicates false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the exported router configuration for NTP access-group or equivalent directives paired with their referenced ACL definitions.",
+        "command": "grep -E 'ntp access-group|ntp restrict|ntp-acl' /tftp-server/configs/<router-hostname>-running.cfg",
+        "file_path": "/tftp-server/configs/<router-hostname>-running.cfg",
+        "navigation": null,
+        "expected_output": "At least one matching line confirms ntp_access_group_configured = true. Zero matches means the attribute is false and the NTP service is unrestricted."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an untrusted host outside the expected NTP peer range, attempt an NTP query against the router's management or loopback IP to verify whether the access restriction drops or responds to the request.",
+        "command": "ntpdate -q <router-management-ip> || ntpdc -n -c peers <router-management-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the access group is correctly configured, the query should time out or be refused. A successful time response from an unauthorized source indicates ntp_access_group_configured is effectively false or misconfigured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (the majority of routers in real deployments do not configure NTP access groups, leaving the service open)",
+      "true (found on hardened devices following CIS Cisco IOS benchmarks or NIST SP 800-54 guidance)"
+    ]
+  }
+]

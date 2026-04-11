@@ -1,0 +1,253 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "sensitivity_classification_label": {
+        "type": "string",
+        "enum": [
+          "unclassified",
+          "pending_review",
+          "possible_pii",
+          "confirmed_pii",
+          "confirmed_non_pii"
+        ],
+        "title": "Sensitivity Classification Label",
+        "description": "The formally assigned data sensitivity classification label for this data asset, indicating whether it has been reviewed and labeled by a data governance or privacy process. Covers both sensitivity tier and PII classification status.",
+        "default": "unclassified"
+      },
+      "personal_data_indicator": {
+        "type": "boolean",
+        "title": "Personal Data Indicator",
+        "description": "Whether the data asset is known or suspected to contain personal information (PII, PHI, or similar), based on discovery scans, schema analysis, or owner attestation. True indicates personal data is present or possibly present.",
+        "default": false
+      },
+      "retention_schedule_defined": {
+        "type": "boolean",
+        "title": "Retention Schedule Defined",
+        "description": "Indicates whether a documented and enforced retention period exists for this data asset. True means a formal retention schedule has been documented and applied.",
+        "default": false
+      },
+      "retention_enforcement_mechanism": {
+        "type": "string",
+        "enum": [
+          "automated_deletion",
+          "automated_archival",
+          "manual_documented_process",
+          "none"
+        ],
+        "title": "Retention Enforcement Mechanism",
+        "description": "The method by which the retention policy is technically enforced for this data asset.",
+        "default": "none"
+      },
+      "access_control_model": {
+        "type": "string",
+        "enum": [
+          "rbac_scoped",
+          "abac_scoped",
+          "shared_credentials",
+          "overpermissioned_role",
+          "none"
+        ],
+        "title": "Access Control Model",
+        "description": "The access control model applied to this data asset. Indicates whether fine-grained role or attribute-based controls are in place, or whether access is broader (shared credentials, all-staff roles, or no defined model)."
+      },
+      "authorized_roles_defined": {
+        "type": "boolean",
+        "title": "Authorized Roles Explicitly Defined",
+        "description": "Whether the asset has an explicit, documented list of roles or principals authorized to access it, scoped to the minimum necessary for their function.",
+        "default": false
+      },
+      "encryption_at_rest_enabled": {
+        "type": "boolean",
+        "title": "Encryption at Rest Enabled",
+        "description": "Indicates whether the persistent storage layer (e.g., disk, volume, database tablespace) has encryption at rest mandated and verified as active.",
+        "default": false
+      },
+      "encryption_policy_mandated": {
+        "type": "boolean",
+        "title": "Encryption Policy Mandated",
+        "description": "Indicates whether an organizational or regulatory policy explicitly requires encryption at rest for this data asset or its classification tier."
+      },
+      "anonymization_pseudonymization_applied": {
+        "type": "boolean",
+        "title": "Anonymization or Pseudonymization Applied",
+        "description": "Indicates whether stored records containing or possibly containing personal information have undergone anonymization or pseudonymization techniques (e.g., tokenization, k-anonymity, differential privacy, hashing with salt) prior to or during persistence.",
+        "default": false
+      },
+      "privacy_by_design_assessment_completed": {
+        "type": "boolean",
+        "title": "Privacy-by-Design Assessment Completed",
+        "description": "Indicates whether a formal privacy-by-design or Data Protection Impact Assessment (DPIA) has been completed for this data asset, confirming that privacy controls including anonymization or pseudonymization requirements have been evaluated."
+      },
+      "data_residency_controls_enforced": {
+        "type": "boolean",
+        "title": "Data Residency Controls Enforced",
+        "description": "Indicates whether technical and/or policy controls (e.g., geo-restrictions, cloud region locking, storage policies) are in place to prevent or govern cross-border data movement for this asset.",
+        "default": false
+      },
+      "cross_border_transfer_mechanism": {
+        "type": "string",
+        "enum": [
+          "adequacy_decision",
+          "standard_contractual_clauses",
+          "binding_corporate_rules",
+          "derogation",
+          "none"
+        ],
+        "title": "Cross-Border Transfer Legal Mechanism",
+        "description": "The legal mechanism, if any, that authorises transfer of personal data across jurisdictions for this asset.",
+        "default": "none"
+      },
+      "disposal_procedure_defined": {
+        "type": "boolean",
+        "title": "Disposal Procedure Defined",
+        "description": "Whether a documented end-of-life disposal procedure (e.g., secure deletion, media sanitisation, crypto-shredding) is formally defined and assigned to this data asset.",
+        "default": false
+      }
+    },
+    "required": [
+      "sensitivity_classification_label",
+      "personal_data_indicator",
+      "retention_schedule_defined",
+      "retention_enforcement_mechanism",
+      "access_control_model",
+      "authorized_roles_defined",
+      "encryption_at_rest_enabled",
+      "encryption_policy_mandated",
+      "anonymization_pseudonymization_applied",
+      "privacy_by_design_assessment_completed",
+      "data_residency_controls_enforced",
+      "cross_border_transfer_mechanism",
+      "disposal_procedure_defined"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Data Governance",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cross_border_transfer_mechanism"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/data_residency_controls_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/personal_data_indicator"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/retention_enforcement_mechanism"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/retention_schedule_defined"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitivity_classification_label"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_control_model"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/authorized_roles_defined"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/last_access_review_days_ago"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/anonymization_pseudonymization_applied"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_at_rest_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_policy_mandated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/privacy_by_design_assessment_completed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/disposal_procedure_defined"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/persistent_storage_locations"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

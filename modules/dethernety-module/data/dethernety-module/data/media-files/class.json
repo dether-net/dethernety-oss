@@ -1,0 +1,8 @@
+{
+  "name": "Media Files",
+  "classType": "data",
+  "type": "data",
+  "description": "Data asset that may contain personal information and is stored persistently presents significant risks due to ambiguous classification, uncertain retention boundaries, and potential gaps in access control, encryption, and disposal. The phrase 'possibly contain' signals that classification has not been formally determined, meaning downstream controls — encryption, masking, retention schedules, and disposal — may be inconsistently applied or entirely absent.",
+  "category": "Sensitive Information",
+  "status": "reviewed"
+}

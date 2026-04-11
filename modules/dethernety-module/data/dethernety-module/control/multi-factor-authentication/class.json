@@ -1,0 +1,8 @@
+{
+  "name": "Multi-Factor Authentication",
+  "classType": "control",
+  "type": "Multi-Factor Authentication",
+  "description": "Multi-factor authentication (MFA) enhances identity verification by requiring users to present two or more distinct verification factors beyond passwords. When properly configured, it significantly reduces unauthorized access by ensuring that compromised credentials alone are insufficient for authentication. Effectiveness depends on factor diversity, enrollment coverage, bypass resistance, and integration depth across protected systems.",
+  "category": "Access Control",
+  "status": "reviewed"
+}

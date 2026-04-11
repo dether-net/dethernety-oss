@@ -1,0 +1,8 @@
+{
+  "name": "Cloud Service",
+  "classType": "component",
+  "type": "EXTERNAL_ENTITY",
+  "description": "Third-party service providing cloud offerings, with security policies governing user access.",
+  "category": "External Services",
+  "status": "reviewed"
+}

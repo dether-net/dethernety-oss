@@ -1,0 +1,153 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "realtime_scanning_enabled": true,
+      "detection_engines_active": [
+        "heuristic"
+      ],
+      "signature_definition_age_days": 3,
+      "policy_tamper_protection_enabled": true,
+      "baseline_framework": "none",
+      "behavioral_protection_enabled": true,
+      "protection_capabilities": [
+        "code_injection_prevention",
+        "fileless_execution_detection"
+      ],
+      "automated_response_enabled": false,
+      "allowlist_enforcement_enabled": false,
+      "telemetry_logging_enabled": false,
+      "edr_api_integration_status": "degraded",
+      "signature_update_enabled": false,
+      "centralized_console_enabled": false,
+      "enforcement_mode": "enforce",
+      "compliance_percentage": 0,
+      "drift_detection_enabled": true,
+      "prevention_mode": "prevent",
+      "response_actions_configured": [],
+      "coverage_percentage": 0,
+      "enforcement_scope": "none",
+      "policy_applies_to_standard_users": false,
+      "telemetry_event_types_covered": [
+        "default"
+      ],
+      "siem_integration_status": "not_configured",
+      "alert_enrichment_configured": false,
+      "signature_age_hours": 0,
+      "update_source_reachable": true,
+      "policy_deployment_status": "fully_deployed",
+      "unhealthy_agent_percentage": 0
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "realtime_scanning_enabled": false,
+      "baseline_framework": "cis",
+      "enforcement_mode": "enforce",
+      "compliance_percentage": 95,
+      "behavioral_protection_enabled": false,
+      "automated_response_enabled": true,
+      "prevention_mode": "enforce",
+      "response_actions_configured": [
+        "item_0",
+        "item_1"
+      ],
+      "allowlist_enforcement_enabled": true,
+      "enforcement_scope": "full",
+      "policy_applies_to_standard_users": true,
+      "telemetry_logging_enabled": true,
+      "telemetry_event_types_covered": [
+        "process_creation",
+        "file_operations",
+        "network_connections"
+      ],
+      "siem_integration_status": true,
+      "edr_api_integration_status": "active",
+      "signature_update_enabled": true,
+      "signature_age_hours": 24,
+      "update_source_reachable": true,
+      "centralized_console_enabled": true,
+      "policy_deployment_status": "fully_deployed",
+      "unhealthy_agent_percentage": 5,
+      "detection_engines_active": [
+        "default"
+      ],
+      "signature_definition_age_days": 0,
+      "policy_tamper_protection_enabled": false,
+      "drift_detection_enabled": true,
+      "protection_capabilities": [
+        "default"
+      ],
+      "coverage_percentage": 0,
+      "alert_enrichment_configured": false
+    },
+    "expectedCountermeasures": [
+      "Configuration Baseline Enforcement",
+      "Real Time Malware Detection Accuracy",
+      "Behavioral Execution Prevention",
+      "Operational Policy Maintainability",
+      "Application Control Whitelist Enforcement",
+      "Signature Update And Definition Currency",
+      "Automated Threat Response Coverage",
+      "Siem And Edr Integration Depth"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "realtime_scanning_enabled": false,
+      "detection_engines_active": [
+        "partial"
+      ],
+      "signature_definition_age_days": 0,
+      "policy_tamper_protection_enabled": false,
+      "baseline_framework": "none",
+      "enforcement_mode": "enforce",
+      "compliance_percentage": 0,
+      "drift_detection_enabled": true,
+      "behavioral_protection_enabled": false,
+      "prevention_mode": "prevent",
+      "protection_capabilities": [
+        "partial"
+      ],
+      "automated_response_enabled": true,
+      "response_actions_configured": [
+        "partial"
+      ],
+      "coverage_percentage": 0,
+      "allowlist_enforcement_enabled": true,
+      "enforcement_scope": "none",
+      "policy_applies_to_standard_users": true,
+      "telemetry_logging_enabled": true,
+      "telemetry_event_types_covered": [
+        "partial"
+      ],
+      "siem_integration_status": "not_configured",
+      "edr_api_integration_status": "degraded",
+      "alert_enrichment_configured": false,
+      "signature_update_enabled": true,
+      "signature_age_hours": 0,
+      "update_source_reachable": true,
+      "centralized_console_enabled": true,
+      "policy_deployment_status": "fully_deployed",
+      "unhealthy_agent_percentage": 0
+    },
+    "expectedCountermeasures": [
+      "Real Time Malware Detection Accuracy",
+      "Behavioral Execution Prevention",
+      "Operational Policy Maintainability",
+      "Signature Update And Definition Currency"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

@@ -1,17 +1,24 @@
-import { DtNeo4jOpaModule } from "@dethernety/dt-module";
+import { DtFileOpaModule } from '@dethernety/dt-module';
 import { Logger } from '@nestjs/common';
+import * as path from 'path';
 
 /**
- * Dethernety core module providing built-in classes for threat modeling.
+ * Dethernety core module — file-based, Studio-generated classes.
  *
- * The DTModule node and class definitions are now managed via Cypher data
- * ingestion scripts (data/01-module.cypher, data/02-classes.cypher) that
- * run during module package installation.
+ * Class data lives in data/dethernety-module/ alongside the compiled JS.
+ * The module registry instantiates with (driver, logger); this constructor
+ * resolves moduleDataDir relative to its own file location.
  */
-class DethernetyModule extends DtNeo4jOpaModule {
+class DethernetyModule extends DtFileOpaModule {
   constructor(driver: any, logger: Logger) {
-    const moduleName = process.env.DETHERNETY_MODULE_NAME || process.env.INTERNAL_MODULE_NAME || 'dethernety';
-    super(moduleName, driver, logger);
+    const moduleName = 'dethernety-module';
+
+    // Resolve data dir relative to compiled JS location.
+    // Installed layout: custom_modules/dethernety-module/DethernetyModule.js
+    //                   custom_modules/dethernety-module/data/dethernety-module/
+    const moduleDataDir = path.resolve(__dirname, 'data');
+
+    super(moduleDataDir, moduleName, driver, logger);
   }
 }
 

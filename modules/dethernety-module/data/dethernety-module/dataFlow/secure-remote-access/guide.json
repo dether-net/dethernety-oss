@@ -1,0 +1,1488 @@
+[
+  {
+    "option_name": "minimum_tls_version",
+    "option_description": "Controls the lowest TLS/SSL protocol version the server will accept during the TLS handshake negotiation. This is the floor setting that determines which legacy protocol versions remain available to connecting clients.",
+    "security_impact": "Directly triggers the weak_tls_protocol_version Rego rule when set to ssl_3_0, tls_1_0, or tls_1_1. Versions below TLS 1.2 are vulnerable to POODLE (SSLv3/TLS 1.0), BEAST (TLS 1.0), and DROWN attacks. Even if minimum_tls_version is tls_1_2 or tls_1_3, the policy still fires if deprecated_versions_explicitly_disabled is false, meaning a passive listing approach without active denial is treated as insufficient. Also contributes to missing_hsts_or_protocol_downgrade_protection exposure when legacy versions are accepted.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Test the server's minimum accepted protocol using OpenSSL against specific legacy versions to determine what the server actually accepts at the handshake level.",
+        "command": "for v in ssl3 tls1 tls1_1 tls1_2 tls1_3; do echo -n \"$v: \"; openssl s_client -connect <host>:443 -$v </dev/null 2>&1 | grep -E 'Protocol|handshake failure|alert'; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing 'Protocol: TLSv1.2' or 'Protocol: TLSv1.3' for accepted versions, and 'handshake failure' or 'alert' for rejected legacy versions."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the nginx TLS configuration for ssl_protocols directive, or Apache for SSLProtocol, to see the explicitly listed protocol versions.",
+        "command": "grep -rE 'ssl_protocols|SSLProtocol|SSLEnabledProtocols' /etc/nginx/ /etc/apache2/ /etc/httpd/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf or /etc/nginx/conf.d/*.conf or /etc/apache2/sites-enabled/*.conf",
+        "navigation": null,
+        "expected_output": "nginx: 'ssl_protocols TLSv1.2 TLSv1.3;' — Apache: 'SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1' or 'SSLProtocol TLSv1.2 TLSv1.3'"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use sslyze to enumerate all accepted TLS protocol versions in a single scan against the target endpoint.",
+        "command": "sslyze --tlsv1 --tlsv1_1 --tlsv1_2 --tlsv1_3 --sslv3 <host>:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Protocol scan results listing 'OK - Supported' or 'REJECTED' per version. Only TLSv1.2 and TLSv1.3 should show as supported."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS ALB/CloudFront, query the current security policy name via AWS CLI to determine which protocol versions are included in the policy.",
+        "command": "aws elbv2 describe-listeners --load-balancer-arn <ALB_ARN> --query 'Listeners[*].[ListenerArn,SslPolicy]' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy name such as 'ELBSecurityPolicy-TLS13-1-2-2021-06' — cross-reference against AWS documentation to confirm minimum TLS version included in the policy."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls_1_2",
+      "tls_1_3",
+      "tls_1_0",
+      "tls_1_1"
+    ]
+  },
+  {
+    "option_name": "deprecated_versions_explicitly_disabled",
+    "option_description": "Indicates whether SSL 3.0, TLS 1.0, and TLS 1.1 are explicitly denied in server configuration using active negation syntax, rather than simply being omitted from a protocol allowlist. Passive omission versus active denial is a meaningful configuration distinction.",
+    "security_impact": "The weak_tls_protocol_version Rego rule fires specifically when minimum_tls_version is tls_1_2 or tls_1_3 but deprecated_versions_explicitly_disabled is false. This reflects that some TLS stacks may fall back to unlisted-but-available protocols if not actively suppressed via flags like no_sslv3/no_tlsv1 in OpenSSL or negation tokens in cipher/protocol strings. Setting this to false also contributes to the tls_downgrade_protection fallback condition in the policy.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check nginx ssl_protocols for absence of legacy versions and Apache SSLProtocol for explicit negation flags (e.g., -TLSv1 -TLSv1.1 -SSLv3).",
+        "command": "grep -rE 'ssl_protocols|SSLProtocol' /etc/nginx/ /etc/apache2/ /etc/httpd/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/apache2/sites-available/*.conf",
+        "navigation": null,
+        "expected_output": "nginx: 'ssl_protocols TLSv1.2 TLSv1.3;' (legacy versions absent). Apache: 'SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1' (explicit negation present)."
+      },
+      {
+        "type": "command",
+        "instruction": "Check OpenSSL compile-time and runtime options to verify that no_sslv3, no_tlsv1, no_tlsv1_1 flags are set in the application's TLS context if using a custom SSL implementation.",
+        "command": "openssl ciphers -v 'DEFAULT' | grep -iE 'SSLv3|TLSv1(?!\\.)' && openssl version -a",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output from the grep command indicates SSLv3 and early TLS suites are not present in the default context. 'openssl version -a' should show a modern build."
+      },
+      {
+        "type": "command",
+        "instruction": "For Java-based services, inspect the enabled protocols in the SSLContext by reviewing application configuration or JVM arguments for jdk.tls.disabledAlgorithms.",
+        "command": "grep -rE 'disabledAlgorithms|enabledProtocols|TLSv1\\.?[01]|SSLv3' /etc/java*/ /opt/java/ /usr/lib/jvm/ $(find / -name 'java.security' 2>/dev/null | head -5) 2>/dev/null",
+        "file_path": "/usr/lib/jvm/*/jre/lib/security/java.security or /etc/java-*/security/java.security",
+        "navigation": null,
+        "expected_output": "jdk.tls.disabledAlgorithms property should include 'SSLv3, TLSv1, TLSv1.1' entries to confirm explicit disablement."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "tls_downgrade_protection_enabled",
+    "option_description": "Indicates whether the server supports and enforces TLS_FALLBACK_SCSV (RFC 7507), a signaling cipher suite value that prevents protocol downgrade attacks initiated by a MitM attacker manipulating client hello messages to force negotiation of older protocol versions.",
+    "security_impact": "Referenced in the weak_tls_protocol_version Rego rule's third condition: when both tls_downgrade_protection_enabled and deprecated_versions_explicitly_disabled are false, the exposure fires regardless of minimum_tls_version setting. TLS_FALLBACK_SCSV provides a defense-in-depth layer — if an attacker strips TLS 1.3 capability from a client hello to force TLS 1.2 or lower, the SCSV signals the server that a fallback occurred and the server should abort the handshake.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Use OpenSSL's s_client with the -fallback_scsv flag to verify the server rejects a downgrade attempt with an 'inappropriate fallback' alert.",
+        "command": "openssl s_client -connect <host>:443 -tls1_2 -fallback_scsv 2>&1 | grep -E 'fallback|alert|CONNECTED'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If TLS_FALLBACK_SCSV is enforced and TLS 1.3 is available, the server should return 'tlsv1 alert inappropriate fallback (SSL alert number 86)' when a client offers TLS 1.2 with FALLBACK_SCSV set."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use sslyze's downgrade test module to check for TLS_FALLBACK_SCSV support on the target endpoint.",
+        "command": "sslyze --fallback <host>:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "sslyze output showing 'OK - Supported' for the fallback SCSV test, indicating the server correctly rejects inappropriate downgrade attempts."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For nginx compiled with OpenSSL >= 1.0.1j or 1.0.2, FALLBACK_SCSV is automatically supported when modern protocol settings are configured. Verify the OpenSSL version used by nginx.",
+        "command": "nginx -V 2>&1 | grep -i openssl && openssl version",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "OpenSSL version 1.0.1j or higher indicates FALLBACK_SCSV is compiled in. Version >= 1.1.0 or 3.x is strongly preferred."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "allowed_cipher_suites",
+    "option_description": "The explicit list of TLS cipher suite identifiers (in IANA or OpenSSL naming format) that the server will accept during TLS handshake negotiation. This list determines the cryptographic algorithms available for key exchange, bulk encryption, and message authentication for every session.",
+    "security_impact": "Used by two Rego rules: insufficient_cipher_suite_strength fires if the list contains any suite matching RC4, 3DES, EXPORT, NULL, aNULL, eNULL, ADH, AECDH, RC2, IDEA, SEED, MD5, or CAMELLIA128 patterns. The no_forward_secrecy_on_channel rule also fires if any TLS_RSA_WITH_ prefixed suite is present in the list, as RSA key exchange lacks ephemeral keys. The list must consist exclusively of AEAD cipher suites using ECDHE or DHE key exchange (e.g., TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_AES_256_GCM_SHA384 for TLS 1.3).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Extract the cipher suite configuration from nginx (ssl_ciphers) or Apache (SSLCipherSuite) configuration files.",
+        "command": "grep -rE 'ssl_ciphers|SSLCipherSuite' /etc/nginx/ /etc/apache2/ /etc/httpd/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/apache2/ssl.conf, /etc/httpd/conf.d/ssl.conf",
+        "navigation": null,
+        "expected_output": "nginx: 'ssl_ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:...' — Apache: 'SSLCipherSuite ECDHE+AESGCM:ECDHE+CHACHA20'"
+      },
+      {
+        "type": "command",
+        "instruction": "Expand an OpenSSL cipher string to list all individual cipher suites it resolves to, allowing verification of what suites are actually included.",
+        "command": "openssl ciphers -v 'ECDHE+AESGCM:ECDHE+CHACHA20:!aNULL:!MD5' 2>/dev/null | awk '{print $1, $2}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of individual cipher suite names with their protocol version (TLSv1.2 or TLSv1.3). Confirm no RC4, 3DES, NULL, or EXPORT suites appear."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use sslyze or testssl.sh to enumerate the full set of accepted cipher suites by probing the live server.",
+        "command": "sslyze --tlsv1_2 --tlsv1_3 --regular <host>:443 | grep -A 50 'Cipher Suites'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of accepted suites per TLS version. All entries should be ECDHE or DHE-based with GCM or CHACHA20-POLY1305. No RSA key exchange, RC4, 3DES, or NULL suites should appear."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS ALB, retrieve the security policy details to see the exact cipher suites included in the named policy.",
+        "command": "aws elbv2 describe-ssl-policies --names ELBSecurityPolicy-TLS13-1-2-2021-06 --query 'SslPolicies[*].Ciphers[*].Name' --output text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of IANA cipher suite names included in the policy. Verify against the AWS documentation that no weak suites are included in the selected policy."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+      "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+      "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+      "TLS_AES_256_GCM_SHA384",
+      "TLS_AES_128_GCM_SHA256",
+      "TLS_CHACHA20_POLY1305_SHA256",
+      "ECDHE-RSA-AES256-GCM-SHA384",
+      "ECDHE-RSA-CHACHA20-POLY1305"
+    ]
+  },
+  {
+    "option_name": "weak_cipher_suites_explicitly_disabled",
+    "option_description": "Indicates whether the TLS cipher configuration actively excludes weak, export-grade, and NULL cipher suites using an explicit deny-list (e.g., !RC4:!3DES:!EXPORT:!NULL in OpenSSL notation) or whether the allowlist has been verified to contain only strong AEAD suites, making weak suites implicitly absent.",
+    "security_impact": "The insufficient_cipher_suite_strength Rego rule fires unconditionally when weak_cipher_suites_explicitly_disabled is false, regardless of whether the allowed_cipher_suites list looks clean. This reflects that passive omission is insufficient — without active exclusion, library defaults or future configuration changes may re-introduce weak suites. RC4 is vulnerable to statistical attacks, 3DES to SWEET32, EXPORT suites to FREAK and Logjam, and NULL suites provide no encryption at all.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the cipher suite string in nginx or Apache configuration for explicit negation tokens that deny weak suites.",
+        "command": "grep -rE 'ssl_ciphers|SSLCipherSuite' /etc/nginx/ /etc/apache2/ /etc/httpd/ 2>/dev/null | grep -E '(!RC4|!3DES|!EXPORT|!NULL|!aNULL|!eNULL|!ADH|!AECDH|!MD5)'",
+        "file_path": "/etc/nginx/nginx.conf, /etc/apache2/mods-enabled/ssl.conf",
+        "navigation": null,
+        "expected_output": "Output containing negation tokens such as '!RC4:!3DES:!EXPORT:!NULL:!aNULL:!eNULL' confirms explicit disablement. Empty output indicates reliance on allowlist only."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use testssl.sh to specifically probe for weak cipher suite support on the live endpoint, checking for RC4, 3DES, EXPORT, and NULL acceptance.",
+        "command": "testssl.sh --warnings off --cipher-per-proto --parallel <host>:443 2>/dev/null | grep -iE 'RC4|3DES|EXPORT|NULL|aNULL|WEAK'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output or all entries showing 'not offered' or 'not supported' confirms weak suites are not accepted. Any 'offered' or 'supported' entry indicates a misconfiguration."
+      },
+      {
+        "type": "command",
+        "instruction": "Expand the current cipher string through OpenSSL and grep for any known-weak algorithm names to verify they are absent from the resolved suite list.",
+        "command": "openssl ciphers -v 'ALL:COMPLEMENTOFALL' 2>/dev/null | grep -iE 'RC4|RC2|DES(?!_EDE3_CBC_WITH_AES)|EXPORT|NULL|aNULL|ADH|AECDH' | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the server's actual cipher string (substituted for 'ALL:COMPLEMENTOFALL') returns no matching lines, weak suites are absent. The presence of any matches requires review."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "forward_secrecy_enforced",
+    "option_description": "Indicates whether the TLS endpoint configuration restricts key exchange exclusively to ephemeral algorithms (ECDHE or DHE), ensuring that session keys are generated fresh for every connection and cannot be derived from the server's long-term private key after the fact.",
+    "security_impact": "The no_forward_secrecy_on_channel Rego rule fires when forward_secrecy_enforced is false. It also independently fires when the allowed_cipher_suites list contains any TLS_RSA_WITH_ prefixed suite. Without forward secrecy, an attacker who captures encrypted traffic and later obtains the server's private key (through breach, court order, or cryptanalysis) can decrypt all historically recorded sessions. ECDHE is preferred over DHE due to performance and the ability to use stronger curves (e.g., X25519).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Verify that the cipher suite configuration in nginx or Apache restricts key exchange to ECDHE/DHE families and contains no TLS_RSA_WITH or plain RSA exchange suites.",
+        "command": "grep -rE 'ssl_ciphers|SSLCipherSuite' /etc/nginx/ /etc/apache2/ /etc/httpd/ 2>/dev/null && openssl ciphers -v \"$(grep ssl_ciphers /etc/nginx/nginx.conf | awk '{print $2}' | tr -d ';')\" 2>/dev/null | grep -v 'ECDH\\|DH' | grep -v 'TLSv1.3'",
+        "file_path": "/etc/nginx/nginx.conf, /etc/apache2/sites-available/default-ssl.conf",
+        "navigation": null,
+        "expected_output": "The openssl ciphers expansion should return only ECDHE or DHE suites. Any RSA key exchange suite appearing in output without ECDHE/DHE indicates forward secrecy is not enforced."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Connect with OpenSSL and inspect the 'Server Temp Key' field in the handshake output, which appears only when ephemeral key exchange is used.",
+        "command": "echo Q | openssl s_client -connect <host>:443 -tls1_2 2>/dev/null | grep -E 'Server Temp Key|Cipher'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Server Temp Key: ECDH, P-256, 256 bits' or 'Server Temp Key: X25519, 253 bits' confirms ephemeral key exchange. Absence of 'Server Temp Key' line indicates RSA key exchange (no PFS)."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use sslyze to verify forward secrecy by inspecting cipher suite key exchange attributes across TLS versions.",
+        "command": "sslyze --tlsv1_2 --tlsv1_3 <host>:443 2>/dev/null | grep -iE 'Forward Secrecy|ECDHE|DHE|RSA_WITH'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "sslyze reports forward secrecy status per connection. All negotiated suites should show ECDHE or DHE key exchange. Any RSA_WITH suite without ECDHE prefix is a finding."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "client_certificate_required",
+    "option_description": "Controls whether the TLS endpoint mandates that connecting clients present a valid X.509 certificate as part of the mutual TLS (mTLS) handshake. When true, the server issues a CertificateRequest during the TLS handshake and rejects connections from clients that cannot provide a valid certificate.",
+    "security_impact": "The missing_mutual_tls_authentication Rego rule fires directly when client_certificate_required is false. mTLS provides cryptographic client identity verification that cannot be bypassed by credential stuffing or token theft attacks. Without it, any client reaching the network endpoint can establish an encrypted session. This is critical for service-to-service authentication in zero-trust architectures and for protecting sensitive remote access endpoints from unauthorized actors who have network reachability.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the TLS listener configuration in nginx for ssl_verify_client directive, or Apache for SSLVerifyClient directive.",
+        "command": "grep -rE 'ssl_verify_client|SSLVerifyClient|ClientAuth|client_auth|tls.ClientAuth' /etc/nginx/ /etc/apache2/ /etc/httpd/ /opt/ /app/ 2>/dev/null",
+        "file_path": "/etc/nginx/conf.d/*.conf, /etc/apache2/sites-enabled/*.conf",
+        "navigation": null,
+        "expected_output": "nginx: 'ssl_verify_client on;' or 'ssl_verify_client require;' — Apache: 'SSLVerifyClient require' — Go TLS: 'ClientAuth: tls.RequireAndVerifyClientCert' — Any value of 'off', 'optional', or 'none' means client cert is not required."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a TLS connection without providing a client certificate and observe whether the server accepts or rejects the connection.",
+        "command": "openssl s_client -connect <host>:443 -no_ssl3 </dev/null 2>&1 | grep -E 'Acceptable client|Verify return|alert|CONNECTED|handshake'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If mTLS is required: 'alert handshake failure' or 'SSL alert number 40' or 'tlsv1 alert certificate required'. 'Verify return code: 0 (ok)' without a client cert means mTLS is NOT enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes ingress controllers or service meshes (Istio/Linkerd), check the TLS mode or peer authentication policy for client certificate enforcement.",
+        "command": "kubectl get peerauthentication --all-namespaces -o yaml 2>/dev/null | grep -E 'mtlsMode|mode' && kubectl get ingress --all-namespaces -o yaml 2>/dev/null | grep -iE 'client-cert|mutual|auth-tls'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Istio PeerAuthentication with 'mode: STRICT' confirms mTLS is required for the namespace. Ingress annotations like 'nginx.ingress.kubernetes.io/auth-tls-verify-client: on' indicate enforcement."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS API Gateway, check the mutual TLS authentication configuration on the custom domain name.",
+        "command": "aws apigatewayv2 get-domain-names --query 'Items[*].[DomainName,MutualTlsAuthentication]' --output table 2>/dev/null || aws apigateway get-domain-names --query 'items[*].[domainName,mutualTlsAuthentication]' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of a 'truststoreUri' value in the MutualTlsAuthentication field confirms mTLS is configured. An empty or null MutualTlsAuthentication field means mTLS is not enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "client_ca_certificate_configured",
+    "option_description": "Indicates whether a trusted Certificate Authority (CA) bundle or trust store has been loaded into the server's TLS configuration for the purpose of validating client certificates. Without this, even if client certificate requirement is enabled, the server has no reference material to verify presented certificates against and validation cannot succeed.",
+    "security_impact": "The missing_mutual_tls_authentication Rego rule fires on a second condition: when client_certificate_required is true but client_ca_certificate_configured is false. This represents a broken mTLS configuration — the server demands a certificate but cannot validate it, which typically results in either accepting all certificates (including self-signed or malicious ones) or rejecting all connections. Neither outcome achieves the intended security goal. A properly configured CA bundle is the validation anchor that makes mTLS cryptographically meaningful.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check for the client CA certificate configuration in nginx (ssl_client_certificate), Apache (SSLCACertificateFile/SSLCACertificatePath), or Go TLS config (ClientCAs).",
+        "command": "grep -rE 'ssl_client_certificate|SSLCACertificateFile|SSLCACertificatePath|ClientCAs|client-ca-file|clientCAFile' /etc/nginx/ /etc/apache2/ /etc/httpd/ /opt/ /app/ /etc/kubernetes/ 2>/dev/null",
+        "file_path": "/etc/nginx/conf.d/*.conf, /etc/apache2/sites-enabled/*.conf, /etc/ssl/certs/",
+        "navigation": null,
+        "expected_output": "nginx: 'ssl_client_certificate /etc/ssl/ca/client-ca.pem;' — Apache: 'SSLCACertificateFile /etc/ssl/ca/client-ca.crt' — Kubernetes: '--client-ca-file=/etc/kubernetes/pki/ca.crt'. An empty result means no client CA is configured."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the referenced CA certificate file exists, is readable, and contains valid PEM-encoded certificate data.",
+        "command": "CA_FILE=$(grep -rE 'ssl_client_certificate|SSLCACertificateFile' /etc/nginx/ /etc/apache2/ 2>/dev/null | awk '{print $NF}' | tr -d ';' | head -1) && [ -f \"$CA_FILE\" ] && openssl x509 -in \"$CA_FILE\" -noout -subject -issuer -dates 2>/dev/null || echo 'CA file not found or invalid'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Valid output shows Subject, Issuer, and validity dates for the CA certificate. 'CA file not found or invalid' means the configuration references a missing or malformed file."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Inspect the TLS handshake to see if the server sends a list of acceptable client certificate issuers in its CertificateRequest message, which only appears when a CA bundle is properly configured.",
+        "command": "openssl s_client -connect <host>:443 -prexit 2>&1 </dev/null | grep -A 20 'Acceptable client certificate CA names'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Acceptable client certificate CA names' followed by Distinguished Names (DNs) of trusted CAs confirms the CA bundle is loaded and presented during handshake. 'No client certificate CA names sent' means no CA bundle is configured."
+      },
+      {
+        "type": "api",
+        "instruction": "For Kubernetes clusters using mTLS, verify the client CA is configured in the API server or ingress controller by checking the relevant ConfigMap or Secret.",
+        "command": "kubectl get secret -n <namespace> --field-selector type=kubernetes.io/tls -o jsonpath='{.items[*].metadata.name}' && kubectl describe secret <tls-secret-name> -n <namespace> 2>/dev/null | grep -E 'ca.crt|client-ca'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of a 'ca.crt' key in the TLS secret with non-empty data confirms a CA certificate is configured. Missing 'ca.crt' entry indicates no client CA bundle is present."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "certificate_chain_validation_enforced",
+    "option_description": "Controls whether the TLS implementation performs full certificate chain validation, including verifying the trust anchor (root CA) and all intermediate CA certificates in the presented chain. When disabled, the TLS stack accepts certificates signed by untrusted or self-signed CAs without rejection.",
+    "security_impact": "The Rego rule `certificate_validation_bypass` fires when `certificate_chain_validation_enforced` is false, triggering a high-criticality (score 8) exposure. Without chain validation, an attacker performing MitM can present a self-signed or rogue CA-issued certificate and the client will accept it silently, enabling full traffic interception even though TLS is nominally in use. This maps to MITRE T1553.004 (Install Root Certificate) and T1649 (Steal or Forge Authentication Certificates).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search for Python-based TLS client configurations that disable certificate verification via the requests or ssl module.",
+        "command": "grep -rn --include='*.py' -E 'verify\\s*=\\s*False|ssl\\.CERT_NONE|VERIFY_NONE|check_hostname\\s*=\\s*False' /opt /srv /app /etc 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output indicates verification is not disabled. Any matching lines identify files where chain validation is bypassed."
+      },
+      {
+        "type": "command",
+        "instruction": "Check OpenSSL-based application or wrapper configurations for SSL_VERIFY_NONE or equivalent flags in C/C++ source or compiled config files.",
+        "command": "grep -rn --include='*.conf' --include='*.cfg' --include='*.ini' --include='*.yaml' --include='*.json' -E 'SSL_VERIFY_NONE|verify_peer\\s*=\\s*false|ssl_verify\\s*=\\s*false|insecureSkipVerify\\s*:\\s*true' /etc /opt /srv 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output is the desired result. Any match indicates chain validation is explicitly disabled in that component."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client to test whether the remote endpoint rejects a certificate from an untrusted CA; a legitimate server with chain validation enforced will fail the handshake when presented with an untrusted cert.",
+        "command": "openssl s_client -connect <remote-host>:443 -CAfile /dev/null -verify_return_error 2>&1 | grep -E 'Verify return code|certificate verify failed'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A properly configured server returns 'Verify return code: 2 (unable to get issuer certificate)' or similar chain error, confirming it enforces validation. A return code of 0 with /dev/null as CA store is a red flag."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the nginx or Apache TLS proxy configuration for ssl_verify_client directives and trusted CA bundle configuration.",
+        "command": "grep -rn -E 'ssl_verify_client|ssl_client_certificate|SSLVerifyClient|SSLCACertificateFile' /etc/nginx /etc/apache2 /etc/httpd 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/apache2/sites-enabled/, /etc/httpd/conf.d/",
+        "navigation": null,
+        "expected_output": "For mutual TLS proxies, 'ssl_verify_client on' or 'SSLVerifyClient require' confirms enforcement. Absence of a CA bundle path alongside verify directives indicates misconfiguration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "hostname_verification_enforced",
+    "option_description": "Controls whether the TLS layer compares the hostname in the certificate's Common Name (CN) or Subject Alternative Name (SAN) fields against the hostname the client is actually connecting to. When disabled, a certificate issued for any domain will be accepted for any connection, completely defeating the identity assurance purpose of TLS.",
+    "security_impact": "The Rego rule `certificate_validation_bypass` fires when `hostname_verification_enforced` is false, producing a high-criticality (score 8) exposure. Without hostname verification, a valid certificate issued for attacker.com can be presented during a connection to internal-api.corp.example and accepted, trivially enabling MitM interception. This is particularly dangerous in microservice environments where service mesh configurations may silently disable this check. Maps to MITRE T1553.004 and T1649.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Scan application source and configuration files for Go's InsecureSkipVerify, Python's check_hostname=False, and Java's HostnameVerifier ALLOW_ALL patterns.",
+        "command": "grep -rn --include='*.go' --include='*.py' --include='*.java' --include='*.js' --include='*.ts' -E 'InsecureSkipVerify\\s*:\\s*true|check_hostname\\s*=\\s*False|ALLOW_ALL_HOSTNAME_VERIFIER|hostnameVerification\\s*=\\s*false' /opt /srv /app 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches is the desired result. Any match identifies a location where hostname verification is explicitly disabled in application code."
+      },
+      {
+        "type": "command",
+        "instruction": "Check curl and wget based scripts for the -k or --insecure flags which disable hostname and certificate verification.",
+        "command": "grep -rn --include='*.sh' --include='*.bash' --include='*.zsh' -E '\\bcurl\\b.*(-k|--insecure)|\\bwget\\b.*(--no-check-certificate)' /etc /opt /usr/local/bin /srv 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output is desired. Matches indicate scripts that bypass hostname verification during HTTPS calls."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client with a mismatched SNI value to observe whether the server or client rejects the hostname mismatch; also use a tool like testssl.sh to check the certificate CN/SAN against the actual hostname.",
+        "command": "openssl s_client -connect <remote-host>:443 -servername wrong.hostname.test 2>&1 | grep -E 'subject|issuer|Verify return code'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A properly enforcing client stack will reject the mismatch at the application layer. The server certificate subject should be inspected to confirm CN/SAN alignment with the intended hostname."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review service mesh (Istio, Linkerd) or API gateway (Kong, Envoy) TLS configuration for tls_skip_verify or hostname validation override settings.",
+        "command": "kubectl get destinationrule,virtualservice -A -o yaml 2>/dev/null | grep -E 'insecureSkipVerify|subjectAltNames|tlsMode' ; grep -rn -E 'skip_verify|hostname_validation' /etc/envoy /etc/kong 2>/dev/null",
+        "file_path": "/etc/envoy/envoy.yaml, /etc/kong/kong.conf",
+        "navigation": null,
+        "expected_output": "DestinationRules should not contain 'insecureSkipVerify: true'. Envoy/Kong configs should not have hostname validation disabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "revocation_check_method",
+    "option_description": "Specifies the mechanism used to check whether a presented TLS certificate has been revoked before the handshake is accepted. Options are OCSP (online query to CA's OCSP responder), CRL (certificate revocation list download), OCSP Stapling (server embeds a pre-fetched OCSP response in the handshake), or none (no revocation checking performed).",
+    "security_impact": "The Rego rule `certificate_validation_bypass` fires when `revocation_check_method == 'none'`, producing a high-criticality (score 8) exposure. Without revocation checking, a certificate that has been compromised and revoked by the issuing CA will still be accepted as valid. This means stolen private keys cannot be effectively invalidated from a client's perspective, enabling persistent MitM even after incident response revokes the certificate. OCSP stapling is the recommended method as it avoids privacy leakage and DNS-based OCSP responder attacks.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check nginx TLS configuration for OCSP stapling directives and OCSP responder settings.",
+        "command": "grep -rn -E 'ssl_stapling|ssl_stapling_verify|ssl_trusted_certificate|ssl_ocsp' /etc/nginx 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/nginx/conf.d/",
+        "navigation": null,
+        "expected_output": "'ssl_stapling on; ssl_stapling_verify on;' with a trusted certificate path confirms OCSP stapling is enabled. Absence of these directives indicates no revocation checking."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Apache httpd configuration for OCSP stapling (SSLUseStapling) or CRL verification directives.",
+        "command": "grep -rn -E 'SSLUseStapling|SSLStaplingCache|SSLCARevocationFile|SSLCARevocationPath|SSLCARevocationCheck' /etc/apache2 /etc/httpd 2>/dev/null",
+        "file_path": "/etc/apache2/sites-enabled/, /etc/httpd/conf.d/",
+        "navigation": null,
+        "expected_output": "'SSLUseStapling On' with a defined SSLStaplingCache indicates OCSP stapling. 'SSLCARevocationCheck chain' with a CRL file indicates CRL checking."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client to check whether the server staples an OCSP response in its TLS handshake.",
+        "command": "openssl s_client -connect <remote-host>:443 -status 2>&1 | grep -A 20 'OCSP response'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'OCSP Response Status: successful (0x0)' with a next update time confirms OCSP stapling is active. 'No OCSP response sent' confirms it is absent."
+      },
+      {
+        "type": "command",
+        "instruction": "For Java-based applications (e.g., Spring Boot, Tomcat), check JVM startup flags and SSL configuration for OCSP checking properties.",
+        "command": "ps aux | grep java | grep -E 'ocsp|crl|checkRevocation' ; grep -rn -E 'checkRevocation|enableOCSP|enableCRLDP' /opt /srv /app --include='*.properties' --include='*.xml' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JVM flags like '-Dcom.sun.security.enableCRLDP=true' or '-Dcom.sun.net.ssl.checkRevocation=true' indicate revocation checking is enabled."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "ocsp_stapling",
+      "ocsp",
+      "crl"
+    ]
+  },
+  {
+    "option_name": "expired_certificates_accepted",
+    "option_description": "Indicates whether the TLS configuration is set to accept or has been observed accepting certificates whose validity period (notBefore/notAfter) has elapsed. This may be an explicit flag in the TLS library or an implicit behavior observed through penetration testing or certificate monitoring alerts.",
+    "security_impact": "The Rego rule `certificate_validation_bypass` fires when `expired_certificates_accepted == true`, producing a high-criticality (score 8) exposure. Accepting expired certificates undermines the temporal validity mechanism that ensures certificates are only trusted during a known, bounded period. Expired certificates may belong to decommissioned services, compromised keys, or abandoned infrastructure — accepting them enables an attacker to reuse old material for impersonation. Combined with absent CRL/OCSP checking, this creates a fully unvalidated trust model. Maps to MITRE T1649.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search application and TLS library configuration for flags that explicitly disable certificate time validity checking in OpenSSL-based applications.",
+        "command": "grep -rn --include='*.c' --include='*.cpp' --include='*.py' --include='*.rb' --include='*.go' --include='*.conf' -E 'X509_V_FLAG_NO_CHECK_TIME|AllowExpiredCerts|allow_expired|ignore_expired|verify_expiry\\s*=\\s*false' /opt /srv /app /etc 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output is the desired result. Any match indicates explicit code or configuration bypassing certificate expiry validation."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Present a deliberately expired test certificate to the endpoint and observe whether the connection is rejected or accepted.",
+        "command": "openssl s_client -connect <remote-host>:443 2>&1 | grep -E 'notAfter|Verify return code|certificate has expired'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Verify return code: 10 (certificate has expired)' or similar confirms expiry is being checked. A return code of 0 against an expired cert would indicate bypassing."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review TLS access logs or certificate monitoring tooling (e.g., cert-manager, Datadog TLS checks) for warnings about expired certificates that were still used successfully.",
+        "command": "grep -rn -i -E 'expired|notAfter|certificate.*expired|ssl.*expir' /var/log/nginx /var/log/apache2 /var/log/haproxy.log 2>/dev/null | tail -100",
+        "file_path": "/var/log/nginx/error.log, /var/log/apache2/error.log",
+        "navigation": null,
+        "expected_output": "Absence of 'certificate expired' entries paired with active connections to the same hosts indicates expired certificates may be accepted without error."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform or DevOps team to determine whether any certificate exception lists, bypass flags, or automation scripts exist that suppress expiry errors in CI/CD pipelines or staging environments that also apply to production.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review CI/CD pipeline configurations (GitHub Actions, Jenkins, GitLab CI) for curl -k, --insecure, or TLS verification override environment variables applied to production deployments.",
+        "expected_output": "No certificate expiry bypass controls should exist in production pipeline configurations or runtime environments."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "session_ticket_rotation_enabled",
+    "option_description": "Controls whether the TLS server rotates the symmetric encryption keys used to protect TLS session tickets on a scheduled basis. Session tickets are encrypted blobs issued by the server that allow clients to resume sessions without a full handshake; if the ticket encryption key is never rotated, any attacker who obtains it (e.g., from a memory disclosure) can decrypt all past and future session tickets encrypted with that key.",
+    "security_impact": "The Rego rule `tls_session_replay_attack` fires when `session_resumption_mechanism` is 'session_tickets' or 'psk' AND `session_ticket_rotation_enabled` is false, producing a medium-criticality (score 5) exposure. Without key rotation, a single key compromise results in a permanent exposure window — all captured session tickets become decryptable retroactively and in perpetuity. This eliminates forward secrecy properties at the session resumption layer. Maps to MITRE T1558 (Steal or Forge Kerberos Tickets) by analogy — replaying session tokens to authenticate without credentials.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect nginx TLS configuration for session ticket key rotation directives and custom ticket key file settings.",
+        "command": "grep -rn -E 'ssl_session_tickets|ssl_session_ticket_key' /etc/nginx 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/nginx/conf.d/",
+        "navigation": null,
+        "expected_output": "'ssl_session_tickets off' disables tickets entirely. Multiple 'ssl_session_ticket_key' entries with different rotation files, or an external key management cron job, indicates rotation is configured."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for cron jobs or systemd timers that perform periodic nginx ticket key rotation as recommended in security hardening guides.",
+        "command": "crontab -l 2>/dev/null; ls -la /etc/cron.d/ /etc/cron.hourly/ /etc/cron.daily/ 2>/dev/null | grep -i 'ticket\\|tls\\|ssl\\|nginx'; systemctl list-timers 2>/dev/null | grep -i 'ticket\\|tls\\|nginx'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A cron entry running a key rotation script hourly or more frequently indicates rotation is active. No such entries confirm rotation is absent."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, inspect the ssl-default-server-options and tune.ssl.lifetime for session ticket controls.",
+        "command": "grep -rn -E 'tune\\.ssl\\.lifetime|no-tls-tickets|ssl-session-tickets' /etc/haproxy 2>/dev/null",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "'no-tls-tickets' disables tickets. Absence of ticket key rotation configuration in HAProxy confirms rotation is not performed."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS ALB or CloudFront, query the AWS API to determine TLS policy and whether session ticket controls are available in the selected security policy.",
+        "command": "aws elbv2 describe-load-balancers --query 'LoadBalancers[*].{Name:LoadBalancerName,ARN:LoadBalancerArn}' --output table 2>/dev/null; aws elbv2 describe-listeners --load-balancer-arn <arn> --query 'Listeners[*].SslPolicy' 2>/dev/null",
+        "file_path": null,
+        "navigation": "AWS Console → EC2 → Load Balancers → select ALB → Listeners tab → view Security Policy name, then cross-reference with AWS documentation for ticket rotation behavior.",
+        "expected_output": "AWS manages session ticket key rotation automatically for ALB/CloudFront. For self-managed instances, the query reveals the security policy name for further investigation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "session_ticket_lifetime_seconds",
+    "option_description": "Specifies the maximum duration in seconds that a TLS session ticket remains valid before the client must perform a full TLS handshake. Shorter lifetimes reduce the window during which a captured session ticket can be replayed by an attacker. Valid range is 0–86400 seconds; values above 3600 seconds (1 hour) are considered excessive.",
+    "security_impact": "The Rego rule `tls_session_replay_attack` fires when `session_resumption_mechanism` is 'session_tickets' or 'psk' AND `session_ticket_lifetime_seconds > 3600`, producing a medium-criticality (score 5) exposure. An excessively long ticket lifetime means a captured ticket remains valid for hours or days. An attacker who intercepts a ticket (e.g., via network capture or memory disclosure) can replay it within that window to authenticate as the legitimate user without possessing their credentials. The NIST SP 800-52 Rev 2 recommendation is a maximum of 2 hours for session lifetime.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check nginx ssl_session_timeout which controls both session cache and ticket lifetime.",
+        "command": "grep -rn 'ssl_session_timeout' /etc/nginx 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/nginx/conf.d/",
+        "navigation": null,
+        "expected_output": "'ssl_session_timeout 1h;' or '3600s' is the maximum recommended value. Default nginx value is '5m' (300 seconds). Values like '24h' or '86400' indicate excessive lifetime."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Apache httpd SSLSessionCacheTimeout directive which controls session cache entry lifetime.",
+        "command": "grep -rn 'SSLSessionCacheTimeout' /etc/apache2 /etc/httpd 2>/dev/null",
+        "file_path": "/etc/apache2/sites-enabled/, /etc/httpd/conf.d/",
+        "navigation": null,
+        "expected_output": "Default Apache value is 300 seconds. Values exceeding 3600 indicate excessive lifetime configuration."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, inspect tune.ssl.lifetime which controls TLS session ticket validity.",
+        "command": "grep -rn 'tune\\.ssl\\.lifetime' /etc/haproxy/haproxy.cfg 2>/dev/null",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "Default HAProxy value is 300 seconds. Any value greater than 3600 requires justification."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client to perform session resumption and measure the ticket lifetime via the session data output.",
+        "command": "openssl s_client -connect <remote-host>:443 -sess_out /tmp/tls_session.pem 2>&1 < /dev/null; openssl s_client -connect <remote-host>:443 -sess_in /tmp/tls_session.pem 2>&1 < /dev/null | grep -E 'Reused|Session-ID|Timeout'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Reused, TLSv1.3, Cipher is...' confirms session resumption is working. The Timeout value in the session data reflects the configured lifetime."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "300",
+      "3600",
+      "7200",
+      "86400"
+    ]
+  },
+  {
+    "option_name": "session_resumption_mechanism",
+    "option_description": "Identifies the TLS session resumption method in use: 'session_tickets' (stateless, server-side key encrypts client-held ticket), 'session_ids' (stateful, server maintains session cache), 'psk' (TLS 1.3 pre-shared key enabling 0-RTT resumption), or 'none' (no resumption, full handshake required for every connection). The choice affects replay attack surface and anti-replay control requirements.",
+    "security_impact": "The Rego rule `tls_session_replay_attack` evaluates this attribute in multiple conditions. When the mechanism is not 'none' and anti-replay is not enforced, the rule fires. When the mechanism is 'session_tickets' or 'psk' with excessive ticket lifetime or absent key rotation, additional conditions trigger the medium-criticality (score 5) exposure. PSK with 0-RTT is the highest-risk option as 0-RTT data can be replayed by a network-level attacker. Session tickets without rotation create persistent replay windows. Session IDs have reduced replay risk due to server-side state invalidation capability.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client to test TLS session resumption capability and identify the mechanism type in use.",
+        "command": "openssl s_client -connect <remote-host>:443 -sess_out /tmp/sess.pem 2>/dev/null < /dev/null; openssl s_client -connect <remote-host>:443 -sess_in /tmp/sess.pem 2>&1 < /dev/null | grep -E 'Session-ID|TLS session ticket|Reused|PSK'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'TLS session ticket' text in the session output indicates session_tickets mode. 'Session-ID' present with reuse indicates session_ids. 'Reused, TLSv1.3' with PSK identity indicates PSK mode. No reuse after two connections indicates 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review nginx session configuration to determine whether tickets, IDs, or both are enabled.",
+        "command": "grep -rn -E 'ssl_session_cache|ssl_session_tickets' /etc/nginx 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "'ssl_session_tickets off' and 'ssl_session_cache none' = no resumption. 'ssl_session_tickets on' = session_tickets. 'ssl_session_cache shared:SSL:...' = session_ids. Both enabled = session_tickets takes precedence in TLS 1.3."
+      },
+      {
+        "type": "command",
+        "instruction": "Use testssl.sh to enumerate session resumption methods and their behavior on the target endpoint.",
+        "command": "testssl.sh --session-resumption <remote-host>:443 2>/dev/null | grep -E 'Session Resumption|Tickets|Session ID|0-RTT'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "testssl.sh output clearly labels whether 'Session Tickets' and/or 'Session ID resumption' are supported, and whether 0-RTT is offered for TLS 1.3."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For TLS 1.3 PSK/0-RTT, check whether early data is enabled in server configuration (nginx ssl_early_data, OpenSSL SSL_OP_NO_ANTI_REPLAY).",
+        "command": "grep -rn -E 'ssl_early_data|early_data|0-rtt|0rtt' /etc/nginx /etc/haproxy /etc/apache2 /etc/envoy 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'ssl_early_data on;' in nginx confirms PSK/0-RTT is enabled. Absence of these directives suggests PSK 0-RTT is not configured (though tickets may still be used for standard resumption)."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "session_tickets",
+      "session_ids",
+      "psk",
+      "none"
+    ]
+  },
+  {
+    "option_name": "tls_anti_replay_enforced",
+    "option_description": "Controls whether server-side anti-replay protections are active for TLS session resumption, particularly for TLS 1.3 0-RTT PSK data. Mechanisms include single-use session ticket enforcement, server-maintained nonce/replay caches that reject duplicate ticket presentations, and OpenSSL's SSL_OP_NO_ANTI_REPLAY flag status. Without these controls, an attacker who captures a valid session ticket or PSK can replay it to the server, potentially replaying 0-RTT application data as well.",
+    "security_impact": "The Rego rule `tls_session_replay_attack` fires when `session_resumption_mechanism` is not 'none' AND `tls_anti_replay_enforced` is false, producing a medium-criticality (score 5) exposure. TLS 1.3 explicitly warns in RFC 8446 that 0-RTT data lacks replay protection at the TLS layer — the application must enforce its own controls. A server that accepts replayed session tickets allows an attacker to reuse captured credentials or session state, bypassing authentication controls. Single-use ticket enforcement and nonce caching are the primary server-side mitigations. Maps to MITRE T1558.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check nginx configuration for ssl_early_data combined with the recommended $ssl_early_data variable in proxy headers that downstream applications use for replay protection.",
+        "command": "grep -rn -E 'ssl_early_data|Early-Data|early_data_header' /etc/nginx 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/nginx/conf.d/",
+        "navigation": null,
+        "expected_output": "If 'ssl_early_data on' is present, the proxy_set_header 'Early-Data $ssl_early_data' directive should also be present to signal 0-RTT to backend apps. Absence of both indicates 0-RTT is likely not in use."
+      },
+      {
+        "type": "command",
+        "instruction": "Check OpenSSL-based server source or compiled configuration for SSL_OP_NO_ANTI_REPLAY flag, which disables TLS 1.3 anti-replay protection when set.",
+        "command": "grep -rn --include='*.c' --include='*.cpp' --include='*.py' --include='*.go' -E 'SSL_OP_NO_ANTI_REPLAY|no_anti_replay|anti_replay\\s*=\\s*false|replay_cache\\s*=\\s*false' /opt /srv /app 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches is the desired result. Any match of SSL_OP_NO_ANTI_REPLAY in active code indicates anti-replay has been explicitly disabled."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to replay a captured TLS session ticket by reusing the same session in two concurrent connections to test whether the server rejects the second use.",
+        "command": "openssl s_client -connect <remote-host>:443 -sess_out /tmp/ticket.pem 2>/dev/null < /dev/null; openssl s_client -connect <remote-host>:443 -sess_in /tmp/ticket.pem 2>&1 < /dev/null | grep -E 'Reused|New|Session-ID'; openssl s_client -connect <remote-host>:443 -sess_in /tmp/ticket.pem 2>&1 < /dev/null | grep -E 'Reused|New|Session-ID'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If anti-replay is enforced with single-use tickets, the second reuse attempt should show 'New' (full handshake) rather than 'Reused'. If both attempts show 'Reused', tickets are multi-use and anti-replay is not enforced."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review application layer code and API gateway configuration to confirm whether 0-RTT replay detection is implemented at the application layer (e.g., idempotency keys, nonce tracking, or Early-Data header rejection for non-idempotent operations).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review API gateway (Kong, NGINX Plus, AWS API Gateway) documentation and configuration for Early-Data handling policies. Check application code for idempotency key validation on POST/PUT/PATCH endpoints accessible via 0-RTT paths.",
+        "expected_output": "Non-idempotent endpoints (mutations) should reject or re-validate requests bearing the Early-Data header. Idempotency key enforcement or replay cache implementation confirms anti-replay controls exist at the application layer."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "hsts_header_configured",
+    "option_description": "Controls whether the HTTP Strict Transport Security (HSTS) response header is present and configured with a non-zero max-age directive on all HTTPS responses. This header instructs browsers to refuse plaintext HTTP connections to the domain for the duration specified by max-age, preventing protocol downgrade attacks at the client level.",
+    "security_impact": "The Rego rule `missing_hsts_or_protocol_downgrade_protection` fires when `not input.hsts_header_configured` evaluates to true, directly triggering the 'Missing HSTS Or Protocol Downgrade Protection' exposure. Without HSTS, a network-level adversary can strip the HTTPS redirect on first contact (SSL stripping), silently intercepting traffic before the client enforces encryption. This aligns with MITRE ATT&CK T1562.010 (Downgrade Attack).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send an HTTPS request to the target endpoint using curl and inspect the response headers for the Strict-Transport-Security header. Verify both the presence and a non-zero max-age value.",
+        "command": "curl -sI https://<your-domain>/ | grep -i strict-transport-security",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Strict-Transport-Security: max-age=31536000; includeSubDomains"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the nginx server block for the HSTS header directive. Ensure it appears within the HTTPS (port 443) server block and is not overridden by a proxy downstream.",
+        "command": "grep -rn 'Strict-Transport-Security' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf or /etc/nginx/sites-enabled/*",
+        "navigation": null,
+        "expected_output": "add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Apache web servers, check the VirtualHost configuration for HTTPS (port 443) to confirm the HSTS header is set.",
+        "command": "grep -rn 'Strict-Transport-Security' /etc/apache2/ /etc/httpd/",
+        "file_path": "/etc/apache2/sites-enabled/* or /etc/httpd/conf.d/*",
+        "navigation": null,
+        "expected_output": "Header always set Strict-Transport-Security \"max-age=31536000; includeSubDomains\""
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS CloudFront, navigate to the distribution's Behaviors tab, select the behavior, and check the Response Headers Policy for a Strict-Transport-Security entry with a non-zero max-age.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → CloudFront → Distributions → [Distribution ID] → Behaviors → [Behavior] → Response Headers Policy",
+        "expected_output": "Response Headers Policy includes Strict-Transport-Security with max-age >= 31536000"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (HSTS configured with max-age=31536000)",
+      "false (header absent or max-age=0, common in legacy or internal-only deployments)"
+    ]
+  },
+  {
+    "option_name": "http_to_https_redirect_enforced",
+    "option_description": "Controls whether the server or load balancer unconditionally redirects any plain HTTP (port 80) request to the HTTPS equivalent (port 443) before serving any content. This eliminates first-contact cleartext exposure where sensitive data or authentication tokens could be transmitted before the browser upgrades the connection.",
+    "security_impact": "The Rego rule `missing_hsts_or_protocol_downgrade_protection` fires when `not input.http_to_https_redirect_enforced`, contributing to the downgrade protection exposure. Without this redirect, clients that type a bare hostname or follow an HTTP link will transmit their first request in cleartext, exposing cookies, credentials, and session tokens to passive eavesdroppers before any encryption is negotiated. Combined with missing HSTS, this creates a reliable SSL-stripping attack surface (T1562.010).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send a plain HTTP request to port 80 and verify the server responds with a 301 or 302 redirect to the HTTPS URL. The -L flag should follow redirects to confirm final destination is HTTPS.",
+        "command": "curl -sI http://<your-domain>/ | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP/1.1 301 Moved Permanently\nLocation: https://<your-domain>/"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the nginx configuration for a server block listening on port 80 with a return 301 redirect directive targeting https://.",
+        "command": "grep -A5 'listen 80' /etc/nginx/nginx.conf /etc/nginx/sites-enabled/*",
+        "file_path": "/etc/nginx/sites-enabled/*",
+        "navigation": null,
+        "expected_output": "return 301 https://$host$request_uri;"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, inspect the frontend section for ACLs and redirect rules that enforce HTTPS on port 80 traffic.",
+        "command": "grep -A10 'frontend.*80\\|bind.*:80' /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "redirect scheme https code 301 if !{ ssl_fc }"
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Application Load Balancer, verify the HTTP:80 listener has a redirect action configured to send traffic to HTTPS:443 with a 301 response code.",
+        "command": "aws elbv2 describe-listeners --load-balancer-arn <ALB_ARN> | jq '.Listeners[] | select(.Port==80) | .DefaultActions'",
+        "file_path": null,
+        "navigation": "AWS Console → EC2 → Load Balancers → [ALB] → Listeners → HTTP:80 → Rules",
+        "expected_output": "DefaultActions contains Type: redirect with Protocol: HTTPS, StatusCode: HTTP_301"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (301 redirect configured at load balancer or web server)",
+      "false (port 80 serves content directly or is not listened on but also not actively redirecting)"
+    ]
+  },
+  {
+    "option_name": "app_layer_message_integrity_enabled",
+    "option_description": "Controls whether individual messages traversing the encrypted channel are protected by an application-layer MAC or HMAC signature (e.g., per-message HMAC headers, JWS-signed payloads, or envelope signatures) that is independent of the TLS record-layer's own integrity mechanisms. This provides end-to-end payload integrity even when TLS is terminated at an intermediate proxy.",
+    "security_impact": "The Rego rule `absence_of_message_integrity_controls` fires unconditionally when `not input.app_layer_message_integrity_enabled`, and fires again with elevated risk when `tls_termination_at_proxy == true` is also present. When TLS terminates at a proxy (load balancer or API gateway), the decrypted payload segment between the proxy and the backend application server has no cryptographic protection unless application-layer integrity is in place. A compromised proxy or insider on that segment can modify payloads without detection, aligning with T1600 (Weaken Encryption) and T1573 (Encrypted Channel).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Capture a sample API request and inspect HTTP headers for HMAC or signature headers such as X-Signature, X-Hub-Signature-256, or Authorization containing a signing scheme. Also inspect response bodies for JWS/JWE envelopes.",
+        "command": "curl -sI -X POST https://<api-endpoint>/resource -H 'Content-Type: application/json' -d '{\"test\":1}' | grep -iE 'x-signature|x-hmac|authorization'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "X-Signature: sha256=<hmac_value> or Authorization: HMAC-SHA256 ..."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review API middleware configuration or application source code for HMAC signing libraries, webhook signature validators, or JWS/JWT signing middleware registration.",
+        "command": "grep -rn 'HMAC\\|hmac\\|sha256\\|JWS\\|sign\\|X-Signature' /etc/app/ /opt/app/src/ --include='*.py' --include='*.js' --include='*.go' --include='*.java' | head -30",
+        "file_path": "/opt/app/src/ or /etc/app/middleware.conf",
+        "navigation": null,
+        "expected_output": "References to HMAC computation functions applied to request/response bodies before transmission"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review API specifications (OpenAPI/Swagger) and interview the development team to confirm whether message signing is part of the API contract. Check if the API gateway enforces signature validation as a policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": "API Gateway Console → APIs → [API] → Authorizers or Request Validators",
+        "expected_output": "Documented per-message HMAC or JWS requirement in API spec; gateway policy enforcing signature header presence"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Examine application logs for signature validation events, rejected requests due to missing or invalid signatures, or HMAC computation log entries that indicate the feature is active.",
+        "command": "grep -iE 'signature|hmac|integrity|mac_valid|sign' /var/log/app/*.log | tail -50",
+        "file_path": "/var/log/app/*.log",
+        "navigation": null,
+        "expected_output": "Log entries showing 'signature validated', 'HMAC verified', or rejection messages for missing signatures"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most deployments rely solely on TLS record-layer integrity)",
+      "true (financial APIs, webhook consumers, and high-security microservice meshes using JWS or HMAC headers)"
+    ]
+  },
+  {
+    "option_name": "tls_termination_at_proxy",
+    "option_description": "Indicates whether TLS is terminated at an intermediate network component—such as a load balancer, API gateway, CDN edge node, or reverse proxy—before traffic reaches the final application server. When true, a decrypted (plaintext) segment exists between the proxy and the backend, representing an unencrypted internal transit path.",
+    "security_impact": "The Rego rule `absence_of_message_integrity_controls` fires with the condition `not input.app_layer_message_integrity_enabled` AND `input.tls_termination_at_proxy == true`, triggering the 'Absence Of Message Integrity Controls' exposure. A decrypted internal segment means that any entity with access to the internal network between the proxy and backend can read or modify traffic. Without application-layer message integrity (e.g., HMAC), tampered payloads arrive at the backend indistinguishable from legitimate ones. This supports T1573 (Encrypted Channel) abuse and T1600 (Weaken Encryption).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From within the internal network, attempt a plaintext HTTP connection to the backend application server on its direct port. If successful, TLS is terminated at the proxy level and backend traffic is unencrypted.",
+        "command": "curl -sv http://<backend-server-ip>:<backend-port>/health 2>&1 | grep -E 'Connected|HTTP/'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP/1.1 200 OK (indicating plaintext backend connection is accepted)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the nginx or HAProxy upstream configuration to determine whether backend connections use HTTP (plaintext) or HTTPS (re-encrypted) after TLS termination.",
+        "command": "grep -E 'proxy_pass|server.*backend|backend.*http' /etc/nginx/sites-enabled/* /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/nginx/sites-enabled/* or /etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "proxy_pass http://backend_pool; (HTTP indicates termination and plaintext backend); proxy_pass https:// indicates re-encryption"
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS ALB/NLB console, check the target group protocol. HTTP targets confirm TLS is terminated at the load balancer; HTTPS targets indicate end-to-end or re-encrypted connections.",
+        "command": "aws elbv2 describe-target-groups --load-balancer-arn <ALB_ARN> | jq '.TargetGroups[] | {Name:.TargetGroupName, Protocol:.Protocol}'",
+        "file_path": null,
+        "navigation": "AWS Console → EC2 → Target Groups → [Group] → Protocol column",
+        "expected_output": "Protocol: HTTP confirms proxy TLS termination; Protocol: HTTPS suggests backend re-encryption"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review network topology diagrams and interview infrastructure or platform engineers to confirm where TLS terminates and whether backend connections are re-encrypted or traverse internal networks in plaintext.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture diagram explicitly shows TLS termination point and whether internal segment is encrypted or plaintext"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (the majority of deployments terminate TLS at a load balancer or CDN edge)",
+      "false (end-to-end TLS with certificate presented by the application server itself, common in high-security or mTLS deployments)"
+    ]
+  },
+  {
+    "option_name": "tls_connection_rate_limit_enabled",
+    "option_description": "Controls whether a rate limiting or throttling mechanism is applied to incoming TLS session establishment requests, capping the number of new TLS handshakes per second per source IP or globally. This protects the TLS termination component from handshake exhaustion attacks where the asymmetric computational cost of TLS handshakes (higher for the server) is weaponized to degrade service.",
+    "security_impact": "The Rego rule `missing_rate_limiting_on_encrypted_channel` fires when `not input.tls_connection_rate_limit_enabled`, directly triggering the 'Missing Rate Limiting On Encrypted Channel' exposure. It also fires when `tls_connection_rate_limit_enabled == true` but `max_concurrent_tls_handshakes == 0` (rate limit is claimed but no handshake concurrency cap is set). Without rate limiting, attackers can launch TLS handshake exhaustion (THC-SSL-DoS) attacks exploiting server-side asymmetric key operations, aligning with T1499.002 (Service Exhaustion Flood).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check nginx configuration for limit_conn and limit_req directives applied to the HTTPS server block, which control connection and request rates.",
+        "command": "grep -E 'limit_conn|limit_req|limit_conn_zone|limit_req_zone' /etc/nginx/nginx.conf /etc/nginx/conf.d/* /etc/nginx/sites-enabled/*",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "limit_conn_zone $binary_remote_addr zone=connlimit:10m; and limit_conn connlimit 20; in the server block"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, inspect the tcp-request connection track-sc and rate limiting configuration in the frontend section to identify TLS handshake rate controls.",
+        "command": "grep -E 'tcp-request|rate-limit|conn-rate|max-rate' /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "tcp-request connection reject if { src_conn_rate(ConnPerSec) ge 100 } or similar rate-limit directive"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the AWS WAF rate-based rules associated with the web ACL attached to the ALB or CloudFront distribution to verify a rate limit rule targeting TLS/HTTPS connections exists.",
+        "command": "aws wafv2 list-rate-based-statements --scope REGIONAL --web-acl-id <WEB_ACL_ID> --web-acl-name <NAME> 2>/dev/null || aws wafv2 get-web-acl --name <NAME> --scope REGIONAL --id <ID> | jq '.WebACL.Rules[] | select(.Statement.RateBasedStatement)'",
+        "file_path": null,
+        "navigation": "AWS Console → WAF & Shield → Web ACLs → [ACL] → Rules → Rate-based rules",
+        "expected_output": "RateBasedStatement with Limit value and AggregateKeyType IP present"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use hping3 or a controlled load test to simulate rapid TLS connection attempts and observe whether connections are rejected or throttled after a threshold, confirming rate limiting is active.",
+        "command": "hping3 -S --flood -p 443 <target-ip> -c 500 2>&1 | tail -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection resets or RST responses increasing after threshold, indicating rate limiting is active"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in most vanilla web server installations without explicit tuning)",
+      "true (configured in hardened deployments, CDN-fronted applications, or those with WAF rate rules)"
+    ]
+  },
+  {
+    "option_name": "max_concurrent_tls_handshakes",
+    "option_description": "Specifies the configured upper bound on the number of simultaneously in-progress TLS handshakes the termination component will allow. A value of 0 indicates no explicit limit is set, meaning the server will attempt to process all incoming handshake requests until resource exhaustion occurs. This is a key defense against handshake-based DoS attacks.",
+    "security_impact": "The Rego rule `missing_rate_limiting_on_encrypted_channel` fires when `tls_connection_rate_limit_enabled == true` but `max_concurrent_tls_handshakes == 0`, and also when both `ddos_protection_tier in ['none', 'basic']` and `max_concurrent_tls_handshakes == 0` with rate limiting absent. A value of 0 means even if rate limiting is nominally enabled, no hard cap on concurrent handshake processing exists, leaving the server exposed to handshake exhaustion (THC-SSL-DoS), which maps to T1499.002. The asymmetric cost of RSA/ECDH operations means attackers can exhaust server CPU with far fewer resources.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For nginx, check the ssl_handshake_timeout and worker_connections directives. While nginx lacks a direct max concurrent TLS handshakes setting, worker_connections combined with worker_processes provides an effective upper bound.",
+        "command": "grep -E 'worker_connections|worker_processes|ssl_handshake_timeout' /etc/nginx/nginx.conf",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "worker_processes 4; worker_connections 1024; ssl_handshake_timeout 60s; (effective max = worker_processes × worker_connections)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For OpenSSL-based daemons or custom TLS proxies, check application-specific configuration files for parameters controlling maximum TLS session concurrency or queue depth.",
+        "command": "grep -rE 'max.*(tls|ssl|handshake)|tls.*(max|limit|concurrent)' /etc/stunnel/ /etc/envoy/ /etc/traefik/ --include='*.conf' --include='*.yaml' --include='*.toml'",
+        "file_path": "/etc/stunnel/stunnel.conf or /etc/envoy/envoy.yaml",
+        "navigation": null,
+        "expected_output": "maxconn or max_pending_accept_batch or similar parameter with a non-zero integer value"
+      },
+      {
+        "type": "command",
+        "instruction": "On a running nginx instance, check the current number of active TLS connections and compare to the configured worker_connections ceiling to infer the effective concurrent handshake capacity.",
+        "command": "nginx -V 2>&1 | grep -o 'max_conns=[0-9]*'; ss -s | grep -E 'estab|SYN-RECV'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Established connections count and SYN-RECV queue size; large SYN-RECV count may indicate handshake queue saturation"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Envoy admin API for listener statistics showing the current downstream_cx_active count and the configured max connections per listener, which governs concurrent TLS handshake capacity.",
+        "command": "curl -s http://localhost:9901/stats | grep -E 'listener.*cx_active|listener.*cx_overflow'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "listener.0.0.0.0_443.downstream_cx_active: <current_count>; listener.0.0.0.0_443.downstream_cx_overflow: 0 (overflows indicate the cap is being hit)"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (no explicit limit, common default)",
+      "100-1000 (hardened proxy configurations)",
+      "5000-50000 (high-throughput API gateways with explicit tuning)"
+    ]
+  },
+  {
+    "option_name": "ddos_protection_tier",
+    "option_description": "Indicates the level of active DDoS and volumetric abuse protection deployed in front of the TLS-encrypted endpoint. 'none' means no dedicated protection layer; 'basic' means a default or free-tier service (e.g., AWS Shield Standard, Cloudflare Free) with limited volumetric mitigation; 'advanced' means a paid, actively configured service (e.g., AWS Shield Advanced, Cloudflare Magic Transit, Azure DDoS Protection Standard) with volumetric scrubbing and SLA-backed mitigation.",
+    "security_impact": "The Rego rule `missing_rate_limiting_on_encrypted_channel` fires when `ddos_protection_tier in ['none', 'basic']` combined with `max_concurrent_tls_handshakes == 0` and no TLS rate limiting. Even when application-level rate limiting is absent, advanced DDoS protection can absorb volumetric floods at the network edge before they reach the TLS termination component. Without it, TLS handshake exhaustion (T1499.002 - Service Exhaustion Flood) and protocol tunneling abuse (T1572) are viable attack vectors that can fully degrade service availability.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query AWS Shield to determine whether Shield Advanced is subscribed and protecting the relevant resource (EIP, ALB, CloudFront distribution).",
+        "command": "aws shield describe-subscription 2>/dev/null | jq '.Subscription.SubscriptionState' ; aws shield list-protections | jq '.Protections[] | {Name:.Name, ResourceArn:.ResourceArn}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'ACTIVE' for SubscriptionState and the ALB/CloudFront ARN listed in protections confirms Shield Advanced ('advanced' tier)"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cloudflare, navigate to the zone's overview page and check the plan tier. Magic Transit or Cloudflare for Teams with DDoS protection rules indicates 'advanced'; Free or Pro plans indicate 'basic'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cloudflare Dashboard → [Zone] → Overview → Plan; Security → DDoS → Review protection rules status",
+        "expected_output": "Plan shows 'Enterprise' or 'Business' with DDoS protection rules active = 'advanced'"
+      },
+      {
+        "type": "api",
+        "instruction": "Check Azure DDoS Protection Standard assignment to the virtual network hosting the TLS endpoint.",
+        "command": "az network vnet show --resource-group <RG> --name <VNET> --query 'enableDdosProtection'",
+        "file_path": null,
+        "navigation": "Azure Portal → Virtual Networks → [VNet] → DDoS protection",
+        "expected_output": "true confirms Azure DDoS Protection Standard ('advanced'); false means basic platform protection only ('basic')"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review infrastructure billing records, contracts, or cloud cost dashboards to confirm whether a paid DDoS protection tier is active and covering the public IPs of the TLS endpoint.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active subscription to AWS Shield Advanced, Cloudflare Business/Enterprise, or Azure DDoS Standard with the endpoint IPs enrolled"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (small or internal deployments with no DDoS service)",
+      "basic (AWS Shield Standard included by default, Cloudflare Free)",
+      "advanced (explicitly procured for production internet-facing services handling sensitive data or high availability requirements)"
+    ]
+  },
+  {
+    "option_name": "rpki_route_origin_validation_enabled",
+    "option_description": "Controls whether RPKI (Resource Public Key Infrastructure) Route Origin Validation (ROV) is enforced on BGP peers that handle routing for the IP prefixes associated with the encrypted flow endpoints. ROV allows routers to cryptographically verify that BGP route announcements originate from the legitimate ASN authorized by the IP prefix owner, rejecting or de-preferencing 'invalid' routes from hijackers.",
+    "security_impact": "The Rego rule `bgp_route_hijacking_exposure` fires when `not input.rpki_route_origin_validation_enabled` is combined with either no BGP prefix filter policy or no protected prefix max-prefix-length configured. Without RPKI ROV, an adversary can announce a more-specific BGP prefix for the target's IP range from a rogue ASN, attracting traffic to attacker-controlled infrastructure before it reaches the legitimate TLS endpoint. This enables bulk traffic interception for offline decryption attempts or selective packet dropping, aligning with T1599 (Network Boundary Bridging) and T1090.003 (Multi-hop Proxy).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS-XR BGP speakers, display the RPKI session status and validate that ROV is configured and sessions to RPKI caches are established.",
+        "command": "ssh <router-ip> 'show bgp rpki summary; show bgp rpki servers'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RPKI cache server entries with state 'established' and ROV counters showing 'Valid', 'Invalid', 'Not Found' prefix classifications"
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper MX/QFX routers, verify RPKI validation session status and confirm that a routing policy drops or de-preferences BGP routes marked as RPKI-invalid.",
+        "command": "ssh <router-ip> 'show validation statistics; show validation session; show policy-options policy-statement RPKI-POLICY'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Validation session active, statistics showing invalid routes counted, and policy rejecting or lowering local-preference for invalid routes"
+      },
+      {
+        "type": "api",
+        "instruction": "Use the RIPE NCC RPKI validator REST API to check whether the target IP prefixes have valid ROAs (Route Origin Authorizations) published, and verify whether your upstream BGP peers are enforcing ROV by checking routing looking glasses.",
+        "command": "curl -s 'https://rpki-validator.ripe.net/api/v1/validity/<ASN>/<prefix>/<prefix-length>' | jq '.validated_route.validity.state'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'valid' confirms a ROA exists; 'invalid' or 'not-found' indicates missing or misconfigured ROA publication"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the BGP router configuration files for RPKI cache server configuration and route-policy statements that enforce ROV by rejecting or lowering preference for RPKI-invalid prefixes.",
+        "command": "grep -E 'rpki|route-origin|validation|roa' /etc/bird/bird.conf /etc/frr/bgpd.conf 2>/dev/null",
+        "file_path": "/etc/bird/bird.conf or /etc/frr/bgpd.conf",
+        "navigation": null,
+        "expected_output": "roa table or rpki cache { } block with protocol rpki { } section, and filter rules checking roa_check() result"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (majority of enterprise BGP deployments lack RPKI ROV enforcement, especially at smaller ISPs and private ASNs)",
+      "true (tier-1 ISPs, cloud providers, and security-conscious network operators with dedicated NOC teams)"
+    ]
+  },
+  {
+    "option_name": "bgp_prefix_filter_policy_applied",
+    "option_description": "Controls whether explicit BGP inbound prefix-list or route-map filters are configured on BGP peering sessions to reject unauthorized or more-specific prefix advertisements for the address space hosting the secure remote access endpoints.",
+    "security_impact": "Referenced by the bgp_route_hijacking_exposure rule. When both bgp_prefix_filter_policy_applied and rpki_route_origin_validation_enabled are false, the rule fires unconditionally. Even when RPKI is enabled, the absence of prefix filters alone can trigger the exposure. Without this control, an adversary can advertise a more-specific prefix for the VPN or gateway address block, attracting traffic through attacker-controlled routers for interception or offline decryption of captured encrypted sessions.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE routers, display all BGP neighbor inbound filter policies to confirm prefix-list or route-map assignments exist for relevant peers.",
+        "command": "show ip bgp neighbors | grep -A 20 'BGP neighbor' | grep -E '(Inbound|prefix-list|route-map|filter-list)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each BGP neighbor entry should show 'Inbound path policy configured' and reference a named prefix-list or route-map rather than '(none)'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, verify import policies are applied to BGP groups protecting the remote access prefix space.",
+        "command": "show bgp neighbor | grep -E '(Peer|Import|Export|Active prefixes)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Import policy names should appear for each peering session; absence of an import policy indicates filters are not applied."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the router configuration file to locate prefix-list or route-map definitions and verify they are applied inbound on each BGP peer statement.",
+        "command": null,
+        "file_path": "/etc/frr/frr.conf",
+        "navigation": null,
+        "expected_output": "Lines of the form 'neighbor <peer-ip> prefix-list <list-name> in' or 'neighbor <peer-ip> route-map <map-name> in' should appear for every external BGP peer."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use a BGP looking glass or BGP route injection test to verify that a more-specific prefix covering the protected range is rejected by the peer. Announce a /25 or /29 within the protected block from a test AS and confirm the route is not propagated.",
+        "command": "gobgp global rib -a ipv4 | grep <protected-prefix>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The more-specific test prefix should not appear in the RIB; only the authorized aggregate should be present."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "protected_prefix_max_prefix_length",
+    "option_description": "Defines the maximum IPv4 or IPv6 prefix length (in bits) that will be accepted via BGP for the address space covering secure remote access endpoints. Prefixes more specific than this value are rejected, preventing hijacking via advertisement of longer-match prefixes.",
+    "security_impact": "Referenced by the bgp_route_hijacking_exposure rule, which fires when protected_prefix_max_prefix_length is null or unconfigured, particularly in combination with missing RPKI or prefix filter policies. A missing or overly permissive maximum length (e.g., /32 allowed for an aggregate announced as /24) enables an attacker to advertise a host route or /28 that wins longest-prefix-match routing, redirecting encrypted client traffic to an interception point.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Display the prefix-list entries governing inbound BGP advertisements for the protected block on Cisco IOS and identify the maximum 'le' (less-than-or-equal) value configured.",
+        "command": "show ip prefix-list | grep -A 5 <prefix-list-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An entry such as 'permit 203.0.113.0/24 le 24' enforces a maximum length of 24 bits; absence of an 'le' qualifier or a value like 'le 32' indicates no practical upper bound."
+      },
+      {
+        "type": "command",
+        "instruction": "For RPKI ROA validation, check the maxLength field in published ROAs covering the protected prefix using the Routinator or rpki-client tool.",
+        "command": "rpki-client -j | jq '.roas[] | select(.prefix | startswith(\"<protected-prefix>\")) | {prefix, maxLength, asn}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each ROA entry should show a maxLength equal to or tighter than the announced aggregate prefix length (e.g., maxLength 24 for a /24 aggregate)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the FRRouting or Bird BGP configuration for prefix-list le/ge statements that cap accepted prefix lengths.",
+        "command": null,
+        "file_path": "/etc/frr/frr.conf",
+        "navigation": null,
+        "expected_output": "Lines such as 'ip prefix-list PROTECT-INBOUND seq 10 permit 203.0.113.0/24 le 24' confirm a maximum length of 24; a missing 'le' clause means any more-specific is accepted."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the RIPE NCC RPKI validator API to retrieve ROA data for the protected prefix and validate maxLength values programmatically.",
+        "command": "curl -s 'https://rpki-validator.ripe.net/api/v1/validity/<ASN>/<protected-prefix>' | jq '.validated_route.route.prefix_length, .validated_route.validity.VRPs'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response should show at least one matching VRP with a maxLength that does not permit host-route specifics; an empty VRP list indicates no ROA coverage."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "24",
+      "32",
+      "48",
+      "null"
+    ]
+  },
+  {
+    "option_name": "dnssec_validation_enabled",
+    "option_description": "Controls whether the DNS resolver enforces DNSSEC signature validation, ensuring that DNS responses for secure remote access endpoint hostnames have valid cryptographic signatures and rejecting spoofed or tampered responses.",
+    "security_impact": "Referenced by the dns_based_traffic_interception rule, which fires whenever dnssec_validation_enabled is false regardless of dns_transport_security setting. All three Rego conditions (none/DoT/DoH transport) fire when DNSSEC validation is absent and certificate pinning is not enforced. Without DNSSEC, a DNS cache poisoning or spoofing attack can redirect clients to a rogue VPN or remote access gateway endpoint, enabling transparent interception of encrypted sessions by presenting a fraudulent certificate from a trusted CA.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the systemd-resolved runtime status on Linux endpoints to determine if DNSSEC validation is active.",
+        "command": "resolvectl status | grep -i dnssec",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'DNSSEC setting: yes' and 'DNSSEC supported: yes' indicate validation is active; 'no' or 'allow-downgrade' indicates it is disabled or degraded."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the systemd-resolved configuration file for the DNSSEC directive.",
+        "command": null,
+        "file_path": "/etc/systemd/resolved.conf",
+        "navigation": null,
+        "expected_output": "The line 'DNSSEC=yes' should be present and uncommented; 'DNSSEC=no' or the line being absent means validation is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "For BIND or Unbound resolvers, test DNSSEC validation by querying a known DNSSEC-signed domain and checking the AD (Authenticated Data) flag in the response.",
+        "command": "dig +dnssec @<resolver-ip> sigok.verteiltesysteme.net A | grep -E '(flags|RRSIG|SERVFAIL)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The 'flags' line should include 'ad' (authenticated data). A SERVFAIL for a deliberately bogus signed domain (e.g., 'dig @<resolver> dnssec-failed.org') confirms active validation."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Unbound resolver configuration for DNSSEC trust anchor and validation settings.",
+        "command": null,
+        "file_path": "/etc/unbound/unbound.conf",
+        "navigation": null,
+        "expected_output": "The directive 'auto-trust-anchor-file: \"/var/lib/unbound/root.key\"' and 'val-permissive-mode: no' should be present; absence of trust anchors disables validation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "dns_transport_security",
+    "option_description": "Specifies the protocol used to secure DNS queries in transit for resolving secure remote access endpoint hostnames: none (plaintext UDP/TCP on port 53), DoH (DNS-over-HTTPS on port 443), or DoT (DNS-over-TLS on port 853). This prevents in-transit DNS query and response manipulation.",
+    "security_impact": "Referenced by the dns_based_traffic_interception rule. All three enum values (none, DoT, DoH) appear in separate Rego conditions, each of which fires when dnssec_validation_enabled is false and certificate_pinning_enforced is false. A value of 'none' means all DNS queries are transmitted in cleartext, fully observable and injectable by any on-path adversary. Even DoT provides only transport encryption without origin authentication unless combined with DNSSEC or certificate pinning, because a compromised resolver can still return forged records over an encrypted channel.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect systemd-resolved configuration for DNS-over-TLS settings on Linux systems.",
+        "command": "grep -i 'DNSOverTLS\\|DNS=' /etc/systemd/resolved.conf && resolvectl status | grep -E '(DNS Server|DNS over TLS)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'DNS Over TLS: yes' or 'DNSOverTLS=yes' indicates DoT is active; absence or 'opportunistic' indicates downgrade is permitted."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Capture DNS traffic from the system to confirm whether queries are sent on port 53 (plaintext), 853 (DoT), or 443 (DoH) using tcpdump.",
+        "command": "tcpdump -i any -n 'port 53 or port 853 or (tcp port 443 and host <doh-resolver-ip>)' -c 20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Queries visible on port 53 indicate plaintext DNS. Traffic exclusively on port 853 indicates DoT. Traffic to the DoH resolver IP on port 443 with no port-53 traffic indicates DoH."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check enterprise DNS proxy or stub resolver configuration files for DoH or DoT endpoint definitions.",
+        "command": null,
+        "file_path": "/etc/dnscrypt-proxy/dnscrypt-proxy.toml",
+        "navigation": null,
+        "expected_output": "For dnscrypt-proxy, 'server_names' pointing to DoH/DoT servers and 'require_dnssec = true' confirm secure transport. An empty server list or explicit plain-dns entries indicate 'none'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Windows, navigate to DNS-over-HTTPS settings in the Network & Internet adapter properties to verify DoH configuration for corporate endpoints.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Settings > Network & Internet > Ethernet/Wi-Fi > [Adapter Name] > DNS server assignment > Edit > DNS over HTTPS",
+        "expected_output": "'On (automatic template)' or 'On (manual template)' indicates DoH is configured; 'Off' indicates plaintext DNS."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "DoH",
+      "DoT"
+    ]
+  },
+  {
+    "option_name": "certificate_pinning_enforced",
+    "option_description": "Controls whether remote access clients enforce certificate pinning by validating the server certificate or public key against a pre-configured pin, preventing acceptance of certificates issued by any trusted CA for the endpoint hostname even if a CA is compromised or coerced.",
+    "security_impact": "Referenced by the dns_based_traffic_interception rule as a compensating control. All three Rego conditions for this exposure require certificate_pinning_enforced to be false. When certificate pinning is absent and DNS security is weak, an attacker who performs DNS spoofing can obtain a valid certificate from any trusted CA for the spoofed hostname and present it to the redirected client without triggering a TLS error, completing a transparent MitM attack against the encrypted remote access channel.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect VPN client or thick client application configuration files or bundled resources for embedded certificate hashes or pinned certificate chains.",
+        "command": "grep -rn 'pin\\|fingerprint\\|sha256\\|publicKey' /etc/vpn-client/ /opt/remote-access-client/conf/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Certificate SHA-256 hash values or public key pins embedded in configuration files indicate pinning is implemented; no such entries indicate it is absent."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review application source code or build manifests for TrustKit, OkHttp certificate pinner configurations, or custom X509TrustManager implementations in mobile or thick clients used for remote access.",
+        "command": "grep -rn 'TrustKit\\|CertificatePinner\\|HPKP\\|PublicKeyPins\\|X509TrustManager' /path/to/client/source/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of CertificatePinner.Builder or TrustKit configuration with pin hashes confirms enforcement; absence indicates no programmatic pinning."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test certificate pinning by intercepting the client connection with a Burp Suite or mitmproxy CA certificate added to the system trust store, then observe whether the remote access client accepts or rejects the interception certificate.",
+        "command": "mitmproxy --mode transparent --ssl-insecure -p 8080",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the client rejects the connection with a certificate validation error despite the CA being in the system trust store, pinning is enforced. Successful interception without error indicates no pinning."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for HPKP headers on the remote access web portal using curl, though note that HPKP is deprecated and browser-based enforcement only.",
+        "command": "curl -sI https://<remote-access-portal> | grep -i 'Public-Key-Pins'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'Public-Key-Pins' header with pin-sha256 values indicates HPKP-based pinning; absent header means no HTTP-layer pinning (though application-layer pinning may still exist independently)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "secure_renegotiation_supported",
+    "option_description": "Controls whether the TLS server implementation supports and enforces the secure renegotiation extension defined in RFC 5746, which cryptographically binds renegotiation handshakes to the existing session using the renegotiation_info extension or the TLS_EMPTY_RENEGOTIATION_INFO_SCSV signaling cipher suite value.",
+    "security_impact": "Referenced by the insecure_renegotiation_vulnerability rule, which fires when secure_renegotiation_supported is false. Without RFC 5746 support, the TLS implementation cannot cryptographically verify that a renegotiation request originates from the same peer as the original handshake. This allows an adversary-in-the-middle to inject a specially crafted initial TLS session, prepend attacker-controlled plaintext, and then trigger renegotiation so the server processes injected data as authenticated client requests, enabling request smuggling and authentication bypass against the remote access gateway.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Test the TLS endpoint using openssl s_client and verify the 'Secure Renegotiation' status in the handshake output.",
+        "command": "openssl s_client -connect <remote-access-host>:<port> -tls1_2 2>/dev/null | grep -i 'renegotiation'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Secure Renegotiation IS supported' confirms RFC 5746 compliance; 'Secure Renegotiation IS NOT supported' indicates the vulnerability is present."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use testssl.sh to perform a comprehensive scan including renegotiation support checks against the remote access endpoint.",
+        "command": "testssl.sh --reneg <remote-access-host>:<port>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The output should show 'Secure Renegotiation' as 'supported' and 'Secure Client-Initiated Renegotiation' status. A 'not supported' result for secure renegotiation indicates the RFC 5746 control is absent."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect OpenSSL-based server configuration for SSL_OP_NO_RENEGOTIATION or the absence of SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION flags in the TLS library options.",
+        "command": "grep -rn 'SSL_OP_\\|ssl_options\\|SSLOptions\\|ssl_conf' /etc/nginx/nginx.conf /etc/apache2/ /etc/haproxy/haproxy.cfg",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Absence of 'SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION' and presence of modern TLS configuration without legacy option flags indicates secure renegotiation is the only permitted mode."
+      },
+      {
+        "type": "command",
+        "instruction": "On the server, check the OpenSSL version and default renegotiation behavior; OpenSSL 0.9.8m and later default to requiring RFC 5746 unless explicitly overridden.",
+        "command": "openssl version && openssl s_server -accept 44330 -cert /path/to/cert.pem -key /path/to/key.pem -www & sleep 1 && openssl s_client -connect localhost:44330 2>&1 | grep -i renegotiation; kill %1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "OpenSSL 1.0.1+ should show 'Secure Renegotiation IS supported' in a local test; older versions or patched-out behavior may show otherwise."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null"
+    ]
+  },
+  {
+    "option_name": "legacy_renegotiation_permitted",
+    "option_description": "Controls whether the TLS server explicitly accepts renegotiation handshakes from clients that do not present the RFC 5746 renegotiation_info extension, enabling compatibility with legacy clients that do not support secure renegotiation at the cost of exposing the plaintext injection vulnerability.",
+    "security_impact": "Referenced by the insecure_renegotiation_vulnerability rule, which fires unconditionally when legacy_renegotiation_permitted is true, regardless of other controls. Enabling this option re-opens the CVE-2009-3555 class of vulnerabilities. An attacker positioned between the client and the remote access gateway can inject arbitrary content at the start of a TLS session, which is processed by the server as though it were authenticated client data after renegotiation occurs, enabling command injection, HTTP request smuggling, and authentication bypass against the remote access service.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search nginx, Apache, and HAProxy configuration files for directives that enable legacy or unsafe renegotiation.",
+        "command": "grep -rn 'ssl_legacy_renegotiation\\|SSLInsecureRenegotiation\\|ALLOW_UNSAFE_LEGACY_RENEGOTIATION\\|unsafe_legacy_renegotiation' /etc/nginx/ /etc/apache2/ /etc/haproxy/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any occurrence of these directives set to 'on' or 'true' confirms legacy renegotiation is explicitly permitted. No occurrences indicate the default (disabled) is in effect."
+      },
+      {
+        "type": "command",
+        "instruction": "Scan the remote access endpoint using testssl.sh with the renegotiation module to detect whether insecure renegotiation is accepted.",
+        "command": "testssl.sh --reneg --openssl /usr/bin/openssl <remote-access-host>:<port> 2>&1 | grep -i 'insecure\\|legacy\\|renegotiation'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Insecure (CVE-2009-3555)' or 'VULNERABLE' in the renegotiation output confirms legacy renegotiation is permitted; 'not vulnerable' indicates it is disabled."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a renegotiation using a legacy OpenSSL client without the RFC 5746 extension and observe whether the server completes or rejects the handshake.",
+        "command": "openssl s_client -legacy_renegotiation -connect <remote-access-host>:<port> 2>&1 | grep -E '(CONNECTED|handshake failure|no renegotiation|alert)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful connection followed by accepted renegotiation confirms the vulnerability is present. A 'handshake failure' or 'no renegotiation' alert confirms it is blocked."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the OpenSSL configuration file or application-level TLS options for the SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION flag set in code or runtime configuration.",
+        "command": null,
+        "file_path": "/etc/ssl/openssl.cnf",
+        "navigation": null,
+        "expected_output": "The Options field under the ssl_sect section should not include 'UnsafeLegacyRenegotiation'; its presence confirms legacy renegotiation is explicitly enabled at the OpenSSL library level."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null"
+    ]
+  },
+  {
+    "option_name": "client_initiated_renegotiation_allowed",
+    "option_description": "Controls whether the TLS server permits the client to initiate a renegotiation handshake after the initial session is established. When combined with insecure renegotiation, this enables active MitM injection; even with secure renegotiation, unlimited client-initiated renegotiation enables CPU exhaustion (THC-SSL-DoS) attacks against the remote access gateway.",
+    "security_impact": "Referenced by the insecure_renegotiation_vulnerability rule in a combined condition: the rule fires when both secure_renegotiation_supported is false and client_initiated_renegotiation_allowed is true. This combination is the classic CVE-2009-3555 exploitation path. Additionally, even when RFC 5746 is supported, allowing unbounded client-initiated renegotiation without rate controls creates a denial-of-service vector because each renegotiation requires full asymmetric cryptographic operations, allowing a single client connection to exhaust server CPU.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client to establish a TLS connection and then send a renegotiation request using the 'R' command, observing whether the server completes or rejects it.",
+        "command": "echo 'R' | openssl s_client -connect <remote-access-host>:<port> -ign_eof 2>&1 | grep -E '(RENEGOTIATING|handshake|no renegotiation|SSL_connect)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'RENEGOTIATING' followed by a completed handshake confirms client-initiated renegotiation is allowed. A 'no renegotiation' alert or connection drop indicates it is blocked."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check nginx SSL configuration for the ssl_session_reuse directive and whether SSL_OP_NO_RENEGOTIATION is set in the ssl_conf_command directives.",
+        "command": "grep -n 'ssl_conf_command\\|SSL_OP_NO_RENEGOTIATION\\|ssl_session_reuse\\|SSLRenegBuffer\\|SSLRenegotiation' /etc/nginx/nginx.conf /etc/apache2/ssl.conf",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'ssl_conf_command Options NoRenegotiation' in nginx or 'SSLRenegBufferSize 0' in Apache indicates client-initiated renegotiation is suppressed; absence of these directives means it is permitted by default."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Run testssl.sh with renegotiation checks to determine whether the server accepts client-initiated renegotiation.",
+        "command": "testssl.sh --reneg <remote-access-host>:<port> 2>&1 | grep -i 'client-initiated\\|DoS\\|renegotiation'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Client-initiated Renegotiation: DoS threat' or 'VULNERABLE' indicates it is permitted; 'not vulnerable' confirms it is blocked at the server."
+      },
+      {
+        "type": "command",
+        "instruction": "For HAProxy, check the 'no-tlsv10' and SSL bind options in the frontend configuration that control renegotiation behavior, and consult the HAProxy SSL termination documentation for the 'no-sslv3' bind option as a proxy for overall renegotiation posture.",
+        "command": "grep -n 'bind.*ssl\\|ssl-options\\|no-renegotiation' /etc/haproxy/haproxy.cfg",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HAProxy 2.0+ with 'ssl-options no-sslv3 no-tlsv10 no-tlsv11' and modern ciphers implicitly reduces renegotiation risk; explicit 'no-renegotiation' bind option in HAProxy 2.1+ directly disables client-initiated renegotiation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null"
+    ]
+  },
+  {
+    "option_name": "traffic_padding_enabled",
+    "option_description": "Controls whether the TLS or application layer applies packet padding to normalize packet sizes, obscuring payload lengths and mitigating traffic analysis attacks that infer application behavior from packet size patterns.",
+    "security_impact": "The Rego policy fires the 'traffic_metadata_leakage_via_timing' exposure when both traffic_padding_enabled and traffic_shaping_or_dummy_traffic_enabled are false. Without padding, a passive observer can analyze packet size distributions to fingerprint encrypted traffic — for example, distinguishing login requests from file downloads, or identifying specific API calls by characteristic byte counts — even without decrypting the payload. This maps to MITRE T1040 (Network Sniffing) and T1001 (Data Obfuscation bypass).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the TLS server configuration for record_size_limit extension settings. In nginx, check for ssl_buffer_size directives; in HAProxy, look for tune.ssl.maxrecord; in OpenSSL-based configs, search for SSL_CTX_set_record_padding_callback or record_size_limit extension enablement.",
+        "command": "grep -rE 'ssl_buffer_size|record_size_limit|padding|tune\\.ssl\\.maxrecord' /etc/nginx/ /etc/haproxy/ /etc/ssl/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/haproxy/haproxy.cfg, /etc/ssl/openssl.cnf",
+        "navigation": null,
+        "expected_output": "Presence of ssl_buffer_size with a small fixed value (e.g., 1400 bytes), or record_size_limit extension configuration indicating padding is applied."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Capture live TLS traffic with tcpdump and analyze packet size variance using Wireshark or tshark. If padding is active, TLS records should cluster around uniform sizes rather than varying freely with payload size.",
+        "command": "tcpdump -i eth0 -w /tmp/tls_capture.pcap port 443 && tshark -r /tmp/tls_capture.pcap -T fields -e frame.len -e tls.record.length | sort | uniq -c | sort -rn | head -30",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "With padding enabled, TLS record lengths appear clustered at fixed intervals (e.g., 512, 1024, 1448 bytes) rather than showing high variance correlating with application payload sizes."
+      },
+      {
+        "type": "api",
+        "instruction": "For QUIC-based endpoints (HTTP/3), query the application or gateway configuration API to check if PADDING frames are enabled. For Cloudflare or AWS CloudFront, inspect the TLS policy settings via the provider API.",
+        "command": "curl -s -H 'Authorization: Bearer $CF_API_TOKEN' 'https://api.cloudflare.com/client/v4/zones/$ZONE_ID/settings/tls_1_3' | jq '.result' && curl -s -H 'Authorization: Bearer $CF_API_TOKEN' 'https://api.cloudflare.com/client/v4/zones/$ZONE_ID/settings' | jq '[.result[] | select(.id | test(\"padding|quic\"))]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "API response indicating padding or QUIC PADDING frame support is enabled in the zone or listener configuration."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Application Load Balancer console, navigate to EC2 > Load Balancers > select the ALB > Listeners tab, then review the Security Policy assigned. For Nginx Plus or F5 BIG-IP, check the SSL profile configuration under Local Traffic > Profiles > SSL > Client for record-layer padding options.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > EC2 > Load Balancers > [ALB Name] > Listeners > Security Policy details; F5 BIG-IP: Local Traffic > Profiles > SSL > Client > [Profile Name] > Record Layer settings",
+        "expected_output": "Security policy or SSL profile showing a fixed or bounded record size setting indicating normalization of packet sizes."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most common — padding is rarely enabled in standard deployments)",
+      "true (seen in high-security VPN gateways, Tor-adjacent infrastructure, or QUIC implementations with padding frames enabled)"
+    ]
+  },
+  {
+    "option_name": "traffic_shaping_or_dummy_traffic_enabled",
+    "option_description": "Controls whether the system injects dummy or cover traffic, or enforces constant-bitrate traffic shaping on the encrypted channel, to mask real traffic timing patterns and flow durations from passive observers performing traffic analysis.",
+    "security_impact": "The Rego policy fires the 'traffic_metadata_leakage_via_timing' exposure when both this attribute and traffic_padding_enabled are false. Even with strong encryption, a passive adversary monitoring inter-packet timing and session duration can infer session activity — identifying idle vs. active periods, correlating communication events, or fingerprinting specific workflows. Cover traffic eliminates these side channels. This is especially critical for high-assurance remote access scenarios where adversaries monitor network metadata (T1040, T1001).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect VPN gateway configuration files for chaff traffic, cover traffic, or constant-bitrate tunnel settings. In OpenVPN, look for the 'tls-auth' and keepalive directives used for dummy traffic; in WireGuard configurations, check for PersistentKeepalive settings and any traffic shaping wrappers. For enterprise VPN appliances (Palo Alto GlobalProtect, Cisco AnyConnect), review tunnel profile configurations.",
+        "command": "grep -rE 'keepalive|PersistentKeepalive|chaff|cover.traffic|dummy|constant.rate|shaping|bitrate' /etc/openvpn/ /etc/wireguard/ /etc/strongswan/ 2>/dev/null",
+        "file_path": "/etc/openvpn/*.conf, /etc/wireguard/*.conf, /etc/strongswan/strongswan.conf",
+        "navigation": null,
+        "expected_output": "Configuration entries showing constant keepalive intervals sending traffic regardless of real session activity, or explicit cover-traffic/shaping directives."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Panorama or the NGFW web interface, navigate to Network > GlobalProtect > Gateways > [Gateway Name] > Agent > Tunnel Settings and check for 'Tunnel Monitor' or traffic shaping profiles. For Cisco AnyConnect, review the VPN Profile Editor under Preferences for traffic normalization settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto: Network > GlobalProtect > Gateways > [Name] > Agent > Tunnel Settings; Cisco ASDM: Configuration > Remote Access VPN > Network (Client) Access > AnyConnect Connection Profiles > [Profile] > Advanced",
+        "expected_output": "Traffic shaping or constant-rate transmission policy applied to the tunnel profile, or explicit dummy-traffic generation settings."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Monitor inter-packet arrival times on an established VPN or TLS session during an idle period. If cover traffic is active, packets should continue arriving at regular intervals even with no real user activity.",
+        "command": "tcpdump -i eth0 -w /tmp/vpn_idle.pcap port 443 or port 1194 or port 51820 & sleep 60; kill %1; tshark -r /tmp/vpn_idle.pcap -T fields -e frame.time_relative -e frame.len | awk 'NR>1{print $1, $2}' | head -50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "With cover traffic enabled, packets appear at regular fixed intervals (e.g., every 10–15 seconds) even during idle periods. Without it, the capture shows silence during idle periods."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security team or review the VPN/proxy deployment runbook to determine whether traffic shaping policies or cover-traffic generation were intentionally configured. Check change management records for QoS or traffic normalization policy deployments.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation or staff confirmation that a traffic shaping policy or dummy-traffic mechanism was deliberately implemented on the remote access infrastructure, with the specific technology identified."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (almost universal default — cover traffic is computationally and bandwidth expensive and rarely deployed)",
+      "true (observed in intelligence community networks, high-assurance government VPNs, and specialized anonymity infrastructure)"
+    ]
+  }
+]

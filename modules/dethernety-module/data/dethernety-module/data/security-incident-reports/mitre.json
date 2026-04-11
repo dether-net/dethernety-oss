@@ -1,0 +1,89 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1530",
+      "name": "Data from Cloud Storage",
+      "relevance": "Misclassified incident data stored in cloud repositories can be accessed or exposed due to improper data classification controls."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.006",
+      "name": "Indicator Blocking",
+      "relevance": "Misclassification of incident data can lead to blocking or ignoring critical security indicators, undermining detection efforts."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1213",
+      "name": "Data from Information Repositories",
+      "relevance": "Excessive access to raw incident data repositories directly mirrors adversarial techniques of extracting sensitive data from information stores."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1212",
+      "name": "Exploitation for Credential Access",
+      "relevance": "Overly permissive access to raw incident data increases risk of credential and sensitive information exposure through exploitation."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1589.003",
+      "name": "Employee Names",
+      "relevance": "Unmasked PII such as employee names in incident records can be harvested by adversaries for identity-related attacks."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1589.002",
+      "name": "Email Addresses",
+      "relevance": "Exposed email addresses in unmasked incident records provide adversaries with actionable identity information for targeting."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1654",
+      "name": "Log Enumeration",
+      "relevance": "Adversaries enumerating logs containing unmasked PII can harvest sensitive personal information from incident records."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1485.001",
+      "name": "Lifecycle-Triggered Deletion",
+      "relevance": "Without defined retention policies, lifecycle-triggered deletion controls are absent, leaving incident records vulnerable to improper retention or deletion."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1565.001",
+      "name": "Stored Data Manipulation",
+      "relevance": "Undefined retention policies leave stored incident data susceptible to unauthorized manipulation over extended periods."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1070.004",
+      "name": "File Deletion",
+      "relevance": "Without clear retention policies, adversaries or insiders may improperly delete incident records, hindering forensic investigations."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1537",
+      "name": "Transfer Data to Cloud Account",
+      "relevance": "Transferring incident data across borders to cloud accounts without compliance review mirrors adversarial data exfiltration to external cloud storage."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1485",
+      "name": "Data Destruction",
+      "relevance": "Insecure disposal of incident records without proper destruction methods leaves sensitive data recoverable by adversaries."
+    }
+  ],
+  "respondsWith": []
+}

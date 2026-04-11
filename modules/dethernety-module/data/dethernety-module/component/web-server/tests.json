@@ -1,0 +1,221 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "accepted_tls_versions": [
+        "SSLv3"
+      ],
+      "tls_configured": true,
+      "certificate_authority_type": "self_signed",
+      "http_port_open": true,
+      "http_to_https_redirect_enabled": false,
+      "server_header_disclosure": true,
+      "directory_listing_enabled": true,
+      "publicly_accessible": true,
+      "authentication_required": true,
+      "present_security_headers": [],
+      "allowed_http_methods": [
+        "CONNECT"
+      ],
+      "process_run_uid": 0,
+      "web_root_world_writable": true,
+      "access_logging_enabled": true,
+      "log_fields_captured": [],
+      "log_input_sanitization_enabled": false,
+      "logged_user_supplied_fields": [
+        "item_0"
+      ],
+      "version_has_known_cve": true,
+      "days_since_patch_available": 31,
+      "max_request_body_size_bytes": 0,
+      "default_welcome_page_active": true,
+      "vhosts_share_document_root": true,
+      "key_file_in_document_root": true,
+      "weak_cipher_suites_enabled": false,
+      "certificate_expired": false,
+      "certificate_domain_match": false,
+      "certificate_days_until_expiry": -36500,
+      "hsts_enabled": true,
+      "x_powered_by_header_disclosure": true,
+      "hsts_max_age_seconds": 0,
+      "csp_policy_configured": false,
+      "endpoint_is_static_or_readonly": true,
+      "trace_method_response_reflects_headers": true,
+      "process_run_user": "present",
+      "dedicated_service_account_configured": false,
+      "web_root_owner": "present",
+      "config_dir_permissions_octal": "present",
+      "error_logging_enabled": true,
+      "log_aggregation_or_siem_connected": false,
+      "rate_limiting_enabled": false,
+      "connection_throttling_enabled": false,
+      "sample_scripts_accessible": false,
+      "chroot_or_namespace_isolation_enabled": false,
+      "path_traversal_controls_enabled": true,
+      "key_file_world_readable": false
+    },
+    "expectedExposures": [
+      "Web Root Permission Misconfiguration",
+      "Privileged Process Execution",
+      "Insufficient Access Logging",
+      "Http Plaintext Enabled",
+      "Weak Tls Protocol Version",
+      "Missing Or Invalid Tls Certificate",
+      "Private Key File Exposure",
+      "Unpatched Server Software",
+      "Default Or Sample Content Present",
+      "Server Version Disclosure",
+      "Log Injection Via Uncontrolled Log Format",
+      "Directory Listing Enabled",
+      "Misconfigured Virtual Host Isolation",
+      "Absent Rate Limiting And Request Throttling",
+      "Missing Security Response Headers",
+      "Unrestricted Http Methods"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "accepted_tls_versions": [],
+      "weak_cipher_suites_enabled": false,
+      "tls_configured": true,
+      "certificate_authority_type": "trusted_public_ca",
+      "certificate_expired": false,
+      "certificate_domain_match": true,
+      "http_port_open": false,
+      "server_header_disclosure": false,
+      "x_powered_by_header_disclosure": false,
+      "directory_listing_enabled": false,
+      "present_security_headers": [
+        "Strict-Transport-Security",
+        "X-Content-Type-Options",
+        "X-Frame-Options",
+        "Referrer-Policy"
+      ],
+      "csp_policy_configured": true,
+      "hsts_max_age_seconds": 31536000,
+      "endpoint_is_static_or_readonly": false,
+      "trace_method_response_reflects_headers": false,
+      "allowed_http_methods": [],
+      "process_run_uid": 1,
+      "process_run_user": "root_other",
+      "dedicated_service_account_configured": true,
+      "web_root_world_writable": false,
+      "config_dir_permissions_octal": "__outside__",
+      "access_logging_enabled": true,
+      "log_fields_captured": [
+        "client_ip",
+        "request_uri",
+        "response_code",
+        "timestamp"
+      ],
+      "error_logging_enabled": true,
+      "log_input_sanitization_enabled": true,
+      "version_has_known_cve": false,
+      "rate_limiting_enabled": true,
+      "connection_throttling_enabled": true,
+      "max_request_body_size_bytes": 1,
+      "default_welcome_page_active": false,
+      "sample_scripts_accessible": false,
+      "vhosts_share_document_root": false,
+      "chroot_or_namespace_isolation_enabled": true,
+      "key_file_in_document_root": false,
+      "key_file_world_readable": false,
+      "certificate_days_until_expiry": -36500,
+      "http_to_https_redirect_enabled": false,
+      "hsts_enabled": true,
+      "publicly_accessible": true,
+      "authentication_required": false,
+      "web_root_owner": "present",
+      "logged_user_supplied_fields": [
+        "default"
+      ],
+      "log_aggregation_or_siem_connected": false,
+      "days_since_patch_available": 0,
+      "path_traversal_controls_enabled": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "accepted_tls_versions": [
+        "partial"
+      ],
+      "weak_cipher_suites_enabled": false,
+      "certificate_authority_type": "self_signed",
+      "certificate_expired": false,
+      "certificate_domain_match": true,
+      "tls_configured": true,
+      "certificate_days_until_expiry": 0,
+      "http_port_open": false,
+      "http_to_https_redirect_enabled": false,
+      "hsts_enabled": true,
+      "server_header_disclosure": false,
+      "x_powered_by_header_disclosure": false,
+      "directory_listing_enabled": false,
+      "publicly_accessible": true,
+      "authentication_required": false,
+      "present_security_headers": [
+        "partial"
+      ],
+      "hsts_max_age_seconds": 0,
+      "csp_policy_configured": true,
+      "allowed_http_methods": [
+        "partial"
+      ],
+      "endpoint_is_static_or_readonly": false,
+      "trace_method_response_reflects_headers": false,
+      "process_run_uid": 0,
+      "process_run_user": "root_other",
+      "dedicated_service_account_configured": true,
+      "web_root_owner": "present",
+      "web_root_world_writable": false,
+      "config_dir_permissions_octal": "__outside__",
+      "access_logging_enabled": true,
+      "error_logging_enabled": true,
+      "log_fields_captured": [
+        "partial"
+      ],
+      "log_input_sanitization_enabled": true,
+      "logged_user_supplied_fields": [
+        "partial"
+      ],
+      "log_aggregation_or_siem_connected": false,
+      "version_has_known_cve": false,
+      "days_since_patch_available": 0,
+      "rate_limiting_enabled": true,
+      "connection_throttling_enabled": true,
+      "max_request_body_size_bytes": 0,
+      "default_welcome_page_active": false,
+      "sample_scripts_accessible": false,
+      "vhosts_share_document_root": false,
+      "chroot_or_namespace_isolation_enabled": true,
+      "path_traversal_controls_enabled": true,
+      "key_file_in_document_root": false,
+      "key_file_world_readable": false
+    },
+    "expectedExposures": [
+      "Privileged Process Execution",
+      "Insufficient Access Logging",
+      "Missing Or Invalid Tls Certificate",
+      "Absent Rate Limiting And Request Throttling",
+      "Missing Security Response Headers"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Insufficient Access Logging",
+      "Missing Or Invalid Tls Certificate",
+      "Misconfigured Virtual Host Isolation",
+      "Absent Rate Limiting And Request Throttling",
+      "Missing Security Response Headers"
+    ]
+  }
+]

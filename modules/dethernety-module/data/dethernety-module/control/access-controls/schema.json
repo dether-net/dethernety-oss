@@ -1,0 +1,587 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "role_permission_scope": {
+        "type": "string",
+        "enum": [
+          "minimal",
+          "appropriate",
+          "excessive"
+        ],
+        "title": "Role Permission Scope",
+        "description": "Indicates whether roles are defined with minimal, appropriate, or excessive permissions relative to their function"
+      },
+      "wildcard_permissions_present": {
+        "type": "boolean",
+        "title": "Wildcard Permissions Present",
+        "description": "Whether any role grants wildcard or catch-all permissions (e.g., *, admin:*, all) that exceed specific function needs",
+        "default": false
+      },
+      "privilege_review_frequency": {
+        "type": "string",
+        "enum": [
+          "continuous",
+          "quarterly",
+          "annually",
+          "never"
+        ],
+        "title": "Privilege Review Frequency",
+        "description": "How frequently role-permission assignments are reviewed and recertified to ensure continued least-privilege compliance"
+      },
+      "separation_of_duties_enforced": {
+        "type": "boolean",
+        "title": "Separation of Duties Enforced",
+        "description": "Whether the RBAC model prevents any single role from holding conflicting high-privilege permissions (e.g., both approver and executor)",
+        "default": false
+      },
+      "over_privileged_user_count": {
+        "type": "integer",
+        "minimum": 0,
+        "title": "Over-Privileged User Count",
+        "description": "Number of users currently assigned to roles that exceed their functional requirements, as identified by access reviews or automated tooling"
+      },
+      "role_review_process_exists": {
+        "type": "boolean",
+        "title": "Role Review Process Exists",
+        "description": "Whether a formal periodic review process exists to validate that user role assignments reflect current organizational responsibilities",
+        "default": false
+      },
+      "role_review_frequency_days": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 730,
+        "title": "Role Review Frequency (Days)",
+        "description": "Maximum number of days between scheduled role assignment reviews"
+      },
+      "orphaned_role_assignments_remediated": {
+        "type": "boolean",
+        "title": "Orphaned Role Assignments Remediated",
+        "description": "Whether there is a confirmed process or control that detects and removes role assignments for inactive, terminated, or transferred users",
+        "default": false
+      },
+      "rbac_enforcement_scope": {
+        "type": "string",
+        "enum": [
+          "all_actions",
+          "partial",
+          "none"
+        ],
+        "title": "RBAC Enforcement Scope",
+        "description": "Indicates whether role-based access control gates are applied to all application actions, only some, or none"
+      },
+      "unprotected_action_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000,
+        "title": "Unprotected Action Count",
+        "description": "The number of application actions or endpoints that are accessible without a role-based access control check"
+      },
+      "default_deny_policy_enabled": {
+        "type": "boolean",
+        "title": "Default Deny Policy Enabled",
+        "description": "Whether the RBAC system uses a default-deny posture, blocking any action not explicitly permitted by a role assignment",
+        "default": false
+      },
+      "bypass_mechanisms_present": {
+        "type": "boolean",
+        "title": "Bypass Mechanisms Present",
+        "description": "Whether any known mechanisms (e.g., debug flags, admin backdoors, unauthenticated overrides) exist that allow actions to bypass RBAC enforcement",
+        "default": false
+      },
+      "sod_constraints_defined": {
+        "type": "boolean",
+        "title": "Separation of Duties Constraints Defined",
+        "description": "Whether the system has formally defined mutually exclusive role constraints that prevent any single user from holding conflicting permissions (e.g., requestor and approver roles cannot be assigned to the same user)",
+        "default": false
+      },
+      "sod_enforcement_mode": {
+        "type": "string",
+        "enum": [
+          "preventive",
+          "detective",
+          "none"
+        ],
+        "title": "SoD Enforcement Mode",
+        "description": "Whether SoD constraints are enforced automatically by the system (preventive) or only reported/alerted (detective), or not enforced at all"
+      },
+      "sod_violation_count": {
+        "type": "integer",
+        "minimum": 0,
+        "title": "Current SoD Violation Count",
+        "description": "Number of users currently assigned to at least one pair of mutually exclusive roles, indicating active violations of defined SoD constraints"
+      },
+      "dual_control_workflows_enabled": {
+        "type": "boolean",
+        "title": "Dual-Control Workflows Enabled",
+        "description": "Whether critical workflows (e.g., financial transactions, privileged access grants, configuration changes) require approval from a second user who does not share the initiating role"
+      },
+      "access_decision_logging_enabled": {
+        "type": "boolean",
+        "title": "Access Decision Logging Enabled",
+        "description": "Whether the application logs both granted and denied RBAC access decisions to an audit trail",
+        "default": false
+      },
+      "logged_decision_types": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Logged Decision Types",
+        "description": "The types of access decisions that are logged (e.g., 'granted', 'denied', 'both')"
+      },
+      "log_includes_user_and_resource": {
+        "type": "boolean",
+        "title": "Log Includes User Identity and Resource",
+        "description": "Whether each access decision log entry captures the user identity, the resource or action attempted, and the role evaluated",
+        "default": false
+      },
+      "role_creation_process_defined": {
+        "type": "boolean",
+        "title": "Role Creation Process Defined",
+        "description": "Whether a formal, documented process exists for creating new roles, including approval requirements and permission scoping guidelines"
+      },
+      "role_retirement_process_defined": {
+        "type": "boolean",
+        "title": "Role Retirement Process Defined",
+        "description": "Whether a formal process exists for retiring or decommissioning roles, including user reassignment steps and permission cleanup to prevent permission accumulation"
+      },
+      "role_review_frequency": {
+        "type": "string",
+        "enum": [
+          "continuous",
+          "quarterly",
+          "semi_annually",
+          "annually",
+          "ad_hoc",
+          "never"
+        ],
+        "title": "Role Review Frequency",
+        "description": "How frequently existing roles are reviewed for relevance, permission accuracy, and alignment with current organizational requirements"
+      },
+      "orphaned_roles_present": {
+        "type": "boolean",
+        "title": "Orphaned Roles Present",
+        "description": "Whether roles exist in the system that have no assigned users and no documented purpose or scheduled deletion, indicating lifecycle management gaps"
+      },
+      "centralized_enforcement_point_exists": {
+        "type": "boolean",
+        "title": "Centralized Enforcement Point Exists",
+        "description": "Whether the application has a single, centralized location (middleware, gateway, or policy engine) where RBAC permissions are evaluated before granting access to application modules",
+        "default": false
+      },
+      "per_feature_permission_logic_present": {
+        "type": "boolean",
+        "title": "Per-Feature Permission Logic Present",
+        "description": "Whether individual application modules or features contain their own inline permission checks that are not delegated to the centralized enforcement point, indicating fragmented access control",
+        "default": false
+      },
+      "enforcement_coverage_scope": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Enforcement Coverage Scope",
+        "description": "The breadth of application modules and endpoints covered by the centralized RBAC enforcement point"
+      },
+      "privileged_roles_defined": {
+        "type": "boolean",
+        "title": "Privileged Roles Defined",
+        "description": "Whether the application has explicitly defined roles (e.g., admin, data-exporter, auditor) that gate destructive or sensitive operations such as deletion, bulk export, and administrative configuration changes",
+        "default": false
+      },
+      "sensitive_operations_role_enforced": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Sensitive Operations Role Enforcement",
+        "description": "Indicates whether role checks are enforced on all sensitive/destructive operations (delete, export, admin config), only partially enforced on some, or not enforced at all"
+      },
+      "standard_user_privilege_separation": {
+        "type": "boolean",
+        "title": "Standard User Privilege Separation Enforced",
+        "description": "Whether standard (non-privileged) user roles are explicitly denied or not granted the ability to perform destructive or sensitive operations, enforcing clear separation from privileged roles",
+        "default": false
+      },
+      "idp_sync_enabled": {
+        "type": "boolean",
+        "title": "Identity Provider Sync Enabled",
+        "description": "Whether automatic synchronization of role assignments from the authoritative identity provider (e.g., LDAP, SCIM, Azure AD) is enabled",
+        "default": false
+      },
+      "sync_frequency_minutes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10080,
+        "title": "Role Sync Frequency (Minutes)",
+        "description": "How frequently (in minutes) role memberships are synchronized from the identity provider. Lower values reduce the window where stale permissions persist."
+      },
+      "deprovisioning_action": {
+        "type": "string",
+        "enum": [
+          "immediate_revocation",
+          "deactivate_account",
+          "no_action",
+          "manual_review"
+        ],
+        "title": "Deprovisioning Action on User Removal",
+        "description": "The action taken on a user's application roles when the user is removed or disabled in the identity provider"
+      },
+      "role_review_process_enabled": {
+        "type": "boolean",
+        "title": "Role Review Process Enabled",
+        "description": "Indicates whether a formal periodic role review and recertification process is in place for RBAC assignments",
+        "default": false
+      },
+      "review_frequency_days": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 730,
+        "title": "Review Frequency (Days)",
+        "description": "Maximum number of days between mandatory role assignment reviews/recertification cycles"
+      },
+      "last_review_completed_days_ago": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Days Since Last Review Completed",
+        "description": "Number of days elapsed since the most recent completed role recertification cycle"
+      },
+      "revocation_action_supported": {
+        "type": "boolean",
+        "title": "Revocation Action Supported in Review Workflow",
+        "description": "Indicates whether the review process supports and enforces actual revocation of roles when managers deny/reject an assignment during recertification",
+        "default": false
+      },
+      "review_scope": {
+        "type": "string",
+        "enum": [
+          "none",
+          "partial",
+          "privileged_only",
+          "all_roles"
+        ],
+        "title": "Review Scope",
+        "description": "Describes the breadth of roles and users covered by the recertification process",
+        "default": "none"
+      }
+    },
+    "required": [
+      "role_permission_scope",
+      "wildcard_permissions_present",
+      "privilege_review_frequency",
+      "separation_of_duties_enforced",
+      "over_privileged_user_count",
+      "role_review_process_exists",
+      "role_review_frequency_days",
+      "orphaned_role_assignments_remediated",
+      "rbac_enforcement_scope",
+      "unprotected_action_count",
+      "default_deny_policy_enabled",
+      "bypass_mechanisms_present",
+      "sod_constraints_defined",
+      "sod_enforcement_mode",
+      "sod_violation_count",
+      "dual_control_workflows_enabled",
+      "access_decision_logging_enabled",
+      "logged_decision_types",
+      "log_includes_user_and_resource",
+      "role_creation_process_defined",
+      "role_retirement_process_defined",
+      "role_review_frequency",
+      "orphaned_roles_present",
+      "centralized_enforcement_point_exists",
+      "per_feature_permission_logic_present",
+      "enforcement_coverage_scope",
+      "privileged_roles_defined",
+      "sensitive_operations_role_enforced",
+      "standard_user_privilege_separation",
+      "idp_sync_enabled",
+      "sync_frequency_minutes",
+      "deprovisioning_action"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bypass_mechanisms_present"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_enforcement_point_exists"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_deny_policy_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/deprovisioning_action"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/enforcement_coverage_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/idp_sync_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/per_feature_permission_logic_present"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rbac_enforcement_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unprotected_action_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sync_frequency_minutes"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/over_privileged_user_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_roles_defined"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/role_permission_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_operations_role_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/separation_of_duties_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sod_constraints_defined"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sod_enforcement_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/standard_user_privilege_separation"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/wildcard_permissions_present"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dual_control_workflows_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sod_violation_count"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/orphaned_role_assignments_remediated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/role_review_frequency_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/role_review_process_exists"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/orphaned_roles_present"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/privilege_review_frequency"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/role_creation_process_defined"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/role_retirement_process_defined"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/role_review_frequency"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/last_review_completed_days_ago"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/review_frequency_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/review_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/revocation_action_supported"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/role_review_process_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_decision_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logged_decision_types"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_includes_user_and_resource"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

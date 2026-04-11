@@ -1,0 +1,8 @@
+{
+  "name": "Container Images",
+  "classType": "data",
+  "type": "Container Images",
+  "description": "Layered OCI filesystem snapshots including application binaries, runtime dependencies, and potentially embedded secrets or credentials stored in the Container Registry. High classification for production images. Primary target for supply-chain compromise through layer tampering or malicious base image substitution.",
+  "category": "Container Infrastructure",
+  "status": "draft"
+}

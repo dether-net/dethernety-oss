@@ -1,0 +1,8 @@
+{
+  "name": "Email Transmission",
+  "classType": "dataFlow",
+  "type": "Email Transmission",
+  "description": "Email data flows carrying PII or credentials are exposed to interception, tampering, and replay attacks across multiple transit hops. Key risks include unencrypted SMTP relay legs, missing or misconfigured TLS enforcement, absent mutual authentication, lack of message integrity via DKIM, and weak routing security allowing man-in-the-middle or traffic redirection attacks.",
+  "category": "Communication Services",
+  "status": "reviewed"
+}

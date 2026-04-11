@@ -1,0 +1,8 @@
+{
+  "name": "Internal Service Communication",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "Microservice-to-microservice communication within the application layer presents multiple transit security risks. Key concerns include the use of mutual TLS (mTLS), certificate validation rigor, protocol downgrade susceptibility, message integrity enforcement, replay attack vectors, and the absence of service mesh-level traffic controls. Internal traffic is frequently under-encrypted or under-authenticated under the assumption of a trusted internal network, which is invalid in zero-trust or compromised-perimeter scenarios.",
+  "category": "Application Traffic",
+  "status": "reviewed"
+}

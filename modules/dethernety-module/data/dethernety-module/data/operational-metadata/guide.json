@@ -1,0 +1,901 @@
+[
+  {
+    "option_name": "performance_data_classification_label",
+    "option_description": "The data classification label assigned to system performance and characteristics data, including metrics, throughput statistics, capacity data, and timing profiles. This label governs which downstream handling controls apply, including encryption-at-rest requirements, access scoping, and audit logging obligations.",
+    "security_impact": "The Rego policy fires the misclassification_of_performance_data_as_non_sensitive exposure whenever this label is set to 'public' or 'internal', or when it is absent from the set ['confidential', 'restricted', 'operationally_sensitive'] and encryption, access restriction, or audit logging is simultaneously absent. Misclassification bypasses all downstream controls, exposing operational fingerprints — throughput ceilings, timing baselines, capacity thresholds — to adversaries for reconnaissance aligned with MITRE T1213 and T1565.001.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query your data catalog or CMDB API for the classification tag on the performance data asset. For example, in AWS, retrieve the S3 bucket or RDS instance tags.",
+        "command": "aws resourcegroupstaggingapi get-resources --tag-filters Key=DataClassification --query 'ResourceTagMappingList[*].{ARN:ResourceARN,Tags:Tags}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON list of resources with their DataClassification tag values, e.g., 'internal', 'confidential', or 'operationally_sensitive'."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the organization's data catalog (e.g., AWS Glue Data Catalog, Collibra, Alation) and search for the performance metrics dataset. Inspect the classification or sensitivity label field on the dataset record.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Data Catalog > Datasets > [Performance Metrics Dataset] > Metadata / Classification > Sensitivity Label",
+        "expected_output": "A label field showing one of: public, internal, confidential, restricted, or operationally_sensitive."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If classification is managed via a YAML or JSON tagging policy file in the IaC repository, locate and inspect it for the data class label.",
+        "command": "grep -r 'DataClassification\\|data_classification\\|classification_label' ./infra/ --include='*.yaml' --include='*.json' -l | xargs grep -i 'performance\\|metrics\\|apm'",
+        "file_path": "./infra/data-classification-policy.yaml",
+        "navigation": null,
+        "expected_output": "A key-value pair such as 'DataClassification: confidential' or 'classification_label: operationally_sensitive' associated with performance data resources."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the data governance or security team to confirm whether a classification policy document explicitly categorizes performance monitoring outputs. Request the policy document and verify the tier assigned to APM, metrics exports, and benchmark reports.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A written policy section or data inventory record assigning a classification tier to performance and operational metrics data."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "internal (common but insufficient — triggers misclassification exposure)",
+      "confidential (acceptable minimum for most environments)",
+      "operationally_sensitive (recommended for systems with high-value capacity or timing data)",
+      "public (misconfiguration — never appropriate for operational metrics)"
+    ]
+  },
+  {
+    "option_name": "encryption_at_rest_enforced",
+    "option_description": "Controls whether encryption-at-rest is actively applied and enforced on all storage layers persisting performance metrics and characteristics data, including relational databases, object stores, time-series stores, log archives, and backup media. Covers both native encryption flags and key management service bindings.",
+    "security_impact": "The Rego policy fires absence_of_encryption_at_rest_for_stored_metrics whenever encryption_at_rest_enforced is false, regardless of classification label or exemption status. A separate condition also fires when the label is 'public' or 'internal_low' and encryption is absent. Unencrypted storage means any party with storage-layer access — backup operators, cloud storage admins, or compromised credentials — can read operational profiles without further exploitation, enabling T1565.001 (Stored Data Manipulation) and T1530 (Data from Cloud Storage).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS S3 buckets holding metrics data, check the default encryption configuration using the AWS CLI.",
+        "command": "aws s3api get-bucket-encryption --bucket <metrics-bucket-name> --query 'ServerSideEncryptionConfiguration.Rules[*].ApplyServerSideEncryptionByDefault'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output showing SSEAlgorithm as 'aws:kms' or 'AES256'. An error or empty result indicates encryption is not configured."
+      },
+      {
+        "type": "command",
+        "instruction": "For RDS or Aurora databases storing performance records, check the StorageEncrypted flag via the AWS CLI.",
+        "command": "aws rds describe-db-instances --query 'DBInstances[*].{ID:DBInstanceIdentifier,Encrypted:StorageEncrypted,KMSKey:KmsKeyId}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table showing 'Encrypted: true' and a non-null KMSKey value for each relevant database instance."
+      },
+      {
+        "type": "gui",
+        "instruction": "For cloud object storage, navigate to the storage service console and verify the encryption settings on the bucket or container holding metrics data.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > S3 > [Metrics Bucket] > Properties > Default Encryption | Azure Portal > Storage Account > [Metrics Account] > Encryption",
+        "expected_output": "Encryption type shown as 'SSE-KMS' or 'SSE-S3' (AWS) or 'Microsoft-managed key' / 'Customer-managed key' (Azure), not 'None'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If infrastructure is managed via Terraform, inspect the IaC configuration for encryption settings on storage resources.",
+        "command": "grep -rn 'storage_encrypted\\|server_side_encryption\\|encrypt_at_rest\\|kms_key_id' ./infra/ --include='*.tf'",
+        "file_path": "./infra/storage.tf",
+        "navigation": null,
+        "expected_output": "Terraform resource blocks showing 'storage_encrypted = true' and a valid 'kms_key_id' value for all performance data storage resources."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (correctly configured — encryption enforced via KMS or platform-managed keys)",
+      "false (misconfiguration — common in legacy deployments or non-production environments promoted to production)"
+    ]
+  },
+  {
+    "option_name": "encryption_policy_exemption_granted",
+    "option_description": "Indicates whether a formal, documented exemption from the organization's encryption-at-rest policy has been explicitly approved for this specific performance metrics data store, meaning plaintext storage is intentional and recorded in the policy exception register rather than being an oversight.",
+    "security_impact": "The Rego policy fires absence_of_encryption_at_rest_for_stored_metrics when encryption_policy_exemption_granted is true but encryption_at_rest_enforced is simultaneously false. This condition captures environments where an exemption has been granted but encryption has still not been implemented — a dangerous state where neither the control nor a compensating measure is active. An exemption without implemented encryption provides no actual protection against T1530 and T1565.001.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request access to the organization's policy exception register or GRC platform (e.g., ServiceNow GRC, Archer, OneTrust) and search for active exemptions referencing the specific metrics data store asset name or asset ID.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GRC Platform > Policy Exceptions > Search by Asset Name: [metrics-store-name] > Filter: Status = Active",
+        "expected_output": "An active exemption record with approval date, approver, business justification, expiry date, and the specific asset name. If no record exists, treat as false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the GRC or ticketing system API for exemption records tagged to the performance data store asset.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://grc.example.com/api/v1/exceptions?asset_id=<metrics-store-id>&status=active' | jq '.exceptions[] | {id, asset, justification, approved_by, expiry_date}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON array of active exemption records. An empty array means no exemption is granted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If exception records are maintained in a version-controlled governance repository, search for exemption files referencing the metrics store.",
+        "command": "find ./governance/exceptions/ -name '*.yaml' -o -name '*.json' | xargs grep -l 'encryption\\|at_rest' | xargs grep -l 'metrics\\|performance\\|apm'",
+        "file_path": "./governance/exceptions/",
+        "navigation": null,
+        "expected_output": "A YAML or JSON file with fields such as 'control: encryption_at_rest', 'asset: metrics-store', 'status: approved', and a valid 'expiry_date'."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (correct default — no exemption exists and encryption should be enforced)",
+      "true with encryption also true (acceptable — exemption documented but encryption still applied)",
+      "true with encryption false (high-risk misconfiguration — exemption granted but no compensating control active)"
+    ]
+  },
+  {
+    "option_name": "access_scope_restricted",
+    "option_description": "Determines whether access to performance and operational characteristics data is constrained to explicitly authorized roles (e.g., SRE, platform operations, security teams) rather than being broadly available to all authenticated users, service accounts, or public endpoints. Covers ACLs, IAM policies, RBAC role bindings, and dashboard visibility settings.",
+    "security_impact": "The Rego policy fires misclassification_of_performance_data_as_non_sensitive when the classification label is not in the sensitive tier and access_scope_restricted is false. Broad access to operational metrics enables adversaries or malicious insiders to collect timing patterns, throughput ceilings, and capacity thresholds aligned with T1213 (Data from Information Repositories). Unrestricted access amplifies the blast radius of any compromised credential.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS, enumerate who has read access to the S3 bucket containing performance metrics by reviewing the bucket policy and ACL.",
+        "command": "aws s3api get-bucket-policy --bucket <metrics-bucket-name> --query 'Policy' --output text | python3 -m json.tool && aws s3api get-bucket-acl --bucket <metrics-bucket-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy statements with 'Effect: Allow' should reference specific IAM role ARNs, not '*' or 'AuthenticatedUsers'. ACL grants should not include 'AllUsers' or 'AuthenticatedUsers'."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes-hosted metrics systems (e.g., Prometheus), check RBAC ClusterRoles and RoleBindings that grant read access to metrics endpoints or ConfigMaps.",
+        "command": "kubectl get rolebindings,clusterrolebindings -A -o json | jq '.items[] | select(.roleRef.name | test(\"metrics|prometheus|monitor\")) | {name:.metadata.name, namespace:.metadata.namespace, subjects:.subjects}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of role bindings showing specific service account or group subjects. System:authenticated or system:unauthenticated as subjects indicates overly broad access."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Grafana or similar dashboard platforms, check the permissions settings on folders containing performance dashboards to verify access is restricted to specific teams or roles.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana > Dashboards > [Performance Metrics Folder] > Folder Permissions > Verify only specific teams (e.g., SRE, Ops) have Viewer or Editor access",
+        "expected_output": "Permission list showing named teams or users only, not 'Everyone' or 'All users with login'."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the cloud provider IAM access analyzer to identify policies granting broad read access to the metrics data store.",
+        "command": "aws accessanalyzer list-findings --analyzer-arn <analyzer-arn> --filter '{\"resourceType\":{\"eq\":[\"AWS::S3::Bucket\"]}}' --query 'findings[*].{Resource:resource,Access:action,Principal:principal}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Findings with 'isPublic: false' and principal scoped to specific role ARNs. Any 'isPublic: true' finding indicates unrestricted access."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (correctly configured — access limited to defined operations and security roles)",
+      "false (common misconfiguration — all authenticated users or broad groups granted access)"
+    ]
+  },
+  {
+    "option_name": "audit_logging_enabled_for_performance_data",
+    "option_description": "Controls whether audit logging is enabled, enforced, and forwarded to a SIEM for all access and export operations against performance and characteristics data stores, metrics APIs, APM endpoints, and monitoring dashboards. Ensures a complete audit trail of who accessed operational data and when.",
+    "security_impact": "The Rego policy fires misclassification_of_performance_data_as_non_sensitive when the classification label is not in the sensitive tier and audit_logging_enabled_for_performance_data is false. Without audit logs, unauthorized access to timing profiles and capacity baselines goes undetected, removing the ability to identify insider threats or reconnaissance activity aligned with T1213. Silent access to operational fingerprints is a persistent exposure window.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS S3 buckets storing metrics data, verify that server access logging is enabled and data events are captured by CloudTrail.",
+        "command": "aws s3api get-bucket-logging --bucket <metrics-bucket-name> && aws cloudtrail get-event-selectors --trail-name <trail-name> --query 'EventSelectors[*].DataResources'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "get-bucket-logging returns a LoggingEnabled block. get-event-selectors shows DataResources with Type 'AWS::S3::Object' covering the metrics bucket ARN."
+      },
+      {
+        "type": "command",
+        "instruction": "For Prometheus or similar metrics systems, check whether an access log or audit log is configured in the service configuration.",
+        "command": "grep -E 'log.level|web.config|log_format|access_log' /etc/prometheus/prometheus.yml && journalctl -u prometheus --since '1 hour ago' | grep -i 'GET\\|POST\\|query'",
+        "file_path": "/etc/prometheus/prometheus.yml",
+        "navigation": null,
+        "expected_output": "Configuration includes web.config.file pointing to a config with audit settings, and recent journal entries show HTTP access log lines for query endpoints."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM to confirm that log sources from performance data stores are actively ingesting access events. Check for recent read or export events from the metrics store.",
+        "command": "# Example Splunk query\nindex=cloudtrail sourcetype=aws:cloudtrail eventName=GetObject bucketName=<metrics-bucket> | stats count by userIdentity.arn, eventTime | head 20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Results showing recent GetObject events attributed to specific IAM principals. Zero results may indicate logging is disabled or logs are not forwarded to the SIEM."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the APM or observability platform settings to confirm audit logging or access logging is enabled for the metrics data source.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Datadog / New Relic / Dynatrace > Settings > Security > Audit Logs > Confirm 'Enabled' status and verify SIEM forwarding integration is active",
+        "expected_output": "Audit logging toggle shows 'Enabled' and a SIEM integration (e.g., Splunk HTTP Event Collector) is configured and showing as connected."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (correctly configured — access events logged and forwarded to SIEM)",
+      "false (common gap — logging enabled at platform but not forwarded, or disabled entirely for performance data stores)"
+    ]
+  },
+  {
+    "option_name": "retention_policy_enforced",
+    "option_description": "Indicates whether an automated lifecycle or expiry policy is actively configured and enforced on performance data storage backends, including TTL settings, object lifecycle rules, scheduled purge jobs, or database partition expiry. The policy must be active and executing, not merely documented in a governance artifact.",
+    "security_impact": "The Rego policy fires excessive_retention_beyond_operational_need immediately when retention_policy_enforced is false, regardless of other conditions. Without automated enforcement, data accumulates indefinitely. Long-retained performance datasets provide adversaries with deep historical behavioral profiles enabling capacity planning intelligence and timing-based attack optimization aligned with T1485.001 (Lifecycle-Triggered Deletion absence) and T1074 (Data Staged). A documented-but-unenforced policy provides no protection.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS S3 buckets, verify that a lifecycle configuration with expiration rules is applied to the metrics data bucket.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket <metrics-bucket-name> --query 'Rules[*].{ID:ID,Status:Status,Expiration:Expiration,Prefix:Filter.Prefix}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one rule with 'Status: Enabled' and an 'Expiration.Days' value defined. An error ('NoSuchLifecycleConfiguration') means no lifecycle policy is configured."
+      },
+      {
+        "type": "command",
+        "instruction": "For InfluxDB or similar time-series stores, check whether retention policies are configured on the metrics database.",
+        "command": "influx bucket list --org <org-name> --json | jq '.[] | select(.name | test(\"metrics|performance|apm\")) | {name, retentionPeriodSeconds, retentionPeriodHrs: (.retentionPeriodSeconds / 3600)}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Bucket entries showing retentionPeriodSeconds greater than 0. A value of 0 means infinite retention and the policy is not enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "For Elasticsearch or OpenSearch indices holding performance logs, verify Index Lifecycle Management (ILM) policy is assigned and active.",
+        "command": "curl -s -u elastic:<password> 'https://<es-host>:9200/_all/_settings?filter_path=*.settings.index.lifecycle' | python3 -m json.tool | grep -A3 'lifecycle'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Index settings showing 'index.lifecycle.name' pointing to an ILM policy name for each performance metrics index. Missing entries indicate no lifecycle enforcement."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For infrastructure managed via Terraform, inspect lifecycle rule blocks on storage resource definitions.",
+        "command": "grep -A 20 'lifecycle_rule\\|lifecycle_configuration\\|retention_policy' ./infra/ -r --include='*.tf' | grep -E 'enabled|expiration|days'",
+        "file_path": "./infra/storage.tf",
+        "navigation": null,
+        "expected_output": "Terraform blocks showing 'enabled = true' within lifecycle_rule and an 'expiration { days = <N> }' block with a defined value."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (correctly configured — automated TTL or lifecycle rules are active)",
+      "false (very common — retention documented in policy but not implemented as automated enforcement in storage backends)"
+    ]
+  },
+  {
+    "option_name": "defined_retention_window_days",
+    "option_description": "The maximum number of days that performance data is permitted to be retained according to the organization's data governance or classification policy. A value of 0 indicates that no retention window has been formally defined in policy. This value is sourced from policy documentation, data governance records, or storage configuration and must represent an approved operational need, not a default.",
+    "security_impact": "The Rego policy fires excessive_retention_beyond_operational_need when this value equals 0, indicating no retention boundary exists and data can accumulate indefinitely. A defined window also serves as the comparison threshold against oldest_record_age_days to detect active over-retention. Undefined retention enables the buildup of long-range behavioral data usable for adversarial profiling under T1074, and indicates absence of the governance controls needed to enforce T1485.001 countermeasures.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the data classification policy, data retention schedule, or information lifecycle management policy from the data governance or legal team. Locate the section defining retention periods for operational monitoring data or performance metrics.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A policy document with a table or section specifying a retention period in days (or months/years convertible to days) for 'operational metrics', 'system performance data', or 'APM data'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the data governance configuration files or data catalog metadata for the retention_window_days field assigned to the performance metrics dataset.",
+        "command": "grep -r 'retention_days\\|retention_window\\|retention_period\\|max_age' ./governance/ --include='*.yaml' --include='*.json' | grep -i 'performance\\|metrics\\|apm'",
+        "file_path": "./governance/data-retention-policy.yaml",
+        "navigation": null,
+        "expected_output": "A YAML or JSON key-value pair such as 'retention_window_days: 90' or 'max_retention_days: 365' for the performance data class."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the data catalog API for the retention metadata on the performance metrics dataset.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://catalog.example.com/api/v1/datasets?name=performance-metrics' | jq '.[].metadata | {retention_days, classification, data_owner}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON response including 'retention_days' with a non-zero positive integer value. A null or 0 value indicates the retention window is undefined."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the data catalog or CMDB entry for the performance metrics data store and check the retention policy field.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Data Catalog > [Performance Metrics Dataset] > Governance > Retention Policy > Retention Window (Days)",
+        "expected_output": "A populated 'Retention Window' field showing a positive integer (e.g., 90, 180, 365). An empty or zero value indicates the retention window is not defined."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (misconfiguration — no retention window defined; triggers exposure)",
+      "30 (short retention; common for high-frequency raw metrics)",
+      "90 (common default for operational metrics in regulated environments)",
+      "365 (annual retention; typical for capacity planning baselines)",
+      "730 (two-year retention; found in compliance-driven or audit-heavy environments)"
+    ]
+  },
+  {
+    "option_name": "oldest_record_age_days",
+    "option_description": "The age in days of the oldest performance record currently present in the data store, computed as the difference between the current date and the timestamp of the earliest retained record. This value is a direct measurement of actual retention depth, independent of policy, and is used to detect whether data has been retained beyond the defined retention window.",
+    "security_impact": "The Rego policy uses this value in conjunction with defined_retention_window_days to detect active over-retention in the excessive_retention_beyond_operational_need rule. When oldest_record_age_days exceeds the defined window, the exposure fires, indicating that automated lifecycle controls have failed or were never activated. A large oldest_record_age_days value (e.g., 1,000+ days) provides adversaries with deep historical operational profiles for behavioral analysis under T1074. Combined with a zero defined_retention_window_days, it confirms completely uncontrolled data accumulation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For time-series stores like InfluxDB, query the oldest timestamp in the metrics measurement and compute the age in days.",
+        "command": "influx query 'from(bucket:\"metrics\") |> range(start: 1970-01-01T00:00:00Z) |> first() |> keep(columns: [\"_time\"]) |> min(column: \"_time\")' && echo \"Today: $(date +%Y-%m-%d)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A timestamp representing the oldest record, e.g., '2021-03-15T00:00:00Z'. Compute the difference from today in days to derive the oldest_record_age_days value."
+      },
+      {
+        "type": "command",
+        "instruction": "For Elasticsearch or OpenSearch, query the oldest document timestamp across performance metrics indices.",
+        "command": "curl -s -u elastic:<password> -X GET 'https://<es-host>:9200/metrics-*/_search?size=1&sort=@timestamp:asc&_source=@timestamp' | jq '.hits.hits[0]._source[\"@timestamp\"]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An ISO 8601 timestamp string such as '2020-11-01T08:00:00.000Z'. Calculate the number of days from this timestamp to the current date."
+      },
+      {
+        "type": "command",
+        "instruction": "For relational databases (PostgreSQL) storing performance records, query the minimum timestamp value in the performance metrics table.",
+        "command": "psql -h <db-host> -U <user> -d <metrics-db> -c \"SELECT CURRENT_DATE - MIN(recorded_at)::date AS oldest_record_age_days FROM performance_metrics;\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A single integer representing the number of days since the oldest record was created, e.g., '847'. A result of 0 or null indicates either a very recent store or no records present."
+      },
+      {
+        "type": "command",
+        "instruction": "For S3-hosted metrics archives (e.g., Parquet files), identify the oldest object by LastModified timestamp.",
+        "command": "aws s3api list-objects-v2 --bucket <metrics-bucket> --query 'sort_by(Contents, &LastModified)[0].{Key:Key,LastModified:LastModified}' && echo \"Days since: $(( ( $(date +%s) - $(date -d \"$(aws s3api list-objects-v2 --bucket <metrics-bucket> --query 'sort_by(Contents, &LastModified)[0].LastModified' --output text)\" +%s) ) / 86400 ))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The key and LastModified date of the oldest object, followed by the computed age in days, e.g., '623 days'."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0–30 (recently initialized store or aggressive TTL policy in effect)",
+      "31–90 (within typical short-term retention windows)",
+      "91–365 (moderate retention; may be within policy for annual windows)",
+      "366–730 (over-retention risk if policy window is under 365 days)",
+      "730+ (common in environments without enforced lifecycle policies; high exposure risk)"
+    ]
+  },
+  {
+    "option_name": "raw_access_scoped_to_authorized_roles_only",
+    "option_description": "Controls whether the access control policy for raw performance data stores restricts read permissions exclusively to roles with a documented operational need — such as SREs and performance engineers — while explicitly excluding summary-only roles from raw data access.",
+    "security_impact": "The Rego rule overly_broad_read_access_to_raw_performance_records fires when this attribute is false or absent, regardless of whether summary-only roles are present in the reader list. A false value means the access policy has not been verified to enforce least-privilege scoping, leaving raw timeseries metrics, throughput logs, and anomaly traces accessible to roles whose job function requires only aggregated reports. This directly increases blast radius from compromised credentials and enables insider reconnaissance of capacity thresholds and timing patterns.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query your IAM or RBAC system to list all roles with read access to raw performance data tables and compare against approved operational roles. For AWS, enumerate S3 bucket policies and IAM role bindings on the metrics bucket.",
+        "command": "aws iam list-entities-for-policy --policy-arn arn:aws:iam::<account_id>:policy/RawPerformanceDataReadPolicy --query '{Roles:PolicyRoles[*].RoleName}' && aws s3api get-bucket-policy --bucket <metrics-bucket-name> | jq '.Policy | fromjson | .Statement[] | select(.Effect==\"Allow\") | {Principal, Action, Resource}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of role names with read access; cross-reference against the approved operational role roster to confirm no summary-only roles appear."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes environments, audit ClusterRoleBindings and RoleBindings on the Prometheus or metrics-server API to identify which service accounts and roles have access to raw metrics endpoints.",
+        "command": "kubectl get clusterrolebindings -o json | jq '.items[] | select(.roleRef.name | test(\"metrics|monitoring|performance\")) | {name: .metadata.name, subjects: .subjects, role: .roleRef.name}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Binding entries showing subject names and roles; verify each subject maps to an operationally authorized principal only."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Grafana or Datadog, navigate to the access control or team permissions section and inspect which teams or roles have access to raw data source queries versus dashboard-only views.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana → Administration → Users and Access → Teams; inspect each team's data source permissions. Datadog → Organization Settings → Teams → select team → Permissions tab.",
+        "expected_output": "Permission matrix showing 'Query' or 'Edit' data source access scoped only to SRE/performance engineer teams, not to business analyst or summary-consumer teams."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Grafana API to retrieve data source permissions and verify no unauthorized roles hold query access on raw metrics data sources.",
+        "command": "curl -s -H 'Authorization: Bearer <grafana_api_token>' https://<grafana_host>/api/datasources | jq '.[] | {name, type, id}' && curl -s -H 'Authorization: Bearer <grafana_api_token>' https://<grafana_host>/api/datasources/<ds_id>/permissions | jq '.permissions[] | {role, permission}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permission entries where 'Query' is assigned only to roles like 'sre-team' or 'perf-engineers', with no entries for summary-only roles."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null (not yet assessed)"
+    ]
+  },
+  {
+    "option_name": "raw_performance_data_reader_roles",
+    "option_description": "Enumerates all roles or identities that currently hold read permissions on raw, unaggregated performance records including timeseries metrics, throughput logs, and anomaly traces. This inventory is used to evaluate whether access is appropriately scoped to operationally authorized roles.",
+    "security_impact": "The Rego rule overly_broad_read_access_to_raw_performance_records evaluates the intersection of this list with roles_requiring_only_summary_access. If roles appearing in both lists exist and raw_access_scoped_to_authorized_roles_only is false, the exposure fires. An inflated reader role list — containing analysts, executives, or support roles — means raw operational fingerprints are accessible beyond operational necessity, enabling both insider threat vectors and credential-compromise escalation paths.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Extract all IAM principals with read access to the raw metrics S3 bucket or object storage prefix by combining bucket policy and IAM policy analysis.",
+        "command": "aws iam list-roles --query 'Roles[*].RoleName' --output text | tr '\\t' '\\n' | xargs -I{} sh -c 'aws iam list-attached-role-policies --role-name {} --query \"AttachedPolicies[*].PolicyArn\" --output text | xargs -I@ aws iam get-policy-version --policy-arn @ --version-id $(aws iam get-policy --policy-arn @ --query Policy.DefaultVersionId --output text) --query \"PolicyVersion.Document.Statement[?Effect==\\\"Allow\\\"].Action\" 2>/dev/null | grep -q s3:GetObject && echo {}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A newline-delimited list of IAM role names that have s3:GetObject or equivalent read access to raw metrics storage locations."
+      },
+      {
+        "type": "command",
+        "instruction": "For PostgreSQL or TimescaleDB metrics stores, query the pg_roles and information_schema to enumerate all database roles with SELECT privilege on raw performance tables.",
+        "command": "psql -U admin -d metrics_db -c \"SELECT grantee, table_name, privilege_type FROM information_schema.role_table_grants WHERE privilege_type = 'SELECT' AND table_schema = 'raw_metrics' ORDER BY grantee, table_name;\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table of grantee role names with SELECT permission on raw_metrics schema tables, used as the reader role inventory."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Elasticsearch or OpenSearch security API to list all roles with read index privileges on the raw performance indices.",
+        "command": "curl -s -u admin:<password> -X GET 'https://<opensearch_host>:9200/_plugins/_security/api/roles' | jq '.[] | select(.index_permissions[]?.index_patterns[] | test(\"raw-perf|metrics-raw\")) | {role_name: .role_name, index_permissions: .index_permissions}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON objects listing role names and their index patterns with allowed_actions containing 'read' or 'indices:data/read/*' on raw performance indices."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If using Prometheus with role-based access via kube-rbac-proxy or similar, inspect the RBAC manifest files to enumerate all ClusterRole definitions granting access to metrics endpoints.",
+        "command": "grep -r 'metrics\\|monitoring\\|performance' /etc/kubernetes/rbac/ --include='*.yaml' | grep -A5 'rules:' | grep 'verbs\\|resources'",
+        "file_path": "/etc/kubernetes/rbac/*.yaml",
+        "navigation": null,
+        "expected_output": "YAML excerpts showing verb lists (get, list, watch) on metrics resources, with associated role names to compile the reader role list."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"sre-team\", \"perf-engineers\"]",
+      "[\"sre-team\", \"perf-engineers\", \"data-analysts\", \"ops-managers\"]",
+      "[\"admin\", \"monitoring-service\", \"oncall-team\"]"
+    ]
+  },
+  {
+    "option_name": "roles_requiring_only_summary_access",
+    "option_description": "Defines the list of roles that, per documented job function or business requirements, should only access aggregated or summarized performance reports and have no legitimate need for raw unaggregated records. This list serves as the authoritative baseline for least-privilege enforcement on performance data.",
+    "security_impact": "The Rego policy cross-references this list against raw_performance_data_reader_roles to detect overlap when raw_access_scoped_to_authorized_roles_only is false. If roles from this list appear in raw data ACLs, the overly_broad_read_access_to_raw_performance_records exposure triggers. Inaccurate or incomplete population of this list undermines the effectiveness of the detection — both false negatives (missing summary-only roles) and false positives (incorrectly listing operational roles) impair the control.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review job role definitions and data access policy documents to identify roles whose stated responsibilities involve performance reporting, dashboarding, or business metrics review — not raw system diagnostics. Interview team leads for analytics, executive reporting, and support functions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review HR or identity governance system role catalog, data classification policy documents, and any data access request records to identify roles approved only for summary-level access.",
+        "expected_output": "A documented list of role names (e.g., 'business-analysts', 'exec-dashboard-consumers', 'support-tier1', 'finance-reporting') whose charters do not require raw metric access."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review data access policy YAML or JSON configuration files maintained by the data governance team to extract the explicit list of summary-only roles.",
+        "command": "cat /etc/data-governance/access-policy.yaml | grep -A20 'summary_only_roles:' | head -30",
+        "file_path": "/etc/data-governance/access-policy.yaml",
+        "navigation": null,
+        "expected_output": "A YAML list under 'summary_only_roles' key enumerating role names restricted to aggregated data access."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the identity governance platform (e.g., SailPoint, Saviynt) API to retrieve role definitions tagged with 'data-access-tier: summary' or equivalent classification.",
+        "command": "curl -s -H 'Authorization: Bearer <iga_token>' 'https://<iga_platform>/api/v1/roles?filter=dataAccessTier%3Dsummary&fields=name,description,dataAccessTier' | jq '[.roles[] | {name, dataAccessTier}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array of role objects where dataAccessTier equals 'summary', providing the authoritative list of roles that should be restricted from raw data."
+      },
+      {
+        "type": "gui",
+        "instruction": "In your IAM or HRMS portal, filter roles by department or function tags associated with reporting and analytics, then validate each role's data access entitlement documentation.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta → Directory → Groups → filter by 'analytics' or 'reporting'; Azure AD → Groups → filter by description containing 'summary' or 'reporting' → review group membership and assigned app roles.",
+        "expected_output": "Group/role listing with associated access tier metadata confirming summary-only designation for non-operational consumer roles."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"business-analysts\", \"exec-reporting\", \"finance-team\"]",
+      "[\"support-tier1\", \"product-managers\", \"sales-ops\"]",
+      "[\"capacity-reviewers\", \"audit-consumers\"]"
+    ]
+  },
+  {
+    "option_name": "cross_team_sharing_enabled",
+    "option_description": "Indicates whether system performance and operational characteristics data is actively transmitted to other organizational units (e.g., product, finance, sales operations) or to third-party vendors through data pipelines, API integrations, export jobs, or vendor data agreements.",
+    "security_impact": "When this attribute is true, the Rego rule no_anonymization_or_aggregation_before_cross_team_sharing evaluates whether anonymization_applied is true and data_granularity_level is not 'raw'. If sharing is enabled but anonymization and aggregation controls are absent, the exposure fires. Enabling cross-team sharing without corresponding data protection controls expands the operational fingerprint surface to recipients who may have weaker security postures, enabling supply-chain reconnaissance and violating least-privilege data sharing principles.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate data pipeline configurations in your ETL orchestration system (e.g., Apache Airflow) to identify DAGs or jobs that transfer performance data to external teams or vendor endpoints.",
+        "command": "find /opt/airflow/dags/ -name '*.py' | xargs grep -l 'performance\\|metrics\\|operational' | xargs grep -E 'http_hook|S3Hook|vendor|external|cross.team' --include='*.py' -l",
+        "file_path": "/opt/airflow/dags/",
+        "navigation": null,
+        "expected_output": "List of DAG files that contain both performance data references and external/cross-team transfer hooks, confirming active sharing pipelines."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Kafka or event streaming platform topic configurations to identify topics carrying performance metrics data and inspect their consumer group memberships for external or cross-organizational consumers.",
+        "command": "kafka-topics.sh --bootstrap-server <broker>:9092 --list | grep -E 'perf|metrics|operational' | xargs -I{} kafka-acls.sh --bootstrap-server <broker>:9092 --list --topic {} | grep -E 'ALLOW.*READ'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACL entries showing consumer group principals for performance topics; cross-reference principal names against internal-only groups to identify external consumers."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect vendor data sharing agreements and data pipeline destination configuration files to identify external recipients of performance data.",
+        "command": "grep -r 'destination\\|endpoint\\|vendor\\|partner\\|external' /etc/data-pipelines/ --include='*.yaml' --include='*.json' | grep -E 'perf|metrics|operational'",
+        "file_path": "/etc/data-pipelines/*.yaml",
+        "navigation": null,
+        "expected_output": "Configuration entries showing external destination URLs, bucket ARNs, or service account identifiers indicating cross-team or vendor sharing is configured."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the data catalog or data lineage tool (e.g., Alation, Collibra, DataHub) to trace downstream consumers of performance datasets and identify any external organizational units or third-party integrations.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DataHub → Datasets → search 'performance_metrics' → Lineage tab → Downstream → inspect consumer entities for external org or vendor labels. Collibra → Data Catalog → search asset → Relations → Consumed By.",
+        "expected_output": "Lineage graph showing downstream consumers; any node labeled with an external org unit, vendor name, or third-party integration confirms cross_team_sharing_enabled should be true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default, sharing disabled)",
+      "true (active pipelines to analytics teams or vendors)",
+      "true (vendor observability integrations like Datadog, New Relic forwarding)"
+    ]
+  },
+  {
+    "option_name": "anonymization_applied",
+    "option_description": "Controls whether ETL pipelines and data export processes apply anonymization, pseudonymization, aggregation, or masking transforms to system-identifying attributes — including hostnames, IP addresses, service identifiers, and raw capacity values — before performance data is transmitted to external recipients.",
+    "security_impact": "The Rego rule no_anonymization_or_aggregation_before_cross_team_sharing fires specifically when cross_team_sharing_enabled is true, anonymization_applied is false, and data_granularity_level is 'raw'. Without anonymization, recipients receive full operational fingerprints including exact hostnames, service topologies, and capacity thresholds that can be used for targeted attack planning. This attribute being false with active sharing constitutes a supply-chain data exposure risk mapped to MITRE T1589 and T1591.002.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect ETL transformation scripts and pipeline stage definitions for anonymization, masking, or hashing functions applied to system identifiers before data export.",
+        "command": "grep -rn 'anonymize\\|pseudonymize\\|mask\\|hash\\|replace\\|redact\\|aggregate' /opt/etl/transforms/ --include='*.py' --include='*.sql' --include='*.scala' | grep -i 'hostname\\|ip_address\\|service_id\\|host_id\\|instance_id'",
+        "file_path": "/opt/etl/transforms/",
+        "navigation": null,
+        "expected_output": "Code lines showing masking or hashing operations applied to system identifier fields prior to export; absence of such lines indicates anonymization is not applied."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review data export job configuration files or dbt model definitions to verify masking macros or anonymization profiles are enabled for performance data exports.",
+        "command": "cat /opt/dbt/models/exports/performance_export.sql | grep -E 'mask\\|hash\\|anonymize\\|coalesce.*null\\|case.*when.*then.*null'",
+        "file_path": "/opt/dbt/models/exports/performance_export.sql",
+        "navigation": null,
+        "expected_output": "SQL transformations showing identifier columns replaced with hashed values, NULL coalesces, or bucketed aggregations, confirming anonymization is applied."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the data masking or tokenization service (e.g., Vault Transform, AWS Macie, or a custom masking API) to verify that performance data export jobs are registered as consumers of masking policies.",
+        "command": "curl -s -H 'X-Vault-Token: <vault_token>' https://<vault_host>/v1/transform/role/performance-export-role | jq '{transformations: .data.transformations, allowed_roles: .data.allowed_roles}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response showing the export role is bound to active transformation policies covering hostname, IP, and service identifier fields."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Sample records from the data sharing destination and inspect whether system-identifying fields contain actual hostnames/IPs or anonymized/hashed values.",
+        "command": "aws s3 cp s3://<shared-metrics-bucket>/latest/sample.parquet /tmp/sample.parquet && python3 -c \"import pandas as pd; df = pd.read_parquet('/tmp/sample.parquet'); print(df[['hostname','ip_address','service_id']].head(20))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Columns showing hashed tokens (e.g., 'a3f2c...'), generic labels (e.g., 'host-001'), or NULL values rather than real hostnames or IP addresses, confirming anonymization is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default, no masking applied)",
+      "true (hashing or pseudonymization of host/IP fields)",
+      "true (aggregation-only export with identifiers dropped)"
+    ]
+  },
+  {
+    "option_name": "data_granularity_level",
+    "option_description": "Classifies the level of detail at which performance and operational characteristics data is shared externally — distinguishing between raw per-host/per-request granular metrics, fully aggregated rolled-up summaries without system identifiers, and anonymized raw data where identifiers are masked but metric values remain at original granularity.",
+    "security_impact": "The Rego rule no_anonymization_or_aggregation_before_cross_team_sharing fires when cross_team_sharing_enabled is true, anonymization_applied is false, and this attribute equals 'raw'. Raw-granularity sharing exposes precise timing patterns, per-host capacity limits, and service-level anomaly traces that enable adversaries to build accurate attack models targeting specific systems at peak or minimum load. The default value is 'raw', meaning systems that do not explicitly configure aggregation before sharing are at highest risk. Only 'aggregated' or 'anonymized_raw' values satisfy the policy requirement when sharing is enabled.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the schema and a sample payload of data at the sharing destination to determine whether records contain per-host identifiers and individual metric values (raw) or rolled-up statistics (aggregated).",
+        "command": "aws s3 cp s3://<shared-metrics-bucket>/latest/export.json /tmp/export_sample.json && jq 'keys, .[0]' /tmp/export_sample.json | head -40",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If output shows fields like 'hostname', 'request_id', or per-second metric values, granularity is raw. If output shows 'avg_latency_p95', 'total_requests_1h', granularity is aggregated."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the data export pipeline configuration to identify aggregation window settings or GROUP BY clauses that determine output granularity.",
+        "command": "cat /etc/data-pipelines/performance_export_config.yaml | grep -A10 'granularity\\|aggregation\\|group_by\\|rollup\\|resolution'",
+        "file_path": "/etc/data-pipelines/performance_export_config.yaml",
+        "navigation": null,
+        "expected_output": "Configuration showing granularity: 'aggregated' with an aggregation_window (e.g., '1h'), or absence of aggregation settings indicating raw export."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the metrics export API or data catalog API to retrieve the schema definition of the shared dataset and inspect field-level granularity metadata.",
+        "command": "curl -s -H 'Authorization: Bearer <catalog_token>' 'https://<data-catalog>/api/datasets/performance-shared/schema' | jq '.fields[] | {name, granularity, description}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Schema fields with granularity metadata; fields tagged 'per_host' or 'per_request' indicate raw granularity, while 'hourly_aggregate' or 'daily_rollup' indicate aggregated."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the export job or pipeline definition in the ETL UI (e.g., AWS Glue Studio, Informatica, Talend) to inspect transformation stages and verify whether aggregation steps are present before the output sink.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Glue Studio → Jobs → select performance export job → Script/Visual tab → inspect Transform nodes for Aggregate or GroupBy stages before the S3 Sink target.",
+        "expected_output": "Pipeline graph showing an Aggregate or GroupBy transformation node between the source and the external destination sink, confirming aggregated granularity."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "raw (default, highest risk)",
+      "aggregated (preferred for cross-team sharing)",
+      "anonymized_raw (acceptable if identifiers are provably masked)"
+    ]
+  },
+  {
+    "option_name": "cross_border_transfer_screening_enabled",
+    "option_description": "Controls whether outbound transfers of system performance and operational metrics data to offshore analytics platforms or foreign cloud regions are reviewed and screened against applicable cross-border data transfer obligations — including export control regulations, data residency requirements, and sector-specific rules — before the transfer is permitted.",
+    "security_impact": "The Rego rule non_compliant_cross_border_transfer_of_operationally_sensitive_metrics fires when destination_region_type is 'offshore_foreign' or 'unknown' and this attribute is false, or when applicable_transfer_obligations exist but screening is disabled. Unscreened transfers of operational metrics to foreign jurisdictions create regulatory exposure under frameworks like GDPR data residency, ITAR export controls, or sector-specific rules (e.g., FedRAMP, IRAP). Beyond compliance risk, operationally sensitive metrics in foreign cloud regions may be subject to foreign intelligence access, enabling targeted adversarial reconnaissance of system capacities and behaviors.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review DLP (Data Loss Prevention) policy configurations to verify that performance metrics data categories are included in outbound transfer screening rules with cross-border destination checks enabled.",
+        "command": "cat /etc/dlp/outbound_policies.yaml | grep -A20 'performance_metrics\\|operational_data\\|system_metrics' | grep -E 'cross_border\\|geo_restriction\\|jurisdiction\\|screening\\|enabled'",
+        "file_path": "/etc/dlp/outbound_policies.yaml",
+        "navigation": null,
+        "expected_output": "Policy entries showing cross_border_screening: true or geo_restriction: enabled for the operational metrics data category, confirming screening is active."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the cloud provider's data transfer policy API or CASB solution to verify that transfer policies include cross-border screening gates for the metrics data classification.",
+        "command": "curl -s -H 'Authorization: Bearer <casb_token>' 'https://<casb_platform>/api/v1/policies?category=data_transfer&data_class=operational_metrics' | jq '.policies[] | {name, cross_border_check_enabled, jurisdictions_allowed, status}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy objects showing cross_border_check_enabled: true and a defined list of allowed jurisdictions, confirming screening is configured."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the data governance and compliance teams to confirm that a formal cross-border transfer impact assessment process exists for performance data pipelines, and review transfer approval records.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review the data transfer register or privacy impact assessment (PIA) records in GRC tools like OneTrust, TrustArc, or ServiceNow GRC → filter for 'operational metrics' or 'system performance' data transfers → verify screening/approval status.",
+        "expected_output": "Documented transfer assessments for each active performance metrics pipeline with jurisdiction analysis, applicable obligations noted, and screening approval timestamps."
+      },
+      {
+        "type": "command",
+        "instruction": "Check pipeline-level transfer controls in the orchestration system to verify that cross-border destination checks are enforced as pre-transfer validation steps.",
+        "command": "grep -r 'cross_border\\|jurisdiction\\|transfer_screening\\|geo_check\\|region_validation' /opt/airflow/dags/ --include='*.py' | grep -v '#'",
+        "file_path": "/opt/airflow/dags/",
+        "navigation": null,
+        "expected_output": "Code lines invoking cross-border validation functions or hooks before data export tasks execute, confirming programmatic screening is in place."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default, no screening gate)",
+      "true (DLP policy enforced with jurisdiction check)",
+      "true (CASB inline screening on outbound transfers)"
+    ]
+  },
+  {
+    "option_name": "destination_region_type",
+    "option_description": "Classifies the geographic and jurisdictional category of the analytics platform or cloud region receiving system performance metrics data, relative to the organization's origin jurisdiction. Values distinguish between domestic deployments, pre-approved cross-border zones under recognized adequacy decisions or contractual frameworks, foreign/offshore destinations with no established compliance basis, and unknown destinations where the region has not been determined.",
+    "security_impact": "The Rego rule non_compliant_cross_border_transfer_of_operationally_sensitive_metrics fires when this attribute is 'offshore_foreign' or 'unknown' and cross_border_transfer_screening_enabled is false. An 'unknown' destination is treated as equally risky to 'offshore_foreign' because unclassified destinations cannot be evaluated for compliance obligations. Sending operational metrics to offshore or unknown destinations without screening exposes performance capacity data, system topology, and behavioral patterns to jurisdictions where legal protections are absent, intelligence interception risks are elevated, and data may be subject to foreign compulsory disclosure. The default null value itself is a risk indicator that destination classification has not been performed.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query cloud provider APIs to identify all active data destinations for performance metrics exports and map each to its geographic region, then classify each region as domestic, approved cross-border, or offshore.",
+        "command": "aws s3api list-buckets --query 'Buckets[*].Name' --output text | tr '\\t' '\\n' | xargs -I{} aws s3api get-bucket-location --bucket {} 2>/dev/null | jq -r '.LocationConstraint // \"us-east-1\"' | sort -u",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of unique AWS regions used by buckets; map each against your organization's approved region list to classify as domestic, approved_cross_border, or offshore_foreign."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the cloud provider's resource inventory API to enumerate analytics platform instances and their deployment regions, then validate each against the organization's data residency policy.",
+        "command": "curl -s -H 'Authorization: Bearer <gcp_token>' 'https://cloudbigquery.googleapis.com/v1/projects/<project>/datasets?all=true' | jq '.datasets[] | {datasetId: .datasetReference.datasetId, location: .location}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Dataset entries with location values (e.g., 'US', 'EU', 'asia-northeast1'); classify each against the organization's approved regions register."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review data pipeline destination configuration files to extract explicit region or endpoint settings for each performance data export job.",
+        "command": "grep -rE 'region|endpoint|location|bucket|destination' /etc/data-pipelines/ --include='*.yaml' --include='*.json' | grep -i 'perf\\|metrics\\|operational' | awk -F: '{print $2, $NF}'",
+        "file_path": "/etc/data-pipelines/",
+        "navigation": null,
+        "expected_output": "Destination region identifiers (e.g., 'eu-west-1', 'ap-southeast-1', 'us-east-1') extracted from pipeline configs; each should then be classified against the residency policy."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the cloud management console or CSPM tool (e.g., Prisma Cloud, Wiz), filter data stores and analytics services tagged with performance or metrics workloads and verify the displayed region for each resource.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → S3 → filter by bucket name containing 'metrics' or 'perf' → Region column. Prisma Cloud → Inventory → filter by resource type (S3, BigQuery, Blob Storage) and tag 'workload:performance-metrics' → Location column.",
+        "expected_output": "Resource inventory with region/location column populated; each entry should be compared against the approved data residency list to assign domestic, approved_cross_border, offshore_foreign, or unknown classification."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "domestic (single-region, same jurisdiction)",
+      "approved_cross_border (EU adequacy decision or SCCs in place)",
+      "offshore_foreign (APAC or other foreign region without formal basis)",
+      "unknown (destination not identified or classified)"
+    ]
+  },
+  {
+    "option_name": "applicable_transfer_obligations",
+    "option_description": "An enumerated list of regulatory frameworks, export controls, or sector-specific data residency rules that govern the cross-border transfer of operational metrics data (e.g., ITAR, EAR, GDPR, CCPA, sector-specific data localisation mandates). This attribute defines the compliance obligations that must be screened before any transfer of system performance or characteristics data to offshore or foreign-jurisdiction infrastructure.",
+    "security_impact": "The Rego policy fires non_compliant_cross_border_transfer_of_operationally_sensitive_metrics when count(input.applicable_transfer_obligations) > 0 and cross_border_transfer_screening_enabled is false. A non-empty list signals that regulatory obligations exist and must be actively enforced. If this list is left empty when obligations do in fact apply, the policy cannot detect non-compliant transfers — creating a silent compliance gap. Correctly populating this array ensures that any transfer screening bypass is surfaced as a finding, preventing inadvertent export of operationally sensitive performance profiles to jurisdictions with different intelligence or adversarial risk profiles.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Consult the organisation's compliance register and legal/data governance team. Request a list of all active regulatory frameworks that reference system performance data, operational telemetry, or infrastructure characteristics. Ask specifically about export controls (ITAR, EAR), data residency laws, and sector mandates (e.g., FISMA for US federal, NIS2 for EU critical infrastructure, MAS TRM for Singapore finance).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented list of named frameworks (e.g., ['GDPR', 'ITAR', 'NIS2']) confirmed by legal or compliance owner as applicable to this data class."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the organisation's data classification policy documents and data transfer impact assessment (DTIA) records. These are typically stored in a GRC platform or as policy documents in a document management system. Look for sections explicitly covering operational/infrastructure data exports.",
+        "command": "find /etc/data-governance /opt/compliance-docs -name '*.yaml' -o -name '*.json' | xargs grep -li 'transfer_obligation\\|data_residency\\|export_control' 2>/dev/null",
+        "file_path": "/etc/data-governance/transfer_obligations.yaml",
+        "navigation": null,
+        "expected_output": "Policy or configuration files listing named transfer obligations mapped to data classes that include operational metrics or system performance data."
+      },
+      {
+        "type": "api",
+        "instruction": "Query your GRC or data catalog platform's API to retrieve transfer obligations tagged against the 'operational_metadata' or 'system_performance' data class. Platforms such as OneTrust, Collibra, or internal governance APIs typically expose this via a REST endpoint.",
+        "command": "curl -s -H 'Authorization: Bearer ${GRC_API_TOKEN}' 'https://grc.internal/api/v1/data-classes/operational_metadata/transfer-obligations' | jq '.obligations[].framework_name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON array of obligation names such as [\"GDPR\", \"ITAR\"] associated with the operational metadata data class."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to your GRC platform's data inventory module (e.g., OneTrust Data Inventory, Collibra Data Governance Center, or ServiceNow GRC). Search for the 'Operational Metadata' or 'System Performance Data' asset, then open the 'Transfer Obligations' or 'Regulatory Frameworks' tab to view assigned obligations.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GRC Platform → Data Inventory → Search 'Operational Metadata' → Compliance Tab → Transfer Obligations",
+        "expected_output": "A list of regulatory frameworks displayed against the data asset, confirming which obligations are formally recorded."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[]",
+      "['GDPR']",
+      "['GDPR', 'NIS2']",
+      "['ITAR', 'EAR']",
+      "['GDPR', 'ITAR', 'sector_data_localisation']"
+    ]
+  },
+  {
+    "option_name": "verified_deletion_enforced",
+    "option_description": "A boolean flag indicating whether the organisation's disposal procedures explicitly require and verify cryptographic erasure or secure deletion of performance data across all media types — including backup tapes, cloud snapshots, exported archives, and offline disks — as a mandatory gate before a decommissioning activity is considered complete.",
+    "security_impact": "The Rego policy triggers inadequate_disposal_procedures_for_decommissioned_performance_datasets whenever not input.verified_deletion_enforced evaluates to true. When this flag is false (the default), the policy flags the configuration regardless of whether disposal is in progress or apparently complete, because unverified deletion leaves operational performance profiles recoverable from residual media. Adversaries and insider threats can exploit post-decommission residuals to reconstruct system capacity baselines, timing patterns, and configuration fingerprints — enabling targeted attacks against replacement infrastructure. Setting this to true requires that a documented, auditable verification step (cryptographic erasure certificate or secure wipe log) is mandated in runbooks and change records.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the organisation's decommissioning runbooks and data disposal standard operating procedures (SOPs). Specifically check whether a 'verified deletion' or 'cryptographic erasure' step is a mandatory gate item (not optional) before a decommission change record can be closed. Interview the data governance or infrastructure team lead responsible for decommission sign-off.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Runbook documentation showing a mandatory deletion verification step with required evidence artefacts (e.g., erasure certificate, wipe log) before closure."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect data disposal policy files or decommissioning checklist templates stored in configuration management or document repositories. Look for fields referencing 'verified_deletion', 'cryptographic_erasure', or 'secure_wipe' as required steps rather than optional recommendations.",
+        "command": "grep -ri 'verified_deletion\\|cryptographic_erasure\\|secure_wipe\\|secure_delete' /etc/data-governance/ /opt/runbooks/ 2>/dev/null",
+        "file_path": "/opt/runbooks/decommission_checklist.yaml",
+        "navigation": null,
+        "expected_output": "Policy or checklist content explicitly requiring deletion verification with a mandatory status (e.g., 'required: true') before decommission completion."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the CMDB or ITSM platform's API to retrieve the decommission workflow template and check whether a 'verified_deletion' task is present and set as a blocking gate. ServiceNow, Jira Service Management, and similar platforms expose workflow definitions via REST.",
+        "command": "curl -s -u \"${ITSM_USER}:${ITSM_PASS}\" 'https://itsm.internal/api/now/table/sys_hub_flow?name=decommission_workflow' | jq '.result[].activities[] | select(.name | test(\"deletion|erasure|wipe\"; \"i\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A workflow activity record for verified deletion that is marked as mandatory or blocking in the decommission workflow definition."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review historical change records for recently decommissioned systems. Check whether closure notes include references to erasure certificates, wipe logs, or deletion verification artefact IDs. Absence of these references in closed tickets is evidence that verified deletion is not enforced.",
+        "command": "grep -i 'erasure_cert\\|wipe_log\\|deletion_verified\\|secure_delete' /var/log/itsm/change_records/*.log 2>/dev/null | tail -50",
+        "file_path": "/var/log/itsm/change_records/",
+        "navigation": null,
+        "expected_output": "Log entries or change record extracts showing documented deletion verification evidence attached to decommission closures."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "disposal_procedure_status",
+    "option_description": "An enumerated value representing the current lifecycle state of the data disposal procedure for a decommissioned system's performance dataset. Valid states are: not_initiated (no disposal action taken), in_progress (disposal underway but incomplete), completed_unverified (disposal claimed complete without verification evidence), and completed_verified (disposal complete with documented verification artefacts).",
+    "security_impact": "The Rego policy triggers inadequate_disposal_procedures_for_decommissioned_performance_datasets for three distinct enum conditions: (1) status is 'not_initiated' — no disposal has started, leaving all residual data exposed; (2) status is 'completed_unverified' — disposal was performed but not confirmed, meaning residual copies may persist on backup or archive media; (3) status is 'in_progress' and residual_data_storage_types is non-empty — active disposal has not yet cleared identified residual media. Only 'completed_verified' avoids triggering this rule. The default value of 'not_initiated' means all newly assessed systems will fire this exposure unless explicitly updated, making accurate status tracking essential to distinguish real risk from administrative lag.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Check decommission tickets in the ITSM platform (e.g., ServiceNow, Jira) for the target system. Look at the ticket lifecycle stage, attached evidence artefacts, and the closure status. Map the ticket state to the enum values: open/unstarted → not_initiated, in-progress tasks → in_progress, closed without evidence → completed_unverified, closed with erasure certificate → completed_verified.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ITSM Platform → Change Management → Search by System Name → Decommission Request → Status and Evidence Attachments",
+        "expected_output": "A change record showing the current workflow stage and any attached deletion verification evidence, mappable to one of the four enum values."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the CMDB API for the target system's decommission record, retrieving the disposal status field and any linked evidence artefacts. Cross-reference the CMDB lifecycle state with the presence of verified deletion evidence.",
+        "command": "curl -s -u \"${CMDB_USER}:${CMDB_PASS}\" 'https://cmdb.internal/api/v1/assets/${ASSET_ID}/decommission' | jq '{status: .disposal_status, evidence: .deletion_evidence_id, verified: .deletion_verified}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON response showing disposal_status, any attached evidence ID, and a boolean deletion_verified field indicating whether the status maps to completed_verified."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check data governance records or CMDB export files for the decommissioned system. These may be stored as YAML or JSON asset records in a configuration repository, with a 'disposal_status' field explicitly set.",
+        "command": "find /opt/cmdb-exports/ -name '*.yaml' | xargs grep -l 'disposal_status\\|decommission' 2>/dev/null | xargs grep -A5 'disposal_status'",
+        "file_path": "/opt/cmdb-exports/assets/",
+        "navigation": null,
+        "expected_output": "Asset records containing a disposal_status field set to one of: not_initiated, in_progress, completed_unverified, or completed_verified."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review audit logs from the data governance or asset management system for disposal-related events on the target system. Look for event types such as 'disposal_initiated', 'wipe_completed', 'erasure_certified', or 'decommission_closed' to determine the most recent status transition.",
+        "command": "grep -i 'disposal\\|decommission\\|erasure\\|wipe' /var/log/data-governance/audit.log | grep \"${ASSET_ID}\" | sort -k1 | tail -20",
+        "file_path": "/var/log/data-governance/audit.log",
+        "navigation": null,
+        "expected_output": "Chronologically ordered audit events showing the disposal lifecycle state transitions for the target asset, with the most recent state indicating current status."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "not_initiated",
+      "in_progress",
+      "completed_unverified",
+      "completed_verified"
+    ]
+  },
+  {
+    "option_name": "residual_data_storage_types",
+    "option_description": "An array identifying all storage media types that may still hold copies or residuals of the performance dataset after a system has been decommissioned. Typical values include backup_tape, cloud_snapshot, exported_archive, offline_disk, and object_storage_bucket. This attribute drives the assessment of whether in-progress disposal has addressed all known residual locations.",
+    "security_impact": "The Rego policy triggers inadequate_disposal_procedures_for_decommissioned_performance_datasets when disposal_procedure_status is 'in_progress' and count(input.residual_data_storage_types) > 0, meaning that even an active disposal effort is flagged as inadequate if known residual media types remain uncleared. This prevents premature closure of disposal activities when backup tapes, cloud snapshots, or offline archives have not yet been addressed. Leaving this array unpopulated when residuals exist causes the policy to under-report risk; over-populating it with already-cleared media types causes false positives during in-progress disposal. Accurate enumeration of residual media is critical for tracking disposal completeness across all data copies, as adversaries can recover operational fingerprints from any single uncleared copy.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the infrastructure and backup operations teams responsible for the decommissioned system. Ask them to enumerate all media types where performance data copies were written during the system's operational period, including scheduled backup jobs, snapshot policies, manual exports, and any offline or air-gapped copies. Cross-reference with backup job configuration records.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A confirmed list of media type categories (e.g., backup_tape, cloud_snapshot, offline_disk) where performance data copies are known or suspected to reside."
+      },
+      {
+        "type": "api",
+        "instruction": "Query backup and snapshot management platforms (e.g., Veeam, Commvault, AWS Backup, Azure Backup) for all backup jobs and snapshots associated with the decommissioned system. Identify the storage destination types for each job to determine which media categories hold residuals.",
+        "command": "aws backup list-recovery-points-by-resource --resource-arn \"${RESOURCE_ARN}\" --query 'RecoveryPoints[*].{BackupVaultName:BackupVaultName,StorageClass:StorageClass,Status:Status}' --output json 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of recovery points showing storage classes (e.g., WARM, COLD indicating tape/glacier) for all backup copies of the target resource."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review backup catalog files, snapshot inventory exports, and data export records for the decommissioned system. These are typically available as CSV or JSON exports from backup management consoles or stored in configuration repositories. Look for destination storage types referenced in job definitions.",
+        "command": "grep -ri \"${SYSTEM_HOSTNAME}\\|${ASSET_ID}\" /opt/backup-catalogs/ /opt/snapshot-inventory/ 2>/dev/null | grep -i 'tape\\|snapshot\\|archive\\|disk\\|s3\\|blob\\|export' | awk -F: '{print $2}' | sort -u",
+        "file_path": "/opt/backup-catalogs/",
+        "navigation": null,
+        "expected_output": "Deduplicated list of storage destination references (e.g., tape_library_slot_42, s3://archive-bucket, /mnt/offline-disk) mappable to media type categories."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the backup and snapshot management console for each platform used (e.g., Veeam Backup Console, AWS Backup, Azure Recovery Services Vault, Commvault Command Center). Search for the decommissioned system by name or asset ID and review all existing recovery points, their storage tiers, and expiry dates to enumerate residual media types.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Backup Console → Protected Workloads → Search [System Name] → Recovery Points → Storage Tier Column; repeat for each backup/snapshot platform in use",
+        "expected_output": "A consolidated view across all backup platforms showing recovery points for the decommissioned system with storage tier classifications (disk, tape, cloud, archive), enabling mapping to residual_data_storage_types enum values."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[]",
+      "['cloud_snapshot']",
+      "['backup_tape', 'cloud_snapshot']",
+      "['backup_tape', 'exported_archive', 'offline_disk']",
+      "['cloud_snapshot', 'exported_archive', 'object_storage_bucket']",
+      "['backup_tape', 'cloud_snapshot', 'exported_archive', 'offline_disk']"
+    ]
+  }
+]

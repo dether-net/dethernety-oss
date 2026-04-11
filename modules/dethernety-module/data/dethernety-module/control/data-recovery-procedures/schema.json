@@ -1,0 +1,528 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "integrity_checks_enabled": {
+        "type": "boolean",
+        "title": "Backup Integrity Checks Enabled",
+        "description": "Whether scheduled integrity verification checks are actively configured and running for backup copies",
+        "default": false
+      },
+      "checksum_validation_enabled": {
+        "type": "boolean",
+        "title": "Checksum Validation Enabled",
+        "description": "Whether cryptographic checksums (e.g., MD5, SHA-256) are generated at backup creation and verified during integrity checks",
+        "default": false
+      },
+      "integrity_check_frequency_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 365,
+        "title": "Integrity Check Frequency (Days)",
+        "description": "How frequently backup integrity checks are scheduled, expressed in days between checks. A value of 0 indicates no scheduled checks."
+      },
+      "restore_test_performed": {
+        "type": "string",
+        "enum": [
+          "regularly",
+          "occasionally",
+          "never",
+          "unknown"
+        ],
+        "title": "Restore Test Status",
+        "description": "Whether periodic restore tests are conducted periodically to validate recoverability"
+      },
+      "rto_rpo_objectives_documented": {
+        "type": "boolean",
+        "title": "RTO/RPO Objectives Documented",
+        "description": "Whether Recovery Time Objective (RTO) and Recovery Point Objective (RPO) thresholds are formally documented in data recovery or business continuity policies",
+        "default": false
+      },
+      "recovery_procedures_tested_within_months": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 999,
+        "title": "Months Since Last Recovery Test",
+        "description": "Number of months elapsed since the most recent documented and validated recovery procedure test (restore drill or tabletop exercise with measured results)"
+      },
+      "last_test_met_rto_rpo": {
+        "type": "boolean",
+        "title": "Last Recovery Test Met RTO/RPO Targets",
+        "description": "Whether the most recent recovery test demonstrated that restoration completed within defined RTO and data loss was within defined RPO thresholds",
+        "default": false
+      },
+      "recovery_runbook_exists": {
+        "type": "boolean",
+        "title": "Recovery Runbook Exists",
+        "description": "Whether a formal, documented step-by-step recovery runbook exists for data restoration procedures",
+        "default": false
+      },
+      "runbook_completeness_level": {
+        "type": "string",
+        "enum": [
+          "none",
+          "partial",
+          "substantial",
+          "complete"
+        ],
+        "title": "Runbook Completeness Level",
+        "description": "The degree to which the recovery runbook covers all required procedural elements: roles, steps, verification, escalation, and rollback",
+        "default": "none"
+      },
+      "runbook_last_reviewed_days_ago": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Days Since Runbook Last Review",
+        "description": "Number of days since the recovery runbook was last reviewed and validated against current infrastructure and processes"
+      },
+      "runbook_tested_in_drill": {
+        "type": "boolean",
+        "title": "Runbook Validated via Recovery Drill",
+        "description": "Whether the recovery runbook has been validated through at least one executed recovery drill or tabletop exercise within the past 12 months",
+        "default": false
+      },
+      "recovery_drill_conducted": {
+        "type": "boolean",
+        "title": "Recovery Drill Conducted",
+        "description": "Indicates whether at least one full recovery drill or tabletop exercise has been conducted within the required review period",
+        "default": false
+      },
+      "months_since_last_drill": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Months Since Last Recovery Drill",
+        "description": "Number of months elapsed since the most recent documented recovery drill or tabletop exercise was completed"
+      },
+      "drill_outcome_documented": {
+        "type": "boolean",
+        "title": "Drill Outcome Documented",
+        "description": "Indicates whether the results, gaps identified, and remediation actions from the most recent drill are formally documented and stored",
+        "default": false
+      },
+      "backup_retention_tiers_configured": {
+        "type": "string",
+        "enum": [
+          "none",
+          "single_tier",
+          "two_tiers",
+          "three_or_more_tiers"
+        ],
+        "title": "Backup Retention Tiers Configured",
+        "description": "Indicates how many distinct retention windows (short, medium, long) are actively configured in the backup policy",
+        "default": "none"
+      },
+      "minimum_backup_generations_per_tier": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Minimum Backup Generations Per Tier",
+        "description": "The minimum number of versioned backup generations retained within any single retention tier across all configured tiers",
+        "default": 0
+      },
+      "backup_policy_documented": {
+        "type": "boolean",
+        "title": "Backup Retention Policy Documented",
+        "description": "Whether the multi-tier backup retention policy is formally documented with defined retention periods for each tier",
+        "default": false
+      },
+      "offsite_backup_configured": {
+        "type": "boolean",
+        "title": "Offsite Backup Configured",
+        "description": "Whether backup copies are stored in a geographically separate location from the primary site",
+        "default": false
+      },
+      "air_gapped_or_offline_backup_exists": {
+        "type": "boolean",
+        "title": "Air-Gapped or Offline Backup Exists",
+        "description": "Whether at least one backup copy is stored in an air-gapped or offline medium not accessible via the production network",
+        "default": false
+      },
+      "backup_restoration_tested": {
+        "type": "boolean",
+        "title": "Backup Restoration Tested",
+        "description": "Whether offsite or offline backups have been successfully restored as part of a documented test within the defined review period",
+        "default": false
+      },
+      "recovery_actions_logged": {
+        "type": "boolean",
+        "title": "Recovery Actions Logged",
+        "description": "Whether all data recovery actions are recorded in an audit log, including what data was restored and from which backup",
+        "default": false
+      },
+      "operator_identity_captured": {
+        "type": "boolean",
+        "title": "Operator Identity Captured in Logs",
+        "description": "Whether the identity of the operator performing each recovery action is recorded in the audit trail",
+        "default": false
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Recovery Log Retention Period (Days)",
+        "description": "Number of days that recovery audit logs are retained, supporting compliance and forensic investigation requirements"
+      },
+      "log_integrity_protection": {
+        "type": "string",
+        "enum": [
+          "write_once_storage",
+          "cryptographic_signing",
+          "immutable_siem",
+          "none"
+        ],
+        "title": "Log Integrity Protection Mechanism",
+        "description": "The mechanism used to protect recovery audit logs from tampering or unauthorized modification"
+      },
+      "recovery_workflow_automation_enabled": {
+        "type": "boolean",
+        "title": "Recovery Workflow Automation Enabled",
+        "description": "Indicates whether automated orchestration workflows are actively configured and enabled for data recovery operations including snapshot mounting, rehydration, and service restoration",
+        "default": false
+      },
+      "workflow_coverage_scope": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Workflow Coverage Scope",
+        "description": "Indicates which recovery steps are covered by the automated workflow: snapshot mounting, data rehydration, service restoration sequencing, or full end-to-end coverage",
+        "default": "none"
+      },
+      "workflow_last_validated_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Days Since Workflow Last Validated",
+        "description": "Number of days since the automated recovery workflow was last tested or validated through a drill, tabletop exercise, or actual execution with verified successful outcome"
+      },
+      "automated_hash_verification_enabled": {
+        "type": "boolean",
+        "title": "Automated Hash Verification Enabled",
+        "description": "Indicates whether automated cryptographic hash comparisons are configured to run automatically after each recovery operation to verify data integrity",
+        "default": false
+      },
+      "application_consistency_checks_enabled": {
+        "type": "boolean",
+        "title": "Application-Layer Consistency Checks Enabled",
+        "description": "Indicates whether application-layer consistency checks (e.g., database integrity tests, file system checks, record count comparisons) are performed automatically after recovery completes",
+        "default": false
+      },
+      "post_recovery_sanity_test_coverage": {
+        "type": "string",
+        "enum": [
+          "none",
+          "partial",
+          "full"
+        ],
+        "title": "Post-Recovery Sanity Test Coverage",
+        "description": "Describes the scope of automated sanity tests executed after recovery, such as sampling, full, or none",
+        "default": "none"
+      },
+      "recovery_roles_defined": {
+        "type": "boolean",
+        "title": "Recovery Roles Defined",
+        "description": "Whether formal roles (e.g., Recovery Operator, Recovery Approver) are documented and assigned for initiating and approving data recovery operations",
+        "default": false
+      },
+      "recovery_approval_workflow_enforced": {
+        "type": "boolean",
+        "title": "Recovery Approval Workflow Enforced",
+        "description": "Whether a documented approval workflow requiring sign-off from an authorized approver before recovery execution is technically enforced in recovery tooling or ticketing systems",
+        "default": false
+      },
+      "recovery_access_control_type": {
+        "type": "string",
+        "enum": [
+          "rbac",
+          "abac",
+          "manual_approval_only",
+          "none"
+        ],
+        "title": "Recovery Access Control Type",
+        "description": "The mechanism used to restrict access to recovery tooling and operations"
+      }
+    },
+    "required": [
+      "integrity_checks_enabled",
+      "checksum_validation_enabled",
+      "integrity_check_frequency_days",
+      "restore_test_performed",
+      "rto_rpo_objectives_documented",
+      "recovery_procedures_tested_within_months",
+      "last_test_met_rto_rpo",
+      "recovery_runbook_exists",
+      "runbook_completeness_level",
+      "runbook_last_reviewed_days_ago",
+      "runbook_tested_in_drill",
+      "recovery_drill_conducted",
+      "months_since_last_drill",
+      "drill_outcome_documented",
+      "backup_retention_tiers_configured",
+      "minimum_backup_generations_per_tier",
+      "backup_policy_documented",
+      "offsite_backup_configured",
+      "air_gapped_or_offline_backup_exists",
+      "backup_restoration_tested",
+      "recovery_actions_logged",
+      "operator_identity_captured",
+      "log_retention_days",
+      "log_integrity_protection",
+      "recovery_workflow_automation_enabled",
+      "workflow_coverage_scope",
+      "workflow_last_validated_days",
+      "recovery_roles_defined",
+      "recovery_approval_workflow_enforced",
+      "recovery_access_control_type"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/air_gapped_or_offline_backup_exists"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_retention_tiers_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/checksum_validation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/integrity_check_frequency_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/integrity_checks_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/minimum_backup_generations_per_tier"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/offsite_backup_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_policy_documented"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_restoration_tested"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/restore_test_performed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/drill_outcome_documented"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/last_test_met_rto_rpo"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/months_since_last_drill"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/recovery_drill_conducted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/recovery_procedures_tested_within_months"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/recovery_runbook_exists"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/recovery_workflow_automation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rto_rpo_objectives_documented"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/runbook_completeness_level"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/workflow_coverage_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/runbook_last_reviewed_days_ago"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/runbook_tested_in_drill"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/workflow_last_validated_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/application_consistency_checks_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/automated_hash_verification_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/post_recovery_sanity_test_coverage"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/recovery_approval_workflow_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/recovery_roles_defined"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/recovery_access_control_type"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/operator_identity_captured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/recovery_actions_logged"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_integrity_protection"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552",
+      "name": "Unsecured Credentials",
+      "relevance": "Unclassified or misclassified credential data directly results in unsecured credentials that can be discovered and exploited by attackers."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1555",
+      "name": "Credentials from Password Stores",
+      "relevance": "Misclassified credential data may be stored in accessible locations similar to password stores, enabling credential theft."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1589.001",
+      "name": "Credentials",
+      "relevance": "Improperly classified credential data can be gathered by adversaries as part of reconnaissance to obtain valid credentials."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.001",
+      "name": "Credentials In Files",
+      "relevance": "Plaintext credentials written to log files represent credentials stored in files that adversaries can directly read and exploit."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1654",
+      "name": "Log Enumeration",
+      "relevance": "Adversaries can enumerate logs to discover plaintext credentials that were inadvertently recorded during authentication events."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1056.001",
+      "name": "Keylogging",
+      "relevance": "Plaintext credential logging is conceptually similar to keylogging in that sensitive authentication input is captured and stored in an unprotected form."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1550",
+      "name": "Use Alternate Authentication Material",
+      "relevance": "Excessive retention of authentication artifacts such as tokens and session cookies allows adversaries to reuse them as alternate authentication material."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1550.004",
+      "name": "Web Session Cookie",
+      "relevance": "Retained web session cookies are a primary authentication artifact that attackers can steal and reuse to hijack sessions."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1649",
+      "name": "Steal or Forge Authentication Certificates",
+      "relevance": "Long-retained authentication certificates increase the window of opportunity for adversaries to steal or forge them for unauthorized access."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1003",
+      "name": "OS Credential Dumping",
+      "relevance": "Audit records containing unmasked credentials can be accessed and dumped similarly to OS credential dumping techniques."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1537",
+      "name": "Transfer Data to Cloud Account",
+      "relevance": "Authentication data transferred across borders without controls mirrors the risk of unauthorized data exfiltration to external cloud accounts."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1119",
+      "name": "Automated Collection",
+      "relevance": "Bulk automated collection of authentication data for cross-border transfer increases the risk of large-scale credential exposure."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1555.004",
+      "name": "Windows Credential Manager",
+      "relevance": "Cached authentication material retained in credential managers like Windows Credential Manager can be extracted by adversaries due to improper disposal."
+    }
+  ],
+  "respondsWith": []
+}

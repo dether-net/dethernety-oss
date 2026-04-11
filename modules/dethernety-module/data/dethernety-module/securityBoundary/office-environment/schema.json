@@ -1,0 +1,499 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "egress_application_layer_filtering_enabled": {
+        "type": "boolean",
+        "title": "Egress Application-Layer Filtering Enabled",
+        "description": "Indicates whether outbound traffic from the workstation zone is subject to application-layer (L7) inspection and filtering, capable of distinguishing allowed business applications from unauthorized tools or exfiltration channels even on ports 80/443.",
+        "default": false
+      },
+      "egress_destination_allowlist_enforced": {
+        "type": "boolean",
+        "title": "Egress Destination Allowlist Enforced",
+        "description": "Indicates whether outbound connections from the workstation zone are restricted to explicitly approved destination domains, IPs, or URL categories, blocking access to arbitrary internet destinations including attacker-controlled infrastructure.",
+        "default": false
+      },
+      "outbound_traffic_monitoring_coverage": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Outbound Traffic Monitoring Coverage",
+        "description": "Describes the level of monitoring and alerting applied to outbound workstation zone traffic for anomalous patterns such as beaconing, high-frequency low-volume connections, or connections to uncategorized/newly-registered domains.",
+        "default": "none"
+      },
+      "workstation_subnet_count": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9999,
+        "title": "Workstation Subnet Count",
+        "description": "Number of distinct subnets used to segment workstations. A value of 1 indicates all workstations share a single flat subnet with no segmentation.",
+        "default": 1
+      },
+      "inter_workstation_acl_enforced": {
+        "type": "boolean",
+        "title": "Inter-Workstation ACL Enforced",
+        "description": "Whether access control lists or firewall rules are enforced to restrict direct workstation-to-workstation traffic within the workstation zone.",
+        "default": false
+      },
+      "microsegmentation_technology": {
+        "type": "string",
+        "enum": [
+          "none",
+          "private_vlan",
+          "sdn_microsegmentation",
+          "host_based_enforcement",
+          "nac_policy_isolation"
+        ],
+        "title": "Microsegmentation Technology",
+        "description": "The microsegmentation or isolation technology applied to the workstation zone to prevent lateral movement.",
+        "default": "none"
+      },
+      "intranet_server_acl_enforced": {
+        "type": "boolean",
+        "title": "Intranet Server Zone-Level ACL Enforced",
+        "description": "Indicates whether intranet-facing servers have explicit zone-level access control lists restricting which workstation subnets can initiate connections, rather than accepting connections from any IP in the workstation zone.",
+        "default": false
+      },
+      "workstation_device_health_checked_at_access": {
+        "type": "boolean",
+        "title": "Device Health Posture Checked at Server Access Time",
+        "description": "Indicates whether connecting workstations are required to present a valid device health/posture attestation (e.g., NAC, 802.1X certificate, endpoint compliance check) before being granted access to intranet servers.",
+        "default": false
+      },
+      "intranet_zone_segmentation_model": {
+        "type": "string",
+        "enum": [
+          "flat",
+          "role_segmented",
+          "microsegmented"
+        ],
+        "title": "Internal Zone Segmentation Model",
+        "description": "Describes the level of internal segmentation applied within the intranet/workstation zone and how workstation subnets are segmented at Layer-2/3, indicating the blast radius of lateral movement or broadcast domain compromise.",
+        "default": "flat"
+      },
+      "vpn_traffic_reinspected_at_zone_ingress": {
+        "type": "boolean",
+        "title": "VPN Traffic Re-inspected at Zone Ingress",
+        "description": "Whether traffic arriving from VPN or remote access endpoints is subject to stateful re-inspection (e.g., via an internal firewall, IDS/IPS, or inline security appliance) at the workstation zone ingress boundary before being permitted into the zone.",
+        "default": false
+      },
+      "split_tunnel_policy": {
+        "type": "string",
+        "enum": [
+          "full_tunnel",
+          "split_tunnel",
+          "none"
+        ],
+        "title": "VPN Split Tunnel Policy",
+        "description": "Describes the split tunneling configuration for remote access VPN clients. full_tunnel routes all traffic through the VPN gateway (allowing inspection), split_tunnel routes only corporate traffic through the tunnel (bypassing perimeter controls for other traffic), and none means no VPN is in use.",
+        "default": "split_tunnel"
+      },
+      "vpn_assigned_address_pool_isolated": {
+        "type": "boolean",
+        "title": "VPN Address Pool Isolated from Workstation Zone",
+        "description": "Whether VPN clients are assigned IP addresses from a dedicated, isolated subnet that is separated from the internal workstation zone by an access control boundary, preventing VPN clients from inheriting flat intranet trust automatically upon connection.",
+        "default": false
+      },
+      "inter_vlan_routing_device_type": {
+        "type": "string",
+        "enum": [
+          "stateful_firewall",
+          "layer3_switch",
+          "router_without_stateful_inspection"
+        ],
+        "title": "Inter-VLAN Routing Device Type",
+        "description": "Identifies whether inter-VLAN routing between workstation and adjacent zones is performed by a stateful firewall or a Layer-3 switch/router without stateful inspection."
+      },
+      "acl_enforced_between_vlans": {
+        "type": "boolean",
+        "title": "ACL Enforced Between VLANs",
+        "description": "Indicates whether explicit ingress/egress Access Control Lists are applied on inter-VLAN routed interfaces to restrict lateral traffic between workstation VLANs and server/management VLANs.",
+        "default": false
+      },
+      "dynamic_arp_inspection_enabled": {
+        "type": "boolean",
+        "title": "Dynamic ARP Inspection Enabled",
+        "description": "Whether Dynamic ARP Inspection (DAI) is configured on the Layer-2 switches serving the workstation subnets to validate ARP packets and prevent spoofing. Requires DHCP snooping to be effective.",
+        "default": false
+      },
+      "llmnr_nbt_ns_disabled": {
+        "type": "boolean",
+        "title": "LLMNR and NetBIOS Name Service Disabled",
+        "description": "Whether LLMNR (Link-Local Multicast Name Resolution) and NetBIOS Name Service (NBT-NS) are disabled on workstation endpoints, preventing mDNS/NetBIOS name poisoning attacks. Also captures DHCP snooping status as a prerequisite control.",
+        "default": false
+      },
+      "east_west_ids_ndr_deployed": {
+        "type": "boolean",
+        "title": "East-West IDS/NDR Sensors Deployed",
+        "description": "Indicates whether network intrusion detection or network detection and response sensors are deployed at internal east-west choke points within the workstation zone, not only at the north-south perimeter. Covers inter-VLAN monitoring and internal segment visibility.",
+        "default": false
+      },
+      "internal_lateral_movement_alert_capability": {
+        "type": "boolean",
+        "title": "Internal Lateral Movement Alerting Capability",
+        "description": "Indicates whether the monitoring infrastructure is capable of generating alerts for lateral movement indicators (e.g., SMB scanning, credential relay, port sweeps, pass-the-hash) originating from within the workstation subnet, and whether cross-zone authentication anomalies are detected.",
+        "default": false
+      },
+      "credential_scope_isolation_enforced": {
+        "type": "boolean",
+        "title": "Credential Scope Isolation Enforced Across Zones",
+        "description": "Indicates whether domain credentials and service account tokens issued for the workstation zone are restricted from authenticating to servers in adjacent zones through separate AD forests, distinct service accounts per zone, or PAM boundary controls.",
+        "default": false
+      },
+      "shared_accounts_across_zones": {
+        "type": "boolean",
+        "title": "Shared Accounts Exist Across Zone Boundaries",
+        "description": "Indicates whether any domain user accounts, local administrator accounts (e.g., via LAPS absence), or service account tokens are known to grant valid authentication in both the workstation zone and one or more adjacent zones.",
+        "default": true
+      },
+      "zone_boundary_auth_controls": {
+        "type": "string",
+        "enum": [
+          "none",
+          "network_only",
+          "jump_server_reauth",
+          "separate_identity_provider",
+          "pam_enforced"
+        ],
+        "title": "Zone Boundary Authentication Control Mechanism",
+        "description": "The type of authentication boundary control enforced between the workstation zone and adjacent zones.",
+        "default": "none"
+      },
+      "recursive_query_to_external_resolvers_permitted": {
+        "type": "boolean",
+        "title": "Recursive Queries to External Resolvers Permitted",
+        "description": "Whether the DNS resolver accessible from the workstation zone allows recursive queries forwarded to arbitrary external resolvers rather than restricting resolution to approved internal or curated forwarders only.",
+        "default": false
+      },
+      "dns_query_rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "DNS Query Rate Limiting Enabled",
+        "description": "Whether the DNS resolver enforces per-client or aggregate query rate limits to prevent high-volume DNS tunneling or abuse from workstation zone clients."
+      },
+      "dns_payload_inspection_enabled": {
+        "type": "boolean",
+        "title": "DNS Payload Inspection Enabled",
+        "description": "Whether DNS traffic from the workstation zone is inspected by a security control (e.g., NGFW, IDS/IPS, DNS firewall, or RPZ policy) capable of detecting tunneling indicators such as high-entropy subdomains, unusually large query payloads, or abnormal query type distributions.",
+        "default": false
+      },
+      "workstation_zone_egress_dns_restricted_to_internal_resolver": {
+        "type": "boolean",
+        "title": "Workstation Zone Egress DNS Restricted to Internal Resolver",
+        "description": "Whether egress firewall rules prevent workstations from sending DNS queries directly to external resolvers, forcing all DNS traffic through the internal resolver and preventing resolver bypass."
+      },
+      "port_authentication_method": {
+        "type": "string",
+        "enum": [
+          "dot1x",
+          "mac_based",
+          "both",
+          "none"
+        ],
+        "title": "Network Port Authentication Method",
+        "description": "The authentication method enforced on network jacks in office common areas and conference rooms (802.1X, MAC-based admission control, or none).",
+        "default": "none"
+      },
+      "unauthenticated_ports_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Count of Unauthenticated Active Network Ports",
+        "description": "Number of active network switch ports in common areas or conference rooms that lack any admission control (802.1X or MAC-based).",
+        "default": 0
+      },
+      "nac_solution_deployed": {
+        "type": "boolean",
+        "title": "NAC Solution Deployed",
+        "description": "Whether a Network Access Control (NAC) solution is deployed and enforcing policy on the workstation zone switches covering common areas.",
+        "default": false
+      },
+      "oob_management_vlan_isolated": {
+        "type": "boolean",
+        "title": "Out-of-Band Management VLAN Isolated",
+        "description": "Whether network device management interfaces (switches, routers, firewalls) are assigned to a dedicated, isolated management VLAN that is separate from all workstation/user VLANs.",
+        "default": false
+      },
+      "management_acl_restricts_workstation_subnets": {
+        "type": "boolean",
+        "title": "Management ACL Restricts Workstation Subnet Access",
+        "description": "Whether access control lists or firewall rules explicitly deny workstation subnet prefixes from reaching network device management interfaces (SSH, SNMP, HTTPS management ports).",
+        "default": false
+      },
+      "management_traffic_path": {
+        "type": "string",
+        "enum": [
+          "dedicated_oob_plane",
+          "shared_workstation_vlan",
+          "partially_separated",
+          "unknown"
+        ],
+        "title": "Management Traffic Network Path",
+        "description": "Describes the network path over which out-of-band management traffic for network devices travels."
+      }
+    },
+    "required": [
+      "egress_application_layer_filtering_enabled",
+      "egress_destination_allowlist_enforced",
+      "outbound_traffic_monitoring_coverage",
+      "workstation_subnet_count",
+      "inter_workstation_acl_enforced",
+      "microsegmentation_technology",
+      "intranet_server_acl_enforced",
+      "workstation_device_health_checked_at_access",
+      "intranet_zone_segmentation_model",
+      "vpn_traffic_reinspected_at_zone_ingress",
+      "split_tunnel_policy",
+      "vpn_assigned_address_pool_isolated",
+      "inter_vlan_routing_device_type",
+      "acl_enforced_between_vlans",
+      "dynamic_arp_inspection_enabled",
+      "llmnr_nbt_ns_disabled",
+      "east_west_ids_ndr_deployed",
+      "internal_lateral_movement_alert_capability",
+      "credential_scope_isolation_enforced",
+      "shared_accounts_across_zones",
+      "zone_boundary_auth_controls",
+      "recursive_query_to_external_resolvers_permitted",
+      "dns_query_rate_limiting_enabled",
+      "dns_payload_inspection_enabled",
+      "workstation_zone_egress_dns_restricted_to_internal_resolver",
+      "port_authentication_method",
+      "unauthenticated_ports_count",
+      "nac_solution_deployed",
+      "oob_management_vlan_isolated",
+      "management_acl_restricts_workstation_subnets",
+      "management_traffic_path"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/acl_enforced_between_vlans"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dynamic_arp_inspection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_application_layer_filtering_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_destination_allowlist_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/inter_vlan_routing_device_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/inter_workstation_acl_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/intranet_zone_segmentation_model"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/llmnr_nbt_ns_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_traffic_path"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/microsegmentation_technology"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/oob_management_vlan_isolated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/recursive_query_to_external_resolvers_permitted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/split_tunnel_policy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_assigned_address_pool_isolated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_traffic_reinspected_at_zone_ingress"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/workstation_subnet_count"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dns_query_rate_limiting_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/workstation_zone_egress_dns_restricted_to_internal_resolver"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_scope_isolation_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/intranet_server_acl_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_acl_restricts_workstation_subnets"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nac_solution_deployed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/port_authentication_method"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_accounts_across_zones"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unauthenticated_ports_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/workstation_device_health_checked_at_access"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/zone_boundary_auth_controls"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dns_payload_inspection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/east_west_ids_ndr_deployed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/internal_lateral_movement_alert_capability"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/outbound_traffic_monitoring_coverage"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

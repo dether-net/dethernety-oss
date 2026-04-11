@@ -1,0 +1,8 @@
+{
+  "name": "Network Access Control",
+  "classType": "control",
+  "type": "Network Access Control",
+  "description": "A cross-cutting network segmentation policy that enforces strict access controls across multiple network segments, delivering prevention coverage through controlled traffic flow, detection accuracy through boundary enforcement, and operational visibility through centralized policy management.",
+  "category": "Control Mechanisms",
+  "status": "reviewed"
+}

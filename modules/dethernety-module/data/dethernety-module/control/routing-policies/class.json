@@ -1,0 +1,8 @@
+{
+  "name": "Routing Policies",
+  "classType": "control",
+  "type": "Routing Policies",
+  "description": "Router access control lists and routing policies provide packet-level enforcement of network segmentation, traffic filtering, and path control. When properly configured, these guidelines deliver measurable prevention coverage through stateless and stateful packet inspection, topology-aware forwarding decisions, and administrative boundary enforcement across network segments.",
+  "category": "Networking",
+  "status": "reviewed"
+}

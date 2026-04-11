@@ -1,0 +1,173 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.001",
+      "name": "Credentials In Files",
+      "relevance": "Directly describes adversaries finding credentials stored in plaintext within configuration files."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552",
+      "name": "Unsecured Credentials",
+      "relevance": "Parent technique covering the broader risk of secrets stored without encryption in accessible locations."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1072",
+      "name": "Software Deployment Tools",
+      "relevance": "Unauthenticated access to a configuration agent API can allow adversaries to abuse deployment tools to execute commands across managed systems."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1651",
+      "name": "Cloud Administration Command",
+      "relevance": "Attackers can leverage unauthenticated agent APIs to issue administrative commands similar to cloud administration command abuse."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1078",
+      "name": "Valid Accounts",
+      "relevance": "Overprivileged service accounts represent valid accounts that adversaries can compromise and abuse for broad access."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1553.006",
+      "name": "Code Signing Policy Modification",
+      "relevance": "Lack of signature verification on configuration content mirrors the risk exploited when code signing policies are bypassed or absent."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1048.003",
+      "name": "Exfiltration Over Unencrypted Non-C2 Protocol",
+      "relevance": "Unencrypted transport exposes configuration data to interception, analogous to data exfiltration over unencrypted protocols."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1095",
+      "name": "Non-Application Layer Protocol",
+      "relevance": "Use of unencrypted or non-standard protocols for configuration server communication enables traffic interception and manipulation."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.001",
+      "name": "Disable or Modify Tools",
+      "relevance": "Configuration drift can result from adversaries disabling or modifying security and configuration management tools without detection."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1601.001",
+      "name": "Patch System Image",
+      "relevance": "Undetected configuration drift may mask unauthorized modifications to system images or configurations by adversaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1083",
+      "name": "File and Directory Discovery",
+      "relevance": "Adversaries use file and directory discovery to locate world-readable configuration state files containing sensitive information."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.008",
+      "name": "Disable or Modify Cloud Logs",
+      "relevance": "Insufficient logging of configuration changes mirrors the technique of disabling or modifying logs to evade detection."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1070",
+      "name": "Indicator Removal",
+      "relevance": "Without adequate logging, adversaries can make configuration changes and remove indicators of compromise without detection."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1210",
+      "name": "Exploitation of Remote Services",
+      "relevance": "Unpatched configuration management agents expose known vulnerabilities that adversaries can exploit as remote services."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1190",
+      "name": "Exploit Public-Facing Application",
+      "relevance": "Configuration management agents exposed to the network represent public-facing applications exploitable via unpatched vulnerabilities."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1195.001",
+      "name": "Compromise Software Dependencies and Development Tools",
+      "relevance": "Loading modules or plugins from untrusted sources directly maps to supply chain compromise of software dependencies."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1571",
+      "name": "Non-Standard Port",
+      "relevance": "Configuration agents listening on exposed ports can be targeted by adversaries probing non-standard ports for attack surfaces."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1599",
+      "name": "Network Boundary Bridging",
+      "relevance": "Excessive network exposure of agent listeners can allow adversaries to bridge network boundaries and access otherwise isolated systems."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1649",
+      "name": "Steal or Forge Authentication Certificates",
+      "relevance": "Weak host identity verification enables adversaries to forge or steal certificates to impersonate legitimate hosts to the configuration server."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1608.003",
+      "name": "Install Digital Certificate",
+      "relevance": "Adversaries can install fraudulent digital certificates to pass weak host identity checks by the configuration server."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1499.004",
+      "name": "Application or System Exploitation",
+      "relevance": "Without rollback, failed or malicious deployments can leave systems in a degraded or exploitable state indefinitely."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.003",
+      "name": "Shell History",
+      "relevance": "Environment variables containing secrets in deployment contexts can leak through shell history, exposing credentials to adversaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1578.005",
+      "name": "Modify Cloud Compute Configurations",
+      "relevance": "Lack of idempotency can result in partial or inconsistent configuration states that adversaries can exploit by manipulating cloud compute configurations."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1546",
+      "name": "Event Triggered Execution",
+      "relevance": "Partial configuration states from non-idempotent deployments may create unintended event triggers that adversaries can abuse for persistent execution."
+    }
+  ],
+  "respondsWith": []
+}

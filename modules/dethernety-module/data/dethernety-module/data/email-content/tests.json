@@ -1,0 +1,90 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "email_body_classification_enforced": false,
+      "unclassified_email_retention_policy": "indefinite",
+      "retention_policy_enforced": true,
+      "maximum_retention_days": 0,
+      "mailbox_store_encryption_enabled": false,
+      "attachment_document_protection_enforced": false,
+      "shared_mailbox_pii_access_scope": "broad",
+      "content_based_access_control_enabled": false,
+      "transfer_destination_recorded": false,
+      "backup_snapshot_pii_purge_policy": "none",
+      "pii_scanning_enabled": false,
+      "pii_classification_labels_applied": false,
+      "sensitivity_labeling_enforced_on_attachments": false,
+      "cross_border_transfer_compliance_verified": false,
+      "secure_erasure_policy_enabled": false
+    },
+    "expectedExposures": [
+      "Indefinite Retention Of Pii Bearing Messages",
+      "Plaintext Pii In Email Attachments",
+      "Unclassified Pii In Email Bodies",
+      "Inadequate Disposal Of Deleted Pii Emails",
+      "Excessive Mailbox Access Grants To Pii Data",
+      "Cross Border Pii Transfer Via Email Routing"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "email_body_classification_enforced": true,
+      "retention_policy_enforced": true,
+      "maximum_retention_days": 1,
+      "pii_classification_labels_applied": true,
+      "mailbox_store_encryption_enabled": true,
+      "content_based_access_control_enabled": true,
+      "transfer_destination_recorded": true,
+      "cross_border_transfer_compliance_verified": true,
+      "secure_erasure_policy_enabled": true,
+      "backup_snapshot_pii_purge_policy": "manual",
+      "pii_scanning_enabled": false,
+      "unclassified_email_retention_policy": "indefinite",
+      "attachment_document_protection_enforced": false,
+      "sensitivity_labeling_enforced_on_attachments": false,
+      "shared_mailbox_pii_access_scope": "none"
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "email_body_classification_enforced": true,
+      "pii_scanning_enabled": false,
+      "unclassified_email_retention_policy": "indefinite",
+      "retention_policy_enforced": true,
+      "maximum_retention_days": 0,
+      "pii_classification_labels_applied": true,
+      "mailbox_store_encryption_enabled": true,
+      "attachment_document_protection_enforced": false,
+      "sensitivity_labeling_enforced_on_attachments": false,
+      "content_based_access_control_enabled": true,
+      "shared_mailbox_pii_access_scope": "broad",
+      "transfer_destination_recorded": true,
+      "cross_border_transfer_compliance_verified": true,
+      "secure_erasure_policy_enabled": true,
+      "backup_snapshot_pii_purge_policy": "none"
+    },
+    "expectedExposures": [
+      "Indefinite Retention Of Pii Bearing Messages",
+      "Inadequate Disposal Of Deleted Pii Emails"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Indefinite Retention Of Pii Bearing Messages",
+      "Plaintext Pii In Email Attachments",
+      "Unclassified Pii In Email Bodies",
+      "Inadequate Disposal Of Deleted Pii Emails",
+      "Cross Border Pii Transfer Via Email Routing"
+    ]
+  }
+]

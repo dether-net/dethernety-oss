@@ -1,0 +1,531 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "spf_policy_enforcement": {
+        "type": "string",
+        "enum": [
+          "reject",
+          "quarantine",
+          "tag_only",
+          "none"
+        ],
+        "title": "SPF Policy Enforcement Level",
+        "description": "The enforcement action taken when SPF checks fail for inbound messages"
+      },
+      "dkim_validation_enabled": {
+        "type": "boolean",
+        "title": "DKIM Signature Validation Enabled",
+        "description": "Whether the mail server actively validates DKIM signatures on inbound messages",
+        "default": false
+      },
+      "dmarc_policy_enforcement": {
+        "type": "string",
+        "enum": [
+          "reject",
+          "quarantine",
+          "monitor_only",
+          "none"
+        ],
+        "title": "DMARC Inbound Policy Enforcement Level",
+        "description": "The DMARC policy enforcement action applied to inbound messages that fail DMARC alignment checks"
+      },
+      "spam_filter_enabled": {
+        "type": "boolean",
+        "title": "Spam Filter Enabled",
+        "description": "Whether the spam filtering engine is actively enabled and processing inbound email",
+        "default": false
+      },
+      "spam_score_threshold": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "title": "Spam Score Threshold",
+        "description": "The numeric score threshold at or above which messages are classified as spam and actioned. Lower values are stricter; values above 10 effectively disable filtering."
+      },
+      "spam_action_on_detection": {
+        "type": "string",
+        "enum": [
+          "reject",
+          "quarantine",
+          "tag",
+          "none"
+        ],
+        "title": "Action Taken on Spam Detection",
+        "description": "The enforcement action applied when a message exceeds the spam threshold",
+        "default": "none"
+      },
+      "header_analysis_checks": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Header Analysis Checks Enabled",
+        "description": "List of header-based analysis techniques active on the spam filter (e.g., received_chain, x_originating_ip, mime_structure, content_type_mismatch)",
+        "default": []
+      },
+      "dmarc_record_present": {
+        "type": "boolean",
+        "title": "DMARC Record Present",
+        "description": "Whether a valid DMARC TXT record exists at _dmarc.<domain> in DNS",
+        "default": false
+      },
+      "dmarc_policy_level": {
+        "type": "string",
+        "enum": [
+          "none",
+          "quarantine",
+          "reject"
+        ],
+        "title": "DMARC Policy Level",
+        "description": "The DMARC policy (p=) tag value in DNS, indicating the enforcement action receivers should take for unauthenticated mail. Also used for outbound policy assessment.",
+        "default": "none"
+      },
+      "dmarc_pct_value": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "title": "DMARC Percentage (pct) Tag Value",
+        "description": "The pct= tag in the DMARC record indicating the percentage of messages that receive the DMARC enforcement action. 100 means full enforcement.",
+        "default": 100
+      },
+      "header_inspection_enabled": {
+        "type": "boolean",
+        "title": "Header Inspection Enabled",
+        "description": "Whether deep email header chain inspection is actively enabled on the mail server or security gateway",
+        "default": false
+      },
+      "display_name_spoofing_check": {
+        "type": "boolean",
+        "title": "Display Name Spoofing Detection Active",
+        "description": "Whether the system checks for mismatches between the display name and the actual sender email address to detect identity spoofing",
+        "default": false
+      },
+      "reply_to_mismatch_action": {
+        "type": "string",
+        "enum": [
+          "none",
+          "tag",
+          "quarantine",
+          "reject"
+        ],
+        "title": "Reply-To Mismatch Action",
+        "description": "Action taken when the Reply-To header domain differs from the From header domain, indicating potential reply redirection to an attacker-controlled address",
+        "default": "none"
+      },
+      "max_received_hops_exceeded": {
+        "type": "boolean",
+        "title": "Maximum Received Hops Check Enabled",
+        "description": "Whether a maximum hop-count threshold is configured on Received headers to flag anomalous routing; derived from max_received_hops_threshold being greater than 0",
+        "default": false
+      },
+      "sandboxing_integration_enabled": {
+        "type": "boolean",
+        "title": "Sandboxing Integration Enabled",
+        "description": "Whether the email platform is configured to route URLs and/or attachments to a sandboxing engine for pre-delivery detonation and analysis",
+        "default": false
+      },
+      "sandbox_verdict_action": {
+        "type": "string",
+        "enum": [
+          "block",
+          "quarantine",
+          "replace",
+          "monitor",
+          "allow"
+        ],
+        "title": "Sandbox Verdict Enforcement Action",
+        "description": "The action taken when the sandboxing engine returns a malicious verdict — whether messages are blocked/quarantined before delivery or only logged/allowed",
+        "default": "monitor"
+      },
+      "sandbox_scope": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Sandbox Analysis Scope",
+        "description": "The content types submitted to the sandbox — should include both URLs and attachments to provide complete pre-delivery coverage"
+      },
+      "policy_applies_to_inbound": {
+        "type": "boolean",
+        "title": "Policy Applies to Inbound Mail",
+        "description": "Whether the sandboxing policy is scoped to cover inbound email traffic from external senders",
+        "default": false
+      },
+      "logging_enabled": {
+        "type": "boolean",
+        "title": "Message Logging Enabled",
+        "description": "Whether structured logging of all inbound and outbound message events is enabled on the email server",
+        "default": false
+      },
+      "logged_fields": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Logged Event Fields",
+        "description": "List of event field types captured in the mail log, such as authentication_result, filter_verdict, delivery_status, sender, recipient, timestamp"
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Log Retention Period (Days)",
+        "description": "Number of days mail delivery logs are retained before deletion or archival"
+      },
+      "dkim_signing_enabled": {
+        "type": "boolean",
+        "title": "DKIM Signing Enabled",
+        "description": "Whether outbound messages are signed with a valid DKIM private key before delivery",
+        "default": false
+      },
+      "authorized_sending_ip_policy": {
+        "type": "string",
+        "enum": [
+          "enforced",
+          "permissive",
+          "none"
+        ],
+        "title": "Authorized Sending IP Policy",
+        "description": "Whether an SPF record or equivalent IP allowlist restricts which IP ranges are permitted to send on behalf of the organization's domain",
+        "default": "none"
+      },
+      "outbound_spam_filtering_enabled": {
+        "type": "boolean",
+        "title": "Outbound Spam Filtering Enabled",
+        "description": "Whether outbound mail passes through a content/spam filter before leaving the organization's infrastructure",
+        "default": false
+      },
+      "live_rule_update_supported": {
+        "type": "boolean",
+        "title": "Live Rule Update Without Service Interruption",
+        "description": "Whether filtering rules, blocklists, and authentication policies can be updated and applied without restarting the email service"
+      },
+      "rule_update_mechanism": {
+        "type": "string",
+        "enum": [
+          "automated",
+          "scheduled",
+          "manual",
+          "none"
+        ],
+        "title": "Rule Update Mechanism",
+        "description": "The mechanism by which filtering rules and authentication policies are updated — manual, scheduled, or automated/feed-driven"
+      },
+      "blocklist_last_updated_days_ago": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Days Since Blocklist Last Updated",
+        "description": "Number of days elapsed since the spam/threat blocklist was last updated"
+      },
+      "quarantine_enabled": {
+        "type": "boolean",
+        "title": "Quarantine Enabled",
+        "description": "Whether the email quarantine system is actively enabled and enforcing holding of suspect messages",
+        "default": false
+      },
+      "retention_period_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 365,
+        "title": "Quarantine Retention Period (Days)",
+        "description": "Number of days quarantined messages are retained before automatic deletion"
+      },
+      "user_release_interface_enabled": {
+        "type": "boolean",
+        "title": "User Self-Release Interface Enabled",
+        "description": "Whether end users have access to a self-service interface to review and release their own quarantined messages",
+        "default": false
+      },
+      "admin_review_notifications_enabled": {
+        "type": "boolean",
+        "title": "Admin Review Notifications Enabled",
+        "description": "Whether administrators receive notifications or have a dashboard for reviewing quarantined messages to catch missed detections",
+        "default": false
+      }
+    },
+    "required": [
+      "spf_policy_enforcement",
+      "dkim_validation_enabled",
+      "dmarc_policy_enforcement",
+      "spam_filter_enabled",
+      "spam_score_threshold",
+      "spam_action_on_detection",
+      "header_analysis_checks",
+      "dmarc_record_present",
+      "dmarc_policy_level",
+      "dmarc_pct_value",
+      "header_inspection_enabled",
+      "display_name_spoofing_check",
+      "reply_to_mismatch_action",
+      "sandboxing_integration_enabled",
+      "sandbox_verdict_action",
+      "sandbox_scope",
+      "policy_applies_to_inbound",
+      "logging_enabled",
+      "logged_fields",
+      "log_retention_days",
+      "dkim_signing_enabled",
+      "authorized_sending_ip_policy",
+      "outbound_spam_filtering_enabled",
+      "quarantine_enabled",
+      "retention_period_days",
+      "user_release_interface_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/authorized_sending_ip_policy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/display_name_spoofing_check"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dkim_signing_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dkim_validation_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dmarc_pct_value"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dmarc_policy_enforcement"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dmarc_policy_level"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dmarc_record_present"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/spf_policy_enforcement"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/authentication_failure_reporting_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/subdomain_policy_level"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/header_inspection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/policy_applies_to_inbound"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sandbox_verdict_action"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sandboxing_integration_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/spam_action_on_detection"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/spam_filter_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/spam_score_threshold"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/header_analysis_checks"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/outbound_spam_filtering_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/reply_to_mismatch_action"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sandbox_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/max_received_hops_exceeded"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/logged_fields"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/quarantine_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/retention_period_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/user_release_interface_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_review_notifications_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/blocklist_last_updated_days_ago"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/live_rule_update_supported"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rule_update_mechanism"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

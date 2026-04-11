@@ -1,0 +1,8 @@
+{
+  "name": "Container",
+  "classType": "securityBoundary",
+  "type": "Container",
+  "description": "Container instances serving as trust zone boundaries rely on kernel-level isolation primitives (namespaces, cgroups, capabilities, seccomp, LSM profiles) to enforce separation between workload zones. Weaknesses in these enforcement mechanisms create pathways for trust boundary violations — enabling zone traversal, trust propagation across segments, and lateral movement between workloads sharing the same host kernel. The boundary integrity depends critically on how runtime configurations restrict container capabilities, control ingress/egress paths, and prevent credential or context bleed between zones.",
+  "category": "Container Infrastructure",
+  "status": "reviewed"
+}

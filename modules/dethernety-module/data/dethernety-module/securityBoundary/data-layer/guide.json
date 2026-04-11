@@ -1,0 +1,1425 @@
+[
+  {
+    "option_name": "storage_port_ingress_restriction",
+    "option_description": "Controls how strictly ingress traffic is filtered on storage service ports (e.g., TCP 5432 for PostgreSQL, TCP 3306 for MySQL, TCP 27017 for MongoDB, TCP 443/9000 for object storage). Reflects whether only explicitly approved source CIDRs or zones may reach these ports, or whether access is open or partially restricted.",
+    "security_impact": "The Rego policy triggers 'unrestricted_ingress_to_storage_endpoints' immediately when this value is 'none', and also triggers when 'partial' is combined with untrusted_zone_direct_access_allowed=true. A value of 'none' indicates no filtering whatsoever on storage ports, directly enabling MITRE T1530 (Data from Cloud Storage) and T1567 (Exfiltration Over Web Service) by allowing any host to initiate connections to database and object storage endpoints.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect AWS security group rules for inbound rules targeting common storage ports. Look for 0.0.0.0/0 or ::/0 as the source CIDR on ports such as 5432, 3306, 27017, 6379, or 9000.",
+        "command": "aws ec2 describe-security-groups --filters 'Name=ip-permission.from-port,Values=5432,3306,27017,6379,9000' --query 'SecurityGroups[*].{ID:GroupId,Rules:IpPermissions}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON listing security groups with inbound rules. If IpRanges contains '0.0.0.0/0' or Ipv6Ranges contains '::/0', restriction level is 'none'. If only specific CIDRs are present, classify as 'strict'."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes environments, list NetworkPolicy resources in the storage namespace and inspect ingress rules to determine whether podSelector or namespaceSelector restricts sources to storage ports.",
+        "command": "kubectl get networkpolicy -n storage -o json | jq '.items[] | {name: .metadata.name, ingress: .spec.ingress}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If ingress rules have no 'from' clause or allow all pods/namespaces, set to 'none'. If some restriction exists without full allowlist enforcement, set to 'partial'. If only explicitly named sources are allowed, set to 'strict'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to VPC > Security Groups, filter by groups tagged with storage or database roles, and review the Inbound Rules tab for each group. Note whether the source column contains 0.0.0.0/0 on storage-relevant ports.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Security Groups > [select storage security group] > Inbound Rules tab",
+        "expected_output": "Each row shows port range and source. Any row with storage ports and source '0.0.0.0/0' indicates 'none'. Rows with specific CIDRs indicate 'strict' if exhaustive."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Terraform or CloudFormation IaC source files defining security groups or network ACLs for storage resources. Search for ingress rules with cidr_blocks containing '0.0.0.0/0' on storage service ports.",
+        "command": "grep -rn 'cidr_blocks\\|source_ranges\\|0\\.0\\.0\\.0/0' ./infrastructure/ | grep -E '(5432|3306|27017|6379|9000)'",
+        "file_path": "./infrastructure/security_groups.tf",
+        "navigation": null,
+        "expected_output": "Lines matching both storage port numbers and 0.0.0.0/0 confirm 'none'. No matches with specific CIDR blocks confirm 'strict'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "partial",
+      "strict"
+    ]
+  },
+  {
+    "option_name": "untrusted_zone_direct_access_allowed",
+    "option_description": "Indicates whether network traffic originating from untrusted or semi-trusted zones (e.g., DMZ, public-facing subnets, external partner networks) can reach storage service ports directly without traversing an application tier, API gateway, or proxy layer acting as an intermediary.",
+    "security_impact": "The Rego policy triggers 'unrestricted_ingress_to_storage_endpoints' when this is true in combination with either 'partial' ingress restriction or when ingress_default_deny_enforced is false. Direct access from untrusted zones bypasses intended access control tiers and directly exposes storage endpoints to attack vectors associated with T1530 and T1567.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use AWS VPC Reachability Analyzer to test whether a source ENI in an untrusted subnet can reach the storage layer's security group on a storage port. This performs a control-plane path analysis without sending actual traffic.",
+        "command": "aws ec2-instance-connect create-network-insights-path --source <untrusted-eni-id> --destination <storage-eni-id> --destination-port 5432 --protocol TCP && aws ec2 start-network-insights-analysis --network-insights-path-id <path-id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Analysis result 'networkPathFound: true' confirms direct access is possible (set to true). 'networkPathFound: false' or a hop through an intermediate gateway confirms mediated access (set to false)."
+      },
+      {
+        "type": "command",
+        "instruction": "Review route tables and security group pairings to determine if any untrusted subnet CIDR appears as an allowed ingress source on storage security groups.",
+        "command": "aws ec2 describe-security-groups --group-ids <storage-sg-id> --query 'SecurityGroups[*].IpPermissions[?FromPort==`5432` || FromPort==`3306`].IpRanges[*].CidrIp' --output text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists source CIDRs. Cross-reference each CIDR against the list of known trusted zones. Any CIDR belonging to DMZ, public, or external segments confirms true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a host in the untrusted zone, attempt a TCP connection to the storage endpoint on the relevant port. This should be performed in a non-production environment or with explicit change approval.",
+        "command": "nc -zv <storage-endpoint-ip> 5432 -w 5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful TCP handshake ('succeeded' or 'open') confirms direct access is allowed (true). 'Connection refused' or timeout confirms it is blocked (false)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Terraform security group or GCP firewall rule definitions to determine if untrusted subnet CIDRs appear in storage-facing ingress rules.",
+        "command": "grep -rn 'source_ranges\\|cidr_blocks' ./infrastructure/ | grep -vE '(10\\.(0|1|2)\\.|172\\.16\\.)'",
+        "file_path": "./infrastructure/firewall.tf",
+        "navigation": null,
+        "expected_output": "Any non-RFC1918 or non-approved internal CIDR in storage ingress rules confirms true. Only trusted internal CIDRs confirm false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "ingress_default_deny_enforced",
+    "option_description": "Indicates whether the storage zone boundary's firewall, security group, or network policy has an implicit or explicit default-deny rule as its final catch-all for inbound traffic. When enforced, any traffic not explicitly permitted by an allow rule is dropped, requiring all permitted sources to be positively listed.",
+    "security_impact": "The Rego policy triggers 'unrestricted_ingress_to_storage_endpoints' when this is false and untrusted_zone_direct_access_allowed is true, because the absence of default-deny means unlisted sources may still reach storage endpoints. Without default-deny, the security posture depends entirely on the completeness of explicit allow rules, and any gap in rule coverage results in unintended access.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect AWS Network ACL entries for the storage subnet and determine whether the final numbered rule (highest number) is an ALLOW ALL or DENY ALL for inbound traffic.",
+        "command": "aws ec2 describe-network-acls --filters 'Name=association.subnet-id,Values=<storage-subnet-id>' --query 'NetworkAcls[*].Entries[?Egress==`false`]|sort_by(@, &RuleNumber)' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The last entry in ascending RuleNumber order should have RuleAction='deny' and CidrBlock='0.0.0.0/0' to confirm default-deny (true). If the last rule is RuleAction='allow', set to false."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes NetworkPolicy, verify that a default-deny policy exists in the storage namespace. A namespace with no NetworkPolicy allows all traffic by default; an explicit default-deny policy must exist.",
+        "command": "kubectl get networkpolicy -n storage -o json | jq '.items[] | select(.spec.ingress == null or .spec.ingress == []) | .metadata.name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A policy named 'default-deny-ingress' or similar with an empty ingress array confirms default-deny is enforced (true). No such policy in the output means ingress is open by default (false)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In GCP Console, navigate to VPC Network > Firewall and filter rules by network and direction INGRESS. Look for a low-priority (high number) DENY ALL rule targeting the storage VPC or subnet tag.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GCP Console > VPC Network > Firewall > Filter by: Direction=INGRESS, Network=<storage-vpc> > Sort by Priority descending",
+        "expected_output": "A DENY rule at the bottom of the priority list (e.g., priority 65534) with target all traffic confirms default-deny (true). Absence of such a rule or a final ALLOW rule indicates false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Terraform or Helm chart definitions for explicit default-deny NetworkPolicy or security group baseline rules in the storage zone configuration.",
+        "command": "grep -rn 'default.deny\\|deny.all\\|RuleAction.*deny' ./infrastructure/ | grep -i 'storage\\|db\\|data'",
+        "file_path": "./infrastructure/network_policies.yaml",
+        "navigation": null,
+        "expected_output": "Matching lines referencing default deny configurations in storage-related resources confirm true. No matches suggest default-deny is not configured (false)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "egress_policy_enforced",
+    "option_description": "Indicates whether an explicit egress filtering policy (allowlist-based or deny-by-default) is actively applied to the storage zone boundary, restricting outbound connections that storage components (databases, object storage services) can initiate to other hosts.",
+    "security_impact": "The Rego policy triggers 'missing_egress_filtering_from_storage_zone' immediately when this is false, as the absence of any egress policy means storage components can initiate arbitrary outbound connections. This directly enables exfiltration paths described in T1567.002 (Exfiltration to Cloud Storage) and T1048 (Exfiltration Over Alternative Protocol) if a storage component is compromised. The default value is false, meaning most environments are vulnerable unless explicitly configured.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check AWS security group outbound rules for the storage security group. If only the default 'allow all outbound' rule exists and no restrictive rules have been added, egress policy is not enforced.",
+        "command": "aws ec2 describe-security-groups --group-ids <storage-sg-id> --query 'SecurityGroups[*].{GroupId:GroupId,EgressRules:IpPermissionsEgress}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If IpPermissionsEgress contains only a single rule with IpProtocol='-1' and CidrIp='0.0.0.0/0', egress policy is not enforced (false). Multiple specific rules or restrictive rules indicate true."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes, verify whether NetworkPolicy resources in the storage namespace include egress rules. A NetworkPolicy with an explicit egress block restricting destinations confirms enforcement.",
+        "command": "kubectl get networkpolicy -n storage -o json | jq '.items[] | select(.spec.egress != null) | {name: .metadata.name, egress: .spec.egress}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policies returned with a non-empty egress block confirm egress policy is enforced (true). No policies with egress blocks, or empty egress arrays, indicate false."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure, list Network Security Group outbound rules for the storage subnet and check for explicit deny or allowlist-based egress rules beyond the default 'AllowInternetOutbound'.",
+        "command": "az network nsg rule list --nsg-name <storage-nsg> --resource-group <rg> --query \"[?direction=='Outbound']\" --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of custom outbound rules with specific destination prefixes and lower priority numbers than 'AllowInternetOutbound' confirms enforcement (true). Only default Azure rules indicate false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review IaC definitions for egress/outbound rule blocks in security group or network policy resources associated with the storage tier.",
+        "command": "grep -rn 'egress\\|outbound' ./infrastructure/ | grep -v '#' | grep -i 'storage\\|db\\|data'",
+        "file_path": "./infrastructure/security_groups.tf",
+        "navigation": null,
+        "expected_output": "Egress rule blocks with specific CIDR or port restrictions confirm true. Only default-allow or no egress block in storage resources confirms false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "default_egress_action",
+    "option_description": "Specifies the default action applied to outbound traffic from the storage zone when no specific egress rule matches — either 'allow' (permitting unmatched outbound traffic) or 'deny' (blocking unmatched outbound traffic). This is the final catch-all behavior of the egress policy.",
+    "security_impact": "The Rego policy triggers 'missing_egress_filtering_from_storage_zone' when this is 'allow' even if egress_policy_enforced is true, because a default-allow posture means any outbound traffic not explicitly denied can leave the storage zone. This creates exfiltration channels (T1567.002, T1048) since an attacker who compromises a storage component can initiate arbitrary outbound connections to destinations not covered by explicit deny rules. The default value in the schema is 'allow', meaning most environments trigger this exposure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS Network ACLs, retrieve outbound rules sorted by rule number and identify the final (highest-numbered) rule. Rule 32767 is the AWS implicit DENY ALL which confirms default-deny.",
+        "command": "aws ec2 describe-network-acls --filters 'Name=association.subnet-id,Values=<storage-subnet-id>' --query 'NetworkAcls[*].Entries[?Egress==`true`]' --output json | jq 'sort_by(.RuleNumber) | last'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Last entry with RuleNumber=32767, RuleAction='deny', CidrBlock='0.0.0.0/0' confirms 'deny'. Any other final rule with RuleAction='allow' confirms 'allow'."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes NetworkPolicy, determine if the storage namespace has an egress default-deny policy. An empty egress spec in a NetworkPolicy matching all pods enforces default-deny.",
+        "command": "kubectl get networkpolicy -n storage -o json | jq '.items[] | select(.spec.podSelector == {} and (.spec.egress == [] or .spec.egress == null)) | .metadata.name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A policy returned confirms default-deny for egress ('deny'). No matching policy indicates default-allow ('allow') since Kubernetes allows all egress when no NetworkPolicy selects a pod."
+      },
+      {
+        "type": "gui",
+        "instruction": "In GCP Console, navigate to VPC Network > Firewall and examine EGRESS rules sorted by priority. The lowest-priority rule's action determines the default behavior for the storage network tag.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GCP Console > VPC Network > Firewall > Filter by Direction=EGRESS > Sort by Priority (ascending)",
+        "expected_output": "The lowest priority (highest number) rule that applies to the storage network tag determines the default. DENY action = 'deny'. ALLOW action = 'allow'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Terraform or Pulumi IaC files for the final egress rule definition in storage zone security constructs, looking for explicit deny-all as the last rule.",
+        "command": "grep -A5 -B2 'egress\\|outbound' ./infrastructure/storage_firewall.tf | grep -E 'action|rule_action|access'",
+        "file_path": "./infrastructure/storage_firewall.tf",
+        "navigation": null,
+        "expected_output": "The final egress rule block should show action='deny' or access='Deny' to confirm 'deny'. Action='allow' or access='Allow' on the final rule confirms 'allow'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "allow",
+      "deny"
+    ]
+  },
+  {
+    "option_name": "allowed_egress_destinations",
+    "option_description": "An explicit list of permitted outbound destination CIDRs or hostnames for the storage zone. Defines which external or internal endpoints storage components are authorized to contact. An empty list combined with a default-allow posture indicates completely unrestricted egress.",
+    "security_impact": "The Rego policy triggers 'missing_egress_filtering_from_storage_zone' when egress_policy_enforced is true, default_egress_action is 'deny', but '0.0.0.0/0' appears in this list — effectively nullifying the default-deny posture. The list must contain only specific, minimal destinations (e.g., logging endpoints, backup destinations, DNS resolvers) to be meaningful. An empty list with default-allow or a list containing 0.0.0.0/0 enables T1567.002 and T1048 exfiltration paths.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Extract all allowed outbound destination CIDRs from the storage security group egress rules in AWS. Collect unique destination CIDR values to build the list.",
+        "command": "aws ec2 describe-security-groups --group-ids <storage-sg-id> --query 'SecurityGroups[*].IpPermissionsEgress[*].IpRanges[*].CidrIp' --output json | jq 'flatten | unique'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array of destination CIDRs. If result is ['0.0.0.0/0'] or empty, egress is unrestricted. Specific CIDRs like ['10.1.5.10/32', '10.2.0.0/24'] represent a properly scoped allowlist."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes NetworkPolicy egress rules, extract all destination CIDR and port combinations allowed for pods in the storage namespace.",
+        "command": "kubectl get networkpolicy -n storage -o json | jq '[.items[].spec.egress[]?.to[]?.ipBlock.cidr] | unique | map(select(. != null))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Array of CIDR blocks. Empty array with no egress blocks means egress is uncontrolled. Array with specific CIDRs represents the allowed egress destinations."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCP, list all EGRESS firewall rules for the storage network tag and extract destination ranges from ALLOW rules.",
+        "command": "gcloud compute firewall-rules list --filter='direction=EGRESS AND targetTags=storage-zone' --format='json' | jq '[.[] | select(.allowed != null) | .destinationRanges[]] | unique'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Array of destination IP ranges. Presence of '0.0.0.0/0' in any ALLOW rule indicates unrestricted egress. Specific ranges indicate a controlled allowlist."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review IaC files to compile the complete list of egress destination CIDRs or hostnames defined for storage zone resources.",
+        "command": "grep -rn 'destination\\|egress.*cidr\\|allowed_egress' ./infrastructure/ | grep -i 'storage\\|db\\|data' | grep -oE '([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}'",
+        "file_path": "./infrastructure/",
+        "navigation": null,
+        "expected_output": "List of CIDR strings extracted from IaC egress definitions. These CIDRs represent the configured allowed_egress_destinations value."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[]",
+      "['0.0.0.0/0']",
+      "['10.1.5.0/24', '10.2.0.10/32']",
+      "['logging.internal', 'backup.internal']"
+    ]
+  },
+  {
+    "option_name": "zone_boundary_authentication_mode",
+    "option_description": "Describes the authentication model enforced at the storage zone boundary. 'per_service' requires each storage service (e.g., database, object storage) to independently authenticate callers. 'boundary_only' authenticates at the zone perimeter and grants implicit access to all services within. 'none' means no authentication is enforced at the boundary.",
+    "security_impact": "The Rego policy triggers 'overly_broad_cross_zone_trust_propagation' when this value is 'boundary_only' or 'none' and intra_zone_service_authorization_enforced is false. With 'boundary_only', a single successful authentication grants lateral movement capability to all services within the zone (T1199 Trusted Relationship, T1484.002 Trust Modification). This is the most impactful trust misconfiguration because it converts zone boundary authentication into a skeleton key for all internal storage services.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the storage platform or infrastructure team to determine whether service-level credentials (e.g., database passwords, S3 IAM policies, object storage ACLs) are independently enforced per service or whether a single service mesh JWT or API gateway token grants access to all storage backends.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If team confirms individual services require their own credentials validated independently, set 'per_service'. If boundary token/cert is accepted by all internal services without re-authentication, set 'boundary_only'. If no authentication is required, set 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect service mesh (Istio/Linkerd) AuthorizationPolicy resources in the storage namespace to determine if per-service authorization is enforced or if a single policy covers all services.",
+        "command": "kubectl get authorizationpolicy -n storage -o json | jq '.items[] | {name: .metadata.name, selector: .spec.selector, rules: .spec.rules}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Distinct AuthorizationPolicy objects with unique selectors per service (e.g., one for db, one for object-storage) indicate 'per_service'. A single policy covering all pods or no policies indicate 'boundary_only' or 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review API gateway or service mesh configuration files (e.g., Istio VirtualService, Kong routes) for the storage zone to determine whether authentication is terminated at the gateway level or forwarded and re-validated per backend service.",
+        "command": "grep -rn 'requestAuthentication\\|jwt\\|authorizationPolicy\\|per.service' ./service-mesh/ | grep -i 'storage\\|db\\|object'",
+        "file_path": "./service-mesh/storage-zone/",
+        "navigation": null,
+        "expected_output": "Multiple distinct authentication/authorization resources each scoped to individual services confirm 'per_service'. A single resource covering the entire storage namespace suggests 'boundary_only'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS API Gateway or an application load balancer, review the listener rules for the storage zone to determine whether authentication (Lambda authorizer, Cognito, mTLS) is applied at the listener level for all routes or configured separately per backend target group.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > EC2 > Load Balancers > [storage-alb] > Listeners > Rules > [view authentication actions per rule]",
+        "expected_output": "Authentication action present on every rule and scoped to individual target groups suggests 'per_service'. Single authentication action at the listener level covering all targets indicates 'boundary_only'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "boundary_only",
+      "per_service",
+      "none"
+    ]
+  },
+  {
+    "option_name": "intra_zone_service_authorization_enforced",
+    "option_description": "Indicates whether explicit authorization controls (network policies, service mesh AuthorizationPolicies, firewall ACLs) are independently enforced between individual services inside the storage zone — for example, whether the database service and object storage service have separate, explicit authorization rules preventing unrestricted lateral access between them.",
+    "security_impact": "The Rego policy triggers 'overly_broad_cross_zone_trust_propagation' when zone_boundary_authentication_mode is 'boundary_only' or 'none' AND this is false. Without per-service intra-zone authorization, successful boundary crossing grants implicit access to all storage services, enabling lateral movement (T1199, T1599). This attribute is the compensating control for boundary-only authentication — if intra-zone controls are absent and boundary-only auth is used, an attacker who breaches the boundary can access both the database and object storage without further challenge.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List Kubernetes NetworkPolicy resources in the storage namespace and verify that distinct policies exist restricting traffic between individual storage services (e.g., database pods cannot reach object storage pods and vice versa).",
+        "command": "kubectl get networkpolicy -n storage -o json | jq '.items[] | {name: .metadata.name, podSelector: .spec.podSelector, ingress_from: [.spec.ingress[]?.from[]?]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Multiple policies each scoped to specific pod labels (e.g., app=database, app=object-storage) with explicit from/to selectors confirm enforcement (true). A single policy or no policies indicate false."
+      },
+      {
+        "type": "command",
+        "instruction": "Review Istio AuthorizationPolicy resources within the storage namespace for per-service principal restrictions. Each service should have a policy that explicitly lists allowed source principals.",
+        "command": "kubectl get authorizationpolicy -n storage -o yaml | grep -E 'selector|principal|namespace|matchLabels' | head -60",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Multiple AuthorizationPolicy blocks each with distinct matchLabels selectors and explicit source.principal or source.namespace restrictions confirm true. Generic or absent policies confirm false."
+      },
+      {
+        "type": "command",
+        "instruction": "For cloud-native deployments, check whether IAM policies or resource-based policies on individual storage services (e.g., S3 bucket policies, RDS IAM authentication) require specific service account identities rather than accepting any identity from within the zone.",
+        "command": "aws s3api get-bucket-policy --bucket <storage-bucket> | jq '.Policy | fromjson | .Statement[] | {Effect: .Effect, Principal: .Principal, Condition: .Condition}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy statements with specific Principal ARNs (e.g., specific IAM roles for database service only) and no wildcard principals confirm per-service authorization (true). Wildcard Principal ('*') or broad conditions indicate false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect service mesh or firewall IaC definitions for explicit intra-zone service-to-service rules. Count distinct authorization objects targeting individual storage service identities.",
+        "command": "grep -rn 'podSelector\\|matchLabels\\|source.principal\\|workloadSelector' ./service-mesh/storage-zone/ | grep -c 'app\\|service\\|component'",
+        "file_path": "./service-mesh/storage-zone/",
+        "navigation": null,
+        "expected_output": "Count greater than 2 (at least one policy per distinct storage service) suggests per-service enforcement (true). Count of 0 or 1 generic policy indicates intra-zone authorization is not independently enforced (false)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "storage_services_sharing_single_trust_credential",
+    "option_description": "Controls whether all storage zone services (database and object storage) accept the same boundary-issued credential, token, or certificate without any service-specific scoping or restrictions applied to limit which service a given credential can access.",
+    "security_impact": "The Rego policy fires `overly_broad_cross_zone_trust_propagation` when this is true and `lateral_movement_controls_present` is false. A single shared credential means compromise of any one client grants full access to all storage services simultaneously, eliminating the blast radius containment that per-service credentials provide. An attacker who obtains a single token can pivot from object storage to the database without needing additional credentials.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate IAM roles and service accounts bound to storage services and compare their permission scopes to identify overlap across both database and object storage resources.",
+        "command": "gcloud iam service-accounts list --format='json' | jq '.[] | select(.displayName | test(\"storage|db|database|s3|blob\"; \"i\")) | {name: .name, email: .email}' && gcloud projects get-iam-policy $(gcloud config get-value project) --format=json | jq '.bindings[] | select(.role | test(\"storage|sql|spanner|bigtable\"; \"i\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Separate service accounts with distinct roles for database vs. object storage. If the same principal appears in both storage.objectAdmin and cloudsql.client bindings, the credential is shared."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes environments, inspect service account token projections and mTLS certificate SANs to determine if certificates cover multiple storage backend hostnames.",
+        "command": "kubectl get serviceaccounts -n storage -o json | jq '.items[] | {name: .metadata.name, secrets: .secrets}' && kubectl get certificate -A -o json | jq '.items[] | {name: .metadata.name, dnsNames: .spec.dnsNames}' 2>/dev/null || kubectl get secret -A -o json | jq '.items[] | select(.type==\"kubernetes.io/tls\") | {name: .metadata.name, namespace: .metadata.namespace}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Certificates with dnsNames covering only a single service endpoint indicate proper scoping. Certificates listing both database and object storage hostnames confirm shared credential use."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS IAM to list all policies attached to roles used by storage services and verify each role is restricted to either RDS or S3, not both.",
+        "command": "aws iam list-roles --query 'Roles[?contains(RoleName, `storage`) || contains(RoleName, `db`) || contains(RoleName, `s3`)].[RoleName]' --output text | xargs -I{} aws iam list-attached-role-policies --role-name {} --query 'AttachedPolicies[].PolicyName'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Roles dedicated to object storage should only show S3-related policies. Roles for database access should only show RDS/DynamoDB policies. A role with both indicates sharing."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect application configuration files and environment variable definitions for connection string patterns that reuse the same credential variable for both database and object storage connections.",
+        "command": "grep -rE '(DB_PASSWORD|DATABASE_URL|STORAGE_KEY|S3_SECRET|BLOB_KEY)' /etc/app/ /opt/app/ ~/.config/ 2>/dev/null | grep -v '.git' | sort",
+        "file_path": "/etc/app/config.yaml",
+        "navigation": null,
+        "expected_output": "Distinct environment variables with different values for database credentials versus object storage credentials. Identical values or the same variable name reused for both confirms credential sharing."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common in legacy or monolithic deployments where a single service identity was provisioned)",
+      "false (expected in well-segmented environments using per-service workload identities)"
+    ]
+  },
+  {
+    "option_name": "lateral_movement_controls_present",
+    "option_description": "Indicates whether explicit network-level and service-level controls are deployed within the storage zone to prevent an attacker who has crossed the zone boundary from moving laterally between the database service and object storage service, covering both network policies and service mesh authorization rules.",
+    "security_impact": "The Rego policy references this attribute in two rules: `overly_broad_cross_zone_trust_propagation` (fires when `storage_services_sharing_single_trust_credential` is true and this is false) and `insufficient_micro_segmentation_between_database_and_object_storage` (fires when `shared_network_segment_with_database_and_object_storage` is true and this is false). Without lateral movement controls, a compromised storage component provides an unrestricted pivot point to all other storage services inside the same trust zone, dramatically increasing breach impact.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check Kubernetes NetworkPolicy objects in the storage namespace for rules explicitly restricting ingress/egress between database and object storage pods.",
+        "command": "kubectl get networkpolicy -n storage -o yaml | grep -A 20 'spec:' && kubectl describe networkpolicy -n storage",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NetworkPolicy objects with podSelector targeting database pods should explicitly deny or not permit traffic from object storage pod selectors, and vice versa. Absence of any NetworkPolicy means no controls are present."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect Istio or Linkerd service mesh authorization policies to verify peer authentication and authorization policies restrict service-to-service communication within the storage zone.",
+        "command": "kubectl get authorizationpolicy -n storage -o yaml 2>/dev/null || kubectl get peerauthentication -n storage -o yaml 2>/dev/null || linkerd viz -n storage edges po 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AuthorizationPolicy resources with explicit source principal restrictions limiting which services can call the database or object storage endpoints. Absence or a wildcard principal indicates no service-level controls."
+      },
+      {
+        "type": "command",
+        "instruction": "Review cloud security group or firewall rules governing intra-zone traffic to determine if database and object storage instances have distinct security groups with restricted inter-group rules.",
+        "command": "aws ec2 describe-security-groups --filters 'Name=tag:Zone,Values=storage' --query 'SecurityGroups[].{ID:GroupId,Name:GroupName,Ingress:IpPermissions}' --output json | jq .",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Separate security groups for database (e.g., sg-db) and object storage (e.g., sg-objectstore) with no inbound rules referencing each other's security group IDs confirms lateral movement controls. A shared security group or mutual allow rules indicate absence of controls."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to VPC > Security Groups and filter by the storage zone tag. Review inbound rules for both database and object storage security groups to confirm they do not allow traffic from each other.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Security Groups > Filter by tag:Zone=storage > Select each group > Inbound Rules tab",
+        "expected_output": "Database security group inbound rules should not list the object storage security group as a source, and vice versa. Presence of such rules indicates lateral movement is permitted."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common default in flat VPC or namespace deployments without explicit network policy enforcement)",
+      "true (present in mature zero-trust or service mesh deployments with explicit deny-all-except policies)"
+    ]
+  },
+  {
+    "option_name": "credential_scope_isolation",
+    "option_description": "Controls whether credentials, API keys, and service accounts used to authenticate to storage zone components (database and object storage) are exclusively scoped to the storage zone and cannot be reused or accepted by principals or services in adjacent network zones.",
+    "security_impact": "The Rego policy fires `shared_credential_plane_across_zone_boundary` in multiple conditions: when `credential_scope_isolation` is false (standalone trigger), and combined with `cross_zone_credential_rotation_independent` being false. Without credential scope isolation, an attacker who compromises a workload in an adjacent zone and obtains its credentials can immediately authenticate to storage zone endpoints without needing to cross a logical trust boundary, bypassing all zone-based access controls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Extract service account and IAM role bindings for all zones and cross-reference to identify principals that appear in both the storage zone and any adjacent zone definitions.",
+        "command": "gcloud projects get-iam-policy $(gcloud config get-value project) --format=json | jq '[.bindings[] | {role: .role, members: .members[]}] | group_by(.members) | map(select(length > 1)) | .[] | {principal: .[0].members, roles: [.[].role]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each storage zone service account should appear in only one zone's role bindings. Any principal with roles spanning both a storage zone resource type and an adjacent zone resource type indicates absent credential scope isolation."
+      },
+      {
+        "type": "command",
+        "instruction": "In AWS, use IAM Access Analyzer to identify resource-based policies and cross-account role assumptions that could allow credentials from adjacent zones to reach storage resources.",
+        "command": "aws accessanalyzer list-analyzers --query 'analyzers[].arn' --output text | xargs -I{} aws accessanalyzer list-findings --analyzer-arn {} --filter 'condition.condition-key=aws:PrincipalAccount,eq.not=[{\"value\":\"'$(aws sts get-caller-identity --query Account --output text)'\"}]' --query 'findings[].{id:id,resource:resource,principal:principal}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No findings indicating external or cross-account principals can access storage resources. Any finding for S3 bucket policies or RDS resource policies showing cross-account access confirms absent credential scope isolation."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Vault API to list secret leases and token policies to verify storage zone credentials are issued under policies that include zone-binding constraints preventing use from other network origins.",
+        "command": "vault token lookup -format=json | jq '{policies: .data.policies, meta: .data.meta}' && vault policy read storage-zone-policy 2>/dev/null | grep -E '(capabilities|path)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Vault policies for storage zone credentials should include path restrictions limited to storage-zone secret paths and optionally bound_cidrs matching only storage zone IP ranges. Absence of bound_cidrs or overly broad path wildcards indicates insufficient scope isolation."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform team to determine if credential provisioning automation (Terraform, Pulumi, Ansible) enforces zone tagging on service accounts and rejects cross-zone credential reuse during provisioning reviews.",
+        "command": "grep -rE '(service_account|iam_binding|role_assignment)' infrastructure/ terraform/ iac/ 2>/dev/null | grep -v '.terraform' | grep -E '(storage|db|database|s3|blob)'",
+        "file_path": "infrastructure/iam.tf",
+        "navigation": null,
+        "expected_output": "IaC definitions should show distinct service account resources for each zone with no cross-zone resource references. Shared service account resources used across multiple zone modules confirms absent isolation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in organizations using shared platform identities or default service accounts)",
+      "true (enforced in organizations with workload identity federation and per-service credential issuance)"
+    ]
+  },
+  {
+    "option_name": "shared_service_account_zones",
+    "option_description": "An array listing the identifiers of all network zones whose service accounts or credentials have overlapping permissions with those used in the storage zone, meaning the same principal identity is authorized on both sides of the zone boundary for database or object storage authentication.",
+    "security_impact": "The Rego policy fires `shared_credential_plane_across_zone_boundary` when `count(input.shared_service_account_zones) > 0`, making any non-empty list a direct trigger regardless of other settings. Each zone identifier in this list represents a lateral movement path: if any workload in those zones is compromised, the attacker inherits valid credentials to storage zone resources, completely undermining zone-based trust separation. This is a high-criticality finding with a score of 8.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all service accounts with storage zone resource permissions and cross-reference against workload identity bindings or pod annotations in each adjacent zone to find overlap.",
+        "command": "kubectl get pods --all-namespaces -o json | jq '[.items[] | {namespace: .metadata.namespace, pod: .metadata.name, serviceAccount: .spec.serviceAccountName, annotations: .metadata.annotations}] | group_by(.serviceAccount) | map(select(length > 1) | {serviceAccount: .[0].serviceAccount, namespaces: [.[].namespace] | unique})'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each service account should appear in only one namespace/zone. Any service account listed under both a storage namespace and an application or compute namespace confirms cross-zone sharing and should be added to this array."
+      },
+      {
+        "type": "command",
+        "instruction": "In AWS, enumerate IAM roles and their trust policies to identify roles assumed by workloads in non-storage zones that also carry storage permissions.",
+        "command": "aws iam list-roles --output json | jq '.Roles[] | select(.AssumeRolePolicyDocument.Statement[].Principal.Service != null) | {role: .RoleName, arn: .Arn}' | xargs -I{} sh -c 'aws iam list-attached-role-policies --role-name \"{}\" --output json | jq --arg r \"{}\" \". | {role: \\$r, policies: [.AttachedPolicies[].PolicyName]}\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Roles used by ECS tasks or EC2 instances in the application zone should not appear in RDS or S3 bucket resource-based policies. Any role name appearing in both contexts should populate this array with the adjacent zone identifier (e.g., 'application-zone', 'compute-zone')."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the GCP Asset Inventory API to find service accounts with IAM bindings on both Cloud SQL and Cloud Storage resources, which indicates shared credential usage across storage service types.",
+        "command": "gcloud asset search-all-iam-policies --scope=projects/$(gcloud config get-value project) --query='policy.bindings.members:serviceAccount AND (policy.bindings.role:cloudsql OR policy.bindings.role:storage.objects)' --format=json | jq '[.[] | {resource: .resource, member: .policy.bindings[].members[]}] | group_by(.member) | map(select(length > 1))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service accounts appearing in bindings for both Cloud SQL and Cloud Storage resources confirm cross-service sharing. Service accounts that also appear in Compute Engine or GKE workload identity bindings outside the storage namespace confirm cross-zone sharing."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the credential inventory maintained by the secrets management team and map each service account to the zones it is authorized to operate in, flagging any with multi-zone authorization.",
+        "command": "vault list auth/kubernetes/role/ 2>/dev/null | xargs -I{} vault read auth/kubernetes/role/{} -format=json | jq '{role: .request_id, namespaces: .data.bound_service_account_namespaces, service_accounts: .data.bound_service_account_names}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Vault Kubernetes auth roles for storage access should bind to only the storage namespace. Roles bound to multiple namespaces including both 'storage' and 'application' or 'compute' namespaces confirm cross-zone sharing and those zone names should populate this array."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[] (desired state - no zone sharing)",
+      "['application-zone'] (common finding where the app tier service account is also used for storage access)",
+      "['application-zone', 'compute-zone'] (high-risk multi-zone sharing in flat IAM deployments)"
+    ]
+  },
+  {
+    "option_name": "cross_zone_credential_rotation_independent",
+    "option_description": "Controls whether storage zone credentials are rotated on a schedule that is fully independent from credential rotation schedules in adjacent zones, ensuring that rotation jobs, secret versions, and rotation automation do not share credential material or rotation cycles across zone boundaries.",
+    "security_impact": "The Rego policy fires `shared_credential_plane_across_zone_boundary` when both `credential_scope_isolation` is false and `cross_zone_credential_rotation_independent` is false. Shared rotation cycles indicate shared credential material because a rotation job that updates credentials in multiple zones simultaneously implies the same secret is being distributed to multiple zones. If credential rotation is coordinated across zones, a leaked credential remains valid in all zones until the shared rotation cycle completes, extending the window of exposure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect AWS Secrets Manager rotation configurations to verify storage zone secrets use a distinct rotation Lambda and schedule from secrets used in adjacent zones.",
+        "command": "aws secretsmanager list-secrets --query 'SecretList[].{Name:Name,RotationEnabled:RotationEnabled,RotationRules:RotationRules,RotationLambdaARN:RotationLambdaARN}' --output json | jq 'group_by(.RotationLambdaARN) | map(select(length > 1) | {sharedLambda: .[0].RotationLambdaARN, secrets: [.[].Name]})'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each storage zone secret should have a unique rotation Lambda ARN and an independent rotation schedule. Secrets from different zones sharing the same RotationLambdaARN indicate coordinated (non-independent) rotation cycles."
+      },
+      {
+        "type": "command",
+        "instruction": "Check HashiCorp Vault dynamic secret lease configurations to verify storage zone database credentials have a TTL and renewal policy separate from application-zone credential leases.",
+        "command": "vault list database/roles/ 2>/dev/null | xargs -I{} vault read database/roles/{} -format=json | jq '{role: .request_id, default_ttl: .data.default_ttl, max_ttl: .data.max_ttl, db_name: .data.db_name}' && vault read sys/leases/lookup -format=json 2>/dev/null | head -50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Storage zone database roles should have TTL values configured independently. If TTL values are identical to application-zone credentials and use the same renewal automation, rotation is shared. Independent rotation shows distinct TTL values managed by separate Vault policies."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review credential rotation automation scripts and CI/CD pipeline definitions to verify storage zone rotation jobs are triggered independently and do not share rotation scripts with non-storage zones.",
+        "command": "grep -rE '(rotate|renew|refresh).*(credential|secret|password|key)' .github/ .gitlab-ci.yml Jenkinsfile scripts/ automation/ 2>/dev/null | grep -v '.git' | grep -E '(storage|db|database|s3|blob)'",
+        "file_path": ".github/workflows/credential-rotation.yml",
+        "navigation": null,
+        "expected_output": "Separate workflow files or job definitions for storage zone credential rotation that do not include steps rotating non-storage zone credentials. A single workflow rotating credentials across multiple zones confirms shared rotation cycles."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the security operations team to determine if rotation policies are defined per-zone in policy-as-code or if a single organization-wide rotation schedule governs all credentials regardless of zone membership.",
+        "command": "find /etc/vault/ /opt/secrets-manager/ /var/lib/rotation/ -name '*.json' -o -name '*.yaml' -o -name '*.hcl' 2>/dev/null | xargs grep -l 'rotation\\|ttl\\|expiry' 2>/dev/null",
+        "file_path": "/etc/vault/policies/storage-zone-rotation.hcl",
+        "navigation": null,
+        "expected_output": "Separate policy files for storage zone rotation with distinct scheduling parameters. A single global rotation policy file covering all environments confirms non-independent rotation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in organizations with centralized secrets management applying uniform rotation policies)",
+      "true (present in mature security programs with zone-specific rotation automation and distinct Vault policies per zone)"
+    ]
+  },
+  {
+    "option_name": "network_policy_enforced_between_db_and_object_storage",
+    "option_description": "Controls whether an explicit network policy, firewall rule, or security group rule is in place that specifically restricts east-west traffic flows between the database service and object storage service within the storage zone, rather than relying on zone-wide permissive defaults.",
+    "security_impact": "The Rego policy fires `insufficient_micro_segmentation_between_database_and_object_storage` when `intra_zone_default_traffic_policy` is `allow_all` and this is false, and also when `intra_zone_default_traffic_policy` is `partial_restriction`, this is false, and `lateral_movement_controls_present` is false. Without an explicit policy, the default allow behavior within the zone means a compromised database process can freely connect to object storage endpoints to discover and exfiltrate data, directly enabling MITRE T1530 (Data from Cloud Storage) and T1619 (Cloud Storage Object Discovery).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all Kubernetes NetworkPolicy objects in the storage namespace and verify at least one policy explicitly restricts traffic from database pod labels to object storage pod labels or vice versa.",
+        "command": "kubectl get networkpolicy -n storage -o json | jq '.items[] | {name: .metadata.name, podSelector: .spec.podSelector, ingress: .spec.ingress, egress: .spec.egress}' && kubectl get pods -n storage --show-labels",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A NetworkPolicy with podSelector matching database pods that explicitly does not include object storage pods in its egress rules, and a complementary policy for object storage pods. Absence of any NetworkPolicy objects or a single allow-all policy confirms this is false."
+      },
+      {
+        "type": "command",
+        "instruction": "In AWS, describe VPC security group rules and NACLs to verify distinct security groups exist for the database and object storage with no inbound rules permitting traffic between them.",
+        "command": "aws ec2 describe-security-groups --filters 'Name=tag:Component,Values=database,object-storage' --output json | jq '.SecurityGroups[] | {name: .GroupName, id: .GroupId, inbound: [.IpPermissions[] | {from: .FromPort, to: .ToPort, sources: [.UserIdGroupPairs[].GroupId, .IpRanges[].CidrIp]}]}'  && aws ec2 describe-network-acls --filters 'Name=tag:Zone,Values=storage' --output json | jq '.NetworkAcls[] | {id: .NetworkAclId, entries: .Entries}'  ",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Database security group inbound rules should not reference the object storage security group ID. Object storage bucket policies should not permit principals from the database security group unless explicitly required by application design. Any mutual allow between the two security groups confirms the policy is absent."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Terraform or Pulumi IaC definitions for the storage zone to verify network policy resources are declared with explicit deny or restrictive rules between database and object storage resource groups.",
+        "command": "grep -rA 10 'network_policy\\|NetworkPolicy\\|security_group_rule\\|aws_security_group_rule' infrastructure/storage/ terraform/storage/ 2>/dev/null | grep -v '.terraform' | grep -E '(database|db|object.storage|s3|blob)'",
+        "file_path": "infrastructure/storage/network-policies.tf",
+        "navigation": null,
+        "expected_output": "Terraform resources defining NetworkPolicy or security group rules with explicit source/destination matching that separates database endpoints from object storage endpoints. Absence of such resources in the IaC confirms no policy is enforced."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From within a database pod or instance, attempt a connection to the object storage service endpoint to verify the network policy actively blocks the connection.",
+        "command": "kubectl exec -n storage $(kubectl get pod -n storage -l app=database -o jsonpath='{.items[0].metadata.name}') -- nc -zv <object-storage-service-ip> 443 2>&1 && kubectl exec -n storage $(kubectl get pod -n storage -l app=database -o jsonpath='{.items[0].metadata.name}') -- curl -m 5 -s -o /dev/null -w '%{http_code}' https://<object-storage-endpoint>/ 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection should be refused or timeout, producing 'Connection refused' or 'Connection timed out' output. A successful connection (HTTP response code returned) confirms no effective network policy is enforced between the services."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in most cloud deployments without explicit NetworkPolicy or security group microsegmentation)",
+      "true (enforced in environments using Calico, Cilium, or AWS Security Groups with explicit inter-service rules)"
+    ]
+  },
+  {
+    "option_name": "intra_zone_default_traffic_policy",
+    "option_description": "Defines the default stance applied to east-west traffic between all components within the storage zone. `allow_all` permits unrestricted intra-zone communication by default, `partial_restriction` applies some rules while allowing undefined traffic, and `deny_by_default` requires explicit allow rules for any intra-zone communication to succeed.",
+    "security_impact": "The Rego policy references this attribute in two rules: `insufficient_micro_segmentation_between_database_and_object_storage` fires when this is `allow_all` and no explicit network policy exists, and `boundary_monitoring_blind_spots_on_east_west_traffic` fires when this is `none` (indicating no traffic management framework exists). `allow_all` is the highest-risk value as it means any compromised component within the storage zone has unrestricted network access to all other storage components, enabling MITRE T1530, T1619, and T1599 without any network-level friction.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether a default-deny Kubernetes NetworkPolicy exists in the storage namespace that denies all ingress and egress traffic unless explicitly permitted by a more specific policy.",
+        "command": "kubectl get networkpolicy -n storage -o json | jq '.items[] | select(.spec.podSelector == {} or .spec.podSelector.matchLabels == null) | {name: .metadata.name, ingress: .spec.ingress, egress: .spec.egress}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A NetworkPolicy with an empty podSelector (matching all pods) and empty ingress/egress arrays indicates deny_by_default. Absence of any default-deny policy with an empty podSelector means the effective default is allow_all. Policies that selectively deny but allow undefined traffic indicate partial_restriction."
+      },
+      {
+        "type": "command",
+        "instruction": "Review the VPC or cloud network default security group rules and default NACLs to determine the baseline posture for intra-zone traffic before any specific rules are applied.",
+        "command": "aws ec2 describe-security-groups --group-names default --filters 'Name=vpc-id,Values='$(aws ec2 describe-vpcs --filters 'Name=tag:Zone,Values=storage' --query 'Vpcs[0].VpcId' --output text) --output json | jq '.SecurityGroups[] | {id: .GroupId, inboundRules: .IpPermissions, outboundRules: .IpPermissionsEgress}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Default security group allowing all inbound from the same security group (self-referencing) and all outbound to 0.0.0.0/0 confirms allow_all. A default security group with no inbound rules (only explicit rules permitted) indicates deny_by_default or partial_restriction depending on other configurations."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Kubernetes cluster dashboard (Lens, Rancher, or OpenShift Console), navigate to the storage namespace's network policies view to visually confirm whether a default-deny policy exists and review which policies control intra-namespace traffic.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kubernetes Dashboard or Lens > Namespaces > storage > Network Policies > Review list for default-deny policy with empty pod selector",
+        "expected_output": "A policy named 'default-deny-all' or similar with empty podSelector and no ingress/egress rules indicates deny_by_default. No such policy present with only service-specific policies indicates partial_restriction. No network policies at all indicates allow_all."
+      },
+      {
+        "type": "command",
+        "instruction": "For service mesh deployments (Istio), check the default PeerAuthentication and AuthorizationPolicy mode to determine if mTLS is enforced by default and whether a DENY-all authorization policy exists in the storage namespace.",
+        "command": "kubectl get peerauthentication -n storage -o yaml 2>/dev/null | grep -E '(mode|mtls)' && kubectl get authorizationpolicy -n storage -o json | jq '.items[] | {name: .metadata.name, action: .spec.action, selector: .spec.selector}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PeerAuthentication with mode: STRICT and an AuthorizationPolicy with action: DENY and empty selector (matching all workloads) indicates deny_by_default. PERMISSIVE mode or absence of a deny-all AuthorizationPolicy indicates allow_all or partial_restriction."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "allow_all (the default for most cloud VPCs and Kubernetes clusters without explicit network policies)",
+      "partial_restriction (common in environments with some but not comprehensive network policy coverage)",
+      "deny_by_default (present in mature zero-trust environments using Calico, Cilium ClusterPolicy, or Istio with explicit default-deny)"
+    ]
+  },
+  {
+    "option_name": "shared_network_segment_with_database_and_object_storage",
+    "option_description": "Indicates whether the database service and object storage service share the same flat network segment (subnet, VLAN, or Kubernetes namespace) with no logical routing boundary, policy enforcement point, or network address separation between them, meaning they are directly layer-2 or layer-3 adjacent without any intermediate inspection.",
+    "security_impact": "The Rego policy fires `insufficient_micro_segmentation_between_database_and_object_storage` when this is true and `lateral_movement_controls_present` is false. Shared network segment placement means both services receive traffic from the same network gateway, share ARP broadcast domains or subnet routing, and any compromised service can directly address the other at the network layer without traversing any enforcement point. This enables MITRE T1530 (Data from Cloud Storage) and T1599 (Network Boundary Bridging) as a compromised database can directly enumerate and access object storage at wire speed.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Compare the subnet CIDR assignments of database and object storage instances to determine if they share the same subnet or fall within the same CIDR block without separate subnet allocation.",
+        "command": "aws rds describe-db-instances --query 'DBInstances[].{DBId:DBInstanceIdentifier,SubnetGroup:DBSubnetGroup.DBSubnetGroupName,Subnets:DBSubnetGroup.Subnets[].SubnetIdentifier}' --output json && aws s3api get-bucket-location --bucket <storage-bucket-name> && aws ec2 describe-subnets --filters 'Name=tag:Zone,Values=storage' --query 'Subnets[].{Id:SubnetId,CIDR:CidrBlock,AZ:AvailabilityZone,Name:Tags[?Key==`Name`].Value|[0]}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Database subnets and object storage gateway subnets (S3 VPC endpoints or equivalent) should have distinct CIDR ranges with separate subnet IDs. Identical subnet IDs or the same CIDR block for both confirms they share a network segment."
+      },
+      {
+        "type": "command",
+        "instruction": "In Kubernetes, verify database and object storage pods are in separate namespaces or that separate VLAN-backed node groups isolate them at the network layer.",
+        "command": "kubectl get pods --all-namespaces -l 'component in (database,object-storage)' -o json | jq '.items[] | {namespace: .metadata.namespace, name: .metadata.name, nodeIP: .status.hostIP, podIP: .status.podIP, component: .metadata.labels.component}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Database and object storage pods in different namespaces with non-overlapping IP ranges indicate network separation. Pods in the same namespace or with IPs in the same /24 subnet with no CNI-enforced isolation confirm shared network segment."
+      },
+      {
+        "type": "command",
+        "instruction": "Review cloud VPC subnet routing tables to determine if database and object storage endpoint IPs are separated by a routing boundary or if they share a common route table with direct layer-3 adjacency.",
+        "command": "aws ec2 describe-route-tables --filters 'Name=tag:Zone,Values=storage' --output json | jq '.RouteTables[] | {id: .RouteTableId, associations: [.Associations[].SubnetId], routes: [.Routes[] | {dest: .DestinationCidrBlock, target: (.GatewayId // .NatGatewayId // .VpcPeeringConnectionId)}]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Separate route tables for database subnets and object storage subnets, or an intermediate NAT/firewall as the route target for inter-subnet traffic, indicates network separation. A single shared route table for both service subnets confirms they share a network segment."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a traceroute from the database host to the object storage endpoint IP to determine the number of network hops and whether any intermediate routing or inspection devices separate them.",
+        "command": "kubectl exec -n storage $(kubectl get pod -n storage -l app=database -o jsonpath='{.items[0].metadata.name}') -- traceroute -n -m 5 <object-storage-endpoint-ip> 2>/dev/null || kubectl exec -n storage $(kubectl get pod -n storage -l app=database -o jsonpath='{.items[0].metadata.name}') -- tracepath -n <object-storage-endpoint-ip> 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A traceroute showing 1 hop (direct layer-3 adjacency) or within the same /24 subnet confirms shared network segment. Two or more hops through a separate gateway or firewall IP indicates network separation and this attribute should be false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common default in cloud deployments using a single 'data' or 'storage' subnet for all persistence layer services)",
+      "false (achieved through explicit subnet separation or placing object storage behind a VPC endpoint in a dedicated subnet)"
+    ]
+  },
+  {
+    "option_name": "east_west_traffic_inspection_enabled",
+    "option_description": "Controls whether traffic inspection mechanisms (IDS/IPS, deep packet inspection, or inline monitoring) are applied to lateral traffic flows between storage zone components, such as communication between database nodes, object storage replicas, or storage and cache tiers within the same trust zone.",
+    "security_impact": "The Rego rule 'boundary_monitoring_blind_spots_on_east_west_traffic' fires when both east_west_traffic_inspection_enabled and east_west_traffic_logging_enabled are false, or when either is false combined with no intra-zone traffic policy. Without inspection, an attacker who compromises one storage component can move laterally to adjacent storage services, exfiltrate data, or pivot undetected. This maps directly to T1562.006 (Indicator Blocking) and T1040 (Network Sniffing).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query AWS VPC traffic mirroring sessions to determine whether east-west storage subnet traffic is being mirrored to an inspection appliance or IDS sensor.",
+        "command": "aws ec2 describe-traffic-mirror-sessions --filters Name=network-interface-id,Values=$(aws ec2 describe-network-interfaces --filters Name=subnet-id,Values=<storage-subnet-id> --query 'NetworkInterfaces[*].NetworkInterfaceId' --output text) --query 'TrafficMirrorSessions[*].{SessionId:TrafficMirrorSessionId,Target:TrafficMirrorTargetId}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of traffic mirror sessions associated with storage subnet ENIs; empty output indicates no east-west inspection is configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect service mesh (Istio) MeshConfig and PeerAuthentication policies to determine if sidecar proxies enforce traffic inspection between storage-tier pods.",
+        "command": "kubectl get peerauthentication,requestauthentication -n <storage-namespace> -o yaml && kubectl get envoyfilter -n <storage-namespace> -o yaml | grep -A5 'SIDECAR_INBOUND'",
+        "file_path": "/etc/istio/config/mesh",
+        "navigation": null,
+        "expected_output": "PeerAuthentication policies set to STRICT mode and EnvoyFilter entries indicating inspection filters applied to inbound storage service traffic."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Azure Portal, navigate to Network Watcher > Traffic Analytics and filter by the storage subnet resource group. Review whether intra-subnet flow analysis is enabled and whether an NSG flow log collector is attached to the storage NSG.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Network Watcher > Traffic Analytics > Select Workspace > Filter by Storage Subnet",
+        "expected_output": "Active flow analysis entries showing intra-zone storage communication; absence of any intra-subnet flows indicates inspection is not enabled."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Palo Alto Networks PAN-OS REST API to enumerate security policies applied between storage zone segments and confirm whether threat profiles (IPS) are attached.",
+        "command": "curl -k -H 'X-PAN-KEY: <api-key>' 'https://<panorama-host>/restapi/v10.1/Policies/SecurityRules?location=vsys&vsys=vsys1' | jq '.result.entry[] | select(.to.member[] == \"storage-zone\") | {name:.\"@name\", threat_profile:.profile_setting}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Security rules with threat profiles referencing an IPS profile; rules without profile_setting indicate no inspection is applied to intra-zone storage traffic."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "east_west_traffic_logging_enabled",
+    "option_description": "Controls whether flow logs, connection records, or audit logs are generated for lateral (east-west) traffic between storage zone components. These logs provide the forensic evidence needed to detect intra-zone movement, anomalous data access patterns, or unauthorized replication between storage services.",
+    "security_impact": "The Rego rule 'boundary_monitoring_blind_spots_on_east_west_traffic' triggers when east_west_traffic_logging_enabled is false alongside either no inspection or no intra-zone traffic policy. Without flow logs covering intra-zone storage traffic, detection of lateral movement (T1599 Network Boundary Bridging) and network sniffing (T1040) becomes impossible, as only perimeter-facing logs are captured and attackers moving between storage components leave no audit trail.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check AWS VPC Flow Log configurations for the storage subnet and verify that the log destination captures intra-subnet traffic rather than only internet gateway or NAT traffic.",
+        "command": "aws ec2 describe-flow-logs --filter Name=resource-id,Values=<storage-subnet-id> --query 'FlowLogs[*].{LogGroupName:LogGroupName,TrafficType:TrafficType,Status:FlowLogStatus,Destination:LogDestination}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Flow log entries with TrafficType=ALL and Status=ACTIVE targeting the storage subnet; TrafficType=REJECT-only or absent entries indicate east-west logging gaps."
+      },
+      {
+        "type": "command",
+        "instruction": "On GCP, verify that VPC Flow Logs are enabled on the storage subnet with metadata inclusion and sampling rate configured to capture inter-VM communication.",
+        "command": "gcloud compute networks subnets describe <storage-subnet-name> --region=<region> --format='json(logConfig, enableFlowLogs)' | jq '{flowLogsEnabled:.enableFlowLogs, aggregationInterval:.logConfig.aggregationInterval, sampleRate:.logConfig.flowSampling, metadata:.logConfig.metadata}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "enableFlowLogs: true with flowSampling >= 0.5 and metadata: INCLUDE_ALL_METADATA; false or low sampling indicates insufficient east-west log coverage."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the Istio Telemetry API configuration to confirm access logging is enabled for inbound and outbound traffic on storage-namespace sidecar proxies.",
+        "command": "kubectl get telemetry -n <storage-namespace> -o yaml | grep -A10 'accessLogging'",
+        "file_path": "~/.kube/config",
+        "navigation": null,
+        "expected_output": "Telemetry spec with accessLogging providers listed (e.g., envoy, otel); absence of accessLogging entries means intra-zone storage pod traffic is not logged."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM or log aggregator to confirm intra-zone storage subnet flow records exist. Search for flow records where both source and destination IPs fall within the storage subnet CIDR.",
+        "command": "aws logs start-query --log-group-name '/aws/vpc/flowlogs/storage' --start-time $(date -d '1 hour ago' +%s) --end-time $(date +%s) --query-string 'fields @timestamp, srcAddr, dstAddr, action | filter srcAddr like \"10.10.20.\" and dstAddr like \"10.10.20.\" | stats count() by srcAddr, dstAddr'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Query returns rows showing source and destination IPs within the storage subnet CIDR; zero results indicate east-west logs are not being captured or retained."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "management_traffic_network_segment_separated",
+    "option_description": "Controls whether administrative and management traffic (SSH, database admin consoles, backup orchestration, replication control channels) uses a dedicated VLAN, subnet, or network interface that is physically or logically isolated from the application data-plane network segment at the storage boundary.",
+    "security_impact": "The Rego rule 'management_plane_not_isolated_from_data_plane_at_boundary' fires immediately when management_traffic_network_segment_separated is false, regardless of ACL or source restriction settings. When management traffic shares the data-plane segment, attackers can intercept management credentials via T1040 (Network Sniffing), tunnel management commands through data-plane channels (T1572 Protocol Tunneling), or leverage the shared segment to bridge the boundary (T1599 Network Boundary Bridging).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate VPC subnets and route tables associated with the storage environment, then compare subnet tag conventions and CIDR assignments to identify whether a dedicated management subnet is present and routed separately from the data-plane subnet.",
+        "command": "aws ec2 describe-subnets --filters Name=vpc-id,Values=<vpc-id> --query 'Subnets[*].{SubnetId:SubnetId,CIDR:CidrBlock,Tags:Tags}' --output json | jq '.[] | {id:.SubnetId, cidr:.CIDR, name:(.Tags[]? | select(.Key==\"Name\") | .Value)}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Distinct subnets tagged 'management' or 'mgmt' with separate CIDRs from 'data' or 'app' subnets; single subnet covering all storage traffic indicates no separation."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Terraform or CloudFormation IaC for the storage tier to confirm separate subnet resource definitions for management and data-plane interfaces on database or storage instances.",
+        "command": "grep -rE '(management|mgmt|admin).*subnet|subnet.*(management|mgmt|admin)' <iac-repo-path>/modules/storage/ --include='*.tf' --include='*.yaml' -l",
+        "file_path": "<iac-repo-path>/modules/storage/",
+        "navigation": null,
+        "expected_output": "IaC files reference distinct subnet IDs for management vs. data interfaces; single subnet reference for all NICs confirms no segment separation."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to the RDS or ElastiCache instance network configuration and review the subnet group assignment. Separately, check if any management bastion or backup agent uses a different subnet group with a distinct CIDR block.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > RDS > Databases > <instance> > Connectivity & Security > Subnet Group > View Subnets",
+        "expected_output": "A separate subnet group exists for management access (bastion, DBA workstations) using a non-overlapping CIDR from the data subnet group; identical subnet groups indicate no separation."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a known application-tier host, attempt to reach the database management port (e.g., port 22 or 3306 admin socket) and from a management bastion host attempt the same. Confirm only the bastion route succeeds via a distinct interface path.",
+        "command": "traceroute -T -p 22 <db-management-ip> && ip route get <db-management-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Traceroute from app-tier fails or routes through a firewall drop; traceroute from management bastion succeeds via a dedicated management VLAN/subnet route."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "boundary_acl_differentiates_management_protocols",
+    "option_description": "Controls whether the ingress and egress ACLs or firewall rules at the storage trust zone boundary contain explicit, separate rule entries that distinguish management protocols (SSH port 22, SNMP 161/162, backup agent ports, database admin ports, replication control ports) from application data protocols, with distinct source restrictions applied to each category.",
+    "security_impact": "The Rego rule 'management_plane_not_isolated_from_data_plane_at_boundary' triggers when boundary_acl_differentiates_management_protocols is false. Without protocol differentiation in ACLs, management ports inherit the same permissive rules as data ports, allowing any host authorized for data access to attempt management protocol connections (T1572 Protocol Tunneling). Combined with the absence of network segment separation, this creates a complete management plane exposure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve the security group rules for the storage boundary security group and check whether distinct rules exist for management ports (22, 3306-admin, 5432-admin, 161, 443-management) with different source CIDR restrictions compared to data port rules.",
+        "command": "aws ec2 describe-security-groups --group-ids <storage-boundary-sg-id> --query 'SecurityGroups[*].IpPermissions[*].{FromPort:FromPort,ToPort:ToPort,Sources:IpRanges[*].CidrIp}' --output json | jq '.[] | .[] | select(.FromPort == 22 or .FromPort == 161 or .FromPort == 3306)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Separate rule entries for ports 22, 161, and database admin ports with source CIDRs restricted to management network ranges; same broad CIDR on all ports indicates no differentiation."
+      },
+      {
+        "type": "command",
+        "instruction": "Dump iptables or nftables rules on the storage zone boundary host or firewall appliance, then filter for management protocol port rules and compare their source match conditions against data-plane port rules.",
+        "command": "iptables -L FORWARD -n -v --line-numbers | awk '/dpt:22|dpt:161|dpt:5432|dpt:3306/{print NR, $0}' && nft list ruleset 2>/dev/null | grep -A2 'tcp dport {22, 161, 3306, 5432}'",
+        "file_path": "/etc/iptables/rules.v4",
+        "navigation": null,
+        "expected_output": "Rules for management ports (22, 161) show source IP matches restricted to management host ranges (e.g., 10.0.1.0/28); absent or same-source rules as data ports indicate no differentiation."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the Palo Alto Networks or Cisco ASA firewall policy export for the storage zone boundary segment, searching for named service groups or object groups that separate management services from application services.",
+        "command": "grep -E '(ssh|snmp|backup|replication|mgmt|management)' <firewall-policy-export>.xml | grep -v '<!--' | head -40",
+        "file_path": "<firewall-policy-export>.xml",
+        "navigation": null,
+        "expected_output": "Named service objects such as 'management-services' or 'backup-ports' referenced in rules separate from 'storage-data-services'; all protocols in a single 'any' rule confirms no differentiation."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Azure REST API to retrieve NSG security rules for the storage subnet NSG and programmatically identify whether rules for management ports reference a different source address prefix than data-tier rules.",
+        "command": "az network nsg rule list --nsg-name <storage-nsg-name> --resource-group <rg> --output json | jq '.[] | {name:.name, port:.destinationPortRange, source:.sourceAddressPrefix} | select(.port == \"22\" or .port == \"161\" or (.port | test(\"3306|5432\")) )'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules for ports 22 and 161 have sourceAddressPrefix set to specific management CIDR (e.g., 10.0.0.0/24) while data port rules reference broader application-tier CIDRs; identical source prefixes across all ports indicate no differentiation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "management_protocol_source_restriction",
+    "option_description": "Controls the level of source IP or network restriction applied to management and orchestration protocol traffic (SSH, SNMP, backup agents, database admin interfaces) at the storage zone boundary. Three levels exist: 'none' (no source restriction), 'shared_subnet' (restricted to same data-plane subnet as application traffic), and 'dedicated_management_network' (restricted exclusively to a distinct management network CIDR).",
+    "security_impact": "The Rego rule 'management_plane_not_isolated_from_data_plane_at_boundary' fires when management_protocol_source_restriction is 'shared_subnet' or 'none'. A value of 'none' allows any source to reach management ports. A value of 'shared_subnet' permits all application-tier hosts to reach management protocols, enabling lateral movement if any app-tier host is compromised (T1199 Trusted Relationship). Only 'dedicated_management_network' satisfies the control requirement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List security group ingress rules for management ports on the storage boundary and categorize the source CIDR against known subnet assignments to determine whether source restriction is none, shared with app-tier, or dedicated management-only.",
+        "command": "aws ec2 describe-security-groups --group-ids <storage-sg-id> --output json | jq -r '.SecurityGroups[].IpPermissions[] | select(.FromPort==22 or .FromPort==161) | \"Port: \" + (.FromPort|tostring) + \" Source: \" + (.IpRanges[].CidrIp // \"0.0.0.0/0\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'0.0.0.0/0' maps to 'none'; an app-tier CIDR (e.g., 10.10.10.0/24) shared with data services maps to 'shared_subnet'; a distinct management-only CIDR (e.g., 10.0.1.0/28) maps to 'dedicated_management_network'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Parse Terraform state or plan output for the storage security group resource to extract source CIDR values on management port ingress rules and cross-reference with the management network CIDR variable.",
+        "command": "terraform show -json <tfstate-file> | jq '.values.root_module.resources[] | select(.type==\"aws_security_group_rule\" and .values.from_port==22) | {cidr:.values.cidr_blocks, port:.values.from_port}'",
+        "file_path": "<terraform-workspace>/terraform.tfstate",
+        "navigation": null,
+        "expected_output": "cidr_blocks containing only the dedicated management CIDR value confirms 'dedicated_management_network'; data-tier CIDR or '0.0.0.0/0' maps to 'shared_subnet' or 'none' respectively."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the GCP Firewall Rules API for the storage VPC and retrieve ingress rules targeting management ports, then evaluate the sourceRanges against the known management-network and data-network CIDR blocks.",
+        "command": "gcloud compute firewall-rules list --filter='network=<storage-vpc> AND allowed.ports=22' --format='json' | jq '.[] | {name:.name, sourceRanges:.sourceRanges, targetTags:.targetTags}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "sourceRanges containing only the management subnet (e.g., ['10.0.0.0/28']) indicates 'dedicated_management_network'; sourceRanges matching app-tier subnet indicates 'shared_subnet'; sourceRanges with '0.0.0.0/0' indicates 'none'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network or platform engineering team to determine whether a formal management network CIDR is defined in the network design documentation and is referenced in firewall rule templates for the storage boundary.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written network design document showing a distinct management network CIDR with firewall policy templates referencing it for SSH/SNMP/admin ports; absence of such documentation or verbal confirmation of shared subnet confirms a lower restriction level."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "shared_subnet",
+      "dedicated_management_network"
+    ]
+  },
+  {
+    "option_name": "presigned_url_generation_enabled",
+    "option_description": "Controls whether the object storage service (S3, GCS, Azure Blob SAS) is configured and permitted to generate presigned URLs or delegated access tokens that grant time-limited, pre-authenticated direct HTTP/HTTPS access to storage objects, bypassing standard IAM authentication flows.",
+    "security_impact": "The Rego rule 'object_storage_presigned_url_bypass_of_boundary_controls' requires presigned_url_generation_enabled to be true before evaluating further conditions. When enabled, presigned URLs function as T1550.001 Application Access Tokens that, if intercepted, allow unauthorized object access. When combined with external zone accessibility, they create a complete logical bypass of zone boundary ingress controls, enabling T1530 (Data from Cloud Storage) without traversing any network security controls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search CloudTrail or equivalent audit logs for GeneratePresignedUrl, GetObject with query-string authentication, or STS AssumeRole events originating from application services in the storage zone to confirm presigned URL generation is occurring.",
+        "command": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=GeneratePresignedUrl --start-time $(date -d '7 days ago' --iso-8601=seconds) --query 'Events[*].{Time:EventTime,User:Username,Source:EventSource}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Events listed confirm presigned URL generation is active; no events could mean generation is disabled or not captured — verify CloudTrail coverage."
+      },
+      {
+        "type": "command",
+        "instruction": "Scan application source code and CI/CD pipeline scripts for SDK calls that generate presigned URLs (generate_presigned_url, get_presigned_url, generate_signed_url, SAS token generation).",
+        "command": "grep -rE '(generate_presigned_url|presigned_url|signed_url|generatePresignedUrl|SasToken|shared_access_signature)' <application-repo-path>/ --include='*.py' --include='*.js' --include='*.go' --include='*.java' -l",
+        "file_path": "<application-repo-path>/",
+        "navigation": null,
+        "expected_output": "File paths containing presigned URL generation calls confirm the feature is used; no matches suggest presigned URL generation may not be implemented but does not confirm it is disabled at the service level."
+      },
+      {
+        "type": "api",
+        "instruction": "Check S3 bucket policy and IAM policies for the storage service role to determine whether the s3:GetObject with condition keys for presigned URL generation or explicit denial of query-string authentication is configured.",
+        "command": "aws s3api get-bucket-policy --bucket <storage-bucket-name> | jq '.Policy | fromjson | .Statement[] | select(.Condition.StringEquals[\"s3:authType\"] == \"REST-QUERY-STRING\" or .Action | test(\"s3:GetObject\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy statements referencing REST-QUERY-STRING auth type or explicit Deny on presigned URL conditions indicate the feature is controlled; absence of such conditions means presigned URL generation is unrestricted."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the GCP Console, navigate to Cloud Storage > Buckets > <bucket-name> > Permissions and review whether Uniform Bucket-Level Access is enforced (which restricts presigned URL usage) and whether any service accounts have storage.objects.get with signBlob permissions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GCP Console > Cloud Storage > Buckets > <bucket> > Permissions > View by Role > Check Storage Object Viewer + Service Account Token Creator",
+        "expected_output": "Uniform bucket-level access enabled and no service accounts with Token Creator role indicates restricted presigned URL generation; ACL-based access with Token Creator permissions confirms generation is enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "presigned_url_accessible_from_external_zone",
+    "option_description": "Controls whether presigned URLs or delegated storage access tokens can be redeemed by clients located outside the defined storage trust zone, specifically whether the object storage endpoint resolves and serves presigned URL requests from external or less-trusted network zones without requiring traversal of zone ingress controls.",
+    "security_impact": "The Rego rule 'object_storage_presigned_url_bypass_of_boundary_controls' triggers when both presigned_url_generation_enabled and presigned_url_accessible_from_external_zone are true. This combination means storage objects become accessible to any external party who possesses a valid URL, completely bypassing zone boundary network controls. This directly enables T1530 (Data from Cloud Storage) and T1528 (Steal Application Access Token) attacks where intercepted URLs grant full object access from outside the security perimeter.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Generate a test presigned URL for a non-sensitive object in the storage bucket and attempt to redeem it from a host outside the storage trust zone (e.g., from a public internet machine or a different VPC without peering). Confirm whether the request succeeds or is blocked.",
+        "command": "PRESIGNED=$(aws s3 presign s3://<bucket>/<test-object> --expires-in 300) && curl -v -o /dev/null -w '%{http_code}' \"$PRESIGNED\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 200 from an external host confirms presigned URLs are accessible from outside the zone; HTTP 403 with VPC endpoint policy denial or network block confirms zone restriction is enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the S3 VPC endpoint policy to determine whether it restricts presigned URL redemption to requests originating from within the storage VPC, or whether the bucket is also publicly accessible via the global S3 endpoint.",
+        "command": "aws ec2 describe-vpc-endpoints --filters Name=vpc-id,Values=<storage-vpc-id> Name=service-name,Values=com.amazonaws.<region>.s3 --query 'VpcEndpoints[*].{PolicyDocument:PolicyDocument,State:State}' --output json | jq '.[].PolicyDocument | fromjson'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "VPC endpoint policy with Condition restricting aws:sourceVpc to the storage VPC and no public bucket access block override indicates external zone access is prevented; permissive 'Allow *' policy confirms external accessibility."
+      },
+      {
+        "type": "api",
+        "instruction": "Check S3 bucket public access block settings and bucket ACL to determine whether the bucket endpoint is reachable from the public internet, which would make presigned URLs accessible from any external zone.",
+        "command": "aws s3api get-public-access-block --bucket <storage-bucket-name> && aws s3api get-bucket-acl --bucket <storage-bucket-name> | jq '.Grants[] | select(.Grantee.URI | test(\"AllUsers|AuthenticatedUsers\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All four PublicAccessBlock settings set to true and no AllUsers/AuthenticatedUsers ACL grants indicates the bucket endpoint is not publicly reachable; any false setting or public grant confirms external zone accessibility."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Terraform IaC for the storage bucket resource and VPC endpoint module to confirm whether vpc_endpoint_policy resources restrict presigned URL redemption to internal zone source VPCs.",
+        "command": "grep -A20 'aws_vpc_endpoint_policy\\|aws_s3_bucket_policy' <iac-repo-path>/storage.tf | grep -E '(aws:sourceVpc|aws:sourceVpce|Condition)'",
+        "file_path": "<iac-repo-path>/storage.tf",
+        "navigation": null,
+        "expected_output": "Condition blocks containing aws:sourceVpc or aws:sourceVpce conditions scoped to the storage VPC ID confirm zone restriction on presigned URL redemption; absence of these conditions confirms external accessibility."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "presigned_url_max_validity_seconds",
+    "option_description": "Controls the maximum permitted lifetime in seconds for presigned URLs or delegated storage access tokens generated by the object storage service. This integer value caps how long a generated URL remains valid for object access, with shorter durations limiting the exposure window if a URL is intercepted, logged, cached, or shared beyond its intended recipient.",
+    "security_impact": "The Rego rule 'object_storage_presigned_url_bypass_of_boundary_controls' includes a condition checking presigned_url_max_validity_seconds > 86400 (24 hours) alongside external zone accessibility. Extended validity periods significantly increase the risk window for T1550.001 (Application Access Token) abuse — a URL valid for 7 days (604800 seconds) found in a log file, browser history, or CDN cache provides attackers a multi-day exploitation window for T1530 (Data from Cloud Storage) without any credential or boundary re-traversal requirement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Scan application code and CI/CD scripts for presigned URL generation calls and extract the expiry/TTL parameter values to determine the maximum duration in use.",
+        "command": "grep -rE '(ExpiresIn|expires_in|expiry|Expiry|ttl|TTL|validity).*[0-9]+' <application-repo-path>/ --include='*.py' --include='*.js' --include='*.go' --include='*.java' | grep -iE '(presign|signed_url|sas|token)' | sort -t= -k2 -rn | head -20",
+        "file_path": "<application-repo-path>/",
+        "navigation": null,
+        "expected_output": "Lines showing expiry values; the maximum integer value found across all occurrences is the effective max validity. Values > 86400 indicate high-risk configuration."
+      },
+      {
+        "type": "command",
+        "instruction": "Query CloudTrail S3 data events to extract presigned URL expiration durations from GetObject requests using query-string authentication by examining the X-Amz-Expires query parameter in the request URLs.",
+        "command": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=GetObject --start-time $(date -d '24 hours ago' --iso-8601=seconds) --output json | jq '.Events[].CloudTrailEvent | fromjson | select(.requestParameters.url | test(\"X-Amz-Expires\")) | .requestParameters.url | capture(\"X-Amz-Expires=(?P<expiry>[0-9]+)\") | .expiry | tonumber' | sort -rn | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Numeric expiry values in seconds sorted descending; the highest value represents the maximum presigned URL validity observed. Values above 3600 warrant review; above 86400 indicate high risk."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review AWS Service Control Policies (SCPs) or GCP Organization Policies for constraints that cap presigned URL expiry durations at an organizational level.",
+        "command": "aws organizations list-policies --filter SERVICE_CONTROL_POLICY --output json | jq -r '.Policies[].Id' | xargs -I{} aws organizations describe-policy --policy-id {} --output json | jq '.Policy.Content | fromjson | .Statement[] | select(.Condition | tostring | test(\"s3:signatureAge|presigned\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SCP statements with Condition on s3:signatureAge confirming a maximum age enforcement; absence of such conditions means no organizational cap is enforced and application-level values are authoritative."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the AWS Config advanced query to find all S3 bucket configurations and cross-reference with Lambda or application-tier environment variables that set presigned URL expiry defaults.",
+        "command": "aws lambda list-functions --query 'Functions[*].FunctionName' --output text | tr '\\t' '\\n' | xargs -I{} aws lambda get-function-configuration --function-name {} --query 'Environment.Variables' --output json 2>/dev/null | jq 'to_entries[] | select(.key | test(\"PRESIGNED|EXPIRY|URL_TTL|SIGNED_URL\")) | {key:.key, value:.value}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Environment variable keys and values showing configured expiry durations; values expressed in seconds above 3600 indicate extended validity; above 86400 confirms the Rego high-risk threshold is breached."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "900",
+      "3600",
+      "86400",
+      "604800"
+    ]
+  },
+  {
+    "option_name": "ingress_cidr_prefix_length",
+    "option_description": "Records the shortest (most permissive) prefix length found among all ingress firewall, security group, or ACL rules protecting storage zone endpoints. A prefix length of 0 means 0.0.0.0/0 (all traffic allowed); 32 means a single host. Smaller values indicate broader, less restrictive source address ranges permitted inbound to database and object storage services.",
+    "security_impact": "The Rego rule boundary_rule_permitting_broad_source_cidr_ranges triggers an exposure when ingress_cidr_prefix_length is less than or equal to 16 and service_tag_or_specific_ip_used is false. A /16 or shorter prefix allows up to 65,536 hosts to reach storage endpoints, dramatically expanding the attack surface for techniques like T1595.001 (Scanning IP Blocks) and T1599 (Network Boundary Bridging). Identifying the minimum prefix length surfaces the single most permissive rule that could be exploited.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, list all security group ingress rules associated with RDS and S3 VPC endpoints, then identify the rule with the shortest prefix length using the AWS CLI.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:Zone,Values=storage --query 'SecurityGroups[*].IpPermissions[*].IpRanges[*].CidrIp' --output text | awk -F'/' '{print $2}' | sort -n | head -1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A single integer (e.g., 10) representing the shortest prefix length found. A value of 0 means a 0.0.0.0/0 rule exists."
+      },
+      {
+        "type": "command",
+        "instruction": "On Azure, inspect Network Security Group inbound rules for storage-zone NSGs and extract the minimum destination address prefix length.",
+        "command": "az network nsg list --query '[?tags.Zone==`storage`].securityRules[?direction==`Inbound`].sourceAddressPrefix' -o tsv | grep -oP '/\\K[0-9]+' | sort -n | head -1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing the shortest prefix length among all inbound rules (e.g., 8 for a /8 rule)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to VPC > Security Groups, filter by the storage zone tag, open each group, select the Inbound Rules tab, and review the Source column for the broadest CIDR entry. Record the prefix length (number after the slash).",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Security Groups > [storage zone group] > Inbound Rules > Source column",
+        "expected_output": "Identification of the most permissive inbound CIDR rule, e.g., 10.0.0.0/8 yields prefix length 8."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the GCP REST API to list firewall rules targeting storage instance tags and extract the minimum prefix length from sourceRanges.",
+        "command": "curl -s -H 'Authorization: Bearer $(gcloud auth print-access-token)' 'https://compute.googleapis.com/compute/v1/projects/PROJECT_ID/global/firewalls' | jq '[.items[] | select(.targetTags[] == \"storage-zone\") | .sourceRanges[] | split(\"/\")[1] | tonumber] | min'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON integer representing the minimum prefix length among all matching firewall ingress rules."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "8",
+      "16",
+      "24",
+      "32"
+    ]
+  },
+  {
+    "option_name": "egress_cidr_prefix_length",
+    "option_description": "Records the shortest (most permissive) prefix length found among all outbound firewall, security group, or ACL rules on the storage zone boundary. A smaller value indicates a broader destination address range is permitted for outbound connections from storage components, increasing the risk of unauthorized data exfiltration to wide address spaces.",
+    "security_impact": "The Rego rule boundary_rule_permitting_broad_source_cidr_ranges also fires on egress_cidr_prefix_length when it is less than or equal to 16 and service_tag_or_specific_ip_used is false. Overly broad egress destinations enable data exfiltration techniques T1567.002 (Exfiltration to Cloud Storage) and T1048 (Exfiltration Over Alternative Protocol), and support C2 beacon paths if a storage component is compromised. The minimum egress prefix length reveals the single most permissive outbound path.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, query security group outbound rules for storage-zone groups and identify the shortest destination CIDR prefix.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:Zone,Values=storage --query 'SecurityGroups[*].IpPermissionsEgress[*].IpRanges[*].CidrIp' --output text | awk -F'/' '{print $2}' | sort -n | head -1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer such as 0 (for 0.0.0.0/0) or 24. A value of 0 indicates fully unrestricted egress."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based firewall hosts, inspect iptables or nftables OUTPUT chain rules protecting storage zone interfaces and extract the minimum destination prefix.",
+        "command": "iptables -L OUTPUT -n --line-numbers | grep -oP '\\d+\\.\\d+\\.\\d+\\.\\d+/\\K\\d+' | sort -n | head -1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer prefix length, e.g., 16. If no output is returned, all egress may be permitted with 0.0.0.0/0 or no rules."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Azure Portal, open the Network Security Group associated with the storage subnet, select Outbound Security Rules, sort by Destination, and record the prefix length of the broadest destination CIDR entry.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Network Security Groups > [storage NSG] > Outbound Security Rules > Destination column",
+        "expected_output": "The most permissive outbound CIDR rule visible, e.g., 0.0.0.0/0 or 10.0.0.0/8."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the AWS SDK to enumerate egress rules and compute the minimum prefix length programmatically.",
+        "command": "python3 -c \"import boto3,ipaddress; ec2=boto3.client('ec2'); sgs=ec2.describe_security_groups(Filters=[{'Name':'tag:Zone','Values':['storage']}])['SecurityGroups']; prefixes=[int(r['CidrIp'].split('/')[1]) for sg in sgs for p in sg['IpPermissionsEgress'] for r in p.get('IpRanges',[])] ; print(min(prefixes) if prefixes else 'no rules')\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer such as 0 or 24 indicating the minimum egress prefix length across all storage-zone security groups."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "16",
+      "24",
+      "32"
+    ]
+  },
+  {
+    "option_name": "service_tag_or_specific_ip_used",
+    "option_description": "Indicates whether all permissive ingress and egress rules on the storage zone boundary reference named service tags (e.g., AWS prefix lists, Azure service tags) or specific /32 host IP addresses rather than broad CIDR blocks. Must be true only when every rule uses this precise form of source or destination specification.",
+    "security_impact": "The Rego rule boundary_rule_permitting_broad_source_cidr_ranges uses this as a mitigating control: if service_tag_or_specific_ip_used is true, the broad-CIDR exposure does not fire even when ingress_cidr_prefix_length or egress_cidr_prefix_length is 16 or smaller. Service tags and specific IPs constrain access to well-known managed services rather than entire network blocks, preventing T1595.001 (Scanning IP Blocks) and T1599 (Network Boundary Bridging). If any permissive rule uses a generic CIDR, this attribute must be false.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, check whether storage-zone security group rules use managed prefix lists (service tags) rather than raw CIDRs by inspecting the PrefixListIds field.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:Zone,Values=storage --query 'SecurityGroups[*].IpPermissions[*].PrefixListIds' --output json | python3 -c \"import sys,json; data=json.load(sys.stdin); print('true' if all(len(pl)>0 for sg in data for rule in sg for pl in [rule] if rule) else 'check each rule')\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output indicating whether prefix list IDs are present in all permissive rules. Presence of empty IpRanges arrays alongside populated PrefixListIds suggests service tags are in use."
+      },
+      {
+        "type": "command",
+        "instruction": "On Azure, verify that NSG rules for the storage subnet use Azure Service Tags in the sourceAddressPrefix field rather than raw CIDRs.",
+        "command": "az network nsg list --query '[?tags.Zone==`storage`].securityRules[].{src:sourceAddressPrefix,dst:destinationAddressPrefix}' -o json | python3 -c \"import sys,json,ipaddress; rules=json.load(sys.stdin); tag_or_host=all(not r['src'].replace('/','').replace('.','').isdigit() or ipaddress.ip_network(r['src'],strict=False).prefixlen==32 for r in rules if r['src'] not in ['*','Internet','Any']); print(tag_or_host)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "True if all rules reference service tags or /32 hosts; False if any rule uses a broad CIDR."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to VPC > Security Groups > [storage zone group] > Inbound/Outbound Rules and inspect the Source/Destination column. Look for entries that show a prefix list name (pl-xxxxxxxx) or a /32 address. Any raw CIDR shorter than /32 without a prefix list reference means this attribute is false.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Security Groups > [storage zone group] > Inbound Rules / Outbound Rules > Source or Destination column",
+        "expected_output": "All entries show prefix list names or /32 IPs. If any entry shows e.g. 10.0.0.0/8, the attribute value is false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Terraform-managed infrastructure, inspect the security group resource blocks and verify that all cidr_blocks arguments use /32 addresses or that the rule references aws_ec2_managed_prefix_list resources instead of raw CIDRs.",
+        "command": "grep -rE 'cidr_blocks|prefix_list_ids' infrastructure/security_groups.tf | grep -v '/32'",
+        "file_path": "infrastructure/security_groups.tf",
+        "navigation": null,
+        "expected_output": "No output means all rules use /32 CIDRs or prefix lists. Any output reveals broad CIDR rules and indicates the attribute should be false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "mutual_tls_enforced",
+    "option_description": "Indicates whether the storage zone boundary gateway, service mesh, or load balancer requires both the client and the server to present valid X.509 certificates for every service-to-service connection crossing the boundary. True means bidirectional certificate verification is mandatory for all connections; false means only server-side TLS or no TLS is enforced.",
+    "security_impact": "The Rego rule lack_of_mutual_authentication_at_zone_boundary fires when mutual_tls_enforced is false (the not input.mutual_tls_enforced condition). Without mTLS, spoofed service-to-service connections can traverse the boundary using techniques T1649 (Steal or Forge Authentication Certificates), T1199 (Trusted Relationship abuse), and T1572 (Protocol Tunneling). Enforcing mTLS ensures that even if network-level controls are bypassed, impersonated services cannot authenticate successfully.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Istio service mesh, check the PeerAuthentication policy in the storage zone namespace to confirm mTLS mode is STRICT.",
+        "command": "kubectl get peerauthentication -n storage-zone -o jsonpath='{.items[*].spec.mtls.mode}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "STRICT indicates mutual TLS is enforced. PERMISSIVE or empty means mTLS is not fully enforced and the attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "For an nginx boundary proxy, inspect the SSL configuration for ssl_verify_client directives indicating client certificate requirements.",
+        "command": "grep -rE 'ssl_verify_client|ssl_client_certificate' /etc/nginx/sites-enabled/ /etc/nginx/conf.d/",
+        "file_path": "/etc/nginx/sites-enabled/",
+        "navigation": null,
+        "expected_output": "ssl_verify_client on; indicates mTLS is enforced. ssl_verify_client optional or its absence means the attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS API Gateway or NLB with mutual TLS, check whether trustStoreUri is configured on the domain name or listener, indicating client certificate validation is active.",
+        "command": "aws apigatewayv2 get-domain-names --query 'Items[?DomainNameConfigurations[?MutualTlsAuthentication.TruststoreUri!=null]].DomainName' --output text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Domain names listed indicate mTLS is configured. Empty output means no mTLS trust store is configured and the attribute is false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Envoy proxy at the zone boundary, inspect the DownstreamTlsContext in the listener configuration for require_client_certificate set to true.",
+        "command": "cat /etc/envoy/envoy.yaml | python3 -c \"import sys,yaml; cfg=yaml.safe_load(sys.stdin); listeners=cfg.get('static_resources',{}).get('listeners',[]); [print(l) for l in listeners if 'require_client_certificate' in str(l)]\"",
+        "file_path": "/etc/envoy/envoy.yaml",
+        "navigation": null,
+        "expected_output": "Output containing require_client_certificate: true confirms mTLS enforcement. Absence or false value means the attribute is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "client_certificate_validation_mode",
+    "option_description": "Describes the specific mode of client certificate validation enforced at the storage zone boundary ingress component. 'required' means every connecting client must present a valid, trusted certificate or the connection is rejected. 'optional' means certificates are accepted and inspected if provided but the connection proceeds without one. 'none' means no client certificate is requested or validated.",
+    "security_impact": "The Rego rule lack_of_mutual_authentication_at_zone_boundary fires when client_certificate_validation_mode is 'optional' or 'none'. Optional mode is particularly dangerous because it creates a false sense of security: certificates may be logged but connections without certificates still succeed, allowing unauthenticated service impersonation via T1199 and T1649. Only 'required' mode provides the cryptographic proof of client identity needed to prevent spoofed cross-zone connections.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the nginx TLS configuration for the storage zone ingress to determine the ssl_verify_client setting value.",
+        "command": "grep -h 'ssl_verify_client' /etc/nginx/sites-enabled/* /etc/nginx/conf.d/* 2>/dev/null | awk '{print $2}' | tr -d ';'",
+        "file_path": "/etc/nginx/conf.d/",
+        "navigation": null,
+        "expected_output": "on maps to required; optional maps to optional; off or absent maps to none."
+      },
+      {
+        "type": "command",
+        "instruction": "For Istio, extract the mTLS mode from PeerAuthentication resources in the storage zone namespace to determine validation strictness.",
+        "command": "kubectl get peerauthentication -n storage-zone -o json | jq -r '.items[].spec.mtls.mode // \"none\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "STRICT maps to required; PERMISSIVE maps to optional; DISABLE or absence maps to none."
+      },
+      {
+        "type": "command",
+        "instruction": "For HAProxy acting as the boundary proxy, check the verify parameter in the bind directive to determine client certificate validation mode.",
+        "command": "grep -E 'bind.*ssl' /etc/haproxy/haproxy.cfg | grep -oE 'verify (required|optional|none)'",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "verify required confirms the attribute is required; verify optional maps to optional; absence of verify or verify none maps to none."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS ALB Console, navigate to Load Balancers > [storage zone ALB] > Listeners > [HTTPS listener] > Edit and check the Mutual Authentication (mTLS) section for the mode setting.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > EC2 > Load Balancers > [ALB] > Listeners > [HTTPS:443] > Edit Listener > Mutual Authentication",
+        "expected_output": "Passthrough with certificate validation set to Verify with Trust Store maps to required. Passthrough without verification or no mTLS setting maps to optional or none."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "optional",
+      "required"
+    ]
+  },
+  {
+    "option_name": "internal_zone_traffic_authentication_bypass",
+    "option_description": "Indicates whether traffic originating from internal or trusted network zones is permitted to reach storage zone services without presenting authentication credentials at the boundary. When true, source IP address or subnet membership is used as implicit trust, allowing service-to-service calls without certificate or token-based authentication.",
+    "security_impact": "The Rego rule lack_of_mutual_authentication_at_zone_boundary fires when internal_zone_traffic_authentication_bypass is true. This configuration directly enables lateral movement after initial compromise: an attacker who gains a foothold in any internal zone can reach storage endpoints without further credential challenge. This supports T1199 (Trusted Relationship) and T1572 (Protocol Tunneling) exploitation patterns. IP-based trust is insufficient because internal IPs can be spoofed or compromised hosts can initiate connections from trusted subnets.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Istio, check AuthorizationPolicy resources in the storage zone namespace for rules that allow traffic based solely on source namespace or IP without requiring a valid principal (mTLS identity).",
+        "command": "kubectl get authorizationpolicy -n storage-zone -o json | jq '.items[] | select(.spec.rules[].from[].source | has(\"ipBlocks\") and (has(\"principals\") | not)) | .metadata.name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy names returned indicate authentication bypass rules exist and the attribute is true. Empty output suggests all rules require authenticated principals."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review firewall or security group rules to identify any rules that allow inbound access from internal RFC1918 ranges to storage ports without a corresponding authentication requirement in an application-layer policy.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:Zone,Values=storage --query 'SecurityGroups[*].IpPermissions[?contains(IpRanges[*].CidrIp, `10.0.0.0/8`) || contains(IpRanges[*].CidrIp, `172.16.0.0/12`) || contains(IpRanges[*].CidrIp, `192.168.0.0/16`)]' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any non-empty result shows RFC1918 source ranges allowed at the network layer. Cross-reference with application authentication policy to determine if those connections also bypass authentication."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform or network security team to determine whether any documented exception exists that permits internal zone traffic to bypass token or certificate authentication. Review the security architecture decision records (ADRs) for storage zone access policies.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation of a formal exemption for internal traffic confirms bypass is in place (true). No documented exception and enforcement of credentials for all callers confirms the attribute is false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Kong API Gateway at the storage boundary, inspect plugin configurations to check whether the jwt or mtls-auth plugin is disabled or has an allow_list that exempts internal CIDR ranges.",
+        "command": "kubectl get kongplugin -n storage-zone -o json | jq '.items[] | select(.plugin == \"jwt\" or .plugin == \"mtls-auth\") | {name: .metadata.name, config: .config}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If no jwt or mtls-auth plugin is found, or if skip_consumer_groups or exempted IP ranges are configured, the attribute is likely true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "dns_resolver_restricted_to_internal",
+    "option_description": "Indicates whether all storage zone components (database instances, object storage proxies, sidecar containers) are configured to use exclusively an internal, authoritative DNS resolver rather than public resolvers such as 8.8.8.8 or 1.1.1.1. When true, no storage component can initiate a DNS query to an external resolver.",
+    "security_impact": "The Rego rule dns_resolution_not_constrained_within_storage_zone fires when dns_resolver_restricted_to_internal is false (the not input.dns_resolver_restricted_to_internal condition appears in all three branches). Unrestricted DNS resolver configuration enables DNS-based data exfiltration (T1071.004 DNS C2), fast flux DNS evasion (T1568.001), and DNS server hijacking (T1584.002). An attacker with code execution in the storage zone can encode data in DNS query names to an external resolver, bypassing egress IP filters entirely.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On Linux-based storage zone hosts or containers, inspect the resolv.conf file to confirm that only internal resolver IPs are listed in the nameserver directives.",
+        "command": "cat /etc/resolv.conf | grep nameserver",
+        "file_path": "/etc/resolv.conf",
+        "navigation": null,
+        "expected_output": "All nameserver lines should reference internal IP addresses (e.g., 10.0.0.2). Any public IP such as 8.8.8.8, 1.1.1.1, or 9.9.9.9 means the attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes deployments in the storage namespace, inspect CoreDNS ConfigMap and pod DNS configuration to verify no external forwarders are configured.",
+        "command": "kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}' | grep -E 'forward|nameserver'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "forward . /etc/resolv.conf pointing to an internal resolver is acceptable. forward . 8.8.8.8 or similar external addresses means the attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS RDS or EC2 storage instances, verify that the DHCP Options Set associated with the VPC specifies only internal Route 53 Resolver or custom resolver IPs.",
+        "command": "aws ec2 describe-dhcp-options --dhcp-options-ids $(aws ec2 describe-vpcs --filters Name=tag:Zone,Values=storage --query 'Vpcs[0].DhcpOptionsId' --output text) --query 'DhcpOptions[0].DhcpConfigurations[?Key==`domain-name-servers`].Values[*].Value' --output text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AmazonProvidedDNS or a private IP (e.g., 10.0.0.2) is acceptable for internal resolution. Any public DNS IP confirms the attribute is false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From within a storage zone host or container, attempt a DNS resolution to an external domain using a known public resolver to verify whether outbound DNS to external resolvers is possible.",
+        "command": "dig @8.8.8.8 example.com +timeout=3 +tries=1; echo \"Exit code: $?\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A timeout or connection refused response (exit code 9) confirms external DNS is blocked and the configuration is correctly restricted. A successful resolution means the attribute is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "egress_dns_port_restricted",
+    "option_description": "Indicates whether outbound UDP and TCP traffic on port 53 from storage zone components is explicitly blocked at the network boundary for all destinations except a designated internal resolver endpoint. This is a network-layer enforcement complementary to host-based DNS resolver configuration, ensuring that even if a storage component's resolv.conf is modified, DNS queries to external resolvers cannot egress the zone.",
+    "security_impact": "The Rego rule dns_resolution_not_constrained_within_storage_zone fires when egress_dns_port_restricted is false (the not input.egress_dns_port_restricted condition appears in two of the three branches). Network-level port 53 restriction is a defense-in-depth control: even if dns_resolver_restricted_to_internal is true at the host level, an attacker with local code execution could modify resolver configuration or use raw sockets. Blocking port 53 at the boundary prevents T1071.004 (DNS C2), T1568.001 (Fast Flux DNS), and T1584.002 (DNS Server hijacking) by eliminating the network path entirely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, check security group outbound rules for storage-zone groups to confirm port 53 egress is denied to all except the internal resolver IP.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:Zone,Values=storage --query 'SecurityGroups[*].IpPermissionsEgress[?contains(FromPort,`53`) || contains(ToPort,`53`)]' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An empty array or rules listing only the internal resolver CIDR (e.g., 10.0.0.2/32) on port 53 confirms restriction. Rules permitting 0.0.0.0/0 on port 53 mean the attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux hosts at the storage zone perimeter, inspect iptables OUTPUT rules to verify that UDP and TCP port 53 egress is restricted.",
+        "command": "iptables -L OUTPUT -n | grep -E '(dpt:53|REJECT|DROP)' | grep 53",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DROP or REJECT rules for dpt:53 to destinations other than the internal resolver confirm restriction. Absence of such rules or a blanket ACCEPT means the attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure, verify that the storage subnet Network Security Group has an outbound deny rule for port 53 to Internet and all non-resolver destinations.",
+        "command": "az network nsg list --query '[?tags.Zone==`storage`].securityRules[?direction==`Outbound` && destinationPortRange==`53`].{name:name,access:access,dest:destinationAddressPrefix}' -o table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rows showing Deny access for port 53 to * or Internet, combined with an Allow rule for the internal resolver IP only, confirm restriction. Missing deny rules or a blanket allow means the attribute is false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From within a storage zone component, attempt a DNS query directly to an external public resolver on port 53 to verify whether the network boundary blocks it.",
+        "command": "nc -u -z -w 3 8.8.8.8 53; echo \"UDP exit: $?\"; nc -z -w 3 8.8.8.8 53; echo \"TCP exit: $?\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-zero exit codes for both UDP and TCP connections to 8.8.8.8:53 confirm egress port 53 is restricted (attribute is true). Exit code 0 on either test means the connection succeeded and the attribute is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  }
+]

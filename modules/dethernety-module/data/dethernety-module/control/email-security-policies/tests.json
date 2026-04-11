@@ -1,0 +1,158 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "dkim_validation_enabled": false,
+      "dmarc_policy_enforcement": "monitor_only",
+      "spam_filter_enabled": false,
+      "dmarc_record_present": false,
+      "header_inspection_enabled": false,
+      "sandboxing_integration_enabled": false,
+      "logging_enabled": false,
+      "dkim_signing_enabled": false,
+      "live_rule_update_supported": false,
+      "quarantine_enabled": false,
+      "spf_policy_enforcement": "reject",
+      "authentication_failure_reporting_enabled": true,
+      "spam_score_threshold": 1,
+      "spam_action_on_detection": "none",
+      "header_analysis_checks": [],
+      "dmarc_policy_level": "none",
+      "dmarc_pct_value": 100,
+      "subdomain_policy_level": "none",
+      "display_name_spoofing_check": false,
+      "reply_to_mismatch_action": "none",
+      "max_received_hops_exceeded": false,
+      "sandbox_verdict_action": "monitor",
+      "sandbox_scope": [
+        "default"
+      ],
+      "policy_applies_to_inbound": false,
+      "logged_fields": [
+        "default"
+      ],
+      "log_retention_days": 0,
+      "authorized_sending_ip_policy": "none",
+      "outbound_spam_filtering_enabled": false,
+      "rule_update_mechanism": "automated",
+      "blocklist_last_updated_days_ago": 0,
+      "retention_period_days": 0,
+      "user_release_interface_enabled": false,
+      "admin_review_notifications_enabled": false
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "spf_policy_enforcement": "reject",
+      "dkim_validation_enabled": true,
+      "dmarc_policy_enforcement": "reject",
+      "spam_filter_enabled": true,
+      "spam_score_threshold": 7,
+      "spam_action_on_detection": "reject",
+      "dmarc_record_present": true,
+      "dmarc_policy_level": "reject",
+      "dmarc_pct_value": 100,
+      "header_inspection_enabled": true,
+      "display_name_spoofing_check": true,
+      "reply_to_mismatch_action": "tag",
+      "sandboxing_integration_enabled": true,
+      "sandbox_verdict_action": "block",
+      "sandbox_scope": [
+        "urls",
+        "attachments"
+      ],
+      "policy_applies_to_inbound": true,
+      "logging_enabled": true,
+      "logged_fields": [
+        "authentication_result",
+        "filter_verdict",
+        "delivery_status",
+        "timestamp"
+      ],
+      "log_retention_days": 90,
+      "dkim_signing_enabled": true,
+      "authorized_sending_ip_policy": "enforced",
+      "live_rule_update_supported": true,
+      "rule_update_mechanism": "automated",
+      "blocklist_last_updated_days_ago": 7,
+      "quarantine_enabled": true,
+      "retention_period_days": 7,
+      "admin_review_notifications_enabled": true,
+      "authentication_failure_reporting_enabled": true,
+      "header_analysis_checks": [],
+      "subdomain_policy_level": "none",
+      "max_received_hops_exceeded": false,
+      "outbound_spam_filtering_enabled": false,
+      "user_release_interface_enabled": false
+    },
+    "expectedCountermeasures": [
+      "Quarantine Management Workflow",
+      "Rule Maintainability And Updateability",
+      "Url And Attachment Sandboxing Integration",
+      "Dmarc Policy Disposition Automation",
+      "Sender Authentication Enforcement",
+      "Outbound Policy Enforcement",
+      "Spam Filtering Accuracy",
+      "Header Inspection Depth",
+      "Delivery Log Completeness"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "spf_policy_enforcement": "reject",
+      "dkim_validation_enabled": true,
+      "dmarc_policy_enforcement": "monitor_only",
+      "authentication_failure_reporting_enabled": true,
+      "spam_filter_enabled": true,
+      "spam_score_threshold": 0,
+      "spam_action_on_detection": "none",
+      "header_analysis_checks": [
+        "partial"
+      ],
+      "dmarc_record_present": true,
+      "dmarc_policy_level": "none",
+      "dmarc_pct_value": 100,
+      "subdomain_policy_level": "none",
+      "header_inspection_enabled": true,
+      "display_name_spoofing_check": true,
+      "reply_to_mismatch_action": "none",
+      "max_received_hops_exceeded": false,
+      "sandboxing_integration_enabled": true,
+      "sandbox_verdict_action": "monitor",
+      "sandbox_scope": [
+        "partial"
+      ],
+      "policy_applies_to_inbound": true,
+      "logging_enabled": true,
+      "logged_fields": [
+        "partial"
+      ],
+      "log_retention_days": 0,
+      "dkim_signing_enabled": true,
+      "authorized_sending_ip_policy": "none",
+      "outbound_spam_filtering_enabled": false,
+      "live_rule_update_supported": true,
+      "rule_update_mechanism": "automated",
+      "blocklist_last_updated_days_ago": 0,
+      "quarantine_enabled": true,
+      "retention_period_days": 0,
+      "user_release_interface_enabled": false,
+      "admin_review_notifications_enabled": true
+    },
+    "expectedCountermeasures": [
+      "Rule Maintainability And Updateability"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

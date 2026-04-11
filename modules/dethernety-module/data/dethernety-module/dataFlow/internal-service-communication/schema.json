@@ -1,0 +1,482 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "mtls_mode": {
+        "type": "string",
+        "enum": [
+          "strict",
+          "permissive",
+          "one_way_tls",
+          "disabled"
+        ],
+        "title": "mTLS Mode",
+        "description": "The mutual TLS mode configured for service-to-service communication, indicating whether client certificates are required, optional, or not enforced.",
+        "default": "disabled"
+      },
+      "client_certificate_required": {
+        "type": "boolean",
+        "title": "Client Certificate Required",
+        "description": "Whether the service explicitly requires a valid client certificate before accepting inbound connections from other services.",
+        "default": false
+      },
+      "plaintext_fallback_allowed": {
+        "type": "boolean",
+        "title": "Plaintext Fallback Allowed",
+        "description": "Whether the service permits connections that fall back to plaintext or unauthenticated TLS when the peer does not present a client certificate.",
+        "default": true
+      },
+      "certificate_validation_mode": {
+        "type": "string",
+        "enum": [
+          "full",
+          "skip_hostname",
+          "skip_all",
+          "custom_no_pinning"
+        ],
+        "title": "Certificate Validation Mode",
+        "description": "How the service validates TLS certificates from peer services during mTLS or TLS connections. Consolidates hostname verification and CA bundle checks into a single enum."
+      },
+      "trusted_ca_bundle_configured": {
+        "type": "boolean",
+        "title": "Trusted CA Bundle Configured",
+        "description": "Whether a specific trusted CA bundle or certificate pinning is configured for validating peer service certificates, rather than relying on system defaults or skipping validation.",
+        "default": false
+      },
+      "self_signed_certs_accepted_without_pinning": {
+        "type": "boolean",
+        "title": "Self-Signed Certificates Accepted Without Pinning",
+        "description": "Whether the service accepts self-signed certificates from peer services without certificate pinning, allowing any self-signed cert to be trusted.",
+        "default": false
+      },
+      "minimum_tls_version": {
+        "type": "string",
+        "enum": [
+          "TLS_1_0",
+          "TLS_1_1",
+          "TLS_1_2",
+          "TLS_1_3",
+          "UNSPECIFIED"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "The minimum TLS protocol version accepted by the service for inbound and outbound connections."
+      },
+      "weak_cipher_suites_enabled": {
+        "type": "boolean",
+        "title": "Weak Cipher Suites Enabled",
+        "description": "Whether the service permits cipher suites known to be cryptographically weak (e.g., RC4, DES, 3DES, NULL, EXPORT-grade, or anonymous DH ciphers).",
+        "default": false
+      },
+      "tls_version_downgrade_protection_enabled": {
+        "type": "boolean",
+        "title": "TLS Downgrade Protection Enabled",
+        "description": "Whether the service enforces TLS_FALLBACK_SCSV or equivalent mechanism to prevent protocol downgrade attacks.",
+        "default": false
+      },
+      "payload_signing_mechanism": {
+        "type": "string",
+        "enum": [
+          "none",
+          "hmac",
+          "digital_signature",
+          "jwt_with_body_claim"
+        ],
+        "title": "Payload Signing Mechanism",
+        "description": "The application-layer mechanism used to sign or authenticate message payloads independent of TLS, such as HMAC or digital signatures.",
+        "default": "none"
+      },
+      "tls_termination_at_intermediary": {
+        "type": "boolean",
+        "title": "TLS Terminated at Intermediary",
+        "description": "Whether TLS is terminated at an intermediary component (e.g., sidecar proxy, ingress controller, or load balancer) before reaching the destination service, creating a plaintext segment."
+      },
+      "service_mesh_integrity_policy_enforced": {
+        "type": "boolean",
+        "title": "Service Mesh Integrity Policy Enforced",
+        "description": "Whether the service mesh enforces a policy requiring application-layer payload integrity verification (e.g., via Istio AuthorizationPolicy with custom headers, OPA sidecar checks, or equivalent)."
+      },
+      "request_replay_protection_mechanism": {
+        "type": "string",
+        "enum": [
+          "none",
+          "timestamp_only",
+          "nonce",
+          "sequence_number",
+          "signed_jwt_with_jti"
+        ],
+        "title": "Request Replay Protection Mechanism",
+        "description": "Indicates whether service-to-service API requests include replay protection controls such as nonces, timestamps, or sequence numbers in the message payload or headers.",
+        "default": "none"
+      },
+      "replay_window_enforcement_enabled": {
+        "type": "boolean",
+        "title": "Replay Window Enforcement Enabled",
+        "description": "Whether the receiving service validates that incoming requests fall within an acceptable time window or have not been seen before (e.g., timestamp skew check, nonce deduplication store).",
+        "default": false
+      },
+      "service_discovery_tls_enabled": {
+        "type": "boolean",
+        "title": "Service Discovery TLS Enabled",
+        "description": "Whether TLS is configured and enforced for service registry communication (e.g., Consul HTTP/gRPC API, etcd client connections, DNS-SD).",
+        "default": false
+      },
+      "service_discovery_auth_enabled": {
+        "type": "boolean",
+        "title": "Service Discovery Authentication Enabled",
+        "description": "Whether authentication (e.g., mTLS client certificates, ACL tokens, API keys) is required for service registry queries and registrations.",
+        "default": false
+      },
+      "service_registry_network_exposure": {
+        "type": "string",
+        "enum": [
+          "localhost_only",
+          "internal_cluster",
+          "public"
+        ],
+        "title": "Service Registry Network Exposure",
+        "description": "The network scope on which the service registry API is reachable, indicating blast radius if communication is unencrypted or unauthenticated."
+      },
+      "rate_limiting_policy_enforced": {
+        "type": "boolean",
+        "title": "Rate Limiting Policy Enforced",
+        "description": "Indicates whether rate limiting or traffic shaping policies are applied at the inter-service communication layer to control request throughput between microservices.",
+        "default": false
+      },
+      "circuit_breaker_configured": {
+        "type": "boolean",
+        "title": "Circuit Breaker Configured",
+        "description": "Indicates whether circuit breaker patterns are configured for downstream service calls, providing a secondary mechanism to prevent cascading failures when rate limiting is absent.",
+        "default": false
+      },
+      "inter_service_traffic_control_mechanism": {
+        "type": "string",
+        "enum": [
+          "none",
+          "service_mesh",
+          "api_gateway",
+          "application_library",
+          "custom"
+        ],
+        "title": "Inter-Service Traffic Control Mechanism",
+        "description": "The mechanism in place (if any) for managing inter-service traffic volume and shaping.",
+        "default": "none"
+      },
+      "certificate_max_validity_days": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 36500,
+        "title": "Certificate Maximum Validity Period (Days)",
+        "description": "The maximum number of days service certificates are valid before expiry. Long-lived certificates extend the window of exposure if a private key is compromised."
+      },
+      "automatic_rotation_enabled": {
+        "type": "boolean",
+        "title": "Automatic Certificate Rotation Enabled",
+        "description": "Indicates whether the service certificate is automatically rotated before expiry by a controller or agent (e.g., cert-manager, Istio Citadel, SPIFFE/SPIRE). When false, rotation relies on manual processes which are frequently skipped or delayed.",
+        "default": false
+      },
+      "crl_or_ocsp_enforced": {
+        "type": "boolean",
+        "title": "Certificate Revocation (CRL/OCSP) Enforced",
+        "description": "Indicates whether certificate revocation via CRL or OCSP is actively checked and enforced during mTLS handshakes. Without revocation enforcement, a compromised certificate remains usable until natural expiry."
+      },
+      "network_policy_enforced": {
+        "type": "boolean",
+        "title": "Network Policy Enforced",
+        "description": "Whether Kubernetes NetworkPolicy or equivalent network-level policies are applied to restrict inter-service communication, rather than allowing all pods to communicate freely.",
+        "default": false
+      },
+      "service_mesh_authorization_policy_enforced": {
+        "type": "boolean",
+        "title": "Service Mesh Authorization Policy Enforced",
+        "description": "Whether a service mesh is deployed with AuthorizationPolicy or equivalent rules that explicitly restrict which source services may call which destination services.",
+        "default": false
+      },
+      "default_deny_posture": {
+        "type": "boolean",
+        "title": "Default Deny Posture Active",
+        "description": "Whether a default-deny rule exists at the network or mesh layer such that any inter-service communication not explicitly permitted is blocked by default.",
+        "default": false
+      },
+      "tls_reencryption_to_backend_enabled": {
+        "type": "boolean",
+        "title": "TLS Re-encryption to Backend Enabled",
+        "description": "Whether the proxy or ingress re-encrypts traffic after TLS termination before forwarding to the destination service, ensuring no plaintext segment exists in transit.",
+        "default": false
+      },
+      "proxy_trust_boundary_scope": {
+        "type": "string",
+        "enum": [
+          "single_trust_boundary",
+          "shared_across_trust_boundaries",
+          "unknown"
+        ],
+        "title": "Proxy Trust Boundary Scope",
+        "description": "Whether the terminating proxy is shared across multiple trust boundaries (e.g., serving services from different security zones or tenants) or is dedicated to a single trust boundary."
+      },
+      "backend_protocol": {
+        "type": "string",
+        "enum": [
+          "http",
+          "https",
+          "grpc",
+          "grpcs",
+          "tcp_plaintext",
+          "tcp_tls"
+        ],
+        "title": "Backend Communication Protocol",
+        "description": "The protocol used by the proxy to communicate with the backend destination service after TLS termination."
+      }
+    },
+    "required": [
+      "mtls_mode",
+      "client_certificate_required",
+      "plaintext_fallback_allowed",
+      "certificate_validation_mode",
+      "trusted_ca_bundle_configured",
+      "self_signed_certs_accepted_without_pinning",
+      "minimum_tls_version",
+      "weak_cipher_suites_enabled",
+      "tls_version_downgrade_protection_enabled",
+      "payload_signing_mechanism",
+      "tls_termination_at_intermediary",
+      "service_mesh_integrity_policy_enforced",
+      "request_replay_protection_mechanism",
+      "replay_window_enforcement_enabled",
+      "service_discovery_tls_enabled",
+      "service_discovery_auth_enabled",
+      "service_registry_network_exposure",
+      "rate_limiting_policy_enforced",
+      "circuit_breaker_configured",
+      "inter_service_traffic_control_mechanism",
+      "certificate_max_validity_days",
+      "automatic_rotation_enabled",
+      "crl_or_ocsp_enforced",
+      "network_policy_enforced",
+      "service_mesh_authorization_policy_enforced",
+      "default_deny_posture",
+      "tls_reencryption_to_backend_enabled",
+      "proxy_trust_boundary_scope",
+      "backend_protocol"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/automatic_rotation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backend_protocol"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_max_validity_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_validation_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/minimum_tls_version"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/plaintext_fallback_allowed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/self_signed_certs_accepted_without_pinning"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/service_discovery_tls_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_reencryption_to_backend_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_version_downgrade_protection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/trusted_ca_bundle_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_cipher_suites_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/crl_or_ocsp_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_termination_at_intermediary"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/client_certificate_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mtls_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/replay_window_enforcement_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/request_replay_protection_mechanism"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/service_discovery_auth_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/service_mesh_authorization_policy_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_deny_posture"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/network_policy_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/proxy_trust_boundary_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/service_registry_network_exposure"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/circuit_breaker_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/inter_service_traffic_control_mechanism"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_policy_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/payload_signing_mechanism"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/service_mesh_integrity_policy_enforced"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

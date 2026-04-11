@@ -1,0 +1,8 @@
+{
+  "name": "DNS Server",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "A DNS resolver component applying DNSSEC and security controls is exposed to misconfiguration across validation enforcement, recursion policy, cache integrity, transport encryption, logging fidelity, and privilege boundaries. Weaknesses in any of these domains can enable cache poisoning, DNS hijacking, information leakage, denial of service, or bypass of integrity protections.",
+  "category": "Infrastructure Services",
+  "status": "reviewed"
+}

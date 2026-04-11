@@ -1,0 +1,187 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1557",
+      "name": "Adversary-in-the-Middle",
+      "relevance": "Unauthenticated routing protocols allow an attacker to inject false routing updates and intercept or redirect traffic, enabling adversary-in-the-middle attacks."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1557.003",
+      "name": "DHCP Spoofing",
+      "relevance": "Lack of authentication in dynamic routing protocols is analogous to spoofing-based AitM techniques where an attacker injects malicious routing information to redirect network traffic."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1599",
+      "name": "Network Boundary Bridging",
+      "relevance": "Exploiting weak BGP authentication can allow an attacker to manipulate routing tables and bridge or bypass network boundaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1040",
+      "name": "Network Sniffing",
+      "relevance": "Weak BGP authentication may expose session credentials and routing data to network sniffing attacks."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1110.001",
+      "name": "Password Guessing",
+      "relevance": "Unrestricted management plane access exposes the device to brute-force password guessing attacks against administrative interfaces."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1021",
+      "name": "Remote Services",
+      "relevance": "Unrestricted management plane access allows attackers to leverage remote service protocols (SSH, Telnet, etc.) to compromise the device."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1110.004",
+      "name": "Credential Stuffing",
+      "relevance": "Open management plane access enables credential stuffing attacks using previously compromised credentials against management interfaces."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1602.002",
+      "name": "Network Device Configuration Dump",
+      "relevance": "Cleartext protocols allow attackers to capture and extract full device configurations transmitted in plaintext."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1556.004",
+      "name": "Network Device Authentication",
+      "relevance": "Weak credentials on network devices directly relate to subverting network device authentication mechanisms."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1110.002",
+      "name": "Password Cracking",
+      "relevance": "Weak or default passwords are easily cracked offline if hashed credentials are obtained from the device configuration."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1572",
+      "name": "Protocol Tunneling",
+      "relevance": "Without prefix list filtering, attackers can advertise routes that facilitate tunneling traffic through unintended network paths."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1665",
+      "name": "Hide Infrastructure",
+      "relevance": "Absent route filtering can allow adversaries to inject routes that obscure or hide malicious infrastructure within the routing domain."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1078",
+      "name": "Valid Accounts",
+      "relevance": "Excessively privileged operator accounts, if compromised, provide attackers with valid high-privilege access to network infrastructure."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1098",
+      "name": "Account Manipulation",
+      "relevance": "Excessive privileges allow an attacker who gains access to manipulate accounts and maintain or escalate their access on the device."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.006",
+      "name": "Indicator Blocking",
+      "relevance": "Insufficient logging of routing changes prevents detection of malicious route modifications, effectively blocking indicators of compromise."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1070.007",
+      "name": "Clear Network Connection History and Configurations",
+      "relevance": "Lack of routing change logs mirrors the impact of an attacker clearing network history, leaving no audit trail for unauthorized routing modifications."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1210",
+      "name": "Exploitation of Remote Services",
+      "relevance": "Unpatched routing software contains known vulnerabilities that can be exploited remotely to compromise the device."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1601.001",
+      "name": "Patch System Image",
+      "relevance": "Unpatched firmware is directly related to system image integrity; attackers may also modify firmware when patch management is absent."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1068",
+      "name": "Exploitation for Privilege Escalation",
+      "relevance": "Known vulnerabilities in unpatched routing software can be exploited to gain elevated privileges on the device."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1602.001",
+      "name": "SNMP (MIB Dump)",
+      "relevance": "Exposed SNMP community strings directly enable attackers to perform MIB dumps and extract sensitive device configuration and network topology data."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1499.001",
+      "name": "OS Exhaustion Flood",
+      "relevance": "Without control plane policing, an attacker can flood the router CPU with crafted packets, exhausting OS resources and causing denial of service."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1499",
+      "name": "Endpoint Denial of Service",
+      "relevance": "Missing control plane policing leaves network devices vulnerable to denial-of-service attacks targeting the control plane processor."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.001",
+      "name": "Credentials In Files",
+      "relevance": "Hardcoded routing credentials stored in configuration files are directly equivalent to credentials stored in files, easily extracted by attackers."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.004",
+      "name": "Private Keys",
+      "relevance": "Hardcoded credentials may include private keys or shared secrets embedded in configuration files that can be extracted and reused by attackers."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1090.003",
+      "name": "Multi-hop Proxy",
+      "relevance": "IP source routing can be abused to force packets through attacker-controlled hops, effectively creating a multi-hop proxy for traffic redirection."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1124",
+      "name": "System Time Discovery",
+      "relevance": "Unauthenticated NTP exposes time synchronization data and can be abused to discover or manipulate system time for further attacks."
+    }
+  ],
+  "respondsWith": []
+}

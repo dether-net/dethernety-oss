@@ -1,0 +1,8 @@
+{
+  "name": "Cloud Environment",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "Cloud trust zone hosting mixed internal/external user data presents significant boundary enforcement risks due to shared infrastructure, permeable ingress/egress controls, implicit trust propagation between cloud services, and insufficient segmentation between internal and external data workloads. Key exposures include over-permissive inter-zone routing, cloud-native lateral movement paths, and credential federation misuse across trust boundaries.",
+  "category": "Environment Segmentation",
+  "status": "reviewed"
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Device Management Flows",
+  "classType": "dataFlow",
+  "type": "Device Management Flows",
+  "description": "Management server configuration update data flow transmits device configuration payloads between management infrastructure and endpoint devices. Transit security depends on mutual TLS enforcement, protocol version selection, message integrity validation, replay protection mechanisms, and routing path security. Weaknesses in any of these layers allow adversaries to intercept, modify, replay, or inject malicious configurations at scale, potentially compromising entire device fleets through a single channel.",
+  "category": "Device Management",
+  "status": "reviewed"
+}

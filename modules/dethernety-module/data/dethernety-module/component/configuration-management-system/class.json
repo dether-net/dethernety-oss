@@ -1,0 +1,8 @@
+{
+  "name": "Configuration Management System",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "Configuration management and deployment systems control how hosts are provisioned, what software runs on them, and how environment state is maintained. Misconfigurations in these systems can propagate security weaknesses across entire fleets, expose credentials used for provisioning, allow unauthorized actors to alter system state, or create persistent backdoors through automated deployment pipelines.",
+  "category": "Operational Management",
+  "status": "reviewed"
+}

@@ -1,0 +1,1532 @@
+[
+  {
+    "option_name": "jit_access_enabled",
+    "option_description": "Controls whether just-in-time (JIT) access provisioning is actively enabled in the PAM system, requiring users to request on-demand privilege elevation rather than holding persistent standing access. When enabled, elevated credentials are minted at request time and automatically expire after use.",
+    "security_impact": "The Rego policy for just_in_time_access_provisioning requires this to be true as a mandatory precondition for all passing rule branches. Without JIT enabled, even well-scoped session durations and absent standing accounts cannot satisfy the countermeasure. Disabling JIT leaves privileged accounts with permanent elevation, dramatically expanding the attack surface for insider threats and compromised credential abuse.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk Privileged Access Manager, navigate to Administration → Access Control → Safe Members and review whether JIT provisioning policies are active. For BeyondTrust, go to Configuration → Privilege Management → Jump Item Settings and check for time-limited elevation toggles.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk: Administration → Access Control → Safe Members | BeyondTrust: Configuration → Privilege Management → Jump Item Settings | Delinea: Admin → Workflow → Request Approval",
+        "expected_output": "JIT provisioning policy listed as Enabled or Active with associated expiry settings visible"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the CyberArk REST API to retrieve the platform configuration and check JIT/workflow settings for privileged account platforms.",
+        "command": "curl -sk -H 'Authorization: Bearer <TOKEN>' 'https://<cyberark-pvwa>/PasswordVault/API/Platforms/<PlatformID>' | jq '.Details.PrivilegedAccessWorkflows'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON object showing RequireDualControlPasswordAccessApproval or JIT fields set to true"
+      },
+      {
+        "type": "command",
+        "instruction": "For BeyondTrust Password Safe, use the REST API to list account policies and check for time-limited access settings indicating JIT is active.",
+        "command": "curl -sk -H 'Authorization: PS-Auth key=<APIKEY>; runas=<USER>' 'https://<beyondtrust-host>/BeyondTrust/api/public/v3/Accounts?limit=50' | jq '.[] | select(.AutoManagementEnabled==true) | {AccountName, AutoManagementEnabled}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Accounts returned with AutoManagementEnabled: true, indicating managed JIT-style credential issuance"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Delinea (Thycotic) Secret Server deployed on-premises, inspect the application configuration or exported policy XML for JIT workflow enablement flags.",
+        "command": "grep -ri 'JustInTime\\|WorkflowEnabled\\|RequireApproval' /var/opt/secretserver/configuration/ 2>/dev/null || find / -name 'SecretServer.config' 2>/dev/null | xargs grep -i 'jit\\|approval'",
+        "file_path": "/var/opt/secretserver/configuration/SecretServer.config",
+        "navigation": null,
+        "expected_output": "Config entries showing JustInTime or RequireApproval set to true or 1"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "max_session_duration_minutes",
+    "option_description": "Defines the maximum number of minutes a JIT-elevated privileged session may remain active before automatic expiration and credential revocation. After this window closes, the user must re-request and re-authenticate to regain elevated access.",
+    "security_impact": "The Rego policy enforces two acceptance thresholds: sessions of 480 minutes or fewer (combined with an approval workflow), and sessions of 60 minutes or fewer (without requiring a workflow). Longer session durations extend the window during which a compromised or misused privileged credential remains valid. High-sensitivity environments should target 60 minutes or less to satisfy the stricter policy branch. Values above 480 minutes fail all just_in_time_access_provisioning rule branches.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PVWA, navigate to Administration → Platform Management → select a privileged platform → Access tab → and review the 'Minimum Validity Period' and 'Maximum Validity Period' fields for session ticket expiry.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk PVWA: Administration → Platform Management → [Platform] → Access → Minimum/Maximum Validity Period",
+        "expected_output": "Numeric value displayed in minutes or hours representing maximum allowed session length; confirm units"
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve platform details via the CyberArk REST API and extract the session duration fields from the platform policy.",
+        "command": "curl -sk -H 'Authorization: Bearer <TOKEN>' 'https://<pvwa-host>/PasswordVault/API/Platforms/<PlatformID>' | jq '.Details | {MinValidityPeriod, MaxValidityPeriod, AllowedSafes}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON with MaxValidityPeriod value in minutes, e.g., 480 or 60"
+      },
+      {
+        "type": "command",
+        "instruction": "For HashiCorp Vault with dynamic secrets, check the role TTL (time-to-live) which governs maximum credential lifetime for JIT-issued secrets.",
+        "command": "vault read database/roles/<role-name> | grep -E 'default_ttl|max_ttl' && vault read aws/roles/<role-name> | grep -E 'default_sts_ttl|max_sts_ttl'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "default_ttl and max_ttl values displayed in seconds or human-readable duration; convert to minutes for comparison"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Teleport PAM, inspect the role definition YAML for max_session_ttl which controls privileged session duration.",
+        "command": "tctl get roles --format=yaml | grep -A5 'max_session_ttl\\|session_max_duration' | head -40",
+        "file_path": "/etc/teleport/teleport.yaml",
+        "navigation": null,
+        "expected_output": "max_session_ttl: 8h0m0s or similar; convert to minutes (480 = 8h) and compare against policy threshold"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "60",
+      "120",
+      "240",
+      "480",
+      "1440"
+    ]
+  },
+  {
+    "option_name": "standing_privileged_accounts_exist",
+    "option_description": "Indicates whether any privileged accounts (e.g., Domain Admin, root, service accounts with admin rights) retain persistent elevated privileges outside the JIT provisioning workflow. A value of true means standing access exists and is bypassing JIT controls.",
+    "security_impact": "All passing branches of the just_in_time_access_provisioning Rego rule require this to be false. Even with JIT enabled and short session durations configured, the presence of standing privileged accounts undermines the countermeasure because those accounts remain permanently elevated and represent always-available targets for lateral movement, insider abuse, or credential theft. Standing accounts negate the time-bound exposure reduction JIT is designed to provide.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Active Directory environments, query for accounts with direct membership in privileged groups that are not scoped to time-limited Privileged Identity Management (PIM) assignments.",
+        "command": "Get-ADGroupMember -Identity 'Domain Admins' -Recursive | ForEach-Object { Get-ADUser $_ -Properties LastLogonDate, Enabled, PasswordNeverExpires | Select-Object Name, Enabled, PasswordNeverExpires, LastLogonDate } | Export-Csv standing_admins.csv -NoTypeInformation",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CSV listing all accounts with standing Domain Admin membership; any Enabled=True entries indicate standing privileged accounts"
+      },
+      {
+        "type": "api",
+        "instruction": "Query Azure AD / Entra ID Privileged Identity Management via Microsoft Graph to find accounts with permanent (non-eligible) role assignments.",
+        "command": "az rest --method GET --url 'https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments?$filter=roleDefinitionId eq <GLOBAL-ADMIN-ROLE-ID>&$expand=principal' --headers 'Content-Type=application/json' | jq '.value[] | select(.scheduleInfo == null) | {principalId, roleDefinitionId}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Accounts with null scheduleInfo have permanent assignments (not JIT/PIM-eligible); these represent standing privileged accounts"
+      },
+      {
+        "type": "gui",
+        "instruction": "In CyberArk, navigate to Accounts → Privileged Accounts and filter for accounts where the access workflow is disabled or accounts that are not enrolled in any safe with approval requirements. In BeyondTrust, check Smart Rules for accounts excluded from managed account policies.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk: Accounts → All Accounts → filter by Platform → review Access Workflow column | BeyondTrust: Managed Accounts → filter Unmanaged or No Policy",
+        "expected_output": "Accounts appearing without workflow enforcement or outside JIT policy scope indicate standing privileged access"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IAM or PAM team to identify any service accounts, emergency break-glass accounts, or legacy admin accounts explicitly excluded from JIT policy scope. Request the list of PAM policy exclusions from the configuration management system.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written list of any accounts excluded from JIT workflows with documented business justification; absence of such exclusions confirms standing_privileged_accounts_exist = false"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "session_recording_enabled",
+    "option_description": "Controls whether full privileged session recording — capturing keystrokes, executed commands, and screen/video activity — is actively enabled for all privileged sessions. Recordings must be stored in a tamper-evident audit repository to be meaningful for forensic purposes.",
+    "security_impact": "The Rego policy for privileged_session_recording requires this to be true in all passing branches (combined with recording_scope of 'all' or 'partial' and tamper_evident_storage of true). Disabled session recording eliminates the forensic audit trail needed for post-incident investigation of insider threats or compromised account activity. The just_in_time_access_provisioning rule also references this attribute, indicating session recording is expected even within JIT-governed access windows.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk Privileged Session Manager (PSM), navigate to Administration → Platform Management → select a platform → UI & Workflows tab, and verify 'Record and Save Session Activity' is checked. For BeyondTrust, go to Configuration → Session Management → Session Recording and confirm recording is set to Enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk: Administration → Platform Management → [Platform] → UI & Workflows → Record and Save Session Activity | BeyondTrust: Configuration → Session Management → Session Recording",
+        "expected_output": "Recording checkbox or toggle showing Enabled/Active; policy applied to all or target platforms"
+      },
+      {
+        "type": "api",
+        "instruction": "Use the CyberArk REST API to retrieve platform configuration and inspect session recording settings programmatically.",
+        "command": "curl -sk -H 'Authorization: Bearer <TOKEN>' 'https://<pvwa-host>/PasswordVault/API/Platforms/<PlatformID>' | jq '.Details | {RecordAndSaveSessionActivity, PSMServerID}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RecordAndSaveSessionActivity: true and a non-null PSMServerID confirming PSM session recording is configured"
+      },
+      {
+        "type": "command",
+        "instruction": "For Teleport PAM, verify session recording mode in the cluster configuration.",
+        "command": "tctl get cluster_auth_preference --format=yaml | grep -A3 'session_recording' && tctl get session_recording_config --format=yaml | grep -E 'mode|enabled'",
+        "file_path": "/etc/teleport/teleport.yaml",
+        "navigation": null,
+        "expected_output": "mode: node or mode: proxy with enabled: true; 'off' indicates recording is disabled"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Delinea Secret Server, inspect the application settings or launchers configuration for session recording enablement.",
+        "command": "grep -ri 'SessionRecording\\|EnableRecording\\|RecordSessions' /opt/secretserver/App_Data/ 2>/dev/null | head -20",
+        "file_path": "/opt/secretserver/App_Data/appsettings.json",
+        "navigation": null,
+        "expected_output": "SessionRecording or EnableRecording set to true or 1 in configuration output"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "recording_scope",
+    "option_description": "Defines the breadth of privileged session recording coverage — whether recordings apply to all privileged sessions across all accounts and roles ('all'), only a selected subset of high-risk roles or platforms ('partial'), or recording is entirely unconfigured ('none').",
+    "security_impact": "Both passing branches of the privileged_session_recording Rego rule accept either 'all' or 'partial' scope (combined with session_recording_enabled=true and tamper_evident_storage=true). A value of 'none' fails the countermeasure entirely. Partial coverage creates blind spots where privileged activity goes unrecorded, potentially allowing insider threats or compromised accounts to operate in unmonitored sessions. 'all' scope provides comprehensive forensic coverage but 'partial' may still satisfy compliance if critical roles are included.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk, navigate to Administration → Platform Management and review each privileged platform for the 'Record and Save Session Activity' setting. Tally platforms with recording enabled versus disabled to determine if coverage is all, partial, or none.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk: Administration → Platform Management → iterate all platforms → UI & Workflows tab | BeyondTrust: Configuration → Access Policies → review per-policy recording settings",
+        "expected_output": "If all platforms have recording enabled = 'all'; if only some = 'partial'; if none have it = 'none'"
+      },
+      {
+        "type": "api",
+        "instruction": "Enumerate all CyberArk platforms via the REST API and aggregate session recording enablement status across platforms to determine overall scope.",
+        "command": "curl -sk -H 'Authorization: Bearer <TOKEN>' 'https://<pvwa-host>/PasswordVault/API/Platforms?Active=true' | jq '[.Platforms[] | {Name: .Name, Recording: .Details.RecordAndSaveSessionActivity}] | group_by(.Recording) | map({recording: .[0].Recording, count: length})'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON summary showing count of platforms with recording true vs false; all true = 'all', mixed = 'partial', all false = 'none'"
+      },
+      {
+        "type": "command",
+        "instruction": "For Teleport, list all roles and check their session recording settings to determine if recording applies universally or only to specific roles.",
+        "command": "tctl get roles --format=json | jq '[.[] | {role: .metadata.name, recording: .spec.options.record_session}] | group_by(.recording)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Roles grouped by recording mode; if all roles have node or proxy recording mode = 'all'; mixed = 'partial'; all off = 'none'"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the PAM team's session recording policy documentation to identify which account types, platforms, or environments are explicitly excluded from recording and validate against the total privileged account inventory.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy document listing recording scope; compare covered accounts/platforms against total inventory to classify as all, partial, or none"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "all",
+      "partial",
+      "none"
+    ]
+  },
+  {
+    "option_name": "tamper_evident_storage",
+    "option_description": "Indicates whether session recordings and privileged access audit logs are stored using tamper-evident mechanisms such as cryptographic hash chaining, digital signatures, write-once/read-many (WORM) storage, or immutable cloud object storage (e.g., AWS S3 Object Lock, Azure Immutable Blob). This prevents post-hoc alteration of audit evidence.",
+    "security_impact": "The privileged_session_recording Rego rule requires tamper_evident_storage=true in all passing branches. Without tamper-evident storage, recorded sessions and audit logs can be deleted or modified by a compromised administrator or insider threat, eliminating the forensic value of recording entirely. Tamper evidence is the integrity guarantee that makes recordings admissible for incident investigation, compliance audits, and legal proceedings.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk, navigate to Administration → Options → Recordings and verify the vault storage path is configured to a WORM-capable NFS/SMB share or that the integrated vault storage uses hash validation. For cloud deployments, verify the S3 bucket or Azure storage container used for recordings has Object Lock or Immutable Storage enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console: S3 → bucket used for PAM recordings → Properties → Object Lock (must show Enabled) | Azure Portal: Storage Account → Data protection → Immutability policies | CyberArk: Administration → Options → Privileged Session Management",
+        "expected_output": "Object Lock status: Enabled with Compliance or Governance mode; or WORM storage vendor confirmation"
+      },
+      {
+        "type": "command",
+        "instruction": "Check AWS S3 bucket used for PAM session recording storage for Object Lock configuration, which provides WORM immutability.",
+        "command": "aws s3api get-object-lock-configuration --bucket <pam-recordings-bucket> && aws s3api get-bucket-policy --bucket <pam-recordings-bucket> | jq '.Policy | fromjson | .Statement[] | select(.Effect==\"Deny\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ObjectLockConfiguration with ObjectLockEnabled: Enabled and Rule.DefaultRetention configured; Deny policy blocking s3:DeleteObject confirms tamper protection"
+      },
+      {
+        "type": "command",
+        "instruction": "For on-premises storage, verify that the filesystem or NAS used for recordings is mounted with WORM attributes or that hash manifests are generated alongside recordings.",
+        "command": "mount | grep <recordings-mount-point> && attr -l <recordings-mount-point> 2>/dev/null || getfattr -d <recordings-path> 2>/dev/null | grep -i 'immutable\\|worm\\|append'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Mount options including ro, noatime, or vendor-specific WORM flags; or attribute output showing immutable flag set on recording files"
+      },
+      {
+        "type": "api",
+        "instruction": "For Azure Blob Storage used as PAM recording backend, query the immutability policy via Azure REST API or CLI.",
+        "command": "az storage container immutability-policy show --account-name <storage-account> --container-name <pam-recordings-container> --output json | jq '{immutabilityPeriodSinceCreationInDays: .properties.immutabilityPeriodSinceCreationInDays, state: .properties.state}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "state: Locked or Unlocked with a non-zero immutabilityPeriodSinceCreationInDays confirms tamper-evident immutable storage is configured"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "vault_enabled",
+    "option_description": "Indicates whether a privileged credential vault solution (such as HashiCorp Vault, CyberArk, AWS Secrets Manager, or Azure Key Vault) is actively deployed and in use for storing privileged credentials in encrypted form. All managed privileged accounts should have their credentials onboarded into the vault.",
+    "security_impact": "The credential_vaulting_and_rotation Rego rule requires vault_enabled=true as a precondition for all passing branches. Without a credential vault, privileged passwords and SSH keys are stored in plaintext configuration files, spreadsheets, or directly in team knowledge, making them highly susceptible to exfiltration. The vault provides the encrypted storage layer that makes automated rotation and checkout workflows possible, which are the mechanisms that reduce credential reuse and dwell time after theft.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether HashiCorp Vault is deployed and unsealed, and verify privileged account secrets are mounted in the vault.",
+        "command": "vault status && vault secrets list && vault list secret/privileged-accounts/ 2>/dev/null | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "vault status shows Initialized: true, Sealed: false; secrets list shows configured secret engines; privileged account paths visible under secret/privileged-accounts/"
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS Secrets Manager to verify privileged credentials are stored as managed secrets rather than embedded in application configs.",
+        "command": "aws secretsmanager list-secrets --filter Key=tag-key,Values=privileged --query 'SecretList[*].{Name:Name,LastRotated:LastRotatedDate,RotationEnabled:RotationEnabled}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table of privileged account secrets with RotationEnabled values; presence of secrets confirms vault is in active use for privileged credentials"
+      },
+      {
+        "type": "gui",
+        "instruction": "In CyberArk, navigate to Accounts → All Accounts and verify that privileged accounts (Domain Admins, service accounts, root) appear as onboarded managed accounts with an associated safe and platform. Accounts appearing here are vault-managed.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk PVWA: Accounts → All Accounts → filter by account type → verify count and platform assignments | BeyondTrust: Managed Accounts → view total managed account count",
+        "expected_output": "Non-zero count of privileged accounts onboarded with valid safe assignments and platform configurations confirming vault is active"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request from the PAM or secrets management team the inventory of privileged accounts and confirm what percentage are managed through the vault versus stored outside it (e.g., in local config files, wikis, or password managers not integrated with PAM).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Inventory report showing >0% privileged accounts in vault; 100% coverage confirms vault_enabled = true with full adoption"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "rotation_policy",
+    "option_description": "Specifies the automated credential rotation strategy for privileged accounts managed by the vault — 'none' means no rotation, 'scheduled' rotates credentials on a calendar interval, 'post_use' rotates immediately after each checkout and use, and 'both' applies scheduled and post-use rotation simultaneously for maximum protection.",
+    "security_impact": "The credential_vaulting_and_rotation Rego rule has four passing branches: scheduled rotation (with max_rotation_interval_days ≤ 90) covering passwords; post_use rotation covering passwords; scheduled rotation covering SSH keys; and post_use rotation covering SSH keys. A policy of 'none' fails all branches. Post-use rotation is the strongest control because it renders every checked-out credential immediately invalid after use, preventing credential reuse even if the credential was observed during the session. Scheduled rotation reduces but does not eliminate the window of credential validity.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk, navigate to Administration → Platform Management → select a platform → Automatic Password Management tab, and review 'Change Password Every X Days' (scheduled) and 'Change Password After Each Checkout' (post-use) settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk PVWA: Administration → Platform Management → [Platform] → Automatic Password Management → Change Password Every / Change Password After Each Checkout | BeyondTrust: Managed Accounts → Account Policy → Password Management tab",
+        "expected_output": "Change Password After Each Checkout: Yes = post_use; Change Password Every [N] Days without checkout rotation = scheduled; both enabled = both; neither enabled = none"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the CyberArk platform REST API to extract automatic password management settings including rotation schedule and post-checkout rotation flag.",
+        "command": "curl -sk -H 'Authorization: Bearer <TOKEN>' 'https://<pvwa-host>/PasswordVault/API/Platforms/<PlatformID>' | jq '.Details | {ChangePasswordInResetMode: .ChangePasswordInResetMode, ChangeNotificationPeriod: .ChangeNotificationPeriod, MinValidityPeriod: .MinValidityPeriod, ImmediateInterval: .ImmediateInterval}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ImmediateInterval > 0 indicates post-use rotation; ChangeNotificationPeriod with a scheduled value indicates scheduled rotation; both present = both"
+      },
+      {
+        "type": "command",
+        "instruction": "For HashiCorp Vault, check the rotation schedule on dynamic database or cloud credentials roles and the auto-rotate-after setting on static roles.",
+        "command": "vault read database/roles/<role-name> | grep -E 'rotation_period|revocation_statements' && vault read database/static-roles/<static-role-name> | grep -E 'rotation_period|rotation_schedule'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "rotation_period set on static roles (e.g., 2160h for 90 days) = scheduled; dynamic roles revoke on lease expiry = post_use equivalent; both configured = both"
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS Secrets Manager, list secrets and check rotation configuration including rotation interval and Lambda function assignment.",
+        "command": "aws secretsmanager list-secrets --query 'SecretList[*].{Name:Name,RotationEnabled:RotationEnabled,RotationRules:RotationRules}' --output json | jq '.[] | select(.Name | test(\"priv|admin|root\"; \"i\")) | {Name, RotationEnabled, RotationIntervalDays: .RotationRules.AutomaticallyAfterDays}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RotationEnabled: true with AutomaticallyAfterDays ≤ 90 = scheduled; RotationEnabled: false = none; post-use requires custom Lambda trigger verification"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "scheduled",
+      "post_use",
+      "both"
+    ]
+  },
+  {
+    "option_name": "max_rotation_interval_days",
+    "option_description": "Controls the maximum number of days permitted between automatic credential rotations in the PAM vault. A value of 0 denotes post-use (immediate) rotation, while any positive integer defines a scheduled interval ceiling.",
+    "security_impact": "The Rego policy enforces that scheduled rotation policies must have max_rotation_interval_days <= 90 to qualify as a countermeasure for credential_vaulting_and_rotation. Organizations exceeding 90 days on scheduled policies will fail this control, leaving credentials exposed for extended periods and increasing the value of stolen credentials to attackers.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk Privileged Access Manager, navigate to Administration > Platform Management, select the target platform, open the Automatic Password Management section, and inspect the 'Change Every X Days' field under the Automatic Change tab.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration > Platform Management > [Platform Name] > Automatic Password Management > Automatic Change > Change Every X Days",
+        "expected_output": "A numeric value representing the scheduled rotation interval in days, or a post-use-only indicator if scheduled rotation is disabled."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the CyberArk REST API to retrieve platform details including the password change interval configured for privileged accounts.",
+        "command": "curl -sk -H 'Authorization: Bearer <token>' 'https://<cyberark-host>/PasswordVault/API/Platforms/<platformId>' | jq '.Details.AutomaticPasswordManagement.ChangePasswordEveryXDays'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer value (e.g., 30, 60, 90) representing the rotation interval, or null if only post-use rotation is configured."
+      },
+      {
+        "type": "command",
+        "instruction": "For BeyondTrust Password Safe, use the REST API to list managed account settings and extract the change frequency value.",
+        "command": "curl -sk -H 'Authorization: PS-Auth key=<apikey>' 'https://<beyondtrust-host>/BeyondTrust/api/public/v3/managedaccounts' | jq '.[].ChangeFrequencyDays'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of integer values per managed account showing rotation frequency in days."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Delinea (Thycotic) Secret Server, inspect the exported secret policy XML or review the Database directly for the AutoChangeSchedule field in the tbSecretPolicy table.",
+        "command": "sqlcmd -S <db-host> -d SecretServer -Q \"SELECT SecretPolicyName, AutoChangeSchedule FROM tbSecretPolicy\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rows listing policy names alongside their configured auto-change schedule intervals."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "30",
+      "60",
+      "90",
+      "180"
+    ]
+  },
+  {
+    "option_name": "credential_types_covered",
+    "option_description": "Defines the specific categories of privileged credentials (e.g., passwords, SSH keys, API keys, service accounts) that are enrolled in the PAM vault and subjected to automated rotation policies.",
+    "security_impact": "The Rego policy requires at minimum 'password' or 'ssh_key' to be present in credential_types_covered for the credential_vaulting_and_rotation countermeasure to fire. Gaps in coverage—such as unvaulted API keys or service accounts—represent standing credentials outside PAM governance that can be silently compromised and reused indefinitely.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PAM, navigate to Accounts > Account Discovery or the Accounts List view, filter by account type, and identify which credential categories (Passwords, SSH Keys, API Keys, Service Accounts) appear in the inventory and are linked to rotation platforms.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Accounts > Accounts List > Filter by Account Type / Safe",
+        "expected_output": "A list of account types present in the vault inventory showing which credential categories are managed."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the CyberArk REST API to enumerate all accounts and extract unique credential type values to determine vault coverage.",
+        "command": "curl -sk -H 'Authorization: Bearer <token>' 'https://<cyberark-host>/PasswordVault/API/Accounts?limit=1000' | jq '[.value[].platformId] | unique'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An array of unique platform IDs (e.g., WinLocalAdmin, UnixSSH, AWSAccessKey) that map to covered credential types."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the PAM administrator or vault owner to confirm which credential categories have active onboarding pipelines (e.g., automated discovery feeds, DevOps integrations) and which are explicitly excluded from vaulting by policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented list of covered credential types and any known exclusions with justification."
+      },
+      {
+        "type": "command",
+        "instruction": "Query BeyondTrust Password Safe API to retrieve all managed account types and deduplicate to identify covered credential categories.",
+        "command": "curl -sk -H 'Authorization: PS-Auth key=<apikey>' 'https://<beyondtrust-host>/BeyondTrust/api/public/v3/managedaccounts' | jq '[.[].AccountType] | unique'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A deduplicated array of account type strings such as ['password','ssh_key','service_account']."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"password\"]",
+      "[\"password\", \"ssh_key\"]",
+      "[\"password\", \"ssh_key\", \"api_key\", \"service_account\"]"
+    ]
+  },
+  {
+    "option_name": "behavioral_baselining_enabled",
+    "option_description": "Indicates whether the PAM solution's user behavior analytics (UBA) engine is licensed, enabled, and actively collecting privileged session data to build behavioral baselines for each user or role.",
+    "security_impact": "The Rego policy requires behavioral_baselining_enabled == true as the primary gate for the real_time_behavioral_analytics countermeasure. Without baselining, no anomaly reference profiles exist, rendering alert triggers meaningless. This is the foundational prerequisite for detecting compromised privileged accounts through behavioral deviation.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk, navigate to Administration > System Configuration > Privileged Threat Analytics (PTA) and confirm the PTA service status shows 'Active' and behavioral profiling is set to enabled. For BeyondTrust, check Analytics > User Behavior settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration > System Configuration > Privileged Threat Analytics > PTA Service Status",
+        "expected_output": "Status field showing 'Active' or 'Enabled' with a timestamp of last data collection."
+      },
+      {
+        "type": "api",
+        "instruction": "Query CyberArk PTA REST API to retrieve analytics configuration status.",
+        "command": "curl -sk -H 'Authorization: Bearer <token>' 'https://<cyberark-pta-host>/api/configuration' | jq '.behavioralBaselining.enabled'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns true if behavioral baselining is active, false otherwise."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On the CyberArk PTA server, inspect the main configuration file to verify the analytics engine flag is active.",
+        "command": "grep -i 'baselining\\|analytics\\|enabled' /opt/CyberArk/PTA/conf/pta.properties",
+        "file_path": "/opt/CyberArk/PTA/conf/pta.properties",
+        "navigation": null,
+        "expected_output": "A property entry such as 'analytics.enabled=true' or 'baselining.active=true'."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check PTA or UBA system logs for recent baselining activity to confirm the engine is actively processing session data.",
+        "command": "grep -i 'baseline\\|profiling\\|model_update' /var/log/cyberark/pta/pta.log | tail -50",
+        "file_path": "/var/log/cyberark/pta/pta.log",
+        "navigation": null,
+        "expected_output": "Recent log entries showing model updates or baseline computation events within the past 24-48 hours."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "alert_triggers_configured",
+    "option_description": "Enumerates the specific anomaly categories for which the PAM behavioral analytics engine has active alert rules configured, mapped to notification or automated response actions.",
+    "security_impact": "The Rego policy for real_time_behavioral_analytics requires either count(alert_triggers_configured) >= 2 (combined with baselining and a destination) or specifically both 'abnormal_command_sequence' and 'unusual_access_time' to be present. Fewer than two triggers or absence of high-value categories means sophisticated attack patterns—such as off-hours lateral movement or malicious command execution—will go undetected.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PTA, navigate to Security Events > Alert Policies and review the list of enabled alert rules. Note each enabled anomaly category. In BeyondTrust, check Analytics > Alert Rules for active trigger definitions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Security Events > Alert Policies > [List all Enabled Policies]",
+        "expected_output": "A list of enabled alert policy names corresponding to anomaly categories such as 'unusual_access_time', 'privilege_escalation', 'geographic_anomaly'."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve active alert configurations from the CyberArk PTA API to enumerate enabled trigger types.",
+        "command": "curl -sk -H 'Authorization: Bearer <token>' 'https://<cyberark-pta-host>/api/alerts/policies' | jq '[.policies[] | select(.enabled == true) | .triggerCategory]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An array of trigger category strings for all enabled alert policies."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the PTA alert policy configuration file on the PTA server to enumerate all defined and enabled alert trigger categories.",
+        "command": "grep -A3 'trigger_category\\|alert_type' /opt/CyberArk/PTA/conf/alert_policies.xml | grep -i 'enabled\\|category'",
+        "file_path": "/opt/CyberArk/PTA/conf/alert_policies.xml",
+        "navigation": null,
+        "expected_output": "XML entries listing trigger categories marked as enabled=true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request a PAM platform export or screenshot of all active alert policies from the PAM administrator and map each to the appropriate anomaly category (unusual_access_time, atypical_resource_access, abnormal_command_sequence, geographic_anomaly, privilege_escalation).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented inventory of active trigger categories with confirmation of notification mappings."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"unusual_access_time\", \"privilege_escalation\"]",
+      "[\"unusual_access_time\", \"atypical_resource_access\", \"abnormal_command_sequence\", \"geographic_anomaly\", \"privilege_escalation\"]",
+      "[]"
+    ]
+  },
+  {
+    "option_name": "alert_notification_destination",
+    "option_description": "Specifies the configured endpoint or system where PAM behavioral anomaly alerts are forwarded, such as a SIEM platform, SOC ticketing system, email distribution group, or webhook receiver.",
+    "security_impact": "The Rego policy requires a non-empty alert_notification_destination as part of the real_time_behavioral_analytics countermeasure condition. Alerts generated by the PAM platform that are not forwarded to an active monitoring destination are effectively silent—no human or automated system will act on them, nullifying the detection capability entirely.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PTA, navigate to Administration > System Configuration > Integrations and review the SIEM/Syslog forwarding settings, email notification targets, and any configured webhook endpoints. In BeyondTrust, check Administration > Email Notifications and SIEM Integration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration > System Configuration > Integrations > SIEM / Notification Settings",
+        "expected_output": "One or more configured destinations (e.g., syslog server IP:port for Splunk, SMTP relay address, webhook URL) shown as active."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the PTA syslog or SIEM integration configuration file to identify the forwarding destination hostname and port.",
+        "command": "grep -E 'siem|syslog|host|port|destination|smtp|webhook' /opt/CyberArk/PTA/conf/syslog.properties",
+        "file_path": "/opt/CyberArk/PTA/conf/syslog.properties",
+        "navigation": null,
+        "expected_output": "Property entries such as 'syslog.host=splunk-indexer.corp.local' and 'syslog.port=514'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the PAM platform API for integration configuration to retrieve the alert forwarding destination.",
+        "command": "curl -sk -H 'Authorization: Bearer <token>' 'https://<cyberark-pta-host>/api/configuration/integrations' | jq '.siem.destination, .email.recipients, .webhook.url'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more non-null destination strings identifying where alerts are sent."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Verify network connectivity from the PAM/PTA server to the configured SIEM or notification endpoint to confirm alerts can actually be delivered.",
+        "command": "nc -zv <siem-host> 514 && echo 'Syslog reachable' || echo 'Connection failed'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Connection to <siem-host> 514 port [tcp/syslog] succeeded!' indicating the forwarding path is active."
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "splunk-indexer.corp.local:514",
+      "https://sentinel.azure.com/api/logs",
+      "soc-tickets@company.com",
+      "https://soar-platform.corp/webhook/pam-alerts"
+    ]
+  },
+  {
+    "option_name": "mfa_enforcement_scope",
+    "option_description": "Defines the breadth of MFA enforcement across privileged access attempts—ranging from no MFA enforcement, partial coverage of select roles, mandatory MFA for all privileged roles, to continuous re-verification throughout the session lifetime.",
+    "security_impact": "The Rego policy for multi_factor_authentication_enforcement requires mfa_enforcement_scope to be either 'all_privileged' or 'continuous' as a mandatory condition. Values of 'none' or 'partial' mean attackers with stolen primary credentials can access at least some privileged roles without a second factor, directly enabling credential-based attacks against the highest-value accounts.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD/Entra ID, navigate to Security > Conditional Access > Policies and identify policies targeting privileged roles (Global Admin, Privileged Role Admin, etc.). Check the Grant conditions for MFA requirement and note whether coverage is universal or scoped to specific role sets.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Entra ID > Security > Conditional Access > Policies > [Privileged Role Policies] > Grant > Require MFA",
+        "expected_output": "Policy assignments showing 'All users' or specific role groups with MFA grant control applied, or exclusions indicating partial coverage."
+      },
+      {
+        "type": "api",
+        "instruction": "Use Microsoft Graph API to retrieve conditional access policies and identify MFA grant controls applied to privileged directory roles.",
+        "command": "az rest --method GET --url 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' --query 'value[?grantControls.builtInControls[?contains(@, `mfa`)]].{Name:displayName, State:state, Users:conditions.users}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of CA policies with MFA grant controls, showing user/role scope to determine if coverage is all_privileged, partial, or continuous."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the CyberArk PAM portal or Delinea Secret Server, navigate to Administration > Authentication Methods and check whether MFA is configured as a mandatory step for all privileged vault access requests or only select safe/role combinations.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration > Authentication Methods > MFA Configuration > Privileged Role Requirements",
+        "expected_output": "An MFA enforcement setting indicating scope: all accounts, specific safes/roles, or none."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's PAM policy documentation and interview the IAM team to determine whether any privileged role categories are formally exempted from MFA and whether continuous step-up MFA is implemented for sensitive operations.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy documentation confirming enforcement scope with a classification of none, partial, all_privileged, or continuous."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "partial",
+      "all_privileged",
+      "continuous"
+    ]
+  },
+  {
+    "option_name": "mfa_bypass_exceptions_exist",
+    "option_description": "Indicates whether any documented exceptions, exclusions, or bypass configurations exist in policy that exempt service accounts, break-glass accounts, or specific privileged roles from MFA requirements.",
+    "security_impact": "The Rego policy for multi_factor_authentication_enforcement requires mfa_bypass_exceptions_exist == false as a hard gate—any existing bypass exception causes this condition to fail regardless of the enforcement scope. Even a single excluded break-glass or service account creates a persistent attack path that adversaries can target to achieve privileged access without MFA.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD/Entra ID Conditional Access, open each MFA-enforcing policy and review the Exclude tab. Document any users, groups, service principals, or roles listed as exclusions from MFA requirements.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Entra ID > Security > Conditional Access > [MFA Policy] > Exclude > Users and Groups / Roles",
+        "expected_output": "A list of excluded identities. An empty exclusion list indicates no bypasses exist (false). Any entries indicate bypasses exist (true)."
+      },
+      {
+        "type": "api",
+        "instruction": "Use Microsoft Graph API to query conditional access policy exclusions for all policies that enforce MFA, identifying any service accounts or break-glass accounts in exclusion groups.",
+        "command": "az rest --method GET --url 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' | jq '.value[] | select(.grantControls.builtInControls[]? == \"mfa\") | {name: .displayName, excludedUsers: .conditions.users.excludeUsers, excludedGroups: .conditions.users.excludeGroups}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy entries showing excluded user IDs or group IDs. Non-empty arrays confirm bypass exceptions exist."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request a formal review of PAM exemption registers or IAM exception logs from the security team. Ask specifically about break-glass account MFA posture, service account exceptions, and any time-limited bypass approvals that are still active.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented exemption register; an empty register or 'none' response indicates mfa_bypass_exceptions_exist = false."
+      },
+      {
+        "type": "command",
+        "instruction": "In Okta, use the Admin API to list policy rules that explicitly skip MFA for specific groups or application contexts in privileged access policies.",
+        "command": "curl -sk -H 'Authorization: SSWS <api_token>' 'https://<okta-domain>/api/v1/policies?type=MFA_ENROLL' | jq '[.[] | {policy: .name, exclusions: .conditions.people.groups.exclude}] | map(select(.exclusions | length > 0))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An array of MFA policies with non-empty exclusion groups indicating bypass exceptions exist."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "mfa_method_strength",
+    "option_description": "Identifies the strongest second-factor authentication method permitted for privileged access, ranked from weakest (none) through SMS/voice OTP, authenticator app (TOTP/push), to phishing-resistant hardware-based methods (FIDO2/WebAuthn/PIV).",
+    "security_impact": "The Rego policy for multi_factor_authentication_enforcement requires mfa_method_strength to be either 'authenticator_app' or 'phishing_resistant'. SMS/voice OTP (susceptible to SIM-swapping and SS7 attacks) and absent MFA fail this control. For the highest-privilege roles, phishing-resistant methods are the gold standard since authenticator app push notifications remain vulnerable to MFA fatigue attacks.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD/Entra ID, navigate to Security > Authentication Methods > Policies and review which methods are enabled for privileged users. Check whether FIDO2 Security Keys, Microsoft Authenticator, or SMS are allowed and whether Conditional Access Authentication Strength policies enforce minimum method strength for privileged roles.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Entra ID > Security > Authentication Methods > Policies > [Method] > Enable/Target; Security > Conditional Access > Authentication Strengths",
+        "expected_output": "Authentication methods marked as enabled per target group, with Authentication Strength policies revealing minimum required strength for privileged access."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Microsoft Graph API to retrieve authentication method policies and identify which methods are enabled for users in privileged roles.",
+        "command": "az rest --method GET --url 'https://graph.microsoft.com/v1.0/policies/authenticationMethodsPolicy' | jq '.authenticationMethodConfigurations[] | {method: .id, state: .state, includeTargets: .includeTargets}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of authentication methods with their enabled state and targeted user groups, allowing derivation of the strongest permitted method."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Okta, navigate to Security > Authenticators and review the Authenticator Enrollment Policy for privileged application assignments. Identify the highest-assurance factor (FIDO2 WebAuthn > Okta Verify Push > SMS) required or permitted for admin console access.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin > Security > Authenticators > Enrollment > [Privileged App Policy] > Required Factors",
+        "expected_output": "A factor list showing the strongest required method. Presence of 'FIDO2 WebAuthn' indicates phishing_resistant; 'Okta Verify' indicates authenticator_app; 'SMS' indicates sms_voice."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the Okta API to retrieve authenticator policy details for privileged application sign-on policies and identify the highest assurance factor configured.",
+        "command": "curl -sk -H 'Authorization: SSWS <api_token>' 'https://<okta-domain>/api/v1/policies?type=OKTA_SIGN_ON' | jq '[.[] | select(.name | test(\"privileged|admin\"; \"i\")) | {policy: .name, factors: [.settings.factors? // .rules[].actions.signon.factorMode]}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy entries showing factor requirements per privileged sign-on policy, enabling classification into phishing_resistant, authenticator_app, sms_voice, or none."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "sms_voice",
+      "authenticator_app",
+      "phishing_resistant"
+    ]
+  },
+  {
+    "option_name": "audit_logging_enabled",
+    "option_description": "Controls whether immutable audit logging is active for all privileged account authentications, authorization decisions, and actions taken within the PAM system. When disabled, no audit trail is generated for privileged activity.",
+    "security_impact": "The Rego policy for privileged_access_audit_trail_completeness triggers a finding whenever audit_logging_enabled is false, treating this as a critical gap regardless of all other controls. Without this enabled, there is no forensic evidence of insider threats, credential abuse, or unauthorized escalations, making incident investigation and compliance reporting impossible.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk Privileged Access Manager, navigate to Administration > Options > Audit and then review the 'Enable Audit' toggle. In BeyondTrust Password Safe, go to Configuration > Security > Audit Settings and confirm the global audit logging switch is enabled. In Delinea Secret Server, navigate to Admin > Configuration > Audit tab.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk: Administration > Options > Audit | BeyondTrust Password Safe: Configuration > Security > Audit Settings | Delinea Secret Server: Admin > Configuration > Audit",
+        "expected_output": "A clearly labeled toggle or checkbox showing 'Enabled' or 'True' for global audit logging."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the CyberArk PVWA REST API to retrieve audit configuration. Authenticate first to obtain a session token, then query the system settings endpoint.",
+        "command": "curl -k -H 'Authorization: <session_token>' -H 'Content-Type: application/json' https://<pvwa-host>/PasswordVault/API/Configuration/AuditSettings",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response containing an 'AuditEnabled' or equivalent field set to true."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For on-premises CyberArk deployments, inspect the main Vault configuration file for audit-related parameters. Locate and review the DBParm.ini file on the Vault server.",
+        "command": "grep -i 'audit\\|log' /etc/opt/CARKpvwa/conf/DBParm.ini",
+        "file_path": "/etc/opt/CARKpvwa/conf/DBParm.ini",
+        "navigation": null,
+        "expected_output": "Lines such as 'EnableAudit=Yes' or 'AuditEnabled=true' present in the configuration file."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Attempt a test privileged login and check whether an audit entry appears in the PAM audit log storage location or SIEM within 60 seconds. Absence of an entry confirms audit logging is not functioning.",
+        "command": "grep -i 'privileged\\|audit\\|authentication' /var/log/pam_audit.log | tail -20",
+        "file_path": "/var/log/pam_audit.log",
+        "navigation": null,
+        "expected_output": "A timestamped authentication event entry corresponding to the test login, confirming active audit logging."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_immutability_mechanism",
+    "option_description": "Specifies the technical control used to prevent privileged access audit logs from being tampered with or deleted after they are written. Options include write-once storage, cryptographic signing, SIEM forwarding with immutability guarantees, append-only log services, or no immutability control.",
+    "security_impact": "The Rego policy raises a privileged_access_audit_trail_completeness finding when audit_logging_enabled is true but log_immutability_mechanism equals 'none'. This is because mutable logs can be altered by a compromised privileged account to cover tracks. An immutability mechanism ensures forensic integrity and satisfies compliance mandates such as SOX, PCI-DSS, and HIPAA that require tamper-evident audit records.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In your SIEM platform (e.g., Splunk), navigate to Settings > Indexes and review the index retention policy for the PAM log index. Check whether WORM storage or S3 Object Lock is configured. In CyberArk, check Administration > Options > Log Storage and look for signing or immutability settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk: Settings > Indexes > [PAM Index] > Review storage type | CyberArk PVWA: Administration > Options > Log Storage",
+        "expected_output": "Storage type shows 'WORM', 'Object Lock enabled', or a cryptographic signing option is set to active."
+      },
+      {
+        "type": "api",
+        "instruction": "Check AWS S3 bucket Object Lock configuration if logs are forwarded to S3, or query your SIEM API for index storage policy to determine if immutability is enforced.",
+        "command": "aws s3api get-object-lock-configuration --bucket <pam-logs-bucket-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response shows ObjectLockConfiguration with Mode set to 'COMPLIANCE' or 'GOVERNANCE' and a defined retention period."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If using a syslog-ng or Fluentd pipeline to forward logs, inspect the output configuration for append-only or immutability flags. For HashiCorp Vault audit, check the audit backend configuration file.",
+        "command": "grep -i 'worm\\|immut\\|readonly\\|append_only\\|sign' /etc/vault.d/vault.hcl",
+        "file_path": "/etc/vault.d/vault.hcl",
+        "navigation": null,
+        "expected_output": "Configuration shows an audit backend (e.g., 'type = file') with path pointing to immutable or append-only storage."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the security operations or log management team to determine whether a formal log immutability control is in place, documented, and periodically tested. Request the log management architecture diagram.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written policy and architecture diagram confirming a specific immutability mechanism such as cryptographic signing, WORM storage, or a cloud-native append-only service is in use."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "siem_forwarding_with_immutability",
+      "cryptographic_signing",
+      "write_once_storage",
+      "none"
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Defines the number of days that privileged access audit logs and session recordings are retained in active storage before expiration or automated deletion. Applies to both PAM platform logs and any downstream SIEM or log archive storage.",
+    "security_impact": "The Rego policy for privileged_access_audit_trail_completeness triggers a finding when log_retention_days is less than 90. This threshold aligns with common compliance baselines; PCI-DSS 10.7 requires 12 months with 3 months immediately available, HIPAA recommends 6 years, and SOX requires 7 years for financial system logs. Insufficient retention prevents retrospective investigation of slowly-developing insider threats or breaches discovered long after the fact. The privileged_session_recording rule also references this attribute.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PVWA, navigate to Administration > Options > Audit and look for a 'Log Retention' or 'Audit Expiry' field. In Splunk, go to Settings > Indexes, select the PAM log index, and review the 'Max total data size' and 'Frozen path' retention settings. In BeyondTrust Password Safe, check Configuration > System > Log Management.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk: Administration > Options > Audit > Retention | Splunk: Settings > Indexes > [PAM Index] | BeyondTrust: Configuration > System > Log Management",
+        "expected_output": "A numeric retention value in days that is 90 or greater, preferably 365 or more to satisfy most compliance frameworks."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SIEM or log management platform API for the index or data stream retention policy applicable to PAM audit events.",
+        "command": "curl -u admin:<password> http://<splunk-host>:8089/services/data/indexes/<pam-index-name> | grep -i 'frozenTimePeriodInSecs\\|retention'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "frozenTimePeriodInSecs value divided by 86400 equals the retention in days; expected value >= 7776000 seconds (90 days)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the Elasticsearch or OpenSearch index lifecycle management (ILM) policy file, or the log rotation configuration for the PAM audit log directory on the Vault server.",
+        "command": "cat /etc/logrotate.d/cyberark-audit && grep -i 'rotate\\|maxage' /etc/logrotate.d/cyberark-audit",
+        "file_path": "/etc/logrotate.d/cyberark-audit",
+        "navigation": null,
+        "expected_output": "The 'rotate' and 'maxage' directives show a value equivalent to at least 90 days (e.g., rotate 365 with daily rotation)."
+      },
+      {
+        "type": "command",
+        "instruction": "On HashiCorp Vault, list audit devices and confirm the audit log file path, then check filesystem storage capacity and any automated cleanup scripts that could prematurely delete logs.",
+        "command": "vault audit list -detailed && ls -lh /var/log/vault/audit/ && find /var/log/vault/audit/ -name '*.log' -mtime +90 | wc -l",
+        "file_path": "/var/log/vault/audit/",
+        "navigation": null,
+        "expected_output": "Audit device listed as enabled. Files older than 90 days should still be present (count > 0 if logs are older than 90 days and retention is set appropriately)."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90",
+      "180",
+      "365",
+      "2555"
+    ]
+  },
+  {
+    "option_name": "logged_event_types",
+    "option_description": "An array specifying which categories of privileged access events are captured in the audit trail. Key event types include authentication, authorization, command_execution, session_recording, and privilege_escalation. This controls the completeness and forensic value of the audit record.",
+    "security_impact": "The Rego policy for privileged_access_audit_trail_completeness raises a finding if 'authentication' is absent from logged_event_types and raises a separate finding if 'authorization' is absent, meaning both are mandatory for the control to pass. Missing either category leaves blind spots: without authentication events there is no record of who logged in, and without authorization events there is no record of what access was granted or denied. Omitting command_execution or privilege_escalation further reduces forensic capability for insider threat detection.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PVWA, navigate to Administration > Options > Audit and review the 'Audit Actions' checklist to see which event categories are selected. In BeyondTrust Password Safe, go to Configuration > Security > Audit Settings and review the list of logged event types. In Delinea Secret Server, check Admin > Configuration > Security > Audit section.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk: Administration > Options > Audit > Audit Actions | BeyondTrust: Configuration > Security > Audit Settings | Delinea: Admin > Configuration > Security > Audit",
+        "expected_output": "Checkboxes or toggles enabled for at minimum: Authentication, Authorization, Command Execution, Privilege Escalation, and Session Recording events."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the PAM platform API to retrieve the current audit policy configuration and extract the list of enabled event categories.",
+        "command": "curl -k -H 'Authorization: <session_token>' -H 'Content-Type: application/json' https://<pvwa-host>/PasswordVault/API/Configuration/AuditSettings | python3 -m json.tool | grep -i 'event\\|type\\|category'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output listing event types with each having an enabled status of true, including authentication and authorization as a minimum."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Generate test events of each expected type (attempt a login, request access, run a privileged command) and query the audit log or SIEM to confirm entries for each event category appear.",
+        "command": "grep -E 'authentication|authorization|command_execution|privilege_escalation|session_recording' /var/log/pam_audit.log | awk '{print $NF}' | sort | uniq -c",
+        "file_path": "/var/log/pam_audit.log",
+        "navigation": null,
+        "expected_output": "Non-zero counts for each expected event type appear in output, confirming all required categories are being captured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HashiCorp Vault, review the audit backend configuration and Vault policies to confirm which event types (auth, response, request) are enabled in the audit log.",
+        "command": "vault read sys/audit/file | grep -i 'log_raw\\|hmac\\|type' && cat /etc/vault.d/vault.hcl | grep -A10 'audit'",
+        "file_path": "/etc/vault.d/vault.hcl",
+        "navigation": null,
+        "expected_output": "Audit backend shows 'type = file' or equivalent, with log_raw and both request and response logging enabled."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"authentication\", \"authorization\"]",
+      "[\"authentication\", \"authorization\", \"command_execution\", \"privilege_escalation\", \"session_recording\"]",
+      "[\"authentication\"]"
+    ]
+  },
+  {
+    "option_name": "approval_workflow_enabled",
+    "option_description": "Controls whether a structured request-and-approval workflow is enforced before any privileged access is granted, including Just-in-Time (JIT) elevation requests. When enabled, access cannot be obtained without passing through a defined approval gate involving one or more human reviewers.",
+    "security_impact": "The Rego policies for both access_request_workflow_and_approval and just_in_time_access_provisioning require approval_workflow_enabled to be true as a prerequisite condition. Without this control, privileged access can be self-granted without oversight, eliminating the human authorization checkpoint that creates accountability and deters insider threats. The JIT policy specifically uses approval_workflow_enabled as a fallback condition when session duration exceeds 60 minutes, making it critical for longer access windows.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PVWA, navigate to Administration > Options > Access and verify that 'Require access request for this safe' is enforced at the platform or safe level. In BeyondTrust Password Safe, check Configuration > Access Control > Request and Approval Settings. In Delinea Secret Server, go to Admin > Workflow > Access Request Workflow and confirm the workflow is enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk: Administration > Options > Access > Access Requests | BeyondTrust: Configuration > Access Control > Request & Approval | Delinea: Admin > Workflow > Access Request Workflow",
+        "expected_output": "Global or platform-wide approval workflow is set to 'Required' or 'Enabled' with at least one approver step configured."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the BeyondTrust Password Safe API to retrieve the approval workflow configuration and confirm the enforcement status.",
+        "command": "curl -s -H 'Authorization: PS-Auth key=<api_key>' https://<beyondtrust-host>/BeyondTrust/api/public/v3/WorkflowSettings | python3 -m json.tool | grep -i 'approval\\|workflow\\|enabled'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response includes 'ApprovalRequired': true or 'WorkflowEnabled': true for the relevant access policy."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request a live demonstration of the privileged access request process. Have a test user attempt to check out a privileged credential and verify that an approval request is generated and that access is blocked until an approver acts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Test user receives a 'pending approval' status and cannot retrieve the credential until a designated approver explicitly approves the request in the PAM console."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HashiCorp Vault with Sentinel policies, review the applicable EGP (Endpoint Governing Policy) files to confirm approval requirements are encoded in policy.",
+        "command": "vault read sys/policies/egp/<policy-name> | grep -i 'approval\\|require\\|mfa\\|control_group'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EGP policy output contains 'control_group' or approval enforcement logic that prevents access without an authorizer action."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "minimum_approvers_required",
+    "option_description": "Specifies the minimum number of distinct human approvers that must authorize a privileged access request before access is granted. A value of 0 means no approval is required; values of 1 or more enforce human oversight proportional to the sensitivity of the access being requested.",
+    "security_impact": "The Rego policy for access_request_workflow_and_approval requires minimum_approvers_required to be greater than or equal to 1 in both passing conditions. A value of 0 means the workflow is technically present but can be bypassed without human review, negating its purpose. For highly sensitive systems, requiring 2 or more approvers implements a two-person integrity (TPI) control that prevents a single compromised or malicious insider from self-approving critical access.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PVWA, navigate to Administration > Options > Access > Access Requests and look for the 'Number of Authorizers' or 'Dual Control' setting. In Delinea Secret Server, go to Admin > Workflow Templates and review the number of approval steps and required approvers per step. In BeyondTrust, check Configuration > Access Control > Request Settings for the 'Required Approvers' field.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk: Administration > Options > Access > Access Requests > Number of Authorizers | Delinea: Admin > Workflow Templates > [Template] > Approvers | BeyondTrust: Configuration > Access Control > Request Settings",
+        "expected_output": "A numeric value of 1 or greater displayed for 'Required Approvers', 'Dual Control Approvers', or equivalent field."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the CyberArk PVWA REST API to retrieve safe-level or platform-level access workflow configuration and extract the approver count requirement.",
+        "command": "curl -k -H 'Authorization: <session_token>' https://<pvwa-host>/PasswordVault/API/Platforms/<PlatformID> | python3 -m json.tool | grep -i 'approver\\|authorizer\\|dual'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response contains a field such as 'RequiredNumberOfAuthorizers': 1 or greater, or 'DualControlEnabled': true with an approver count."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HashiCorp Vault control groups, inspect the Vault policy file that defines the control group to identify the number of required authorizers.",
+        "command": "vault read sys/policies/egp/<policy-name> && cat /etc/vault.d/policies/<control-group-policy>.hcl | grep -A5 'control_group\\|num_uses\\|factor'",
+        "file_path": "/etc/vault.d/policies/",
+        "navigation": null,
+        "expected_output": "Control group factor configuration shows 'identity_groups' or 'approvers' with a count of 1 or more defined."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the PAM platform's access request procedure documentation and test by submitting a privileged access request, then confirming that the system blocks the request until the configured minimum number of distinct approvers have responded.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Access request remains in 'Pending' status after one approval if minimum_approvers_required is 2, and only transitions to 'Approved' after the second distinct approver acts."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "1",
+      "2"
+    ]
+  },
+  {
+    "option_name": "approval_audit_logging_enabled",
+    "option_description": "Controls whether all approval workflow decisions—including both approvals and denials of privileged access requests—are recorded in an immutable audit log that captures the approver's identity, the timestamp, the resource requested, and the outcome.",
+    "security_impact": "The Rego policy for access_request_workflow_and_approval requires approval_audit_logging_enabled to be true in all passing conditions. Without this, there is no accountability record of who authorized sensitive privileged access, making it impossible to detect collusion, rubber-stamping, or unauthorized approvals by compromised approver accounts. This log is also essential for compliance audits where regulators require evidence of human authorization for privileged access to regulated systems.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PVWA, navigate to Administration > Options > Audit and verify that access request and approval events are included in the audit event categories. In Delinea Secret Server, check Admin > Configuration > Audit and confirm workflow approval events are selected. In BeyondTrust Password Safe, go to Configuration > Security > Audit Settings and confirm approval-related events are checked.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk: Administration > Options > Audit > Event Categories | Delinea: Admin > Configuration > Audit > Workflow Events | BeyondTrust: Configuration > Security > Audit Settings",
+        "expected_output": "Approval-related event categories (e.g., 'Access Request Approved', 'Access Request Denied', 'Workflow Decision') are listed and enabled in the audit configuration."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Submit a test access request, have a designated approver approve it, and then verify that an audit log entry recording the approval decision, approver identity, and timestamp appears in the PAM audit log or SIEM within 2 minutes.",
+        "command": "grep -i 'approve\\|deny\\|workflow\\|request' /var/log/pam_audit.log | tail -20",
+        "file_path": "/var/log/pam_audit.log",
+        "navigation": null,
+        "expected_output": "Audit log entry shows fields including: event_type=approval_decision, approver_id=<approver_username>, decision=approved|denied, resource=<target_account>, timestamp=<ISO8601_timestamp>."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the PAM audit API endpoint to retrieve recent approval workflow events and confirm that approver identity and timestamp fields are populated.",
+        "command": "curl -k -H 'Authorization: <session_token>' 'https://<pvwa-host>/PasswordVault/API/AuditLogs?filter=eventType:AccessRequestApproval&limit=10' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array of audit events where each entry contains non-null values for 'ApproverName', 'Timestamp', 'Action' (Approved/Denied), and 'TargetResource'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request access to the approval audit log from the PAM administrator and cross-reference a known set of recent privileged access approvals against the log entries to verify completeness and accuracy of the audit record.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every known approval or denial event has a corresponding log entry with complete approver identity, timestamp, resource name, and decision outcome documented."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "access_expiry_enforcement",
+    "option_description": "Determines whether approved privileged access is time-limited and how revocation is enforced when the approved access window expires. 'Automatic' means the session is terminated and/or credentials are rotated by the PAM system without human action; 'manual' requires an operator to revoke access; 'none' means access persists indefinitely after approval.",
+    "security_impact": "The Rego policy for access_request_workflow_and_approval passes with both 'automatic' and 'manual' enforcement values, treating either as an acceptable implementation of time-limited access. A value of 'none' means approved access windows never expire, effectively converting JIT-approved access into standing privileged access—the exact risk profile PAM is designed to eliminate. Automatic enforcement is preferred as it eliminates reliance on human action at expiry time and ensures credentials are rotated after each use, directly supporting the just_in_time_access_provisioning countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PVWA, navigate to Administration > Platform Management, select a privileged account platform, and review the 'Exclusive Access' and 'Timeframe' settings under the Access tab. In BeyondTrust Password Safe, go to Configuration > Access Control > Request Settings and check 'Maximum Request Duration' and automatic checkout expiry settings. In Delinea Secret Server, navigate to Admin > Workflow Templates and look for 'Access Duration' and automatic expiry configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk: Administration > Platform Management > [Platform] > Access > Timeframe/Exclusive | BeyondTrust: Configuration > Access Control > Request Settings > Duration | Delinea: Admin > Workflow Templates > [Template] > Access Duration",
+        "expected_output": "A defined maximum duration is set (e.g., 4 hours or 8 hours) and automatic expiry/revocation is configured to trigger at the end of the approved window without manual intervention."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the CyberArk PVWA API to retrieve platform-level time-boxed access settings and determine if automatic session/credential expiry is configured.",
+        "command": "curl -k -H 'Authorization: <session_token>' https://<pvwa-host>/PasswordVault/API/Platforms/<PlatformID>/PrivilegedSessionManagement | python3 -m json.tool | grep -i 'expir\\|timeout\\|duration\\|exclusive'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response shows 'ExclusiveAccountMode': true and a 'Timeout' or 'MaxDurationInMinutes' value that is non-zero, indicating automatic expiry is configured."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request a privileged access checkout with a short approved duration (e.g., 30 minutes), wait for the window to expire, and then attempt to use the credential or reconnect to the session to verify that access has been automatically revoked and the credential rotated.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Post-expiry credential checkout attempt fails with an 'Access expired' or 'Credential unavailable' error, and the PAM audit log shows an automatic revocation event at the scheduled expiry time."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HashiCorp Vault dynamic secrets or lease-based access, inspect the secret engine configuration to confirm default and maximum lease TTL values are configured and that lease renewal is appropriately restricted.",
+        "command": "vault read <secret-engine-path>/config && vault read sys/mounts | grep -A5 '<secret-engine-name>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'default_lease_ttl' and 'max_lease_ttl' set to a finite duration (e.g., '4h' or '28800' seconds), confirming automatic expiry is enforced at the Vault level."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "automatic",
+      "manual",
+      "none"
+    ]
+  },
+  {
+    "option_name": "automated_session_termination_enabled",
+    "option_description": "Controls whether the PAM system is configured to automatically terminate privileged sessions upon detection of policy violations or anomalous behavior without requiring manual operator intervention.",
+    "security_impact": "The Rego policy for session_termination_and_automated_response grants credit when automated_session_termination_enabled is true AND at least one termination trigger is defined AND termination audit logging is enabled. Without automated termination, ongoing malicious activity in a compromised privileged session continues unimpeded until a human operator intervenes, dramatically increasing dwell time and blast radius.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk Privileged Session Manager (PSM), navigate to Administration > Configuration Options > Session Management and check whether 'Auto Session Termination' or equivalent policy rules are enabled under the PSM policies section.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk PVWA > Administration > Configuration Options > Session Management > PSM Policies",
+        "expected_output": "A policy entry showing 'AutoTerminateSession = Yes' or an equivalent enabled flag for anomaly-based termination."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the CyberArk REST API for PSM connector configurations to check session control policies.",
+        "command": "curl -sk -H 'Authorization: Bearer <TOKEN>' 'https://<PVWA_HOST>/PasswordVault/API/PSM/Servers' | jq '.[] | {ServerID, AutoTerminateSession}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response containing AutoTerminateSession field set to true for active PSM servers."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On a BeyondTrust Password Safe deployment, inspect the session policy XML or database configuration for AutoTerminate flags.",
+        "command": "grep -i 'autoterminate\\|auto_terminate\\|session_kill' /opt/beyondtrust/pbps/config/session_policies.xml",
+        "file_path": "/opt/beyondtrust/pbps/config/session_policies.xml",
+        "navigation": null,
+        "expected_output": "XML element such as <AutoTerminate>true</AutoTerminate> within the active session policy block."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Delinea Secret Server, navigate to Admin > Session Recording > Session Policies and verify whether 'Terminate on Alert' or 'Automatic Session Termination' is toggled on for applicable policy groups.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Delinea Secret Server > Admin > Session Recording > Session Policies > [Policy Name] > Termination Settings",
+        "expected_output": "Termination on detection toggle showing Enabled status with associated alert thresholds configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "session_termination_triggers",
+    "option_description": "Defines the list of events or conditions that will trigger automatic or operator-assisted session termination, such as policy violations, anomalous commands, idle timeouts, behavioral anomalies, or unauthorized data access.",
+    "security_impact": "The Rego policy requires count(input.session_termination_triggers) >= 1 for both automated and operator-triggered termination paths. An empty trigger list means the termination capability is never invoked regardless of whether it is technically enabled. A rich trigger set covering behavioral anomalies and command-pattern violations ensures the broadest detection surface against insider threats and compromised accounts.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PSM, navigate to Administration > Configuration Options > Session Management > Session Monitoring Rules and enumerate all active rule types (e.g., command blacklist triggers, keystroke pattern alerts, idle timeout policies).",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk PVWA > Administration > Configuration Options > Session Management > Session Monitoring Rules",
+        "expected_output": "A list of active monitoring rules each tagged with a trigger type such as 'CommandBlacklist', 'IdleTimeout', or 'BehavioralAnomaly'."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve session monitoring rules via the CyberArk REST API to programmatically enumerate configured trigger types.",
+        "command": "curl -sk -H 'Authorization: Bearer <TOKEN>' 'https://<PVWA_HOST>/PasswordVault/API/PSM/SessionMonitoringRules' | jq '[.[] | .TriggerType] | unique'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A deduplicated JSON array such as [\"policy_violation\", \"idle_timeout\", \"anomalous_command\"] representing all active trigger categories."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Delinea Secret Server, export or inspect the session policy configuration files or database export to list all trigger event types configured.",
+        "command": "grep -E 'trigger|alert_type|termination_condition' /etc/delinea/secretserver/session_policies/*.json | sort -u",
+        "file_path": "/etc/delinea/secretserver/session_policies/",
+        "navigation": null,
+        "expected_output": "Lines showing trigger type key-value pairs such as trigger_type: idle_timeout or trigger_type: behavioral_anomaly."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the PAM platform administrator to obtain the complete list of configured termination trigger types and verify against any SIEM/UEBA integration that feeds behavioral anomaly signals into the PAM termination pipeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented list of trigger types covering at minimum idle_timeout and policy_violation, ideally also including behavioral_anomaly and anomalous_command."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['idle_timeout', 'policy_violation']",
+      "['idle_timeout', 'policy_violation', 'anomalous_command', 'behavioral_anomaly', 'unauthorized_data_access']",
+      "[]"
+    ]
+  },
+  {
+    "option_name": "operator_termination_capability",
+    "option_description": "Controls whether authorized operators such as security analysts and SOC teams have a mechanism to manually terminate active privileged sessions in real time through the PAM platform or administrative console.",
+    "security_impact": "The Rego policy for session_termination_and_automated_response awards the countermeasure when operator_termination_capability is true combined with at least one trigger and audit logging enabled. This provides a human-in-the-loop response path for situations where automated termination is not configured or where analyst judgment is required before killing a session, ensuring the SOC can respond to active intrusions.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PVWA, navigate to Monitoring > Live Sessions and verify that a 'Terminate Session' button or equivalent action is available for active sessions. Confirm that SOC analyst roles have this permission assigned.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk PVWA > Monitoring > Live Sessions > [Active Session] > Actions",
+        "expected_output": "A 'Terminate' or 'Disconnect Session' action button visible and clickable for the logged-in SOC role without additional elevation required."
+      },
+      {
+        "type": "api",
+        "instruction": "Confirm the PSM session termination API endpoint is available and that SOC role tokens have authorization to invoke it.",
+        "command": "curl -sk -X GET -H 'Authorization: Bearer <SOC_ROLE_TOKEN>' 'https://<PVWA_HOST>/PasswordVault/API/PSM/ActiveSessions' | jq 'if type==\"array\" then \"Operator access confirmed\" else . end'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful 200 response listing active sessions, confirming the SOC role token has live session visibility and thus termination rights."
+      },
+      {
+        "type": "gui",
+        "instruction": "In BeyondTrust Password Safe, navigate to Home > Active Sessions and check whether the 'Terminate' action column is present and enabled for the current user's role.",
+        "command": null,
+        "file_path": null,
+        "navigation": "BeyondTrust Password Safe > Home > Active Sessions > [Session Row] > Terminate",
+        "expected_output": "A Terminate button rendered in the Actions column for active sessions, confirming operator kill capability is role-assigned."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review RBAC role definitions in the PAM platform to confirm that the SOC Analyst or Security Operations role explicitly includes 'Terminate Session' or equivalent permission, and that this role is assigned to active SOC personnel.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Role definition document or screenshot showing TerminateSession: true scoped to the SOC role with at least one active user assignment."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "termination_audit_logging_enabled",
+    "option_description": "Controls whether all session termination events, both automated and manual, are recorded in an audit log capturing details such as timestamp, actor identity, session ID, and reason for termination.",
+    "security_impact": "The Rego policy mandates termination_audit_logging_enabled == true as a required condition in both the automated and operator-triggered branches of session_termination_and_automated_response. Without this log, termination events cannot be correlated in a SIEM, compliance reports cannot substantiate incident response actions, and forensic investigations lack a complete timeline of privileged session lifecycle events.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PVWA, navigate to Administration > Configuration Options > Audit and verify that session termination events are included in the audit log scope. Check Monitoring > Audit Records for sample termination event entries.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk PVWA > Administration > Configuration Options > Audit > Logged Event Types",
+        "expected_output": "Session termination event type listed as enabled in the audit configuration, and sample records visible in Audit Records view with Reason and Actor fields populated."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search the PAM audit log or SIEM for recent session termination events to confirm they are being generated with required fields.",
+        "command": "grep -i 'session.*terminat\\|terminat.*session' /var/log/cyberark/psm/PSMConsole.log | tail -20 | jq -r '[.timestamp, .actorUser, .sessionID, .reason] | @csv' 2>/dev/null || grep -i 'session.*terminat' /var/log/cyberark/psm/PSMConsole.log | tail -20",
+        "file_path": "/var/log/cyberark/psm/PSMConsole.log",
+        "navigation": null,
+        "expected_output": "Log lines containing timestamp, actor username, session identifier, and termination reason for each termination event."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the CyberArk audit API for session termination events to verify records are being written.",
+        "command": "curl -sk -H 'Authorization: Bearer <TOKEN>' 'https://<PVWA_HOST>/PasswordVault/API/AuditSelections?search=SessionTerminated&limit=10' | jq '.Activities[] | {Time, User, SessionID, Reason}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array of audit records where each entry contains Time, User, SessionID, and Reason fields for termination events."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Delinea Secret Server, inspect the logging configuration file to confirm session termination events are included in the enabled event log categories.",
+        "command": "grep -A5 -i 'session\\|termination\\|audit_events' /etc/delinea/secretserver/logging.config",
+        "file_path": "/etc/delinea/secretserver/logging.config",
+        "navigation": null,
+        "expected_output": "Configuration entries showing session lifecycle events including termination are set to enabled or info/debug log level."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "rbac_enabled",
+    "option_description": "Controls whether role-based access control is configured and enforced for privileged accounts, restricting permissions to defined roles rather than allowing ad-hoc individual grants.",
+    "security_impact": "The Rego policy for least_privilege_role_enforcement requires rbac_enabled == true as the foundational condition before any other least-privilege checks apply. Without RBAC, overprivilege cannot be systematically measured or enforced, privilege review processes have no structured scope, and blast radius from any single compromised account is unbounded. RBAC is the prerequisite control that makes all downstream least-privilege enforcement possible.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PVWA, navigate to Administration > RBAC or User Management and confirm that Role-Based Access policies are defined and that all privileged accounts are assigned to a named role rather than having direct permission grants.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk PVWA > Administration > User Management > Roles",
+        "expected_output": "A list of defined roles each with explicitly scoped permissions, and no privileged user accounts showing direct permission assignments outside a role."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS IAM, use the AWS CLI to check whether IAM policies are attached to roles (RBAC pattern) versus directly to users (non-RBAC pattern).",
+        "command": "aws iam get-account-authorization-details --filter User --query 'UserDetailList[?AttachedManagedPolicies!=`[]` || !empty(UserPolicyList)].{User:UserName,DirectPolicies:length(AttachedManagedPolicies),InlinePolicies:length(UserPolicyList)}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table showing zero or minimal direct policy attachments to users; all privileged permissions should flow through role assignments."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure, use the Azure CLI to verify that privileged role assignments are scoped to security groups or service principals rather than individual user accounts.",
+        "command": "az role assignment list --all --query '[?principalType==`User`] | [?contains(roleDefinitionName, `Owner`) || contains(roleDefinitionName, `Contributor`)] | {PrincipalName:principalName, Role:roleDefinitionName, Scope:scope}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Minimal or zero direct-to-user privileged role assignments; Owner and Contributor roles should be assigned to groups, not individuals."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the BeyondTrust or Delinea API to confirm that all active privileged accounts have a role association and no accounts exist with only ad-hoc permission grants.",
+        "command": "curl -sk -H 'Authorization: Bearer <TOKEN>' 'https://<PAM_HOST>/api/v1/users?privileged=true' | jq '[.[] | select(.roles == null or .roles == [])] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Result of 0 indicating no privileged users exist without a role assignment."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "overprivileged_role_count",
+    "option_description": "Measures the number of roles that have been identified as granting permissions beyond what is required for the function they serve, such as wildcard permissions or admin-level access assigned to non-administrative roles.",
+    "security_impact": "The Rego policy for least_privilege_role_enforcement requires overprivileged_role_count == 0. Even a single overprivileged role represents an excessive blast radius that violates least-privilege principles. If an account assigned to an overprivileged role is compromised or abused by an insider, the attacker gains far more access than the role's stated purpose requires, amplifying the damage of any incident.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use AWS IAM Access Analyzer to identify roles with policies containing wildcard resource or action grants, which are a primary indicator of overprivilege.",
+        "command": "aws accessanalyzer list-findings --analyzer-arn $(aws accessanalyzer list-analyzers --query 'analyzers[0].arn' --output text) --filter '{\"resourceType\": {\"eq\": [\"AWS::IAM::Role\"]}}' --query 'length(findings)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing the count of IAM roles flagged with overprivilege findings; target value is 0."
+      },
+      {
+        "type": "command",
+        "instruction": "Use a privilege analysis script or tool such as Cloudsplaining to enumerate AWS IAM roles with overly permissive actions and output a count.",
+        "command": "pip install cloudsplaining -q && cloudsplaining download --output /tmp/iam_data && cloudsplaining analyze --input-file /tmp/iam_data/*.json --output /tmp/cloudsplaining_report && grep -c 'PrivilegeEscalation\\|DataExfiltration\\|ResourceExposure' /tmp/cloudsplaining_report/index.html",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A count of roles flagged for privilege escalation, data exfiltration, or resource exposure risks; target is 0."
+      },
+      {
+        "type": "gui",
+        "instruction": "In CyberArk, use the built-in Privileged Threat Analytics or Discovery and Audit (DNA) report to identify roles or safe permissions that exceed the principle of least privilege.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk PVWA > Reports > Discovery and Audit > Privileged Account Inventory > Filter by OverPrivileged",
+        "expected_output": "A report section listing roles where assigned permissions exceed the documented business justification; count of such roles should be zero."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the PAM system's role management API to retrieve all roles and cross-reference permission scopes against a defined maximum-permission baseline.",
+        "command": "curl -sk -H 'Authorization: Bearer <TOKEN>' 'https://<PAM_HOST>/api/v1/roles?include_permissions=true' | jq '[.[] | select(.permissions | map(select(. == \"*\" or . == \"admin:*\")) | length > 0)] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer count of roles containing wildcard or admin-level permission grants; a compliant deployment returns 0."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "1",
+      "3",
+      "10"
+    ]
+  },
+  {
+    "option_name": "privilege_review_frequency",
+    "option_description": "Defines how frequently privileged role assignments and permissions are reviewed and recertified to ensure continued alignment with least-privilege requirements, with options ranging from continuous to ad-hoc.",
+    "security_impact": "The Rego policy for least_privilege_role_enforcement accepts privilege_review_frequency values of 'continuous', 'quarterly', or 'semi_annual' as compliant. Annual and ad-hoc frequencies do not satisfy the policy, meaning role accumulation and privilege creep go undetected for too long. Continuous or quarterly reviews ensure that role assignments reflect current job functions and that terminated employees or role-changers are promptly deprovisioned.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the access certification schedule from the Identity Governance team or PAM administrator. Review ticketing system (e.g., ServiceNow, Jira) for recurring access review campaign tasks to determine actual cadence.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented schedule showing recertification campaigns with frequency labels such as quarterly or semi-annual with evidence of last and next execution dates."
+      },
+      {
+        "type": "gui",
+        "instruction": "In CyberArk Identity or an IGA tool such as SailPoint IdentityNow, navigate to Access Certifications > Campaigns and review the configured recurrence schedule for privileged account campaigns.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SailPoint IdentityNow > Access Certifications > Campaigns > [Campaign Name] > Schedule",
+        "expected_output": "Campaign schedule showing recurrence type (e.g., Quarterly) and last completed date confirming the defined review frequency."
+      },
+      {
+        "type": "api",
+        "instruction": "Query an IGA or PAM API for access review campaign configurations to programmatically extract the review frequency setting.",
+        "command": "curl -sk -H 'Authorization: Bearer <TOKEN>' 'https://<IGA_HOST>/api/v1/access-campaigns?type=privileged' | jq '.[] | {name: .name, frequency: .recurrenceSchedule.interval, lastRun: .lastRunDate}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output showing campaign name, recurrence interval (e.g., quarterly), and last execution timestamp."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search the ticketing or ITSM system audit log for completed access review tasks tagged with privileged accounts to calculate actual review frequency from historical data.",
+        "command": "grep -i 'privilege.*review\\|access.*certif\\|role.*recertif' /var/log/itsm/completed_tasks.log | awk '{print $1}' | sort | uniq -c | sort -rn | head -20",
+        "file_path": "/var/log/itsm/completed_tasks.log",
+        "navigation": null,
+        "expected_output": "Log entries with timestamps showing recertification task completions; frequency derived from interval between entries should match the stated policy."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "quarterly",
+      "semi_annual",
+      "annual",
+      "continuous",
+      "ad_hoc"
+    ]
+  },
+  {
+    "option_name": "siem_integration_enabled",
+    "option_description": "Controls whether the PAM solution has an active integration configured to forward privileged access events to a SIEM platform, enabling correlation, alerting, and automated playbook triggering across the security stack.",
+    "security_impact": "The Rego policy for integration_with_siem_and_soc_tooling requires siem_integration_enabled == true along with a valid event forwarding method and specific event types including session_start and credential_checkout. Without SIEM integration, PAM events exist in an isolated silo, preventing cross-system threat correlation, delaying detection of multi-stage attacks that span PAM and other systems, and limiting SOC visibility into privileged access patterns.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In CyberArk PVWA, navigate to Administration > Configuration Options > SIEM or Integration Settings and verify that a SIEM destination (Splunk, QRadar, Microsoft Sentinel, etc.) is configured with connection status showing Active or Connected.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk PVWA > Administration > Configuration Options > SIEM Integration > Destinations",
+        "expected_output": "At least one SIEM destination entry showing protocol (Syslog/CEF/REST), target host/port, and status of Active or Last Successful Send timestamp within the last 24 hours."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify network connectivity from the PAM server to the configured SIEM endpoint on the expected forwarding port (typically 514 for Syslog or 8088 for Splunk HEC).",
+        "command": "nc -zv <SIEM_HOST> 514 && echo 'Syslog port reachable' || nc -zv <SIEM_HOST> 8088 && echo 'Splunk HEC port reachable'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection succeeded message confirming the PAM server can reach the SIEM on the configured forwarding port."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search the SIEM for recent events sourced from the PAM platform to confirm active event ingestion is occurring.",
+        "command": "# For Splunk: run via Splunk CLI or REST\nsplunk search 'index=pam_events sourcetype=cyberark earliest=-1h | stats count by sourcetype, host' -auth admin:<PASS> -uri https://<SPLUNK_HOST>:8089",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Search results showing a non-zero event count from the PAM sourcetype within the last hour, confirming live event forwarding."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the PAM SIEM integration configuration file on the PAM server to confirm destination settings are populated and the integration is not disabled.",
+        "command": "grep -E 'siem|syslog|splunk|qradar|sentinel|forward' /opt/cyberark/psm/config/basic_psm.ini | grep -iv '^#'",
+        "file_path": "/opt/cyberark/psm/config/basic_psm.ini",
+        "navigation": null,
+        "expected_output": "Non-commented configuration lines showing SIEM host, port, and protocol settings with enabled flag set to yes or true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "event_forwarding_method",
+    "option_description": "Controls the mechanism used to transmit privileged access events from the PAM platform to the SIEM. Supported methods include a native certified connector, REST API webhook (api_push), syslog (CEF/LEEF format), or no forwarding at all (none).",
+    "security_impact": "The Rego rule 'integration_with_siem_and_soc_tooling' explicitly rejects any configuration where event_forwarding_method equals 'none'. Without an active forwarding method, enriched PAM events never reach the SIEM, eliminating the ability to correlate privileged access activity with other security telemetry, trigger automated response playbooks, or generate SOC alerts. Even if syslog is configured, organizations should prefer native_connector or api_push to preserve event fidelity and structured field mapping.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the PAM administrative console, navigate to Settings > Integrations > SIEM / Logging. Look for a dropdown or radio button labeled 'Forwarding Method', 'Event Transport', or 'SIEM Connector Type' and record the selected value.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM Admin Console > Settings > Integrations > SIEM / Logging > Forwarding Method",
+        "expected_output": "One of: Native Connector, API Push / Webhook, Syslog (CEF), Syslog (LEEF), or Disabled/None"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the PAM platform's management API for the current SIEM integration configuration. Substitute your PAM host and a valid API token. The response JSON should include a field such as 'forwardingMethod', 'transportType', or 'siemConnector'.",
+        "command": "curl -s -H 'Authorization: Bearer <API_TOKEN>' https://<PAM_HOST>/api/v1/integrations/siem | jq '.forwardingMethod // .transportType // .siemConnector'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A string value such as \"native_connector\", \"api_push\", \"syslog\", or \"none\""
+      },
+      {
+        "type": "config_file",
+        "instruction": "For self-hosted PAM deployments (e.g., CyberArk PAS, HashiCorp Vault), inspect the SIEM integration configuration file. Look for keys like 'SIEMProvider', 'LogShipper', or 'EventForwardingMethod'.",
+        "command": "grep -Ei 'siem|forwarding|transport|connector|syslog' /opt/pam/config/integrations.conf /etc/pam/siem.yaml 2>/dev/null",
+        "file_path": "/opt/pam/config/integrations.conf",
+        "navigation": null,
+        "expected_output": "A key-value pair such as: EventForwardingMethod=syslog or siemConnector: native_connector"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Verify active forwarding at the network layer by checking for an established connection to the SIEM from the PAM server. Syslog typically uses UDP/TCP 514 or TCP 6514; API push uses HTTPS 443.",
+        "command": "ss -tnp | grep -E ':(514|6514|443)' | grep ESTAB",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more ESTABLISHED connections to the SIEM IP on the expected port, confirming active event forwarding"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "native_connector",
+      "syslog",
+      "api_push",
+      "none"
+    ]
+  },
+  {
+    "option_name": "forwarded_event_types",
+    "option_description": "Defines the specific categories of privileged access events that are selected for forwarding to the SIEM. Common event types include session_start, session_end, credential_checkout, policy_violation, and failed_auth. This is an array allowing multiple event types to be selected simultaneously.",
+    "security_impact": "The Rego rule 'integration_with_siem_and_soc_tooling' will only award the countermeasure if both 'session_start' and 'credential_checkout' are present in the forwarded_event_types array. These two event types are the minimum required for meaningful privileged access correlation in a SIEM — session_start establishes the timeline of privileged activity, and credential_checkout tracks when vault credentials are consumed. Omitting policy_violation or failed_auth from the forwarded set creates blind spots that prevent detection of brute-force attempts and rule violations in real time.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the PAM admin console, navigate to Settings > Integrations > SIEM / Logging > Event Filters (or 'Event Subscriptions'). Review the checklist or multi-select field showing which event categories are enabled for forwarding. Screenshot or transcribe all checked items.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM Admin Console > Settings > Integrations > SIEM / Logging > Event Filters",
+        "expected_output": "A list of checked event types such as: session_start, session_end, credential_checkout, policy_violation, failed_auth"
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the SIEM integration event subscription configuration via the PAM management API. The response should contain an array of enabled event type strings.",
+        "command": "curl -s -H 'Authorization: Bearer <API_TOKEN>' https://<PAM_HOST>/api/v1/integrations/siem/events | jq '.forwardedEventTypes // .eventSubscriptions // .enabledEvents'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON array such as: [\"session_start\", \"session_end\", \"credential_checkout\", \"failed_auth\"]"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect SIEM incoming data to cross-validate which event types are actually arriving. Query your SIEM for PAM source events grouped by event type and compare against the configured list to identify gaps.",
+        "command": "# Splunk example:\n# index=pam_events | stats count by event_type | sort -count\n# Elastic/OpenSearch example:\ncurl -s -X GET 'https://<SIEM_HOST>:9200/pam-events-*/_search' -H 'Content-Type: application/json' -d '{\"size\":0,\"aggs\":{\"event_types\":{\"terms\":{\"field\":\"event.category.keyword\"}}}}' | jq '.aggregations.event_types.buckets[].key'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of distinct event_type values received by the SIEM; any missing types relative to the configured list indicate a forwarding gap"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For self-hosted PAM solutions, check the SIEM integration configuration file for event filter or subscription directives. These may appear as a comma-separated list or individual include/exclude lines.",
+        "command": "grep -Ei 'event_type|EventType|forward|include|subscribe' /opt/pam/config/siem.conf /etc/pam/integrations.yaml 2>/dev/null",
+        "file_path": "/opt/pam/config/siem.conf",
+        "navigation": null,
+        "expected_output": "Lines such as: ForwardedEvents=session_start,credential_checkout,policy_violation or include_event_types: [session_start, failed_auth]"
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['session_start', 'session_end', 'credential_checkout', 'policy_violation', 'failed_auth']",
+      "['session_start', 'credential_checkout']",
+      "['session_start', 'session_end', 'failed_auth']",
+      "[]"
+    ]
+  }
+]

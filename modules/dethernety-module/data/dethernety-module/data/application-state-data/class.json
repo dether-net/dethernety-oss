@@ -1,0 +1,8 @@
+{
+  "name": "Application State Data",
+  "classType": "data",
+  "type": "data",
+  "description": "Session tokens represent high-value ephemeral credentials that grant authenticated access. Their temporary nature creates a false sense of reduced risk — improper classification, missing expiry enforcement, plaintext retention in logs or memory dumps, and inadequate disposal create exploitable windows long after the intended session lifetime.",
+  "category": "Sensitive Information",
+  "status": "reviewed"
+}

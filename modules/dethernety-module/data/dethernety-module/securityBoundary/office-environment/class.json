@@ -1,0 +1,8 @@
+{
+  "name": "Office Environment",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "The office workstation and intranet zone presents multiple boundary enforcement weaknesses stemming from insufficient ingress/egress filtering, flat internal segmentation, implicit trust propagation between workstation subnets, and inadequate lateral movement controls. The zone's internal-operations focus often results in relaxed outbound filtering assumptions and poor monitoring coverage at east-west boundaries, creating viable pivot paths for attackers who breach the perimeter.",
+  "category": "Environment Segmentation",
+  "status": "reviewed"
+}

@@ -1,0 +1,739 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "export_host_pattern": {
+        "type": "string",
+        "title": "NFS Export Host Pattern",
+        "description": "The host specification in the NFS export policy, e.g., '*', '0.0.0.0/0', a specific IP, CIDR, or hostname."
+      },
+      "export_options": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "NFS Export Options",
+        "description": "List of mount options applied to the NFS export entry, e.g., 'rw', 'ro', 'no_root_squash', 'root_squash', 'all_squash', 'sync', 'async'."
+      },
+      "root_squash_enabled": {
+        "type": "boolean",
+        "title": "Root Squash Enabled",
+        "description": "Indicates whether root_squash is configured on NFS exports, mapping remote root user requests to the anonymous user to prevent privilege escalation.",
+        "default": false
+      },
+      "all_squash_enabled": {
+        "type": "boolean",
+        "title": "All Squash Enabled",
+        "description": "Indicates whether all_squash is configured on NFS exports, mapping all remote user requests (including root) to the anonymous user.",
+        "default": false
+      },
+      "transport_encryption_enabled": {
+        "type": "boolean",
+        "title": "Transport Encryption Enabled",
+        "description": "Whether the NFS or SMB service enforces encryption in transit (e.g., NFSv4 with Kerberos krb5p, SMB encryption, or TLS wrapping). True means encryption is required; false means data is transmitted in cleartext.",
+        "default": false
+      },
+      "smb_signing_required": {
+        "type": "boolean",
+        "title": "SMB Signing Required",
+        "description": "Whether the SMB server enforces mandatory message signing on all connections, preventing MITM and relay attacks.",
+        "default": false
+      },
+      "smb_signing_enabled": {
+        "type": "boolean",
+        "title": "SMB Signing Enabled",
+        "description": "Whether SMB signing is at least enabled (though not necessarily required). Enabled but not required still allows unsigned connections, leaving relay attacks possible.",
+        "default": false
+      },
+      "protocol_version": {
+        "type": "string",
+        "enum": [
+          "nfsv2",
+          "nfsv3",
+          "nfsv4",
+          "nfsv4_kerberos",
+          "smbv1",
+          "smbv2",
+          "smbv3"
+        ],
+        "title": "File Sharing Protocol Version",
+        "description": "The protocol and version in use for the shared network storage service. Older versions (NFSv2, NFSv3, SMBv1, SMBv2) lack mandatory encryption support."
+      },
+      "nfs_auth_flavor": {
+        "type": "string",
+        "enum": [
+          "none",
+          "auth_sys",
+          "krb5",
+          "krb5i",
+          "krb5p"
+        ],
+        "title": "NFS Authentication Flavor",
+        "description": "The authentication mechanism configured for NFS exports, determining how client identity is verified (e.g., AUTH_SYS/none, Kerberos krb5, krb5i, krb5p).",
+        "default": "auth_sys"
+      },
+      "kerberos_configured": {
+        "type": "boolean",
+        "title": "Kerberos Infrastructure Configured for NFS",
+        "description": "Whether a Kerberos KDC and associated keytabs/principals are configured on the NFS server host, enabling cryptographic client authentication.",
+        "default": false
+      },
+      "write_principals": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Write-Permitted Principals",
+        "description": "List of users, groups, or well-known SIDs granted write (Change or Full Control) access to the SMB share ACL."
+      },
+      "full_control_principals": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Full Control Principals",
+        "description": "List of users, groups, or well-known SIDs granted Full Control (read+write+delete+change permissions) on the SMB share."
+      },
+      "days_since_last_patch": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Days Since Last OS/Daemon Patch",
+        "description": "Number of days elapsed since the last security patch was applied to the OS and storage daemon (nfsd, samba, etc.) on the storage server."
+      },
+      "known_unpatched_cves": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Known Unpatched CVEs for Storage Daemon",
+        "description": "List of CVE identifiers that are publicly known to affect the currently installed version of the storage daemon (nfsd, samba, etc.) and have not yet been patched.",
+        "default": []
+      },
+      "storage_daemon_version_eol": {
+        "type": "boolean",
+        "title": "Storage Daemon Version is End-of-Life",
+        "description": "Indicates whether the installed version of the storage daemon (nfsd, samba, or equivalent) has reached end-of-life and no longer receives security patches.",
+        "default": false
+      },
+      "storage_ports_allowed_cidr": {
+        "type": "string",
+        "title": "Storage Port Allowed CIDR",
+        "description": "The network CIDR or address range permitted to access storage ports (NFS 2049, mountd 111, SMB 445, iSCSI 3260) in firewall or security group rules."
+      },
+      "exposed_storage_protocols": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Exposed Storage Protocols",
+        "description": "List of storage protocols whose service ports are reachable from non-client network segments. Valid entries: nfs, smb, iscsi, mountd.",
+        "default": []
+      },
+      "client_subnet_restriction_enforced": {
+        "type": "boolean",
+        "title": "Client Subnet Restriction Enforced",
+        "description": "Whether firewall or security group rules restrict storage port access exclusively to specific, documented client subnets rather than broad or any-source ranges.",
+        "default": false
+      },
+      "mount_event_logging_enabled": {
+        "type": "boolean",
+        "title": "Mount Event Logging Enabled",
+        "description": "Whether NFS mount and unmount events are logged to a persistent audit log or syslog facility.",
+        "default": false
+      },
+      "file_access_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "File Access Audit Logging Enabled",
+        "description": "Whether read, write, and delete operations on NFS-exported paths are captured in an audit log (e.g., via auditd watches, kernel audit rules, or NFSv4 audit support).",
+        "default": false
+      },
+      "failed_auth_logging_enabled": {
+        "type": "boolean",
+        "title": "Failed Authentication Attempt Logging Enabled",
+        "description": "Whether failed authentication and authorization attempts (e.g., denied mounts, AUTH_NULL rejections, Kerberos ticket failures) are logged.",
+        "default": false
+      },
+      "permission_change_logging_enabled": {
+        "type": "boolean",
+        "title": "Permission Change Logging Enabled",
+        "description": "Whether changes to export policies, file permissions (chmod/chown), and ACLs on exported paths are captured in an audit log.",
+        "default": false
+      },
+      "volume_encryption_enabled": {
+        "type": "boolean",
+        "title": "Volume At-Rest Encryption Enabled",
+        "description": "Indicates whether the storage volume has at-rest encryption enabled (e.g., dm-crypt/LUKS, ZFS native encryption, or equivalent).",
+        "default": false
+      },
+      "volume_accessible_over_network": {
+        "type": "boolean",
+        "title": "Volume Accessible Over Network",
+        "description": "Indicates whether the unencrypted volume is exported or accessible over the network (e.g., via NFS, SMB), compounding the exposure beyond physical access.",
+        "default": false
+      },
+      "export_scope": {
+        "type": "string",
+        "enum": [
+          "global",
+          "host_restricted"
+        ],
+        "title": "Export Scope",
+        "description": "Indicates whether the NFS export is scoped to specific hosts/networks or is open to all clients (wildcard/global)."
+      },
+      "export_access_mode": {
+        "type": "string",
+        "enum": [
+          "ro",
+          "rw"
+        ],
+        "title": "Export Access Mode",
+        "description": "The read/write permission applied to the export (ro = read-only, rw = read-write)."
+      },
+      "exports_contain_sensitive_paths": {
+        "type": "boolean",
+        "title": "Exports Contain Sensitive Paths",
+        "description": "Whether any exported path contains sensitive data such as backup archives, configuration files, credential stores, or home directories.",
+        "default": false
+      },
+      "auth_mechanism": {
+        "type": "string",
+        "enum": [
+          "none",
+          "sys",
+          "krb5",
+          "krb5i",
+          "krb5p"
+        ],
+        "title": "Authentication Mechanism",
+        "description": "The authentication flavor used for the NFS export (e.g., sys/AUTH_SYS, krb5, none).",
+        "default": "sys"
+      },
+      "credential_storage_format": {
+        "type": "string",
+        "enum": [
+          "plaintext",
+          "encrypted",
+          "hashed",
+          "secrets_manager_reference",
+          "none"
+        ],
+        "title": "Credential Storage Format",
+        "description": "How backup agent credentials or service account passwords are stored in configuration files on the storage server."
+      },
+      "config_file_world_readable": {
+        "type": "boolean",
+        "title": "Configuration File World-Readable",
+        "description": "Whether credential-containing configuration files have permissions that allow read access by non-owner, non-privileged users (e.g., mode 644 or 666).",
+        "default": false
+      },
+      "secrets_manager_enforced": {
+        "type": "boolean",
+        "title": "Secrets Manager Enforced",
+        "description": "Whether organisational policy or technical controls enforce retrieval of backup credentials from a dedicated secrets manager rather than static configuration files."
+      },
+      "snapshot_policy_enabled": {
+        "type": "boolean",
+        "title": "Read-Only Snapshot Policy Enabled",
+        "description": "Indicates whether periodic read-only snapshots are configured and enabled for the shared storage volume, protecting against overwrite or deletion of backup data.",
+        "default": false
+      },
+      "worm_policy_enabled": {
+        "type": "boolean",
+        "title": "WORM Policy Enabled",
+        "description": "Indicates whether a WORM or immutable storage policy is enforced on the share, preventing modification or deletion of stored data within the retention period.",
+        "default": false
+      },
+      "snapshot_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Snapshot Retention Period (Days)",
+        "description": "The number of days snapshots are retained before being automatically purged. A value of zero or very low values provide insufficient protection against ransomware or insider threat scenarios.",
+        "default": 0
+      },
+      "daemon_process_user": {
+        "type": "string",
+        "title": "Daemon Process User Account",
+        "description": "The OS user account under which the NFS or SMB daemon process runs (e.g., root, nfsnobody, daemon, smbuser)."
+      },
+      "dedicated_service_account_exists": {
+        "type": "boolean",
+        "title": "Dedicated Low-Privilege Service Account Exists",
+        "description": "Whether a dedicated non-root, non-login service account has been created and configured for the NFS/SMB daemon."
+      },
+      "daemon_has_cap_net_bind_or_sys_admin": {
+        "type": "boolean",
+        "title": "Daemon Has Elevated Linux Capabilities",
+        "description": "Whether the daemon process has been granted elevated Linux capabilities (CAP_NET_BIND_SERVICE, CAP_SYS_ADMIN, or similar) beyond what is required."
+      },
+      "uses_default_vendor_credentials": {
+        "type": "boolean",
+        "title": "Uses Default Vendor Credentials",
+        "description": "Indicates whether the storage management interface or backup agent is still using default credentials provided by the vendor.",
+        "default": false
+      },
+      "service_account_shared_across_systems": {
+        "type": "boolean",
+        "title": "Service Account Shared Across Multiple Systems",
+        "description": "Indicates whether a single service account credential set is reused across multiple storage or backup systems, creating a single point of compromise.",
+        "default": false
+      },
+      "credential_rotation_enforced": {
+        "type": "boolean",
+        "title": "Credential Rotation Policy Enforced",
+        "description": "Indicates whether a credential rotation policy is enforced for storage management and backup service accounts, ensuring credentials are periodically changed."
+      },
+      "disk_quotas_enabled": {
+        "type": "boolean",
+        "title": "Disk Quotas Enabled",
+        "description": "Whether per-user or per-share disk quotas are configured and enforced on the NFS/shared storage volume.",
+        "default": false
+      },
+      "quota_scope": {
+        "type": "string",
+        "enum": [
+          "per_user",
+          "per_group",
+          "per_share",
+          "combined",
+          "none"
+        ],
+        "title": "Quota Scope",
+        "description": "The granularity at which quotas are applied: per-user, per-group, per-share, or none.",
+        "default": "none"
+      },
+      "enabled_storage_protocols": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Enabled Storage Protocols",
+        "description": "List of storage and management protocols currently enabled on the storage server (e.g., nfs, smb, ftp, telnet, rsh, http, https, ssh)."
+      },
+      "insecure_legacy_protocols_justified": {
+        "type": "boolean",
+        "title": "Insecure Legacy Protocols Have Documented Business Justification",
+        "description": "Whether any enabled insecure/legacy protocols (FTP, telnet, rsh, HTTP management) have formal documented justification and compensating controls on record.",
+        "default": false
+      }
+    },
+    "required": [
+      "export_host_pattern",
+      "export_options",
+      "root_squash_enabled",
+      "all_squash_enabled",
+      "transport_encryption_enabled",
+      "smb_signing_required",
+      "smb_signing_enabled",
+      "protocol_version",
+      "nfs_auth_flavor",
+      "kerberos_configured",
+      "write_principals",
+      "full_control_principals",
+      "days_since_last_patch",
+      "known_unpatched_cves",
+      "storage_daemon_version_eol",
+      "storage_ports_allowed_cidr",
+      "exposed_storage_protocols",
+      "client_subnet_restriction_enforced",
+      "mount_event_logging_enabled",
+      "file_access_audit_logging_enabled",
+      "failed_auth_logging_enabled",
+      "permission_change_logging_enabled",
+      "volume_encryption_enabled",
+      "volume_accessible_over_network",
+      "export_scope",
+      "export_access_mode",
+      "exports_contain_sensitive_paths",
+      "auth_mechanism",
+      "credential_storage_format",
+      "config_file_world_readable",
+      "secrets_manager_enforced",
+      "snapshot_policy_enabled",
+      "worm_policy_enabled",
+      "snapshot_retention_days",
+      "daemon_process_user",
+      "dedicated_service_account_exists",
+      "daemon_has_cap_net_bind_or_sys_admin",
+      "uses_default_vendor_credentials",
+      "service_account_shared_across_systems",
+      "credential_rotation_enforced",
+      "enabled_storage_protocols",
+      "insecure_legacy_protocols_justified"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/all_squash_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/auth_mechanism"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/config_file_world_readable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_storage_format"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/export_host_pattern"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/export_options"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/export_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/full_control_principals"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/kerberos_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_auth_flavor"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/root_squash_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/service_account_shared_across_systems"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/smb_signing_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/uses_default_vendor_credentials"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/write_principals"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_rotation_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/export_access_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_manager_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/smb_signing_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/client_subnet_restriction_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/enabled_storage_protocols"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/export_client_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/exposed_storage_protocols"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/storage_ports_allowed_cidr"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/volume_accessible_over_network"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/insecure_legacy_protocols_justified"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/network_exposure"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/exported_path_sensitivity"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/exports_contain_sensitive_paths"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/protocol_version"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/transport_encryption_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/volume_encryption_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/data_classification"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/daemon_process_user"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/days_since_last_patch"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/known_unpatched_cves"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/storage_daemon_version_eol"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/daemon_has_cap_net_bind_or_sys_admin"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dedicated_service_account_exists"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/share_purpose"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snapshot_policy_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/worm_policy_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snapshot_retention_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/disk_quotas_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/quota_scope"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/failed_auth_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/file_access_audit_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mount_event_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/permission_change_logging_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

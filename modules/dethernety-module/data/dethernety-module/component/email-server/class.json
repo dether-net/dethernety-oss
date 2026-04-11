@@ -1,0 +1,8 @@
+{
+  "name": "Email Server",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "Mail Transfer Agent (MTA) configurations expose critical attack surfaces through authentication bypass, relay abuse, weak encryption, and insufficient anti-spoofing controls. Misconfigurations can result in spam relay, credential interception, domain impersonation, and data exfiltration via email channels.",
+  "category": "Communication Services",
+  "status": "reviewed"
+}

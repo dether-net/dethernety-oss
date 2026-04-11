@@ -1,0 +1,1567 @@
+[
+  {
+    "option_name": "tls_enabled",
+    "option_description": "Controls whether TLS encryption is enforced on the management server configuration update channel. When false, configuration payloads including credentials, policy rules, and sensitive parameters are transmitted in plaintext over HTTP or raw TCP, making them trivially interceptable.",
+    "security_impact": "Directly triggers the unencrypted_or_weak_transport_encryption exposure when false (not input.tls_enabled). A plaintext management channel allows passive interception of entire device fleet configurations, including credentials and security policies. This is a score-8 high criticality finding.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the management server's primary configuration file for TLS enforcement flags such as tls_enabled, use_ssl, protocol, or ssl_enabled directives.",
+        "command": null,
+        "file_path": "/etc/management-server/config.yaml OR /opt/mdm/conf/server.properties OR /etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "tls_enabled: true or ssl_enabled=true or listen 443 ssl present; absence or false value indicates plaintext is permitted"
+      },
+      {
+        "type": "command",
+        "instruction": "Test whether the management endpoint accepts plaintext connections by attempting an HTTP connection and checking if it responds or redirects.",
+        "command": "curl -v --max-time 10 http://<management-server>:<port>/api/config 2>&1 | grep -E '< HTTP|Connected|SSL'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 301/302 redirect to HTTPS or connection refused indicates TLS enforcement; a 200 response indicates plaintext is accepted"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap to probe the management port and determine whether TLS is negotiated or plaintext traffic is accepted.",
+        "command": "nmap -sV -p <mgmt-port> --script ssl-cert,ssl-enum-ciphers <management-server>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS handshake details returned indicates TLS is active; 'open' with service version showing HTTP without TLS indicates plaintext"
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the management server's administrative console to verify transport security settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Settings > Network Security > Transport Encryption > Verify 'Enforce TLS' toggle is enabled",
+        "expected_output": "TLS Enforcement toggle shows enabled/on state"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "minimum_tls_version",
+    "option_description": "Defines the lowest TLS/SSL protocol version the management channel will accept during handshake negotiation. Permitting versions below TLS 1.2 exposes the channel to protocol downgrade attacks such as POODLE (SSL 3.0) and BEAST (TLS 1.0), enabling decryption of intercepted configuration traffic.",
+    "security_impact": "Triggers unencrypted_or_weak_transport_encryption when set to TLS_1_0 or TLS_1_1 (input.minimum_tls_version in [TLSv1.0, TLSv1.1]), and triggers management_channel_protocol_downgrade when set to SSL_2_0, SSL_3_0, TLS_1_0, or TLS_1_1. Both rules fire even when TLS is nominally enabled, since weak versions are exploitable via downgrade attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use openssl s_client to probe the management endpoint and determine the negotiated protocol version, then test with explicit minimum version flags.",
+        "command": "openssl s_client -connect <management-server>:<port> -tls1 2>&1 | grep -E 'Protocol|Cipher|CONNECTED|alert'; openssl s_client -connect <management-server>:<port> -tls1_1 2>&1 | grep Protocol",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection failure or 'handshake failure' for TLS 1.0/1.1 attempts indicates those versions are rejected; successful handshake indicates they are accepted"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the TLS configuration section of the management server or its reverse proxy for minimum version directives.",
+        "command": "grep -E 'ssl_min_version|MinVersion|SSLProtocol|ssl_protocols|TLSMinimumProtocol|tls_version' /etc/nginx/nginx.conf /etc/apache2/ssl.conf /etc/management-server/*.conf 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf OR /etc/apache2/sites-enabled/*.conf OR /opt/mdm/conf/tls.properties",
+        "navigation": null,
+        "expected_output": "ssl_protocols TLSv1.2 TLSv1.3 or MinVersion: TLS12 indicates compliant configuration; presence of TLSv1 or SSLv3 indicates weakness"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Run testssl.sh against the management endpoint to enumerate all accepted protocol versions with detailed output.",
+        "command": "testssl.sh --protocols <management-server>:<port>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only TLS 1.2 and TLS 1.3 should show as 'offered'; SSL 2.0, SSL 3.0, TLS 1.0, TLS 1.1 should show as 'not offered'"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the management platform's API for its security configuration to retrieve the reported minimum TLS version.",
+        "command": "curl -sk -H 'Authorization: Bearer <token>' https://<management-server>/api/v1/security/tls-config | python3 -m json.tool | grep -i 'min.*version\\|tls'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response with minimum_tls_version field set to TLS_1_2 or TLS_1_3"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLS_1_2",
+      "TLS_1_3",
+      "TLS_1_0",
+      "TLS_1_1"
+    ]
+  },
+  {
+    "option_name": "enabled_cipher_suites",
+    "option_description": "Enumerates the complete list of cipher suites permitted on the management server's TLS endpoint. Presence of weak or export-grade ciphers such as RC4, DES, 3DES, NULL, EXPORT, or anonymous suites allows adversaries to decrypt intercepted configuration traffic or force a downgrade to a breakable cipher during negotiation.",
+    "security_impact": "Triggers unencrypted_or_weak_transport_encryption if RC4, DES, or NULL appear in the list (even with TLS enabled), and triggers management_channel_protocol_downgrade when weak suites are present. Weak ciphers in a management channel are particularly dangerous because a single captured session may expose configuration secrets for the entire device fleet.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Use nmap's ssl-enum-ciphers script to obtain the full list of accepted cipher suites and their strength ratings.",
+        "command": "nmap --script ssl-enum-ciphers -p <mgmt-port> <management-server> 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists each accepted cipher with a letter grade (A/B/C/F); any F-grade ciphers or RC4/DES/NULL suites indicate weakness"
+      },
+      {
+        "type": "command",
+        "instruction": "Run testssl.sh with cipher enumeration flags to identify weak, export, and null cipher suites specifically.",
+        "command": "testssl.sh --cipher-per-proto --weak-ciphers --export <management-server>:<port> 2>/dev/null | grep -E 'WEAK|EXPORT|RC4|DES|NULL|anon|offered'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output (no weak ciphers found) is the desired result; any listed ciphers indicate misconfiguration"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Extract the cipher suite configuration directly from the management server or web server TLS configuration file.",
+        "command": "grep -E 'ssl_ciphers|CipherSuites|SSLCipherSuite|ciphers' /etc/nginx/nginx.conf /etc/apache2/ssl.conf /etc/management-server/*.conf 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf OR /etc/apache2/sites-enabled/*.conf OR /opt/mdm/conf/tls.properties",
+        "navigation": null,
+        "expected_output": "Cipher string should contain only ECDHE/DHE-based AEAD ciphers (AES-GCM, CHACHA20); absence of !RC4:!DES:!NULL:!EXPORT indicates potential weakness"
+      },
+      {
+        "type": "command",
+        "instruction": "Use openssl to test whether specific known-weak cipher suites are accepted by the management server.",
+        "command": "for cipher in RC4-SHA DES-CBC-SHA EXP-RC4-MD5 NULL-SHA; do echo -n \"Testing $cipher: \"; openssl s_client -connect <management-server>:<port> -cipher $cipher 2>&1 | grep -E 'Cipher|alert|CONNECTED'; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All tests should return 'handshake failure' or 'no ciphers available'; a successful handshake for any cipher indicates it is accepted"
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"TLS_AES_256_GCM_SHA384\", \"TLS_CHACHA20_POLY1305_SHA256\", \"ECDHE-RSA-AES256-GCM-SHA384\"]",
+      "[\"RC4-SHA\", \"DES-CBC-SHA\", \"ECDHE-RSA-AES256-GCM-SHA384\"]",
+      "[\"ECDHE-RSA-AES128-GCM-SHA256\", \"ECDHE-RSA-AES256-GCM-SHA384\", \"TLS_AES_128_GCM_SHA256\"]"
+    ]
+  },
+  {
+    "option_name": "client_certificate_authentication_required",
+    "option_description": "Controls whether the management server enforces mutual TLS (mTLS) by requiring all connecting devices to present a valid client TLS certificate signed by a trusted CA. When false, any network-reachable host can initiate a management channel connection without proving device identity.",
+    "security_impact": "Triggers missing_mutual_tls_authentication when false (not input.client_certificate_authentication_required). This is a score-8 high criticality finding. Without client certificate enforcement, an attacker can impersonate a legitimate device to receive configuration updates intended for that device, or inject fabricated device state. Combined with high configuration_payload_sensitivity, a false value here represents a severe authentication gap in the management plane.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the management server's TLS configuration for client certificate verification directives.",
+        "command": "grep -E 'ssl_verify_client|SSLVerifyClient|client_cert|require_client_cert|mtls|ClientAuth|verifyClient' /etc/nginx/nginx.conf /etc/apache2/ssl.conf /opt/mdm/conf/*.conf 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf OR /etc/apache2/sites-enabled/*.conf OR /opt/mdm/conf/server.yaml",
+        "navigation": null,
+        "expected_output": "ssl_verify_client on or SSLVerifyClient require indicates mTLS enforced; ssl_verify_client optional or off indicates it is not required"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to connect to the management TLS endpoint without providing a client certificate and observe whether the connection is accepted or rejected.",
+        "command": "openssl s_client -connect <management-server>:<port> 2>&1 | grep -E 'verify|Certificate|Handshake|CONNECTED|alert'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'handshake failure' or 'certificate required' alert indicates mTLS is enforced; successful TLS handshake without supplying a client cert indicates mTLS is not required"
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the management platform's authentication settings to verify client certificate requirement.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Security > Authentication > Device Authentication > Verify 'Require Client Certificate' or 'Mutual TLS' is set to Required (not Optional or Disabled)",
+        "expected_output": "Setting shows 'Required' or 'Enforced'; 'Optional' or 'Disabled' indicates the control is not active"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the management server API to retrieve the current authentication configuration.",
+        "command": "curl -sk -H 'Authorization: Bearer <token>' https://<management-server>/api/v1/config/auth | python3 -m json.tool | grep -i 'client_cert\\|mtls\\|mutual'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON field client_certificate_required or mtls_enabled should be true; false or absent indicates the control is not enforced"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "device_server_certificate_validation_enforced",
+    "option_description": "Determines whether endpoint devices are configured to strictly validate the management server's TLS certificate against a trusted CA, including hostname verification and expiry checking. When false, devices may accept connections to impersonated management servers presenting fraudulent certificates.",
+    "security_impact": "Triggers missing_mutual_tls_authentication when false (not input.device_server_certificate_validation_enforced). This is a score-8 high criticality exposure. Without server certificate validation, an attacker who performs DNS spoofing or BGP hijacking of management server IP ranges can redirect devices to a rogue server presenting any certificate, then push malicious configurations to the entire device fleet. This is the device-side complement to client certificate authentication.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the device management agent or firmware configuration file for TLS certificate validation settings.",
+        "command": "grep -rE 'InsecureSkipVerify|verify_ssl|verify_cert|ssl_verify|check_cert|tls_verify|VERIFY_PEER|skip_tls' /etc/mdm-agent/ /opt/device-agent/conf/ /etc/puppet/puppet.conf /etc/chef/client.rb 2>/dev/null",
+        "file_path": "/etc/mdm-agent/agent.conf OR /opt/device-agent/config.yaml OR /etc/puppet/puppet.conf OR /etc/chef/client.rb",
+        "navigation": null,
+        "expected_output": "InsecureSkipVerify: false or verify_ssl=true indicates validation is enforced; InsecureSkipVerify: true or verify=false indicates validation is disabled"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review device provisioning and agent deployment documentation to determine the default TLS validation posture applied during device enrollment.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Request device agent build configuration or deployment scripts from the device management or DevOps team; review MDM enrollment profiles for certificate validation settings",
+        "expected_output": "Documentation confirms certificate validation is enabled and not overridden during deployment; absent documentation is itself a finding"
+      },
+      {
+        "type": "command",
+        "instruction": "On a representative managed device, extract the agent configuration and check for certificate validation bypass flags.",
+        "command": "cat /etc/mdm-agent/config.yaml 2>/dev/null | grep -E 'tls|ssl|cert|verify'; strings /usr/bin/mdm-agent 2>/dev/null | grep -E 'InsecureSkip|verify.*false|skip.*cert'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No InsecureSkipVerify or verify=false entries; only verify=true or validate_cert=true entries"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Set up a test proxy with a self-signed certificate on the management server port and observe whether a managed device connects to it, indicating certificate validation is not enforced.",
+        "command": "openssl req -x509 -newkey rsa:2048 -keyout /tmp/fake.key -out /tmp/fake.crt -days 1 -nodes -subj '/CN=fake-mgmt-server' && openssl s_server -key /tmp/fake.key -cert /tmp/fake.crt -port 8443 -WWW",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No device connection attempts to the fake server indicate devices enforce certificate validation; connection attempts indicate validation is disabled"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "replay_protection_mechanism",
+    "option_description": "Identifies the type of anti-replay token embedded in configuration update messages to prevent an attacker from retransmitting a previously captured legitimate update. Options include nonce (unique random value per message), timestamp (time-bounded validity window), sequence_number (monotonically increasing counter), session_token (session-scoped identifier), multiple (combination of mechanisms), or none (no protection).",
+    "security_impact": "Directly triggers configuration_payload_replay_attack when set to none (input.replay_protection_mechanism == none). A captured configuration update can be replayed to revert devices to a known-vulnerable state or re-apply a previously revoked policy. Without a replay protection mechanism, the management channel provides no guarantee of message freshness regardless of transport encryption strength. This is a score-8 high criticality finding.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the management server's protocol configuration and message schema definitions for replay protection field declarations.",
+        "command": "grep -rE 'nonce|replay|sequence_num|msg_id|timestamp|idempotency.*key|anti.replay' /opt/mdm/conf/ /etc/management-server/ /opt/mdm/schemas/ 2>/dev/null",
+        "file_path": "/opt/mdm/conf/protocol.yaml OR /etc/management-server/message-schema.json OR /opt/mdm/schemas/",
+        "navigation": null,
+        "expected_output": "Fields named nonce, sequence_number, msg_timestamp, or idempotency_key indicate replay protection exists; absence indicates none is configured"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the management channel protocol specification or API documentation with the development team to understand what replay protection is implemented at the message layer.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Request protocol design documentation from the engineering team; ask specifically whether nonces, timestamps with validity windows, or sequence numbers are validated per message",
+        "expected_output": "Protocol spec documents replay protection mechanism type and validation behavior; absence of documentation is itself a finding"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Capture a management configuration update transaction and inspect the raw message structure for replay protection fields.",
+        "command": "tcpdump -i any -w /tmp/mgmt-capture.pcap 'host <management-server> and port <mgmt-port>' & sleep 5 && kill %1; tshark -r /tmp/mgmt-capture.pcap -d tcp.port==<mgmt-port>,ssl -Y 'ssl' 2>/dev/null | head -40",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Decrypted payload (if accessible in test environment) shows nonce or sequence_number fields; encrypted traffic without application-layer visibility requires code review"
+      },
+      {
+        "type": "api",
+        "instruction": "Replay a captured configuration update request verbatim to the management server and observe whether it is accepted or rejected with an anti-replay error.",
+        "command": "curl -sk -X POST -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d @/tmp/captured-config-update.json https://<management-server>/api/v1/config/update; sleep 5; curl -sk -X POST -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d @/tmp/captured-config-update.json https://<management-server>/api/v1/config/update",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Second identical request should return 409 Conflict, 400 Bad Request with replay error, or similar rejection; 200 OK on replay indicates no replay protection"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "nonce",
+      "timestamp",
+      "sequence_number",
+      "multiple"
+    ]
+  },
+  {
+    "option_name": "replay_token_server_side_validation_enabled",
+    "option_description": "Indicates whether the management server backend actively validates replay protection tokens upon receipt of each configuration update message, maintaining state (nonce registry, last-seen sequence number, or timestamp window enforcement) to detect and reject duplicate or out-of-order messages. A replay protection mechanism in messages is ineffective without corresponding server-side enforcement.",
+    "security_impact": "Triggers configuration_payload_replay_attack when replay_protection_mechanism is not none but this attribute is false (not input.replay_token_server_side_validation_enabled). This condition catches the common gap where a replay protection field exists in the message schema but the server never actually validates it, rendering the protection theater. Attackers can retransmit captured update payloads indefinitely if the server does not reject duplicates.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the management server middleware or message handler configuration for nonce store, replay window, or sequence validation settings.",
+        "command": "grep -rE 'nonce.*store|replay.*check|validate.*nonce|sequence.*check|timestamp.*window|idempotency.*check|anti.*replay.*enable' /opt/mdm/conf/ /etc/management-server/ /opt/mdm/middleware/ 2>/dev/null",
+        "file_path": "/opt/mdm/conf/security.yaml OR /etc/management-server/replay-protection.conf OR /opt/mdm/middleware/validator.conf",
+        "navigation": null,
+        "expected_output": "replay_validation_enabled: true or nonce_store_backend: redis indicates server-side validation; absence or false value indicates tokens are not validated"
+      },
+      {
+        "type": "api",
+        "instruction": "Perform a replay test by submitting an identical configuration update request twice with the same nonce or sequence number and verifying the second is rejected.",
+        "command": "NONCE=$(python3 -c 'import uuid; print(uuid.uuid4())'); PAYLOAD=$(printf '{\"nonce\":\"%s\",\"config\":{\"key\":\"value\"}}' $NONCE); curl -sk -X POST -H 'Authorization: Bearer <token>' -d \"$PAYLOAD\" https://<management-server>/api/v1/config/update; sleep 2; curl -sk -X POST -H 'Authorization: Bearer <token>' -d \"$PAYLOAD\" https://<management-server>/api/v1/config/update",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "First request returns 200 OK or 201 Created; second identical request returns 409 Conflict or error message mentioning duplicate/replay; two 200 responses indicates validation is not active"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the management server's application code or deployment runbooks with the engineering team to confirm nonce registry or sequence counter validation is implemented and operational.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Request code review or architecture documentation from the engineering team; ask specifically where nonce deduplication or sequence number state is maintained (Redis, database, in-memory), its TTL, and whether validation failures are logged",
+        "expected_output": "Code review confirms nonce store writes and validation checks are present in message handler; operational runbooks reference the nonce store service"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search management server application logs for evidence of replay rejection events, which would confirm server-side validation is operational.",
+        "command": "grep -rE 'replay|duplicate.*nonce|nonce.*already.*used|sequence.*out.*of.*order|replayed.*message|anti.replay' /var/log/mdm-server/ /opt/mdm/logs/ 2>/dev/null | tail -20",
+        "file_path": "/var/log/mdm-server/application.log OR /opt/mdm/logs/security.log",
+        "navigation": null,
+        "expected_output": "Log entries showing replay rejection events indicate the validation is active; complete absence of such log entries may indicate either no replay attempts occurred or validation is not implemented"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "message_timestamp_window_seconds",
+    "option_description": "Controls the maximum age in seconds of a configuration update message timestamp that the server or device will accept. A value of 0 disables timestamp enforcement entirely; values above 300 seconds are considered too permissive to provide meaningful replay protection.",
+    "security_impact": "Directly referenced by the configuration_payload_replay_attack Rego rule. If message_timestamp_window_seconds equals 0 when replay_protection_mechanism is 'timestamp' or 'multiple', the exposure fires unconditionally. An attacker capturing a valid configuration payload can replay it hours or days later to force devices back to a previously vulnerable configuration state. Values above 300 seconds extend the replay window enough to be practically exploitable in coordinated attacks.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the management server's configuration file for the timestamp window parameter. Common locations include MDM/EMM server config directories.",
+        "command": "grep -rn 'timestamp_window\\|timestamp_validity\\|max_message_age\\|replay_window' /etc/mdm/ /opt/management-server/conf/ /etc/fleet-manager/ 2>/dev/null",
+        "file_path": "/etc/mdm/server.conf",
+        "navigation": null,
+        "expected_output": "A key-value pair such as 'timestamp_window_seconds=120' or 'max_message_age=300'; absence of the key indicates default (often 0)."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the management server's runtime configuration via its administrative CLI if available.",
+        "command": "mgmt-server-ctl config get replay-protection --format json 2>/dev/null || fleet-ctl get-config | grep -i timestamp",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON or plain-text output showing the configured window value, e.g., '{\"timestamp_window_seconds\": 120}'."
+      },
+      {
+        "type": "api",
+        "instruction": "Call the management server's configuration API endpoint to retrieve replay protection settings.",
+        "command": "curl -s -H 'Authorization: Bearer $MGMT_TOKEN' https://<mgmt-server>/api/v1/config/security | jq '.replay_protection.timestamp_window_seconds'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer value such as 120, 300, or 0; a null or missing field indicates the feature is not configured."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform engineering team responsible for the management server deployment to determine whether timestamp enforcement was explicitly configured during rollout and what value was chosen.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written confirmation of the configured value and the rationale for the chosen window size."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (disabled, very common default)",
+      "60",
+      "120",
+      "300",
+      "600 (too permissive)"
+    ]
+  },
+  {
+    "option_name": "payload_integrity_mechanism",
+    "option_description": "Identifies the cryptographic mechanism applied directly to configuration payloads, independent of TLS transport security. Options are none (no application-layer integrity), hmac (shared-secret MAC), aead (authenticated encryption with associated data), or digital_signature (asymmetric per-message signature).",
+    "security_impact": "Referenced by the transit_message_integrity_bypass Rego rule. When payload_integrity_mechanism is 'none' and tls_terminated_at_intermediary is true, an attacker controlling the internal network segment between the proxy and the device can modify configuration payloads undetected. Even with a non-none mechanism, if endpoint_validates_payload_integrity is false the protection is not enforced at the receiving end, still triggering the exposure. Lack of payload-level integrity means TLS termination at any intermediary fully removes message authentication.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the management protocol specification document and server-side configuration for payload signing or MAC settings.",
+        "command": "grep -rn 'payload_integrity\\|hmac_key\\|signing_algorithm\\|message_mac\\|aead\\|payload_signature' /etc/mdm/ /opt/management-server/conf/ /etc/device-agent/ 2>/dev/null",
+        "file_path": "/opt/management-server/conf/protocol.conf",
+        "navigation": null,
+        "expected_output": "A directive such as 'payload_integrity_mechanism=hmac' or 'message_signing=disabled'; no match suggests the feature is absent."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Capture a configuration update payload in transit using tcpdump or Wireshark and inspect whether the message body contains an HMAC field, AEAD authentication tag, or detached signature block.",
+        "command": "tcpdump -i eth0 -w /tmp/mgmt_capture.pcap 'host <mgmt-server-ip> and port 443' & sleep 30 && kill %1; tshark -r /tmp/mgmt_capture.pcap -T json | jq '.[].layers.http2' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Decoded payload fields showing a MAC or signature field; absence of any integrity field indicates mechanism is 'none'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the device agent or firmware source code or SDK documentation for configuration ingestion routines to identify whether payload MAC or signature fields are generated and parsed.",
+        "command": "grep -rn 'hmac\\|verify_signature\\|aead_decrypt\\|validate_mac\\|payload_auth' /opt/device-agent/src/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Function calls or imports related to HMAC or signature verification; absence indicates no payload-level integrity mechanism."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the management server API for the active protocol security profile.",
+        "command": "curl -s -H 'Authorization: Bearer $MGMT_TOKEN' https://<mgmt-server>/api/v1/protocol/security-profile | jq '.payload_integrity_mechanism'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "String value: 'none', 'hmac', 'aead', or 'digital_signature'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (very common in legacy MDM deployments)",
+      "hmac",
+      "aead",
+      "digital_signature (rare in IoT fleets)"
+    ]
+  },
+  {
+    "option_name": "tls_terminated_at_intermediary",
+    "option_description": "Indicates whether TLS is terminated at a load balancer, reverse proxy, API gateway, or service mesh sidecar before the configuration payload reaches the endpoint device. When true, an internal plaintext or re-encrypted segment exists between the intermediary and the device.",
+    "security_impact": "Referenced by both transit_message_integrity_bypass and sensitive_configuration_data_in_cleartext_headers Rego rules. When true and payload_integrity_mechanism is 'none', a compromise of the internal network segment allows payload modification without detection. Additionally, any sensitive data present in HTTP headers (API keys, device tokens) is visible to the intermediary and to any network monitor on the internal segment. These are high-criticality exposures (score 8 and 5 respectively).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect load balancer and reverse proxy configuration files to determine whether TLS is terminated at the proxy layer with plain-HTTP backend connections.",
+        "command": "grep -rn 'ssl_terminate\\|backend.*http:\\|proxy_pass.*http:\\|ssl offload\\|tls_passthrough' /etc/nginx/ /etc/haproxy/ /etc/traefik/ /etc/envoy/ 2>/dev/null",
+        "file_path": "/etc/nginx/sites-enabled/mgmt-proxy.conf",
+        "navigation": null,
+        "expected_output": "Backend directives using plain HTTP (e.g., 'proxy_pass http://') confirm TLS termination at the proxy; HTTPS backends indicate pass-through or re-origination."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a point on the internal network between the proxy and the management server, capture traffic to determine whether it is plaintext HTTP or TLS-encrypted.",
+        "command": "tcpdump -i eth1 -nn -A 'host <mgmt-server-backend-ip> and port 8080' 2>/dev/null | head -100",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Readable HTTP headers and body content indicate plaintext (TLS terminated at proxy); binary/encrypted content indicates TLS re-origination."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the load balancer or API gateway management console and inspect the listener and backend pool TLS settings for the management channel.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Load Balancer Console > Listeners > [Management Port] > TLS Settings > Backend Protocol; check whether backend protocol is HTTP or HTTPS.",
+        "expected_output": "Backend protocol set to HTTP confirms TLS termination; HTTPS with certificate validation confirms re-origination."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the infrastructure API (AWS ALB, GCP Load Balancer, etc.) for the management server target group or backend service TLS configuration.",
+        "command": "aws elbv2 describe-target-groups --target-group-arns <arn> --query 'TargetGroups[].Protocol' --output text 2>/dev/null || gcloud compute backend-services describe <service-name> --format='value(protocol)' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'HTTP' confirms TLS termination at load balancer; 'HTTPS' indicates TLS to backend."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common in cloud-hosted MDM with ALB/NLB)",
+      "false (preferred for end-to-end TLS)"
+    ]
+  },
+  {
+    "option_name": "endpoint_validates_payload_integrity",
+    "option_description": "Specifies whether the receiving endpoint device independently verifies the cryptographic integrity of the configuration payload (validates HMAC, AEAD tag, or digital signature) before applying the configuration, separate from and in addition to TLS handshake validation.",
+    "security_impact": "Referenced by the transit_message_integrity_bypass Rego rule. If a non-none payload_integrity_mechanism is configured but endpoint_validates_payload_integrity is false, the payload signature or MAC is never checked at the point of application, making the integrity mechanism cosmetic. Additionally, when tls_terminated_at_intermediary is true, the absence of endpoint-side validation means any payload modification on the internal segment is accepted silently. The Rego rule explicitly checks this combination, treating it as a high-severity exposure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review endpoint firmware or management agent source code for the configuration ingestion code path, specifically looking for HMAC verification, signature validation, or AEAD decryption calls before config application.",
+        "command": "grep -rn 'verify\\|validate_signature\\|hmac_verify\\|check_integrity\\|auth_tag\\|payload_auth' /opt/device-agent/ /firmware/src/ 2>/dev/null | grep -v test",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active verification call in the configuration application code path; absence or commented-out code indicates validation is not performed."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Deliver a configuration payload with a deliberately corrupted HMAC or signature to a test device and observe whether it accepts or rejects the payload.",
+        "command": "python3 -c \"import requests, json; payload={'config': {'key':'val'}, 'hmac': 'aaaaaaaaaaaaaaaaaaaaaaaa'}; r=requests.post('https://<device-ip>/apply-config', json=payload, verify=False); print(r.status_code, r.text)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 400 or application-level error indicating signature rejection confirms validation is active; HTTP 200 with configuration applied indicates validation is absent."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review device-side application logs for integrity validation events during configuration update cycles.",
+        "command": "ssh <device-ip> 'journalctl -u mgmt-agent --since \"1 hour ago\" | grep -i \"integrity\\|hmac\\|signature\\|verify\\|validation\"'",
+        "file_path": "/var/log/mgmt-agent/agent.log",
+        "navigation": null,
+        "expected_output": "Log lines such as 'Payload signature verified successfully' or 'HMAC check passed'; absence of any integrity-related log entries suggests validation is not implemented."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the device management agent's status API for security feature flags.",
+        "command": "curl -s http://<device-ip>:8443/api/agent/security-config | jq '.payload_integrity_validation_enabled'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Boolean true confirms endpoint validation is active; false or missing field indicates it is not."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common default in IoT agents)",
+      "true (required for secure deployments)"
+    ]
+  },
+  {
+    "option_name": "certificate_validation_mode",
+    "option_description": "Defines the level of TLS server certificate validation performed by the device or management client. 'full' enforces complete chain validation and hostname matching. 'skip_hostname' disables hostname verification. 'skip_expiry' ignores certificate expiration. 'disabled' bypasses all certificate validation.",
+    "security_impact": "Directly referenced by the tls_certificate_validation_failure Rego rule, which fires when the mode is 'disabled', 'skip_hostname', or 'skip_expiry'. Any non-full mode allows an attacker to present a fraudulent server certificate and impersonate the management server, enabling push of malicious configurations to the entire device fleet. The Rego rule also combines this attribute with certificate_pinning_enforced — if pinning is absent and mode is not 'full', the exposure still triggers. This is a high-criticality finding (score 8).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the management agent or device firmware TLS client configuration for validation bypass flags.",
+        "command": "grep -rn 'InsecureSkipVerify\\|verify=False\\|verify=false\\|ssl_verify\\|tls_verify\\|CURLOPT_SSL_VERIFYPEER\\|certificate_validation\\|skip_hostname\\|skip_verify' /opt/device-agent/ /etc/mgmt-client/ /firmware/conf/ 2>/dev/null",
+        "file_path": "/opt/device-agent/config/tls.conf",
+        "navigation": null,
+        "expected_output": "Flags like 'InsecureSkipVerify: true' or 'ssl_verify = false' indicate disabled or partial validation; 'verify = true' with no additional skip flags indicates full validation."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test the management client against a self-signed certificate from a test server to determine whether connections succeed or fail without a trusted CA.",
+        "command": "openssl s_server -cert /tmp/selfsigned.crt -key /tmp/selfsigned.key -port 4433 -accept 4433 & sleep 2; curl -v --resolve <mgmt-hostname>:4433:127.0.0.1 https://<mgmt-hostname>:4433/health 2>&1 | grep -E 'SSL|certificate|verify|error'; kill %1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection failure with 'SSL certificate problem' or 'certificate verify failed' confirms full validation; successful connection indicates validation is disabled or weakened."
+      },
+      {
+        "type": "command",
+        "instruction": "On Go-based agents, search compiled binaries or source for the TLS configuration struct to identify InsecureSkipVerify usage.",
+        "command": "strings /opt/device-agent/bin/mgmt-agent | grep -i 'skipverify\\|insecure\\|tls_skip' 2>/dev/null; grep -rn 'InsecureSkipVerify' /opt/device-agent/src/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'InsecureSkipVerify' set to true in source or binary strings indicates disabled hostname/cert validation."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review device provisioning runbooks and security baseline documentation to determine the intended and actually deployed certificate validation mode.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation explicitly stating 'full' validation with chain and hostname checks; any mention of skipping validation for 'convenience' or 'legacy compatibility' indicates a finding."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "full (secure default)",
+      "skip_hostname (common in dev/staging environments that leak to production)",
+      "disabled (found in IoT quick-deployment scenarios)"
+    ]
+  },
+  {
+    "option_name": "accepted_certificate_types",
+    "option_description": "Defines the set of server certificate types the device or management client will accept for TLS connections. Secure deployments should accept only 'ca_signed'. Accepting 'self_signed', 'expired', or 'hostname_mismatched' certificates indicates specific validation weaknesses that can be exploited individually.",
+    "security_impact": "Each non-ca_signed value directly triggers the tls_certificate_validation_failure Rego rule as a separate condition. Accepting self-signed certificates allows any party with network interception capability to present a self-generated certificate and impersonate the management server. Accepting expired certificates enables use of compromised or decommissioned certificates. Accepting hostname-mismatched certificates removes the binding between DNS name and certificate identity. Any of these individually constitutes a high-severity exposure (score 8).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Test the management client's acceptance of a self-signed certificate by standing up a test TLS server and attempting to connect the management agent.",
+        "command": "openssl req -x509 -newkey rsa:2048 -keyout /tmp/test.key -out /tmp/test.crt -days 365 -nodes -subj '/CN=attacker.example.com' 2>/dev/null; openssl s_server -cert /tmp/test.crt -key /tmp/test.key -port 8443 -quiet & sleep 2; curl -v --resolve <mgmt-hostname>:8443:127.0.0.1 https://<mgmt-hostname>:8443/ 2>&1 | grep -E 'issuer|subject|verify|error|connected'; kill %1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection failure with certificate error confirms self-signed certs are rejected; successful connection confirms they are accepted."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test acceptance of an expired certificate by presenting one during a connection attempt.",
+        "command": "openssl req -x509 -newkey rsa:2048 -keyout /tmp/expired.key -out /tmp/expired.crt -days -1 -nodes -subj '/CN=<mgmt-hostname>' 2>/dev/null; openssl s_server -cert /tmp/expired.crt -key /tmp/expired.key -port 8444 -quiet & sleep 2; curl -v --resolve <mgmt-hostname>:8444:127.0.0.1 https://<mgmt-hostname>:8444/ 2>&1 | grep -E 'expire\\|verify\\|error\\|connected'; kill %1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Error containing 'certificate has expired' with connection failure confirms expiry is checked; successful connection confirms expired certs are accepted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Search management agent configuration and source code for certificate acceptance policy settings.",
+        "command": "grep -rn 'accept_self_signed\\|allow_expired\\|ignore_hostname\\|cert_type_whitelist\\|accepted_cert_types\\|verify_hostname.*false\\|check_expiry.*false' /opt/device-agent/ /etc/mgmt-client/ 2>/dev/null",
+        "file_path": "/opt/device-agent/config/tls_policy.yaml",
+        "navigation": null,
+        "expected_output": "Explicit acceptance flags for non-CA-signed types; clean output with only 'ca_signed' or no non-standard flags indicates secure configuration."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review device onboarding and provisioning procedures to determine if self-signed certificates were used during initial deployment and whether those exceptions were ever removed.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation that only CA-signed certificates from an approved PKI are accepted in production; any exception for self-signed or expired certificates constitutes a finding."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"ca_signed\"] (secure baseline)",
+      "[\"ca_signed\", \"self_signed\"] (common in internal deployments)",
+      "[\"ca_signed\", \"self_signed\", \"hostname_mismatched\"] (frequently found in IoT deployments with dynamic IPs)"
+    ]
+  },
+  {
+    "option_name": "certificate_pinning_enforced",
+    "option_description": "Specifies whether the device or management client enforces certificate pinning by validating the server's public key fingerprint or certificate hash against a pre-provisioned pin, preventing acceptance of certificates signed by arbitrary trusted CAs.",
+    "security_impact": "Referenced by both tls_certificate_validation_failure and dns_spoofing_of_management_server_resolution Rego rules. In the certificate validation rule, when pinning is absent and certificate_validation_mode is not 'full', the exposure fires. In the DNS spoofing rule, absence of pinning combined with dynamic DNS resolution and no DNSSEC means a DNS-poisoned response directing the device to a rogue server will succeed even if TLS is used, because the attacker can present a certificate from any trusted CA. Certificate pinning is the last line of defense against these combined attack vectors on device fleets.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search device agent and firmware configuration for certificate pin or fingerprint configuration directives.",
+        "command": "grep -rn 'pin_sha256\\|cert_fingerprint\\|public_key_pin\\|certificate_pin\\|pinned_cert\\|spki_hash\\|hpkp' /opt/device-agent/ /etc/mgmt-client/ /firmware/conf/ 2>/dev/null",
+        "file_path": "/opt/device-agent/config/pinning.conf",
+        "navigation": null,
+        "expected_output": "A base64-encoded SHA-256 hash or fingerprint value associated with the management server's public key; absence of any pin directive indicates pinning is not configured."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the device agent binary or APK/firmware package for hardcoded certificate pins.",
+        "command": "strings /opt/device-agent/bin/mgmt-agent | grep -E '[A-Za-z0-9+/]{43}=|sha256/' 2>/dev/null; objdump -s /opt/device-agent/bin/mgmt-agent 2>/dev/null | grep -A2 'pin'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Base64-encoded SHA-256 strings matching known management server certificate hashes indicate embedded pins; absence indicates no hardcoded pinning."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review device provisioning records and security architecture documentation to determine whether certificate pins were included in the device provisioning package during manufacturing or enrollment.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Provisioning documentation referencing a certificate pin bundle or public key hash distributed to devices during enrollment; absence from provisioning records confirms pinning is not enforced."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Present a certificate from a different CA (but valid and trusted by the system root store) to the management client and observe whether the connection is accepted or rejected.",
+        "command": "# Generate cert from alternate CA (use your test CA); openssl s_server -cert /tmp/alt_ca_signed.crt -key /tmp/alt_ca_signed.key -port 8445 -quiet & sleep 2; curl -v --resolve <mgmt-hostname>:8445:127.0.0.1 --cacert /tmp/alt-ca.crt https://<mgmt-hostname>:8445/ 2>&1 | grep -E 'pin\\|connected\\|error'; kill %1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection failure with a pin mismatch error confirms pinning is enforced; successful connection confirms pinning is absent and any CA-signed cert is accepted."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in most MDM deployments)",
+      "true (required in high-security IoT and enterprise device management)"
+    ]
+  },
+  {
+    "option_name": "downgrade_attack_protection_enabled",
+    "option_description": "Controls whether explicit TLS downgrade protection is configured, including TLS_FALLBACK_SCSV signaling in ClientHello messages and server-side rejection of fallback negotiation attempts when the client supports higher protocol versions. Prevents POODLE, BEAST, and similar downgrade-based attacks.",
+    "security_impact": "Directly referenced by the management_channel_protocol_downgrade Rego rule, which fires when downgrade_attack_protection_enabled is false, regardless of the minimum TLS version configured. An active attacker performing a man-in-the-middle attack on the management channel can interfere with the TLS handshake to force negotiation of a weaker protocol version or cipher suite, enabling decryption or tampering of configuration payloads. This is a medium-criticality finding (score 5) but becomes high-severity when combined with other transport weaknesses.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Test the management server for TLS_FALLBACK_SCSV support using OpenSSL's -fallback_scsv flag and verify the server rejects downgrade attempts.",
+        "command": "openssl s_client -connect <mgmt-server-ip>:443 -tls1_2 -fallback_scsv 2>&1 | grep -E 'alert\\|FALLBACK\\|handshake\\|Protocol'; openssl s_client -connect <mgmt-server-ip>:443 -no_tls1_3 -fallback_scsv 2>&1 | grep -E 'handshake failure\\|inappropriate fallback\\|SCSV'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'handshake failure' or 'inappropriate fallback' alert confirms TLS_FALLBACK_SCSV is enforced server-side; a successful connection indicates downgrade protection is absent."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the TLS server configuration (nginx, Apache, HAProxy, or custom) for explicit minimum version enforcement and SCSV configuration.",
+        "command": "grep -rn 'ssl_protocols\\|TLSv1.3\\|TLSv1.2\\|SSLv3\\|TLS_FALLBACK_SCSV\\|no-sslv3\\|fallback\\|downgrade' /etc/nginx/conf.d/ /etc/apache2/ /etc/haproxy/ /opt/management-server/conf/ 2>/dev/null",
+        "file_path": "/etc/nginx/conf.d/mgmt-ssl.conf",
+        "navigation": null,
+        "expected_output": "Directives like 'ssl_protocols TLSv1.2 TLSv1.3' without older protocols, combined with absence of disabled SCSV flags, indicate downgrade protection is enabled; presence of SSLv3 or TLSv1.0 in the protocol list indicates it is not."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to force a TLS 1.0 connection to the management server from a client that normally uses TLS 1.3, simulating a downgrade scenario.",
+        "command": "openssl s_client -connect <mgmt-server-ip>:443 -tls1 2>&1 | grep -E 'Protocol|Cipher|no protocols\\|handshake failure\\|alert'; openssl s_client -connect <mgmt-server-ip>:443 -ssl3 2>&1 | grep -E 'Protocol|error|unsupported'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection failure with 'no protocols available' or 'handshake failure' confirms minimum version enforcement is active; successful TLS 1.0 or SSL 3.0 connection confirms downgrade protection is absent."
+      },
+      {
+        "type": "api",
+        "instruction": "Use sslyze or testssl.sh to perform an automated TLS configuration assessment of the management server endpoint.",
+        "command": "sslyze --tlsv1 --tlsv1_1 --fallback <mgmt-server-ip>:443 2>/dev/null | grep -E 'FALLBACK_SCSV|TLS 1.0|TLS 1.1|Accepted|Rejected'; testssl.sh --protocols <mgmt-server-ip>:443 2>/dev/null | grep -E 'fallback|downgrade|TLS 1\\.[01]|SSL'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "sslyze output showing 'FALLBACK_SCSV - Supported' and 'TLS 1.0 - Not Accepted' confirms protection is active; opposite results indicate it is absent."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common when TLS library defaults are used without explicit hardening)",
+      "true (present in hardened configurations following NIST SP 800-52r2 or CIS benchmarks)"
+    ]
+  },
+  {
+    "option_name": "rate_limiting_enabled",
+    "option_description": "Controls whether the management server enforces rate limiting on incoming configuration update requests, capping the volume of requests processed per source to prevent flooding-based denial of service attacks.",
+    "security_impact": "The Rego policy flags bandwidth_exhaustion_via_update_flooding when rate_limiting_enabled is false or absent. Without this control, a compromised device or attacker with network access can flood the management server with spurious update requests, exhausting CPU, memory, or bandwidth and preventing legitimate configuration updates from reaching the device fleet. This is a medium-criticality availability exposure with a score of 5.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the management server configuration file for rate-limiting directives. Common locations vary by platform — check nginx, HAProxy, or API gateway configuration files for limit_req, throttle, or rateLimit blocks.",
+        "command": "grep -rE 'rate.?limit|throttle|max_requests|req_per' /etc/nginx/nginx.conf /etc/haproxy/haproxy.cfg /opt/mgmt-server/config/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf or /etc/haproxy/haproxy.cfg or /opt/mgmt-server/config/server.yaml",
+        "navigation": null,
+        "expected_output": "Presence of a rate-limiting directive such as 'limit_req zone=mgmt burst=20' or 'maxconn 100' confirms rate limiting is enabled."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the API gateway management API (e.g., AWS API Gateway, Kong, or Apigee) for usage plan or rate-limiting policies applied to the management endpoint.",
+        "command": "aws apigateway get-usage-plan --usage-plan-id <plan-id> --query 'throttle' || curl -s -H 'Kong-Admin-Token: <token>' http://localhost:8001/services/mgmt-config/plugins | jq '.data[] | select(.name==\"rate-limiting\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response includes rateLimit or throttle fields with non-zero values indicating rate limiting is active."
+      },
+      {
+        "type": "gui",
+        "instruction": "If using a commercial MDM platform (e.g., Microsoft Intune, VMware Workspace ONE, or Cisco Meraki), navigate to the administrative console and review the API throttling or service limits settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Settings > API Throttling / Rate Limiting > Configuration Update Endpoint",
+        "expected_output": "A rate-limiting toggle shows 'Enabled' with configured thresholds visible."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a controlled burst test from an authorized test client to observe whether the server returns HTTP 429 Too Many Requests responses after exceeding expected thresholds.",
+        "command": "for i in $(seq 1 200); do curl -s -o /dev/null -w '%{http_code}\\n' -X POST https://<mgmt-server>/api/config/update -H 'Authorization: Bearer <token>'; done | sort | uniq -c",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 429 responses appear after the rate threshold is exceeded, confirming rate limiting is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "max_update_requests_per_minute",
+    "option_description": "Specifies the integer threshold for the maximum number of configuration update requests accepted from a single source (device IP or authenticated identity) per minute. A value of 0 indicates no per-source limit is enforced.",
+    "security_impact": "The Rego policy triggers bandwidth_exhaustion_via_update_flooding when rate_limiting_enabled is true but max_update_requests_per_minute equals 0, because enabling the rate-limiting feature without configuring a threshold provides no actual protection. An uncapped source can still exhaust server resources. Appropriate values depend on fleet size and expected update frequency; excessively high values may render rate limiting ineffective.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Examine management server or API gateway configuration files for the numeric rate threshold assigned to the management update endpoint. Look for per-IP or per-client limit values.",
+        "command": "grep -A5 -B5 'rate.?limit\\|burst\\|max_conn\\|requests_per' /etc/nginx/sites-enabled/mgmt-server.conf /opt/mgmt-server/config/ratelimit.yaml 2>/dev/null",
+        "file_path": "/etc/nginx/sites-enabled/mgmt-server.conf or /opt/mgmt-server/config/ratelimit.yaml",
+        "navigation": null,
+        "expected_output": "A numeric value such as 'rate=60r/m' or 'requests_per_minute: 60' is visible with a non-zero value."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the rate-limiting plugin configuration from the API gateway to read the configured requests-per-minute value programmatically.",
+        "command": "curl -s -H 'Kong-Admin-Token: <token>' http://localhost:8001/plugins?name=rate-limiting | jq '.data[].config | {minute, hour, policy}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output shows 'minute': <non-zero integer> confirming a per-minute cap is set."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the API gateway or MDM admin console, navigate to the rate-limiting policy for the configuration update endpoint and read the per-source requests-per-minute value.",
+        "command": null,
+        "file_path": null,
+        "navigation": "API Gateway Console > APIs > Management Config Update > Usage Plans > Throttling > Requests Per Minute",
+        "expected_output": "A non-zero integer is displayed in the 'Requests Per Minute' field."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review management server access logs to estimate the observed peak request rate per source, which can validate whether the configured threshold is appropriate for the fleet.",
+        "command": "awk '{print $1, $4}' /var/log/nginx/mgmt-access.log | grep 'config/update' | awk '{print $1}' | sort | uniq -c | sort -rn | head -20",
+        "file_path": "/var/log/nginx/mgmt-access.log",
+        "navigation": null,
+        "expected_output": "Output shows per-IP request counts per time window; high counts from a single IP indicate the threshold may be set too high or not enforced."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "30",
+      "60",
+      "120",
+      "300"
+    ]
+  },
+  {
+    "option_name": "source_authentication_required",
+    "option_description": "Controls whether the management server mandates verified device identity — via mutual TLS client certificates or token-based authentication — before processing any configuration update request, ensuring that unauthenticated sources cannot submit requests.",
+    "security_impact": "The Rego policy includes a condition for bandwidth_exhaustion_via_update_flooding when both source_authentication_required and rate_limiting_enabled are false simultaneously. Without source authentication, any host on the network can submit flood requests, and there is no identity-based enforcement to block or throttle unauthenticated sources. This also intersects with the missing_mutual_tls_authentication exposure, which is high criticality.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the management server TLS configuration for client certificate authentication requirements. For nginx, look for ssl_verify_client; for Apache, look for SSLVerifyClient; for application servers, look for mTLS or auth middleware settings.",
+        "command": "grep -E 'ssl_verify_client|SSLVerifyClient|client_cert|require_auth|auth_required' /etc/nginx/nginx.conf /etc/apache2/sites-enabled/*.conf /opt/mgmt-server/config/*.yaml 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf or /etc/apache2/sites-enabled/mgmt.conf",
+        "navigation": null,
+        "expected_output": "Value of 'ssl_verify_client on' or 'SSLVerifyClient require' confirms client authentication is enforced."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to connect to the management update endpoint without presenting a client certificate or authentication token to verify whether the server rejects unauthenticated requests.",
+        "command": "curl -v --tlsv1.2 https://<mgmt-server>/api/config/update -X POST -d '{}' 2>&1 | grep -E 'HTTP|SSL|certificate|400|401|403'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server returns HTTP 401 Unauthorized or TLS handshake failure ('alert certificate required') confirming authentication is enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the management server's OpenAPI spec or security policy endpoint to determine which authentication schemes are required for the configuration update route.",
+        "command": "curl -s https://<mgmt-server>/openapi.json | jq '.paths[\"/api/config/update\"].post.security'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output references a security scheme (e.g., 'mutualTLS' or 'BearerAuth'), confirming authentication is required."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the management platform administrator or review the device onboarding documentation to confirm whether certificate enrollment or token provisioning is a mandatory step before devices can receive configurations.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation or staff confirm that devices must complete certificate or token enrollment before the management endpoint accepts requests from them."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "rpki_validation_enabled",
+    "option_description": "Controls whether Resource Public Key Infrastructure (RPKI) Route Origin Validation is enforced on BGP peers upstream of the management server, causing the router to reject route advertisements that lack valid Route Origin Authorizations (ROAs) for the management IP prefixes.",
+    "security_impact": "The Rego policy triggers bgp_route_hijacking_of_management_traffic when management_ip_ranges_publicly_routed is true and rpki_validation_enabled is false, regardless of whether BGP prefix filters exist. RPKI validation is required as an independent protection layer because prefix filters alone can miss novel hijack paths from unauthorized ASes. Without RPKI, a malicious AS can advertise a more-specific prefix and redirect configuration update traffic to attacker-controlled infrastructure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Log into the border router or upstream BGP peer and verify RPKI/ROV configuration. On Cisco IOS-XR use 'show bgp rpki summary'; on Juniper use 'show validation statistics'; on FRRouting use 'show bgp rpki prefix-table'.",
+        "command": "ssh <router-mgmt-ip> 'show bgp rpki summary' || ssh <router-mgmt-ip> 'show validation statistics' || vtysh -c 'show bgp rpki prefix-table' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows an active RPKI cache server connection with ROA counts and 'Invalid' prefix rejection policy configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the BGP router configuration file for RPKI validator cache definitions and route-map references that reject RPKI-invalid routes.",
+        "command": "grep -A10 'rpki\\|route-origin-validation\\|bgp bestpath' /etc/frr/bgpd.conf /etc/bird/bird.conf 2>/dev/null",
+        "file_path": "/etc/frr/bgpd.conf or /etc/bird/bird.conf",
+        "navigation": null,
+        "expected_output": "Configuration includes an RPKI cache server entry and a route-map rule that drops routes with 'rpki invalid' state."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the network automation platform or RPKI validator (e.g., Routinator, FORT, OctoRPKI) API to confirm the validation state for the management server IP prefix.",
+        "command": "curl -s 'https://<routinator-host>/api/v1/validity/<origin-asn>/<prefix>/<prefix-len>' | jq '.validated_route.validity.state'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response shows 'valid' state, confirming a matching ROA exists and RPKI validation is active for the management prefix."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Contact the upstream ISP or network operations team to confirm whether RPKI ROV is enforced on the peering sessions carrying management server prefixes, as this may be configured at the ISP level.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ISP or NOC confirms in writing that ROV is enforced and RPKI-invalid routes are dropped for the management AS prefixes."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "bgp_prefix_filter_configured",
+    "option_description": "Controls whether border routers have explicit BGP inbound prefix-lists or route-map filters that deny more-specific route advertisements for management server IP ranges from unauthorized autonomous systems, providing a defense-in-depth layer against BGP hijacking alongside RPKI.",
+    "security_impact": "The Rego policy triggers bgp_route_hijacking_of_management_traffic when management_ip_ranges_publicly_routed is true and rpki_validation_enabled is true but bgp_prefix_filter_configured is false — meaning both controls are required, not either one. Prefix filters block more-specific hijacks from ASes that have not registered ROAs, or in cases where RPKI validation is not enforced by all upstream peers. Without both controls, management traffic can be silently redirected at the routing layer.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On the border router, display the inbound BGP prefix-list or route-map applied to each peer session and verify management IP subnets have deny rules for more-specific prefixes from external ASes.",
+        "command": "ssh <border-router-ip> 'show ip prefix-list MGMT-INBOUND-FILTER' || ssh <border-router-ip> 'show route-map INBOUND-POLICY' || vtysh -c 'show ip prefix-list'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Prefix-list output includes 'deny <mgmt-prefix>/longer-than <prefix-length>' entries covering management IP ranges."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Examine the router configuration for prefix-list definitions and their application to BGP neighbor inbound policies, specifically checking coverage of management IP subnets.",
+        "command": "grep -A20 'ip prefix-list\\|prefix-list\\|route-map\\|neighbor.*filter-list' /etc/frr/bgpd.conf 2>/dev/null | grep -A5 -B5 '<mgmt-subnet>'",
+        "file_path": "/etc/frr/bgpd.conf or router running-config export",
+        "navigation": null,
+        "expected_output": "Configuration shows a prefix-list entry matching the management subnet with a deny rule for more-specific prefixes, applied inbound to relevant BGP neighbors."
+      },
+      {
+        "type": "api",
+        "instruction": "Use a network automation platform (e.g., Ansible, Nautobot, or Batfish) to query BGP policy objects and verify prefix filter coverage for management IP ranges across all border routers.",
+        "command": "python3 -c \"import requests; r = requests.get('http://<nautobot>/api/plugins/bgp/prefix-lists/?name=MGMT', headers={'Authorization': 'Token <token>'}); print(r.json())\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "API response returns prefix-list objects containing management subnet entries with deny-more-specific rules."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use BGP looking glass services (RIPE RIS, RouteViews) or an internal looking glass to verify no more-specific routes for management IP prefixes are accepted by the organization's border routers.",
+        "command": "curl -s 'https://stat.ripe.net/data/routing-status/data.json?resource=<mgmt-prefix>' | jq '.data.routes[] | select(.prefix != \"<mgmt-prefix>\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No more-specific routes for the management prefix appear in the routing table, confirming filters are effective."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "management_ip_ranges_publicly_routed",
+    "option_description": "Indicates whether the management server IP address ranges are advertised in the global public BGP routing table and reachable from the internet, as opposed to being confined to RFC1918 private address space or a dedicated out-of-band management network.",
+    "security_impact": "The Rego policy only evaluates bgp_route_hijacking_of_management_traffic when management_ip_ranges_publicly_routed is true — all BGP hijacking exposure conditions are gated on this attribute. Publicly routed management IPs are inherently exposed to route hijacking by any AS worldwide, making RPKI and prefix filter protections mandatory. Management infrastructure on private or out-of-band networks is not visible to global BGP and is therefore not susceptible to internet-sourced route hijacking.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Look up the management server IP address in public BGP route databases to determine whether it appears in the global routing table.",
+        "command": "curl -s 'https://stat.ripe.net/data/routing-status/data.json?resource=<mgmt-server-ip>' | jq '{announced: .data.announced, prefix: .data.routes[].prefix}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If 'announced' is true and a public prefix is returned, the management IP is publicly routed. If not announced or in RFC1918 space, it is private."
+      },
+      {
+        "type": "command",
+        "instruction": "Perform a WHOIS and BGP lookup using bgpq4 or whois to determine whether the management server IP belongs to a publicly allocated and announced prefix.",
+        "command": "whois <mgmt-server-ip> | grep -E 'route:|origin:|inetnum:|NetRange:' && bgpq4 -A <mgmt-server-ip>/32 2>/dev/null || curl -s https://ipinfo.io/<mgmt-server-ip>/json | jq '{org, bogon, anycast}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "WHOIS returns a public ASN and route entry; ipinfo returns a non-bogon result confirming public routability."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to resolve the management server IP route from an external vantage point (e.g., via a cloud VM or BGP looking glass) to confirm internet reachability.",
+        "command": "traceroute <mgmt-server-ip> || mtr --report --no-dns <mgmt-server-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Successful traceroute from external internet reaching the management IP confirms public routability; RFC1918 IPs will be unreachable from external networks."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the network architecture documentation or consult the network team to determine whether management servers are placed in a dedicated out-of-band management network, a private VPC, or on public internet-facing infrastructure.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture documentation explicitly states the management IP ranges and whether they are publicly advertised or restricted to private/OOB network segments."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "dnssec_validation_enabled",
+    "option_description": "Controls whether the device or its configured DNS resolver enforces DNSSEC signature validation when resolving the management server hostname, rejecting DNS responses that lack valid DNSSEC signatures or contain tampered records.",
+    "security_impact": "The Rego policy triggers dns_spoofing_of_management_server_resolution when management_hostname_resolution_method is 'dns_dynamic', dnssec_validation_enabled is false, and certificate pinning is weak (system_ca or none). DNSSEC validation prevents DNS cache poisoning and response injection attacks that could redirect devices to a rogue management server. Without it, an attacker who can intercept or poison DNS can redirect the entire device fleet to attacker-controlled infrastructure even when TLS is used — if certificate validation is also insufficient.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux endpoints, check the systemd-resolved or dnsmasq configuration for DNSSEC validation settings. For systemd-resolved, inspect /etc/systemd/resolved.conf; for dnsmasq, check for dnssec options.",
+        "command": "cat /etc/systemd/resolved.conf | grep -i dnssec; resolvectl status | grep -i dnssec; grep -r 'dnssec' /etc/dnsmasq.conf /etc/dnsmasq.d/ 2>/dev/null",
+        "file_path": "/etc/systemd/resolved.conf or /etc/dnsmasq.conf",
+        "navigation": null,
+        "expected_output": "Output shows 'DNSSEC=yes' or 'DNSSEC Current=yes' confirming validation is active; 'DNSSEC=no' or absence indicates it is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Test DNSSEC validation behavior directly by querying a known DNSSEC-signed domain with an intentionally invalid signature using dig +dnssec and observing whether the resolver rejects the response.",
+        "command": "dig +dnssec +cd <mgmt-server-hostname> @<device-resolver-ip> && dig @<device-resolver-ip> dnssec-failed.org A | grep -E 'SERVFAIL|NOERROR|flags'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Query to dnssec-failed.org returns SERVFAIL (validation active) rather than NOERROR (validation disabled)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On devices using BIND or Unbound as the local resolver, check the resolver configuration for DNSSEC validation directives.",
+        "command": "grep -E 'dnssec-validation|dnssec-enable|val-permissive-mode' /etc/named.conf /etc/unbound/unbound.conf 2>/dev/null",
+        "file_path": "/etc/named.conf or /etc/unbound/unbound.conf",
+        "navigation": null,
+        "expected_output": "'dnssec-validation auto' or 'dnssec-validation yes' confirms DNSSEC validation is enabled in the resolver."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Windows endpoints, open Group Policy Editor or Intune device configuration to verify the DNS Client settings for DNSSEC validation. For network-level enforcement, check the recursive DNS resolver appliance admin console.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Group Policy Editor > Computer Configuration > Administrative Templates > Network > DNS Client > Turn Off Multicast Name Resolution / DNSSEC settings OR DNS Resolver Admin Console > Settings > DNSSEC > Validation",
+        "expected_output": "DNSSEC validation is shown as enabled in the DNS client policy or resolver configuration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "management_server_certificate_pinning",
+    "option_description": "Specifies the certificate validation strictness mode used by device management agents when establishing TLS connections to the management server after DNS resolution. Options range from 'pinned' (specific leaf or public key pinned), 'ca_restricted' (only the management CA is trusted), 'system_ca' (any system-trusted CA accepted), to 'none' (no certificate validation).",
+    "security_impact": "The Rego policy triggers dns_spoofing_of_management_server_resolution when this attribute is 'system_ca' or 'none' combined with disabled DNSSEC and dynamic DNS resolution. 'none' provides no protection against a rogue server with any certificate; 'system_ca' can be bypassed by an attacker who obtains a certificate from any of hundreds of trusted CAs. 'ca_restricted' limits trust to the management CA, while 'pinned' provides the strongest protection by binding the connection to a specific key or certificate, rendering DNS-based redirection ineffective even with a valid CA-signed certificate.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the management agent or MDM client configuration file on the device for certificate pinning, trust store, or CA restriction settings.",
+        "command": "grep -rE 'pin|ca_cert|trust_store|certificate_pinning|ssl_ca|server_cert' /etc/mgmt-agent/config.yaml /opt/mdm-client/conf/ /etc/puppet/puppet.conf /etc/chef/client.rb 2>/dev/null",
+        "file_path": "/etc/mgmt-agent/config.yaml or /opt/mdm-client/conf/agent.conf or /etc/puppet/puppet.conf",
+        "navigation": null,
+        "expected_output": "Configuration shows a pinned certificate hash, a restricted CA bundle path, or an explicit ca_certificate directive pointing to the management CA only."
+      },
+      {
+        "type": "command",
+        "instruction": "Use openssl s_client to connect to the management server and compare the presented certificate chain against what the device agent is expected to pin or restrict, then verify the agent's trust store contents.",
+        "command": "openssl s_client -connect <mgmt-server>:443 -showcerts 2>/dev/null | openssl x509 -noout -fingerprint -sha256 && ls -la /etc/mgmt-agent/certs/ /opt/mdm-client/trusted-ca/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The certificate fingerprint matches the value configured in the agent's pinning configuration, or the trust store directory contains only the management CA certificate."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the MDM platform administrative console (e.g., Intune, Workspace ONE, Jamf), navigate to the device enrollment or agent configuration profile and review the certificate trust settings applied to the management channel.",
+        "command": null,
+        "file_path": null,
+        "navigation": "MDM Admin Console > Device Profiles > Management Agent Configuration > Security > Certificate Pinning / Trust Store Configuration",
+        "expected_output": "Profile settings show 'Certificate Pinning: Enabled' or 'Trusted CA: Management-CA-Only' rather than 'System CA' or 'None'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the management agent build configuration, security baseline documentation, or PKI policy to determine the intended certificate validation mode and confirm it is enforced in deployed agent versions.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation specifies 'pinned' or 'ca_restricted' as the required mode; agent release notes confirm the setting is compiled in or enforced via configuration management."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "system_ca",
+      "ca_restricted",
+      "pinned"
+    ]
+  },
+  {
+    "option_name": "management_hostname_resolution_method",
+    "option_description": "Controls how the device resolves the management server address: via a hardcoded IP, a static hosts file entry, or dynamic DNS resolution. This determines whether the resolution path is vulnerable to DNS spoofing attacks.",
+    "security_impact": "The Rego policy fires dns_spoofing_of_management_server_resolution when this is set to dns_dynamic and DNSSEC validation is absent and certificate pinning is weak or none. Dynamic DNS resolution without DNSSEC allows an attacker to poison the resolver cache and redirect devices to a rogue management server, even when TLS is configured, if certificate pinning is also absent.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the management agent configuration file on a representative endpoint for server address references. Look for IP literals, hostname entries, or DNS-resolved FQDNs.",
+        "command": null,
+        "file_path": "/etc/management-agent/agent.conf",
+        "navigation": null,
+        "expected_output": "A field such as 'server_address', 'management_host', or 'endpoint_url' containing either a raw IP, a hostname mapped in /etc/hosts, or a DNS-resolvable FQDN."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether the management server address appears in the system hosts file, indicating static resolution rather than DNS.",
+        "command": "grep -i 'mgmt\\|management\\|mdm\\|endpoint' /etc/hosts",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A matching line such as '192.168.10.5 mgmt.corp.local' indicates static_hosts resolution; no match indicates dns_dynamic or static_ip in the agent config."
+      },
+      {
+        "type": "command",
+        "instruction": "Extract the server address value directly from the agent configuration and determine whether it is an IP address or a hostname.",
+        "command": "grep -E '(server|host|endpoint|url)' /etc/management-agent/agent.conf | grep -v '^#'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If output contains a bare IP (e.g., 10.0.0.1), classification is static_ip. If it is a hostname and that hostname appears in /etc/hosts, it is static_hosts. Otherwise it is dns_dynamic."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use strace or tcpdump during agent startup to observe whether DNS queries are issued for the management server address, confirming dynamic resolution.",
+        "command": "sudo tcpdump -i any -n port 53 & sleep 5; systemctl restart management-agent; sleep 5; kill %1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of a DNS query for the management server FQDN confirms dns_dynamic. Absence of any DNS query paired with a direct TCP connection to an IP confirms static_ip."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "dns_dynamic",
+      "static_ip",
+      "static_hosts"
+    ]
+  },
+  {
+    "option_name": "sensitive_data_in_headers",
+    "option_description": "Indicates whether authentication tokens, API keys, device identifiers, or policy parameters are transmitted in HTTP headers or URL query strings rather than exclusively within the encrypted request body, exposing them to TLS-terminating intermediaries and logging systems.",
+    "security_impact": "The Rego policy fires sensitive_configuration_data_in_cleartext_headers when this is true and either TLS is terminated at an intermediary or header logging is enabled. Headers are visible to any TLS-terminating proxy, load balancer, or WAF, meaning a device token in an Authorization header is exposed to those systems even if body content remains encrypted end-to-end.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Capture a live configuration update exchange using a TLS-intercepting proxy such as mitmproxy or Burp Suite configured as a trusted CA, then inspect whether Authorization, X-API-Key, X-Auth-Token, or device identifier headers appear in the request.",
+        "command": "mitmproxy --mode transparent --ssl-insecure -p 8080",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If request headers in the captured flow contain Authorization, X-Device-Token, X-API-Key, or similar secret-bearing fields, the attribute is true."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the management agent or SDK source configuration to identify any header injection routines that attach secrets to outgoing requests.",
+        "command": "grep -r 'Authorization\\|X-API-Key\\|X-Auth-Token\\|X-Device-ID' /opt/management-agent/ --include='*.conf' --include='*.yaml' --include='*.json'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Matches in configuration files showing header names paired with token values or variable references confirm sensitive_data_in_headers is true."
+      },
+      {
+        "type": "api",
+        "instruction": "Review the management protocol API specification or OpenAPI/Swagger documentation to identify whether the authentication scheme uses header-based bearer tokens or moves credentials exclusively to the request body.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Access the management server developer portal or internal wiki; navigate to API Reference > Authentication; check whether the documented scheme is 'Bearer token in Authorization header' or 'Credentials in JSON body'.",
+        "expected_output": "Documentation stating 'Authorization: Bearer <token>' or 'X-API-Key: <key>' in request headers confirms true. Body-only authentication confirms false."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review proxy or WAF access logs for recent management update requests and inspect whether token or key values appear in the logged URL or header fields.",
+        "command": "grep -E 'Authorization|X-API-Key|X-Auth-Token' /var/log/nginx/access.log | tail -20",
+        "file_path": "/var/log/nginx/access.log",
+        "navigation": null,
+        "expected_output": "Log lines containing header field names followed by token values confirm true. Clean log lines with only path and status codes suggest false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "header_logging_enabled",
+    "option_description": "Controls whether network appliances, reverse proxies, load balancers, or SIEM ingestion pipelines are configured to capture and persist full HTTP request headers, including Authorization and custom secret-bearing headers, to durable log storage.",
+    "security_impact": "The Rego policy fires sensitive_configuration_data_in_cleartext_headers when sensitive_data_in_headers is true and this attribute is also true. Even if secrets in headers are considered acceptable during transit, persisting them to logs dramatically extends their exposure window, creates secondary compromise vectors, and may violate data minimization requirements.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the NGINX or Apache reverse proxy logging configuration to determine whether the log_format directive includes the '$http_authorization' variable or a catch-all '$http_*' expansion.",
+        "command": "grep -E 'log_format|access_log|LogFormat|CustomLog' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/apache2/apache2.conf 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "A log_format definition containing '$http_authorization', 'headers', or '%{Authorization}i' confirms header logging is enabled."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Examine a sample of recent proxy or load balancer access log entries to determine whether Authorization or X-API-Key header values appear in logged output.",
+        "command": "tail -50 /var/log/nginx/access.log | grep -iE 'bearer|apikey|token'",
+        "file_path": "/var/log/nginx/access.log",
+        "navigation": null,
+        "expected_output": "Presence of token strings or 'Bearer eyJ...' fragments in log lines confirms header_logging_enabled is true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the SIEM or log aggregation platform (Splunk, Elastic, Datadog), search for recent management update log events and examine whether raw header fields are included in the indexed documents.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Log into SIEM console > Search/Discover > Query: source=proxy index=management | fields Authorization, X-API-Key | head 10 — check whether field values are populated.",
+        "expected_output": "Populated Authorization or X-API-Key field values in returned documents confirm header_logging_enabled is true."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the WAF or cloud load balancer logging verbosity configuration for explicit header capture settings.",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn <ARN> --query 'Attributes[?Key==`access_logs.s3.enabled`]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "For cloud load balancers, verify whether enhanced logging capturing headers is enabled. For on-prem WAFs, review the logging verbosity profile for 'headers' or 'full' mode."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "session_token_rotation_enabled",
+    "option_description": "Controls whether the management server issues a new session token periodically or after significant security events such as privilege escalation, re-authentication, or configuration push operations, invalidating the prior token to limit the exploitation window if a token is compromised.",
+    "security_impact": "The Rego policy fires update_channel_session_fixation_or_hijacking when session_token_rotation_enabled is false and the session binding mechanism is none or ip_address. Without rotation, a token captured from logs, sniffed from an unencrypted segment, or stolen via another vector remains valid indefinitely, allowing an attacker to replay it and push unauthorized configurations to the device fleet.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the management server application configuration for session management settings controlling token rotation or renewal intervals.",
+        "command": "grep -Ei 'token_rotation|session_renewal|rotate_token|token_refresh|session_rekey' /etc/management-server/server.conf /opt/mdm-server/config/*.yaml 2>/dev/null",
+        "file_path": "/etc/management-server/server.conf",
+        "navigation": null,
+        "expected_output": "A parameter such as 'token_rotation_enabled: true' or 'session_renewal_interval: 3600' confirms the feature is active. Absence or 'false' confirms it is disabled."
+      },
+      {
+        "type": "api",
+        "instruction": "Authenticate to the management server API, retrieve a session token, wait for the configured rotation interval, and then verify whether the token value has changed on subsequent requests.",
+        "command": "TOKEN=$(curl -s -X POST https://mgmt.corp.local/api/auth -d '{\"user\":\"test\",\"pass\":\"test\"}' | jq -r .token); sleep 60; curl -s -H \"Authorization: Bearer $TOKEN\" https://mgmt.corp.local/api/session | jq .token_rotated",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response field 'token_rotated: true' or a new token value differing from the original confirms rotation is active."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the management server administration console and locate session or security policy settings to verify token rotation configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Security Settings > Session Management > Token Rotation — verify that the 'Enable token rotation' checkbox is checked and a rotation interval is defined.",
+        "expected_output": "A rotation interval value greater than 0 with the feature enabled confirms session_token_rotation_enabled is true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the management platform administrator or review the security architecture documentation to confirm whether session token rotation is part of the deployment's security baseline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written confirmation or documented policy referencing periodic token rotation with a defined interval confirms true. No documented policy confirms false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "session_token_max_lifetime_seconds",
+    "option_description": "Defines the maximum duration in seconds that a management session token remains valid without requiring re-authentication or rotation. Values exceeding 86400 seconds (24 hours) represent long-lived sessions that substantially increase the risk window if a token is compromised.",
+    "security_impact": "The Rego policy fires update_channel_session_fixation_or_hijacking when this value exceeds 86400 and the session binding mechanism is none. A token valid for days or indefinitely allows an attacker who obtains it through log exposure, network capture, or another vector to maintain persistent unauthorized access to the configuration update channel long after the original session should have expired.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the management server configuration file for TTL, expiry, or max_age parameters associated with session tokens.",
+        "command": "grep -Ei 'token_ttl|token_lifetime|session_ttl|session_expiry|token_expiry|max_age|token_timeout' /etc/management-server/server.conf /opt/mdm-server/config/*.yaml 2>/dev/null",
+        "file_path": "/etc/management-server/server.conf",
+        "navigation": null,
+        "expected_output": "A parameter like 'token_ttl: 3600' or 'session_max_age_seconds: 86400'. Values above 86400 indicate a high-risk configuration."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve a session token from the management API and decode the JWT or inspect the response body for expiry claims.",
+        "command": "curl -s -X POST https://mgmt.corp.local/api/auth -d '{\"user\":\"auditor\",\"pass\":\"password\"}' | jq -r .token | cut -d. -f2 | base64 -d 2>/dev/null | jq '{exp, iat, lifetime: (.exp - .iat)}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The decoded JWT payload should show 'exp' and 'iat' claims. The difference (exp - iat) is the token lifetime in seconds. Values above 86400 confirm excessive lifetime."
+      },
+      {
+        "type": "gui",
+        "instruction": "Access the management server admin console and locate session policy settings to find the configured token expiry interval.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Security > Session Policies > Token Expiry — note the value displayed in the 'Maximum token lifetime' or 'Session timeout' field, converting hours to seconds as needed.",
+        "expected_output": "A displayed value such as '1 hour (3600 seconds)' indicates a well-configured deployment. Values of '7 days' or 'Never expire' indicate high risk."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the management database or key-value store directly to inspect token records and their expiry timestamps.",
+        "command": "redis-cli -h mgmt-redis.corp.local HGETALL session:$(redis-cli -h mgmt-redis.corp.local KEYS 'session:*' | head -1) | grep -E 'expires|ttl|lifetime'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Token TTL or expiry epoch values. Calculate remaining lifetime using: expiry_epoch - $(date +%s). If TTL exceeds 86400 seconds, the configuration is high risk."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "3600",
+      "28800",
+      "86400",
+      "604800"
+    ]
+  },
+  {
+    "option_name": "session_binding_mechanism",
+    "option_description": "Specifies the mechanism used to bind a management session token to the originating client context, preventing token reuse from a different network location or device. Options include none, IP address binding, TLS client certificate fingerprint binding, or both combined.",
+    "security_impact": "The Rego policy fires update_channel_session_fixation_or_hijacking under three conditions referencing this attribute: when rotation is disabled and binding is none; when token lifetime exceeds 86400 and binding is none; and when rotation is disabled and binding is none or ip_address. IP-only binding is explicitly treated as insufficient because IP addresses can be spoofed or the attacker may operate from the same NAT range, making certificate fingerprint binding the minimum acceptable control.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the management server session configuration for session binding, IP pinning, or certificate fingerprint association settings.",
+        "command": "grep -Ei 'session_binding|bind_to_ip|ip_pinning|cert_fingerprint|client_bind|session_lock' /etc/management-server/server.conf /opt/mdm-server/config/*.yaml 2>/dev/null",
+        "file_path": "/etc/management-server/server.conf",
+        "navigation": null,
+        "expected_output": "A parameter such as 'session_binding: certificate_fingerprint' or 'bind_session_to_ip: true' reveals the configured mechanism. Absence of any binding parameter implies none."
+      },
+      {
+        "type": "api",
+        "instruction": "Obtain a valid session token, then attempt to reuse it from a different source IP (via a proxy or second host) to empirically verify whether IP binding is enforced.",
+        "command": "TOKEN=$(curl -s -X POST https://mgmt.corp.local/api/auth -d '{\"user\":\"auditor\",\"pass\":\"password\"}' | jq -r .token); curl -s -H \"Authorization: Bearer $TOKEN\" --interface eth1 https://mgmt.corp.local/api/config | jq .error",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 401 or 403 response when the token is used from a different interface/IP confirms ip_address binding. Success from a different IP confirms none. A mutual TLS rejection confirms certificate_fingerprint binding."
+      },
+      {
+        "type": "gui",
+        "instruction": "Access the management server administration console and navigate to session security settings to review client binding configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Security > Session Management > Client Binding — review the 'Bind session to' dropdown or toggle states for IP Address and Certificate Fingerprint options.",
+        "expected_output": "Active toggles or dropdown selection of 'IP + Certificate' or 'Certificate Fingerprint' indicates secure binding. 'None' or 'IP only' indicates insufficient binding."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the management platform security architecture documentation or consult the platform vendor's hardening guide to confirm the session binding feature set and default configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation explicitly stating 'sessions are bound to client TLS certificate fingerprint' confirms certificate_fingerprint or ip_and_certificate. No mention of binding or 'sessions are stateless' confirms none."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "ip_address",
+      "certificate_fingerprint",
+      "ip_and_certificate"
+    ]
+  },
+  {
+    "option_name": "update_channel_network_isolation",
+    "option_description": "Specifies the network isolation mechanism protecting management update traffic from untrusted or user traffic. Valid options are dedicated VLAN assignment, VPN tunnel encapsulation, micro-segmentation policy enforcement, or no isolation.",
+    "security_impact": "The Rego policy fires insufficient_update_channel_segmentation when this is none and either update traffic is co-located with user traffic or no ACL restricts update channel access. Without isolation, a lateral movement actor on the same network segment can intercept, replay, or inject configuration update frames, and a compromised user device may be able to directly reach management infrastructure.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review switch and router VLAN configuration files to determine whether management traffic is assigned to a dedicated VLAN separate from user or general-purpose VLANs.",
+        "command": "ssh admin@core-switch 'show vlan brief' | grep -i 'mgmt\\|management'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A VLAN entry labeled 'MGMT' or 'Management' with a distinct VLAN ID (e.g., VLAN 10) and restricted port membership confirms dedicated_vlan isolation."
+      },
+      {
+        "type": "command",
+        "instruction": "On the management server host, inspect routing tables and interface assignments to determine whether management interfaces are on a dedicated VLAN or VPN tunnel interface.",
+        "command": "ip route show; ip link show | grep -E 'vlan|tun|vpn|mgmt'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of a tun0 or vpn interface carrying management server routes confirms vpn_tunnel. A VLAN-tagged interface (e.g., eth0.10) confirms dedicated_vlan. No dedicated interface suggests none."
+      },
+      {
+        "type": "gui",
+        "instruction": "Log into the network management platform (Cisco DNA Center, Juniper Mist, Aruba Central, or equivalent) and review the network segmentation or zone policy applied to management server subnets.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Network Management Console > Segmentation > Zones/VLANs > Filter by management server subnet — verify zone assignment and whether it is isolated from user-facing zones.",
+        "expected_output": "A distinct zone assignment with inter-zone firewall policy separating management traffic from user VLANs confirms an isolation method is in use."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a user workstation on the production user VLAN, attempt to reach the management server port to determine whether routing or firewall policy blocks cross-segment access.",
+        "command": "nmap -p 443,8443,8080 mgmt.corp.local --open -Pn 2>&1 | grep -E 'open|filtered|Host'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All ports showing 'filtered' from a user workstation confirms segmentation is in place. 'open' results confirm co-location or insufficient ACLs."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "dedicated_vlan",
+      "vpn_tunnel",
+      "micro_segmentation"
+    ]
+  },
+  {
+    "option_name": "update_traffic_colocated_with_user_traffic",
+    "option_description": "Indicates whether management configuration update traffic traverses the same physical or logical network segment as user-facing, guest, or otherwise untrusted traffic, increasing the attack surface for passive interception, ARP spoofing, and lateral movement toward management infrastructure.",
+    "security_impact": "The Rego policy fires insufficient_update_channel_segmentation when this is true and update_channel_network_isolation is none. Co-location allows any device on the shared segment to passively observe management update traffic, attempt ARP poisoning to redirect update flows, or directly probe management server endpoints that should only be reachable from a dedicated management plane.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Compare the subnet of the management server against the subnet ranges assigned to user workstations or IoT devices to determine whether they share the same CIDR block or VLAN.",
+        "command": "echo 'Management server:'; getent hosts mgmt.corp.local; echo 'User VLAN range:'; ip route show | grep -v 'mgmt\\|169.254'; echo 'ARP table:'; arp -n | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the management server IP falls within the same /24 or VLAN-assigned range as user workstations visible in ARP table or routing output, the attribute is true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a standard user workstation, perform an ARP scan of the local subnet and determine whether the management server MAC address appears on the same broadcast domain.",
+        "command": "sudo arp-scan --localnet 2>/dev/null | grep -i $(getent hosts mgmt.corp.local | awk '{print $1}')",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the management server IP and MAC address appear in the arp-scan output alongside user device entries, management and user traffic share a broadcast domain, confirming true."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the network topology or IPAM system to compare VLAN and subnet assignments for management servers against user endpoint pools.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IPAM Console (e.g., Infoblox, phpIPAM) > Subnets > Filter by 'management' tag — compare the VLAN ID and subnet range against the user workstation subnet pool to determine overlap.",
+        "expected_output": "Identical VLAN IDs or overlapping subnet ranges between management servers and user devices confirms true. Separate, non-overlapping VLAN assignments confirm false."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Analyze NetFlow or sFlow records from the core switch to determine whether user device IPs appear as source addresses communicating with the management server, indicating shared-segment reachability.",
+        "command": "nfdump -r /var/cache/nfdump/current.nfcapd 'dst host mgmt.corp.local and src net 192.168.100.0/24' | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Flow records showing user workstation IPs (e.g., 192.168.100.x) communicating directly with the management server on update ports (443, 8443) confirm co-location is true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "acl_restricts_update_channel_access",
+    "option_description": "Controls whether access control lists or firewall rules are in place to restrict which source and destination hosts are permitted to communicate over the management configuration update channel. This enforces host-level segmentation at the network boundary, limiting which devices can send or receive configuration payloads on the management port.",
+    "security_impact": "The Rego policy fires the 'insufficient_update_channel_segmentation' exposure when update_channel_network_isolation is 'none' AND acl_restricts_update_channel_access is false or absent. Without ACL restrictions, any host on a shared segment can attempt to reach management ports, enabling lateral movement attacks where a compromised endpoint tries to impersonate a management server or intercept update traffic. Setting this to true satisfies one of the two conditions required to avoid triggering the segmentation finding.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux-based firewalls or hosts, dump iptables/nftables rules and filter for management update ports (commonly TCP 443, 8443, or vendor-specific ports like 4433/8883) to confirm source/destination host restrictions.",
+        "command": "iptables -L -n -v --line-numbers | grep -E '(443|8443|4433|8883)'; nft list ruleset | grep -E '(443|8443|4433|8883)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules explicitly allowing only management server IP ranges to communicate on the update port, with a default-deny policy for all other sources."
+      },
+      {
+        "type": "command",
+        "instruction": "On network devices (Cisco IOS/IOS-XE), display the access control lists applied to interfaces carrying management update traffic and verify permit entries are scoped to authorized management server and endpoint subnets only.",
+        "command": "show ip access-lists | include -A (permit|deny); show running-config | section ip access-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Named or numbered ACLs with explicit permit statements for management server CIDRs and endpoint management subnets, terminated by an implicit or explicit deny any any."
+      },
+      {
+        "type": "gui",
+        "instruction": "In cloud environments (AWS/Azure/GCP), navigate to the security group or network security group associated with management server instances. Review inbound and outbound rules on the management update port to confirm only authorized CIDR ranges or security group IDs are permitted.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → EC2 → Security Groups → [Management Server SG] → Inbound Rules; Azure Portal → Network Security Groups → [Management NSG] → Inbound Security Rules",
+        "expected_output": "Rules scoped to specific management CIDR ranges or security group references on the update port, with no 0.0.0.0/0 or ::/0 permit rules on that port."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the AWS EC2 API or Azure REST API to programmatically enumerate security group rules for management server resources and verify ACL scope.",
+        "command": "aws ec2 describe-security-groups --filters Name=group-id,Values=<sg-id> --query 'SecurityGroups[*].IpPermissions' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output showing IpRanges or UserIdGroupPairs entries scoped to authorized management subnets on the relevant management port, without wildcard 0.0.0.0/0 entries."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "payload_compression_enabled",
+    "option_description": "Indicates whether configuration update payloads transmitted over the management channel are compressed using algorithms such as DEFLATE, gzip, or zstd, either at the TLS layer (via TLS compression extensions) or at the application layer (HTTP Content-Encoding headers or middleware compression). Compression applied before or during encryption exposes the channel to length-based oracle attacks.",
+    "security_impact": "The Rego policy triggers the 'update_payload_compression_oracle_attack' exposure only when payload_compression_enabled is true AND attacker_can_inject_partial_content is true AND ciphertext_length_observable is true. This models CRIME (TLS-layer compression) and BREACH (HTTP-layer compression) attack classes. When all three conditions are met, an attacker can iteratively submit requests with injected known plaintext and observe whether compressed-then-encrypted response lengths decrease, enabling byte-by-byte recovery of sensitive configuration values such as tokens or credentials within the payload. Setting this to false eliminates the compression oracle precondition entirely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use OpenSSL to perform a TLS handshake with the management server and inspect whether TLS-layer compression is negotiated (indicated by 'Compression: zlib compression' in the handshake output).",
+        "command": "openssl s_client -connect <mgmt-server>:<port> -tlsextdebug 2>&1 | grep -i compress",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If compression is disabled, output should show 'Compression: NONE'. Any other value (e.g., 'zlib compression') indicates TLS-layer compression is active."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use curl to send a configuration update request to the management endpoint and examine response headers for Content-Encoding to detect application-layer compression (gzip, deflate, br, zstd).",
+        "command": "curl -v -k --cert client.pem --key client.key -H 'Accept-Encoding: gzip, deflate, br' https://<mgmt-server>:<port>/api/config/update 2>&1 | grep -i 'content-encoding'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Absence of Content-Encoding header indicates no application-layer compression. Presence of 'Content-Encoding: gzip' or similar confirms compression is active."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the management server application configuration for compression middleware or OpenSSL compilation options that enable compression. Check web server config files (nginx, Apache) for gzip/brotli directives on the management endpoint.",
+        "command": "grep -rn 'gzip\\|deflate\\|compress\\|zstd\\|brotli' /etc/nginx/sites-enabled/ /etc/apache2/sites-enabled/ /opt/mgmt-server/config/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/apache2/apache2.conf, /opt/mgmt-server/config/server.yaml",
+        "navigation": null,
+        "expected_output": "No active gzip_on, BrotliOn, or equivalent compression directives on the management update endpoint location blocks. Directives should be explicitly set to 'off' or absent."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether the management server's OpenSSL build includes compression support, which would allow TLS compression to be negotiated if not explicitly disabled in application code.",
+        "command": "openssl version -a | grep -i 'zlib\\|compress'; python3 -c \"import ssl; ctx=ssl.create_default_context(); print(ctx.options)\" 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "OpenSSL built without zlib indicates TLS compression is unavailable. If zlib is present, application-level configuration must explicitly disable TLS compression via SSL_OP_NO_COMPRESSION."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "attacker_can_inject_partial_content",
+    "option_description": "Determines whether an attacker can influence or inject partial known plaintext into the compressed-then-encrypted configuration update payload. This capability can arise through cross-origin request forgery (CORS misconfigurations allowing attacker-controlled pages to trigger update requests), server-side request forgery (SSRF) into the management channel, partial update API fields that accept attacker-supplied values merged into the payload, or other injection vectors that allow the attacker to control portions of what gets compressed alongside secrets.",
+    "security_impact": "The Rego policy requires attacker_can_inject_partial_content to be true (alongside payload_compression_enabled and ciphertext_length_observable) to fire the 'update_payload_compression_oracle_attack' exposure. This attribute represents the active attacker capability that makes compression oracle attacks practical: without the ability to inject known plaintext strings into the compressed payload, the attacker cannot use the length oracle to recover secret values. Injection vectors include CORS-bypassed cross-origin fetch calls to the update endpoint, SSRF that proxies attacker content through the management server, or partial update API calls that merge attacker-controlled field values alongside secret tokens in the same compressed payload.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Test CORS policy on the management update endpoint by sending a cross-origin preflight and simple request with an attacker-controlled Origin header. If the server reflects the origin or returns Access-Control-Allow-Origin: *, attacker-controlled pages can trigger authenticated update requests.",
+        "command": "curl -v -H 'Origin: https://attacker.example.com' -H 'Access-Control-Request-Method: POST' -X OPTIONS https://<mgmt-server>:<port>/api/config/update 2>&1 | grep -i 'access-control'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure deployments return no Access-Control-Allow-Origin header or restrict it to the exact management console origin. A wildcard (*) or reflected attacker origin indicates CORS-based injection is possible."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the management server API specification and source code or documentation for any partial update endpoints (PATCH /config, PUT /config/field) that accept attacker-influenced values and merge them with sensitive fields (tokens, credentials, policy secrets) before compression and encryption.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review API documentation at https://<mgmt-server>/api/docs or inspect source code in the config update handler for field merging logic prior to compression.",
+        "expected_output": "Partial update endpoints should not merge attacker-controlled field values with secret fields in the same compression context. If they do, this confirms the injection vector exists."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe for SSRF vulnerabilities in the management server by submitting configuration update requests with URL or host fields that reference internal endpoints, testing whether the server fetches attacker-controlled content and merges it into a subsequent compressed update payload.",
+        "command": "curl -s -X POST https://<mgmt-server>:<port>/api/config/update -H 'Content-Type: application/json' -d '{\"config_source_url\": \"http://<attacker-controlled-host>/payload\"}' --cert client.pem --key client.key",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the server does not fetch the external URL and returns an error rejecting external config sources, SSRF injection is not present. HTTP requests hitting the attacker-controlled server confirm SSRF."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect management server CORS configuration and middleware chain to identify whether any middleware merges request body parameters with sensitive configuration context before passing to the compression layer.",
+        "command": "grep -rn 'cors\\|CORS\\|allowOrigin\\|allow_origins\\|compress\\|merge\\|partial_update' /opt/mgmt-server/config/ /etc/mgmt-server/ 2>/dev/null",
+        "file_path": "/opt/mgmt-server/config/cors.yaml, /opt/mgmt-server/config/api.yaml",
+        "navigation": null,
+        "expected_output": "CORS configuration should list explicit allowed origins matching only the management console domain. No middleware should merge request-supplied values with secrets in the same compression buffer."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "ciphertext_length_observable",
+    "option_description": "Determines whether an attacker in a position to observe network traffic (on-path or on a shared segment) can measure the byte length of encrypted configuration update responses. Length observability is the core requirement for CRIME/BREACH-class compression oracle attacks because the oracle signal is the change in ciphertext length as the compression ratio changes with injected known plaintext. Length may be observable via packet capture on a shared network segment, HTTP Content-Length response headers visible before TLS termination artifacts, Transfer-Encoding: chunked chunk sizes, or side-channel timing/length information in API responses.",
+    "security_impact": "The Rego policy requires ciphertext_length_observable to be true (alongside payload_compression_enabled and attacker_can_inject_partial_content) to trigger the 'update_payload_compression_oracle_attack' exposure. If an attacker cannot observe ciphertext lengths, the compression oracle attack cannot proceed regardless of whether compression is enabled. Mitigations include fixed-length padding of all encrypted responses (making all responses the same length regardless of plaintext content), traffic shaping to prevent length inference, or ensuring attackers cannot be on-path to observe TLS record sizes. Assessors should determine both whether an attacker can achieve on-path positioning on the management network segment and whether the protocol exposes length information in observable metadata.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From a network position on the same segment as the management channel (or via a port mirror), capture configuration update response traffic with tcpdump and measure TLS record lengths across multiple requests with varying payload content to determine if length variation is observable.",
+        "command": "tcpdump -i <interface> -nn -s 0 'host <mgmt-server> and tcp port <mgmt-port>' -w /tmp/mgmt_capture.pcap; tshark -r /tmp/mgmt_capture.pcap -T fields -e tcp.len -e ssl.record.length | sort -u",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Fixed-length or padded responses will show uniform TLS record lengths regardless of payload variation. Varying record lengths proportional to payload content confirm length observability."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Query the management update endpoint directly and inspect HTTP response headers for Content-Length or Transfer-Encoding: chunked with observable chunk sizes that reveal payload length even within a TLS session.",
+        "command": "curl -v -s -o /dev/null --cert client.pem --key client.key https://<mgmt-server>:<port>/api/config/update 2>&1 | grep -i 'content-length\\|transfer-encoding\\|content-encoding'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure deployments either use fixed-length padding (all responses same Content-Length) or omit Content-Length with chunked encoding designed to obscure payload size. Variable Content-Length values across requests with different payloads confirm length observability."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the network topology and segmentation controls for the management update channel to determine whether unauthorized or partially trusted hosts share the same network segment and could capture traffic via ARP spoofing, rogue switch port mirroring, or shared wireless media.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review network architecture diagrams, VLAN assignments, and switch port security configurations for the management server's network segment. Interview network operations staff about who has physical or logical access to the segment.",
+        "expected_output": "Management server should reside on a dedicated isolated VLAN/segment accessible only to authorized management infrastructure, making on-path packet capture infeasible for untrusted parties."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether the management server or its TLS terminator applies fixed-length padding or uses a transport that hides payload length (e.g., QUIC with padding frames, or application-level response padding configuration).",
+        "command": "grep -rn 'padding\\|fixed.length\\|response.size\\|content.length\\|chunk' /opt/mgmt-server/config/ /etc/nginx/sites-enabled/ 2>/dev/null; openssl s_client -connect <mgmt-server>:<port> < /dev/null 2>&1 | grep -i 'record'",
+        "file_path": "/opt/mgmt-server/config/transport.yaml, /etc/nginx/sites-enabled/mgmt.conf",
+        "navigation": null,
+        "expected_output": "Configuration explicitly setting fixed response padding or constant-length responses indicates length observability is mitigated. Absence of any padding configuration combined with variable Content-Length confirms the observable condition."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  }
+]

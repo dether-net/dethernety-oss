@@ -1,0 +1,1080 @@
+[
+  {
+    "option_name": "roles_defined_with_scoped_permissions",
+    "option_description": "Controls whether distinct roles in the IAM or access management system are configured with explicitly limited, scoped permission sets rather than broad, wildcard, or admin-by-default grants. Ensures each role grants only the specific actions and resources required for its function.",
+    "security_impact": "This is a foundational input to the least_privilege_enforcement Rego rule. Without scoped roles, the countermeasure cannot activate regardless of other settings. Wildcard permissions or overly broad grants dramatically increase the blast radius of any compromised account, as attackers gain access to all resources the role can reach rather than a constrained subset.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, list all IAM policies attached to roles and inspect for wildcard actions or resources using the AWS CLI.",
+        "command": "aws iam list-roles --query 'Roles[*].RoleName' --output text | tr '\\t' '\\n' | xargs -I{} aws iam list-role-policies --role-name {} && aws iam get-role-policy --role-name <role> --policy-name <policy>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy documents showing specific Action and Resource ARNs with no '*' wildcards in sensitive policy statements."
+      },
+      {
+        "type": "command",
+        "instruction": "On Azure, use the Azure CLI to enumerate custom role definitions and verify assignable actions are explicitly scoped.",
+        "command": "az role definition list --custom-role-only true --output json | jq '.[].permissions[].actions'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of specific action strings per role without broad wildcards such as '*' or 'Microsoft.*/*'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS IAM Console, navigate to Roles, select each role, review the attached policies under the Permissions tab, and confirm no policy contains Action '*' or Resource '*' combinations.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > IAM > Roles > [Select Role] > Permissions > [Expand each policy] > JSON view",
+        "expected_output": "Each policy document explicitly names allowed actions and specific resource ARNs with no wildcard grants."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the AWS IAM Access Analyzer API to identify roles with overly permissive policies programmatically.",
+        "command": "aws accessanalyzer list-findings --analyzer-arn <analyzer-arn> --filter '{\"resourceType\":{\"eq\":[\"AWS::IAM::Role\"]}}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty findings list or findings that explicitly call out wildcard or public access grants on roles."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (mature environments with IaC-managed role definitions)",
+      "false (legacy environments with manually provisioned broad roles)"
+    ]
+  },
+  {
+    "option_name": "users_assigned_least_privilege_role",
+    "option_description": "Controls whether user-to-role assignments are limited strictly to the minimal roles required for each user's job function. Prevents over-assignment of privileged roles, stacking of multiple high-privilege roles, and default assignment of admin roles to non-administrative users.",
+    "security_impact": "Required alongside roles_defined_with_scoped_permissions for the least_privilege_enforcement Rego rule to activate. Even well-scoped roles provide no protection if users are assigned to roles beyond their need. Excess role assignments directly expand lateral movement and privilege abuse opportunities for attackers or malicious insiders.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, enumerate all users and their attached roles and policies to identify over-privileged assignments.",
+        "command": "aws iam get-account-authorization-details --filter User --output json | jq '.UserDetailList[] | {User: .UserName, Policies: [.AttachedManagedPolicies[].PolicyName], Groups: [.GroupList[]]}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "User entries showing only role/group assignments aligned to their job function, with no unexpected admin policies attached."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the AWS IAM credential report to identify users with console and API access and cross-reference against expected job roles.",
+        "command": "aws iam generate-credential-report && aws iam get-credential-report --output text --query Content | base64 -d | csvtool readable -",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A readable CSV listing each user, their access types, and last activity, enabling comparison against authorized role matrix."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure AD or Entra ID, review user role assignments under each user's profile and compare against HR job function records to identify mismatches.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Azure Active Directory > Users > [Select User] > Assigned Roles",
+        "expected_output": "Each user shows only the role(s) documented in the access request or HR system for their current job function."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IAM team or review the access request ticketing system to confirm that role assignments require approval correlated to job function and that periodic access reviews are conducted.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented workflow showing role assignment requests tied to job titles, manager approval, and periodic recertification records."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (organizations with automated provisioning tied to HRIS job codes)",
+      "false (organizations relying on manual role assignment without formal review)"
+    ]
+  },
+  {
+    "option_name": "privileged_role_assignment_review_frequency",
+    "option_description": "Defines how often privileged role assignments are formally reviewed and recertified to confirm they remain appropriate for each user. Accepted values are continuous, quarterly, semi_annually, annually, or never, representing the cadence at which access certifications are performed.",
+    "security_impact": "The least_privilege_enforcement Rego rule explicitly excludes the 'never' value and grants stronger enforcement credit for 'continuous' or 'quarterly' reviews. Infrequent or absent reviews allow stale, orphaned, or accumulated privileged access to persist, increasing insider threat risk and the attack surface available to compromised credentials over time.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's Identity Governance and Administration (IGA) policy documentation or access management runbooks to locate the defined review cadence for privileged accounts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented policy stating the review frequency (e.g., quarterly access certification campaigns for all privileged roles)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In SailPoint IdentityNow or Saviynt, check the configured certification campaign schedules for privileged role recertification.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SailPoint IdentityNow > Certifications > Campaigns > [Filter by Type: Manager or Role] > Review Schedule",
+        "expected_output": "Active campaigns scheduled at the stated frequency (quarterly, semi-annually, etc.) targeting privileged role holders."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Entra ID Privileged Identity Management (PIM) API to retrieve configured access review schedules for privileged roles.",
+        "command": "az rest --method GET --uri 'https://graph.microsoft.com/v1.0/identityGovernance/accessReviews/definitions' --headers 'Content-Type=application/json' | jq '.value[] | {displayName, recurrenceSettings: .settings.recurrence}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Access review definitions listing recurrence type (weekly, monthly, quarterly) and scope targeting privileged role assignments."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review historical access certification records or audit logs in your IGA platform to verify that reviews have actually been completed at the stated cadence, not just scheduled.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Completed certification records with timestamps matching the claimed review frequency and documented sign-off by role owners or managers."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "quarterly (common in regulated industries such as finance and healthcare)",
+      "annually (common in smaller organizations or those without IGA tooling)",
+      "never (often found in organizations without a formal access governance program)",
+      "semi_annually (moderate maturity environments)"
+    ]
+  },
+  {
+    "option_name": "separation_of_duties_enforced",
+    "option_description": "Controls whether the RBAC configuration actively prevents conflicting high-privilege roles from being simultaneously assigned to the same user. Examples of conflicting roles include administrator and auditor, developer and production-deployer, or requester and approver for financial transactions.",
+    "security_impact": "This attribute contributes to the least_privilege_enforcement Rego rule. When combined with scoped roles, least-privilege assignment, and a non-never review frequency, SoD enforcement enables the countermeasure. Without SoD, a single user can accumulate roles that span sensitive operational boundaries, enabling fraud, data manipulation, and undetected privilege abuse that would otherwise require collusion between two parties.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the role conflict matrix or SoD ruleset defined in your IGA platform (e.g., SailPoint, Saviynt, or Oracle IAM) exported as a configuration file.",
+        "command": null,
+        "file_path": "/opt/sailpoint/config/sod-rules.xml",
+        "navigation": null,
+        "expected_output": "A defined set of conflicting role pairs (e.g., Role A + Role B = violation) with enforcement actions configured."
+      },
+      {
+        "type": "command",
+        "instruction": "In AWS IAM, query for users holding both AdministratorAccess and audit-related policies simultaneously using the CLI.",
+        "command": "aws iam get-account-authorization-details --output json | jq '.UserDetailList[] | select((.AttachedManagedPolicies[].PolicyName | contains(\"Admin\")) and (.AttachedManagedPolicies[].PolicyName | contains(\"Audit\"))) | .UserName'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An empty result set indicating no users hold both admin and audit roles simultaneously."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Oracle Identity Governance or SailPoint, navigate to the SoD policy manager and confirm that conflicting role combinations are defined and enforcement is set to preventive or detective mode.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SailPoint IdentityNow > Governance > Separation of Duties > Policies > [Review each policy for conflicting entitlement pairs and enforcement action]",
+        "expected_output": "Active SoD policies listing defined conflict pairs with enforcement mode (block assignment or raise violation)."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IAM administrator to determine whether role assignment workflows include automated SoD checks at provisioning time or only detect conflicts retroactively.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation that role assignment requests are validated against a conflict matrix before provisioning completes, with evidence of blocked or flagged violations."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (organizations with IGA platforms or mature IAM programs)",
+      "false (organizations relying on manual assignment without conflict checking)"
+    ]
+  },
+  {
+    "option_name": "role_permission_enforcement_mode",
+    "option_description": "Defines how strictly permissions are enforced through role assignments in the RBAC system. 'strict_role_only' means all permissions must flow through role membership with no individual overrides. 'mixed' allows both role-based and some direct grants. 'permissive' allows ad-hoc per-user permission grants outside of role definitions.",
+    "security_impact": "This is a primary input to the permission_consistency_assurance Rego rule, which only activates when set to 'strict_role_only'. Mixed or permissive modes undermine the consistency guarantees that RBAC provides, allowing shadow permissions that are harder to audit, review, and revoke during offboarding. They create privilege drift that accumulates over time and is typically invisible to standard role-based access reviews.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the IAM or RBAC platform configuration file to identify whether individual user permission overrides are enabled or blocked at the system level.",
+        "command": null,
+        "file_path": "/etc/keycloak/standalone/configuration/standalone.xml",
+        "navigation": null,
+        "expected_output": "Configuration showing that user-level policy overrides are disabled and all access grants are routed through group or role membership."
+      },
+      {
+        "type": "command",
+        "instruction": "In AWS, check whether any IAM users have inline policies attached directly rather than exclusively through group or role membership.",
+        "command": "aws iam list-users --query 'Users[*].UserName' --output text | tr '\\t' '\\n' | xargs -I{} sh -c 'echo User: {} && aws iam list-user-policies --user-name {} --query PolicyNames'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All users returning an empty PolicyNames list, indicating no inline (direct) policies are attached to any user."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Google Cloud IAM console, review IAM bindings to determine whether any permissions are granted directly to user principals rather than exclusively through Google Groups or service account roles.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Cloud Console > IAM & Admin > IAM > [Review principal column for user: entries vs group: entries and their associated roles]",
+        "expected_output": "All permission bindings associated with group: or serviceAccount: principals rather than individual user: principals."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Azure Resource Graph API to query for role assignments scoped directly to individual users rather than groups or service principals.",
+        "command": "az graph query -q \"Resources | where type == 'microsoft.authorization/roleassignments' | where properties.principalType == 'User' | project properties.principalId, properties.roleDefinitionId, properties.scope\" --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An empty result or a small documented set of justified exceptions, with the majority of assignments targeting groups."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "strict_role_only (mature cloud-native organizations enforcing policy-as-code)",
+      "mixed (most enterprise environments with legacy direct grants coexisting with role-based assignments)",
+      "permissive (environments with ad-hoc or manual access provisioning practices)"
+    ]
+  },
+  {
+    "option_name": "users_with_direct_permission_grants",
+    "option_description": "Tracks the count of users who have been granted permissions directly at the user level rather than exclusively through role or group membership. A value of zero indicates all permissions flow through roles. Any positive value indicates the number of users bypassing the role-based permission model with ad-hoc grants.",
+    "security_impact": "The permission_consistency_assurance Rego rule requires this value to equal zero for the countermeasure to activate. Even a single user with direct grants represents a policy exception that may bypass access reviews, SoD checks, and offboarding automation. Direct grants accumulate over time and are frequently missed during role-based certification campaigns because they fall outside the role inventory being reviewed.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Count AWS IAM users with inline policies attached directly to the user object rather than inherited from groups.",
+        "command": "aws iam list-users --query 'Users[*].UserName' --output text | tr '\\t' '\\n' | xargs -I{} aws iam list-user-policies --user-name {} --query 'length(PolicyNames)' --output text | awk '{s+=$1} END {print \"Users with inline policies:\", NR, \"Total inline policy count:\", s}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 0 total inline policy count, confirming no users have direct permission grants."
+      },
+      {
+        "type": "command",
+        "instruction": "On Azure, count role assignments scoped to individual User principals across all subscriptions.",
+        "command": "az role assignment list --all --query '[?principalType==`User`] | length(@)' --output tsv",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A count of 0 or a very small number representing documented service account exceptions, with the bulk of assignments going to groups."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Okta's API to list users with individually assigned application permissions rather than group-inherited access.",
+        "command": "curl -s -H 'Authorization: SSWS <api_token>' 'https://<org>.okta.com/api/v1/users?limit=200' | jq '[.[] | select(.profile.directAssignments != null and (.profile.directAssignments | length) > 0)] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A count of users with direct application or permission assignments outside of group membership, ideally returning 0."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS IAM Console, use the IAM policy simulator filter to identify users with directly attached managed or inline policies.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > IAM > Users > [For each user, check Permissions tab] > Filter by 'Directly attached' policies vs 'Inherited from group'",
+        "expected_output": "No users showing permissions in the 'Directly attached' category, confirming all permissions are group or role inherited."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (target state for strict RBAC compliance)",
+      "1-10 (small organizations or those with a few documented service account exceptions)",
+      "50+ (organizations with legacy manual provisioning practices or no RBAC governance)"
+    ]
+  },
+  {
+    "option_name": "role_permission_audit_enabled",
+    "option_description": "Controls whether automated or scheduled auditing of role-to-permission assignments is active in the IAM or access governance system. When enabled, the system periodically or continuously reviews role definitions and assignments for drift, unauthorized changes, or inconsistencies relative to the approved access baseline.",
+    "security_impact": "This attribute enhances the permission_consistency_assurance Rego rule. While the countermeasure can activate without it when strict_role_only enforcement and zero direct grants are present, audit enablement represents the strongest configuration path. Without ongoing role permission auditing, changes to role definitions or new direct grants go undetected, allowing privilege creep and policy drift to accumulate silently between manual review cycles.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Entra ID (Azure AD), confirm that Access Reviews are enabled for role assignments and check that recurring reviews are active for privileged roles.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Azure Active Directory > Identity Governance > Access Reviews > [Verify active and recurring review definitions targeting role assignments]",
+        "expected_output": "One or more active access review definitions with recurring schedules targeting Entra ID roles or group memberships."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify that AWS Config is enabled and has the 'iam-policy-no-statements-with-admin-access' and 'iam-no-inline-policy-check' managed rules active.",
+        "command": "aws configservice describe-config-rules --query \"ConfigRules[?ConfigRuleName=='iam-policy-no-statements-with-admin-access' || ConfigRuleName=='iam-no-inline-policy-check'] | [*].{Name:ConfigRuleName, State:ConfigRuleState}\" --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Both rules returned with ConfigRuleState 'ACTIVE', confirming continuous auditing of IAM permission assignments."
+      },
+      {
+        "type": "api",
+        "instruction": "Check whether a SIEM or IGA platform has an active policy compliance job configured to scan role permission assignments on a scheduled basis.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://<iga-platform>/api/v1/compliance/jobs' | jq '.jobs[] | select(.type==\"role_permission_audit\") | {name, schedule, last_run, status}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one active job of type role_permission_audit with a valid schedule and a recent successful last_run timestamp."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IAM operations team to confirm whether automated alerts or reports are generated when role permission changes occur outside of the approved change management process.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented evidence of automated alerting (e.g., SIEM rules, email notifications, ticketing system integrations) triggered by unauthorized role permission modifications."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (organizations using IGA platforms, AWS Config, or Azure Policy with IAM compliance rules)",
+      "false (organizations relying solely on manual periodic reviews without automated scanning)"
+    ]
+  },
+  {
+    "option_name": "sod_policy_enforced",
+    "option_description": "Controls whether the RBAC or IGA system has an active Separation of Duties policy configured that automatically prevents conflicting role combinations from being assigned to a single user. This is a system-level enforcement setting distinct from documentation or manual review processes, requiring the platform to actively block or flag prohibited role pairings at assignment time.",
+    "security_impact": "This is the primary required input for the separation_of_duties_coverage Rego rule to activate. The rule additionally requires conflicting_role_pairs_defined greater than zero and a defined sod_enforcement_scope. An SoD policy that exists only on paper but is not enforced by the system provides no preventive value. Active system enforcement ensures that even privileged administrators cannot accidentally or maliciously assign conflicting roles to themselves or others without triggering a violation workflow.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SailPoint IdentityNow, navigate to the Separation of Duties governance policies and confirm at least one policy is in Active state with enforcement set to prevent or detect.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SailPoint IdentityNow > Admin > Governance > Separation of Duties > Policies > [Verify Status = Active and Policy Type = Conflicting Access]",
+        "expected_output": "One or more SoD policies shown as Active with defined conflicting entitlement pairs and a configured policy violation action."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SailPoint or Saviynt API to retrieve the current SoD policy enforcement status and confirm active policies exist.",
+        "command": "curl -s -H 'Authorization: Bearer <access_token>' 'https://<tenant>.api.identitynow.com/v3/sod-policies?filters=type eq \"CONFLICTING_ACCESS_BASED\"' | jq '[.[] | {name, state, conflictingAccessCriteria}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response listing SoD policies with state field set to 'ENFORCED' or 'ACTIVE' and populated conflictingAccessCriteria entries."
+      },
+      {
+        "type": "command",
+        "instruction": "For Oracle Identity Governance, use the OIG command-line utilities to list active SoD policies and their enforcement modes.",
+        "command": "igoutil.sh listSoDPolicies --status ACTIVE --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of active SoD policies with enforcement mode (PREVENTIVE or DETECTIVE) and the role conflict pairs each policy covers."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the IGA platform configuration export or SoD ruleset definition file to confirm that enforcement mode is set to preventive rather than only logging violations after the fact.",
+        "command": null,
+        "file_path": "/opt/iga/config/sod-enforcement-policy.json",
+        "navigation": null,
+        "expected_output": "Configuration entries showing 'enforcementMode': 'PREVENTIVE' and 'policyStatus': 'ACTIVE' for each defined conflict rule."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (organizations using IGA platforms with built-in SoD engines)",
+      "false (organizations relying on manual assignment review without system-enforced conflict detection)"
+    ]
+  },
+  {
+    "option_name": "conflicting_role_pairs_defined",
+    "option_description": "Controls the count of explicitly defined mutually exclusive role pairs in the SoD policy configuration, such as requester/approver or initiator/reviewer pairings that prevent a single user from holding both roles simultaneously.",
+    "security_impact": "The Rego policy requires conflicting_role_pairs_defined > 0 for the separation_of_duties_coverage countermeasure to activate. Without at least one explicitly defined conflicting pair, SoD enforcement cannot function regardless of enforcement mode. A higher count indicates broader SoD coverage across sensitive operational boundaries, reducing insider threat and fraud risk.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the IAM or IGA platform API to retrieve the SoD policy rule set and count distinct mutually exclusive role pairs. For SailPoint IdentityNow use the SOD policies endpoint; for Saviynt use the segregation of duties API.",
+        "command": "curl -s -H 'Authorization: Bearer $TOKEN' 'https://<tenant>.api.identitynow.com/v3/sod-policies' | jq '[.[] | select(.policyQuery.conflictingAccessCriteria != null)] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing the number of active SoD policy pairs, e.g., 42"
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the SoD or Role Conflict matrix in your IAM/IGA administration console. In SailPoint IdentityNow: Admin > Compliance > Separation of Duties. In Saviynt: Compliance > SoD Ruleset. Count the number of listed conflicting role pair entries.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Compliance > Separation of Duties > Policy List",
+        "expected_output": "A tabular list of role pair conflicts with a row count visible in the UI or pagination total"
+      },
+      {
+        "type": "command",
+        "instruction": "For Active Directory environments using an IGA tool that exports SoD rules to file, parse the exported rule set to count conflict pairs.",
+        "command": "Import-Module ActiveDirectory; $sodRules = Import-Csv 'C:\\IAM\\sod_policy_export.csv'; ($sodRules | Select-Object -Unique RolePairID).Count",
+        "file_path": "C:\\IAM\\sod_policy_export.csv",
+        "navigation": null,
+        "expected_output": "Integer count of unique role pair IDs in the export file"
+      },
+      {
+        "type": "config_file",
+        "instruction": "If SoD rules are stored in a configuration file or IaC definition (e.g., Terraform IAM policy or YAML role conflict definitions), parse the file to count defined conflict entries.",
+        "command": "grep -c 'conflicting_roles\\|mutually_exclusive\\|sod_pair' /etc/iam/sod_policy.yaml",
+        "file_path": "/etc/iam/sod_policy.yaml",
+        "navigation": null,
+        "expected_output": "A numeric count of lines matching SoD pair definitions in the configuration file"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "5",
+      "20",
+      "50",
+      "150"
+    ]
+  },
+  {
+    "option_name": "sod_enforcement_scope",
+    "option_description": "Controls the enforcement mode of Separation of Duties policy: 'preventive' blocks conflicting role assignments at provisioning time before they take effect, 'detective' alerts or reports violations after the fact, and 'none' means no SoD enforcement is applied.",
+    "security_impact": "The Rego policy separation_of_duties_coverage countermeasure activates for both 'preventive' and 'detective' modes, but only when conflicting_role_pairs_defined > 0 and sod_policy_enforced is true. 'Preventive' mode provides stronger control by stopping violations before they exist, while 'detective' still provides coverage but leaves a window of exposure. 'none' results in no SoD countermeasure credit and leaves the organization vulnerable to internal fraud and privilege abuse.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SailPoint IdentityNow, navigate to Admin > Compliance > Separation of Duties > select a policy > check the 'Violation Action' field. In Saviynt, navigate to Compliance > SoD Rulesets > select a ruleset and check the Enforcement Type setting.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Compliance > Separation of Duties > [Policy Name] > Violation Action",
+        "expected_output": "'Block provisioning' or 'Prevent' indicates preventive; 'Alert', 'Notify', or 'Report' indicates detective; absence of policy indicates none"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SoD policy API to inspect the violationOwnerAssignmentConfig or enforcement mode field for each policy. For SailPoint use the v3/sod-policies endpoint and inspect the 'state' and 'violationOwnerAssignmentConfig' fields.",
+        "command": "curl -s -H 'Authorization: Bearer $TOKEN' 'https://<tenant>.api.identitynow.com/v3/sod-policies' | jq '.[] | {name: .name, enforcement: .state}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output listing each policy name alongside its enforcement state, e.g., 'ENFORCED' (preventive) or 'ACTIVE' with notification only (detective)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IAM team or review access management runbooks to confirm whether role requests that trigger SoD conflicts are automatically rejected by the system or merely flagged for manual review.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented evidence that provisioning workflows block (preventive) or alert (detective) on conflicting role assignments, with references to ticketing system behavior"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect IaC or configuration exports for SoD policy enforcement mode settings. For Terraform-managed IAM, check the policy resource for enforcement_mode attributes.",
+        "command": "grep -i 'enforcement_mode\\|violation_action\\|sod_mode' /etc/iam/sod_policy.yaml",
+        "file_path": "/etc/iam/sod_policy.yaml",
+        "navigation": null,
+        "expected_output": "A line such as 'enforcement_mode: preventive' or 'violation_action: block'"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "detective",
+      "preventive"
+    ]
+  },
+  {
+    "option_name": "role_change_logging_enabled",
+    "option_description": "Controls whether the IAM or RBAC system is configured to capture and emit audit log events for role assignment, revocation, and modification activities as they occur in real time.",
+    "security_impact": "The Rego policy access_change_auditability countermeasure requires role_change_logging_enabled == true as a baseline condition. Without this enabled, no forensic reconstruction of access changes is possible regardless of retention settings or event type coverage. This is the foundational prerequisite for all auditability controls in the RBAC policy.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS IAM, verify CloudTrail is capturing IAM data events by checking for trails with management event logging enabled, which includes CreateRole, AttachRolePolicy, and PutUserPolicy events.",
+        "command": "aws cloudtrail get-event-selectors --trail-name <trail-name> --query 'EventSelectors[*].{ReadWrite:ReadWriteType,Management:IncludeManagementEvents}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'IncludeManagementEvents: true' and 'ReadWriteType: All' or 'WriteOnly'"
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure Active Directory, verify audit log diagnostic settings are configured to export AuditLogs category which captures role assignment events.",
+        "command": "az monitor diagnostic-settings list --resource $(az ad directory show --query id -o tsv) --query '[].logs[?category==`AuditLogs`].{Enabled:enabled}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Enabled: true' for the AuditLogs category"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Okta, navigate to Security > System Log and verify that group membership change events (group.user.membership.add, group.user.membership.remove) are being logged. In Azure AD, go to Azure Active Directory > Audit Logs > check that entries exist for role assignment operations.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure AD > Monitoring > Audit Logs > filter by Activity: 'Add member to role'",
+        "expected_output": "Audit log entries visible for recent role assignment or removal events"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For on-premises LDAP or Active Directory, inspect Group Policy Object settings to confirm auditing of directory service changes is enabled, which captures group membership modifications.",
+        "command": "auditpol /get /subcategory:'Directory Service Changes'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Directory Service Changes: Success and Failure' or at minimum 'Success' indicating audit events are being generated"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "permission_change_log_retention_days",
+    "option_description": "Controls the number of days that role and permission change audit logs are retained in the logging infrastructure, enabling historical forensic reconstruction of access state at any point in the retention window.",
+    "security_impact": "The Rego policy access_change_auditability countermeasure requires permission_change_log_retention_days >= 90 in conjunction with logging enabled and required event types captured. Retention below 90 days prevents the countermeasure from activating. Insufficient retention limits the ability to investigate historical access abuse, support compliance audits, or reconstruct access state during incident response investigations.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS CloudWatch Logs storing IAM audit events, query the retention policy of the relevant log group.",
+        "command": "aws logs describe-log-groups --log-group-name-prefix '/aws/cloudtrail' --query 'logGroups[*].{Name:logGroupName,RetentionDays:retentionInDays}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON listing log group names and their retentionInDays values, e.g., 365"
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure Monitor Log Analytics workspace storing Azure AD audit logs, check the workspace data retention configuration.",
+        "command": "az monitor log-analytics workspace show --resource-group <rg> --workspace-name <workspace> --query 'retentionInDays'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing retention days, e.g., 90 or 365"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Splunk, navigate to Settings > Indexes > select the IAM audit index > check the Retention (days) or Max Total Data Size configuration. In an ELK stack, review the Index Lifecycle Management (ILM) policy for the IAM audit index.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk: Settings > Indexes > [iam-audit-index] > Retention column",
+        "expected_output": "A numeric retention value in days shown in the index configuration"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect SIEM or log aggregator configuration files for retention policy definitions applied to the IAM or RBAC audit log streams.",
+        "command": "grep -i 'retention\\|max_age\\|expire' /etc/logstash/conf.d/iam-audit.conf",
+        "file_path": "/etc/logstash/conf.d/iam-audit.conf",
+        "navigation": null,
+        "expected_output": "A retention or expiry setting, e.g., 'max_age: 365d' or 'retention_days: 180'"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "30",
+      "90",
+      "180",
+      "365",
+      "730"
+    ]
+  },
+  {
+    "option_name": "logged_event_types",
+    "option_description": "Controls the specific categories of RBAC and permission lifecycle events captured in audit logs, including role_assigned, role_revoked, permission_modified, role_created, and role_deleted event types.",
+    "security_impact": "The Rego policy access_change_auditability countermeasure specifically requires that 'role_assigned', 'role_revoked', and 'permission_modified' are all present in the logged_event_types array. Missing any of these three critical event types means the countermeasure will not activate even if logging is enabled with long retention. Comprehensive event coverage ensures the full lifecycle of access changes is auditable.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS CloudTrail, list the IAM-related event names being captured by querying recent events and extracting distinct event names to confirm role and permission change events are present.",
+        "command": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventSource,AttributeValue=iam.amazonaws.com --start-time $(date -d '7 days ago' +%Y-%m-%dT%H:%M:%S) --query 'Events[*].EventName' | jq 'unique | sort'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A deduplicated list including events such as 'AttachRolePolicy', 'CreateRole', 'DeleteRole', 'DetachRolePolicy', 'AddUserToGroup', 'RemoveUserFromGroup'"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Azure AD audit log API to identify the distinct operation names captured, filtering for role and permission management categories.",
+        "command": "az rest --method GET --url 'https://graph.microsoft.com/v1.0/auditLogs/directoryAudits?$filter=category eq %27RoleManagement%27&$select=activityDisplayName' --query 'value[*].activityDisplayName' | jq 'unique'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of activity names such as 'Add member to role', 'Remove member from role', 'Update role definition'"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Okta System Log, navigate to Reports > System Log and filter by Event Type. Check that group membership events (group.user.membership.add, group.user.membership.remove) and privilege grant events are present. In SailPoint, navigate to Admin > Compliance > Audit Reports > confirm available event categories.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin > Reports > System Log > Event Type filter > search for 'group.user.membership' and 'user.account.privilege'",
+        "expected_output": "Visible log entries for role assignment and revocation event types within the selected time range"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search the SIEM or log management platform for the presence of required RBAC event types within the last 30 days to confirm they are being ingested.",
+        "command": "grep -E 'role_assigned|role_revoked|permission_modified|role_created|role_deleted' /var/log/iam/audit.log | awk '{print $3}' | sort | uniq -c",
+        "file_path": "/var/log/iam/audit.log",
+        "navigation": null,
+        "expected_output": "Count and list of distinct RBAC event type strings found in the audit log, confirming coverage of required types"
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[]",
+      "['role_assigned']",
+      "['role_assigned', 'role_revoked']",
+      "['role_assigned', 'role_revoked', 'permission_modified']",
+      "['role_assigned', 'role_revoked', 'permission_modified', 'role_created', 'role_deleted']"
+    ]
+  },
+  {
+    "option_name": "role_based_permission_assignment",
+    "option_description": "Controls whether all permission grants are exclusively administered through role membership, eliminating direct user-to-permission bindings that bypass the role model and create ungoverned access exceptions.",
+    "security_impact": "The Rego policy role_lifecycle_manageability countermeasure requires role_based_permission_assignment == true as a necessary condition. Direct permission grants outside the role model create governance blind spots where permissions persist through offboarding, are excluded from role reviews, and cannot be managed through role lifecycle processes. These inline policies or direct bindings are the primary source of permission accumulation and drift.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS IAM, identify all users with directly attached inline or managed policies that grant permissions outside of group/role membership.",
+        "command": "aws iam get-account-authorization-details --query 'UserDetailList[?AttachedManagedPolicies[0] || UserPolicyList[0]].{User:UserName,DirectPolicies:AttachedManagedPolicies[*].PolicyName,InlinePolicies:UserPolicyList[*].PolicyName}' | jq '[.[] | select(.DirectPolicies | length > 0 or .InlinePolicies | length > 0)]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty array [] indicates no direct user policy assignments; any entries indicate direct permission grants that bypass role-based assignment"
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure RBAC, list all role assignments scoped directly to users rather than groups to identify non-role-based permission patterns.",
+        "command": "az role assignment list --all --query '[?principalType==`User`].{User:principalName,Role:roleDefinitionName,Scope:scope}' -o table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ideally an empty result or minimal service account entries; any user direct role assignments indicate permissions not managed through group-based role assignment"
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS IAM console, navigate to IAM > Users > select each user > Permissions tab > check for any directly attached policies under 'Permissions policies' that are not inherited from a group. In Azure AD, navigate to Users > select user > Assigned Roles to identify directly assigned roles.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS IAM Console > Users > [username] > Permissions > Permissions policies > filter by 'Directly attached'",
+        "expected_output": "No directly attached policies visible; all permissions should show source as 'Group' or 'Role'"
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Google Cloud IAM API to identify user-level IAM bindings at project or resource level that indicate direct permission grants rather than group-based assignments.",
+        "command": "gcloud projects get-iam-policy <project-id> --format=json | jq '.bindings[] | select(.members[] | startswith(\"user:\")) | {role: .role, users: [.members[] | select(startswith(\"user:\"))]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty result indicates all permissions assigned via groups/service accounts; user: entries indicate direct permission grants"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "role_definition_review_frequency",
+    "option_description": "Controls the cadence at which role definitions including memberships, permission scope, and associated access rights are formally reviewed and recertified to ensure continued appropriateness and compliance with least-privilege requirements.",
+    "security_impact": "The Rego policy role_lifecycle_manageability countermeasure activates when role_definition_review_frequency is 'continuous', 'quarterly', or 'annually', provided offboarding revocation is automated and role-based assignment is enforced. 'ad_hoc' and 'never' values prevent the countermeasure from activating. Without regular review, roles accumulate excessive permissions over time through permission creep, and stale access rights persist after job function changes.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's access management policy documentation, Identity Governance procedures, or recertification runbooks to determine the formally mandated review frequency for role definitions and membership.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy document specifying access review or recertification cadence, e.g., 'Role recertification campaigns are conducted quarterly for privileged roles and annually for standard roles'"
+      },
+      {
+        "type": "gui",
+        "instruction": "In SailPoint IdentityNow, navigate to Admin > Certifications > Access Review Campaigns to view scheduled recertification campaigns and their recurrence settings. In Saviynt, check User Access Review > Campaign Management for scheduled campaigns and frequency.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SailPoint Admin > Certifications > Campaigns > view recurrence schedule on active role recertification campaigns",
+        "expected_output": "Campaign schedules showing recurrence interval, e.g., 'Repeats every 90 days' (quarterly) or 'Repeats every 365 days' (annually)"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the IGA platform API to retrieve access review campaign definitions and extract the recurrence or schedule configuration for role-focused campaigns.",
+        "command": "curl -s -H 'Authorization: Bearer $TOKEN' 'https://<tenant>.api.identitynow.com/v3/certifications?filters=type+eq+%22ROLES%22' | jq '.[] | {name: .name, deadline: .deadline, campaign_type: .type}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of role certification campaigns with their deadlines and schedule metadata indicating review frequency"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the ticketing system or access governance platform for historical role review completion records to determine the actual review cadence based on past campaign execution dates.",
+        "command": "grep -i 'role recertification\\|access review completed\\|role review campaign' /var/log/iga/campaigns.log | awk '{print $1, $2}' | sort | tail -20",
+        "file_path": "/var/log/iga/campaigns.log",
+        "navigation": null,
+        "expected_output": "Timestamped log entries for completed review campaigns from which the interval between reviews can be calculated"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "never",
+      "ad_hoc",
+      "annually",
+      "quarterly",
+      "continuous"
+    ]
+  },
+  {
+    "option_name": "offboarding_role_revocation_automated",
+    "option_description": "Controls whether role membership and access rights are automatically and immediately revoked when a user account is deprovisioned through HR system integration, SCIM endpoints, or identity lifecycle management workflows, without requiring manual intervention.",
+    "security_impact": "The Rego policy role_lifecycle_manageability countermeasure requires offboarding_role_revocation_automated == true in combination with role_based_permission_assignment == true and an acceptable review frequency. Manual offboarding processes create a gap between termination and access removal, leaving former employees or contractors with active access rights. Automated revocation eliminates this window and is a prerequisite for the role lifecycle countermeasure to activate.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD, navigate to Azure Active Directory > Enterprise Applications > [HR provisioning app, e.g., Workday to Azure AD] > Provisioning > Provisioning Mode to confirm automated provisioning is enabled. Verify that 'Disable user account' or 'Delete user account' actions are mapped for offboarding triggers.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure AD > Enterprise Applications > [HR App] > Provisioning > Mappings > check Disable/Delete user action mappings",
+        "expected_output": "Provisioning mode set to 'Automatic' with user disable or delete actions mapped to offboarding events from the HR source"
+      },
+      {
+        "type": "command",
+        "instruction": "For Okta with HR integration, verify that the HR mastered lifecycle policy is configured to deactivate and deprovision users, which triggers automatic group and app role removal.",
+        "command": "curl -s -H 'Authorization: SSWS $OKTA_API_TOKEN' -H 'Accept: application/json' 'https://<tenant>.okta.com/api/v1/policies?type=LIFECYCLE' | jq '.[] | select(.name | contains(\"HR\") or contains(\"Offboard\")) | {name: .name, status: .status}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active lifecycle policy with HR offboarding trigger that sets user to DEPROVISIONED state, removing group memberships and role assignments"
+      },
+      {
+        "type": "api",
+        "instruction": "Query SCIM endpoint configuration to verify that DELETE or PATCH (active=false) operations on user resources trigger role revocation in the target IAM system.",
+        "command": "curl -s -H 'Authorization: Bearer $TOKEN' 'https://<scim-endpoint>/v2/ServiceProviderConfig' | jq '.supportedPatches, .bulk, .filter'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SCIM service provider configuration confirming PATCH and DELETE operations are supported, indicating automated lifecycle management is possible"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review a sample of recent offboarding tickets or HR termination records and cross-reference with IAM access removal timestamps to determine whether revocation occurs automatically within minutes or requires manual processing over hours or days.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that access removal timestamps match or closely follow HR termination event timestamps (within minutes to hours indicates automation; days indicates manual process)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "rbac_enforcement_enabled",
+    "option_description": "Controls whether role-based access control is actively enforced at the application or system layer, blocking unauthorized function execution and denying requests that exceed a user's assigned role permissions. When disabled, RBAC may operate in audit-only or permissive mode, allowing requests to pass through without enforcement.",
+    "security_impact": "This is the foundational gate for the unauthorized_function_prevention and privilege_escalation_detection Rego rules. Both rules require input.rbac_enforcement_enabled == true as a prerequisite condition. Without this enabled, no RBAC-based blocking occurs regardless of how well roles are defined, rendering all downstream permission controls ineffective.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect application security configuration files for RBAC enforcement flags. Common locations include Spring Security config, .NET authorization middleware, or framework-specific settings files.",
+        "command": "grep -rE '(rbac|enforcement|authorization).*(enabled|mode|enforce)' /etc/app/ /opt/app/config/ --include='*.yaml' --include='*.json' --include='*.properties' -i",
+        "file_path": "/etc/app/security.yaml",
+        "navigation": null,
+        "expected_output": "A flag such as rbac_enabled: true, enforcement_mode: enforce, or authorization.enabled=true. Audit-only or disabled values indicate non-enforcement."
+      },
+      {
+        "type": "command",
+        "instruction": "Query cloud IAM or Kubernetes RBAC enforcement status using platform CLI tools to verify active enforcement is configured.",
+        "command": "kubectl get clusterrolebindings,rolebindings --all-namespaces -o json | jq '.items[] | {name: .metadata.name, kind: .kind}' | head -40",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Populated ClusterRoleBindings and RoleBindings indicate RBAC is active in Kubernetes. An empty or minimal list suggests RBAC may not be enforced."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS IAM or Azure Active Directory portal, verify that IAM policies and role assignments are attached and that no service-level bypass (e.g., '*' action wildcards without conditions) is present.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → IAM → Policies → Filter by 'Attached' | Azure Portal → Azure Active Directory → Roles and Administrators → Review active role assignments",
+        "expected_output": "Active role assignments with defined permission boundaries and no blanket administrator grants indicate enforcement is active."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the application's internal configuration or health API endpoint to confirm RBAC enforcement mode is set to active rather than permissive or disabled.",
+        "command": "curl -s -H 'Authorization: Bearer <admin_token>' https://<app-host>/api/admin/config | jq '.security.rbac // .authorization // .access_control'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response containing enforcement: true or mode: enforce. A value of mode: audit or enforcement: false indicates RBAC is not actively blocking."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "privileged_function_permission_check",
+    "option_description": "Defines how comprehensively permission checks are applied to privileged or sensitive functions — whether every protected operation requires a role permission check before execution (all), only a subset of operations are guarded (partial), or no checks are in place (none). This determines the completeness of access gating at the function level.",
+    "security_impact": "The unauthorized_function_prevention Rego rule activates countermeasure coverage when this value is either 'all' or 'partial' combined with rbac_enforcement_enabled and default_deny_policy being true. A value of 'all' provides the strongest protection, ensuring no privileged endpoint is reachable without role validation. A 'partial' value still triggers the countermeasure but leaves ungated functions as privilege escalation vectors. A value of 'none' disables the countermeasure entirely.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review access control decorators or annotations on API controllers and route definitions to determine what fraction of privileged endpoints carry authorization guards.",
+        "command": "grep -rn '@PreAuthorize\\|@Secured\\|@RolesAllowed\\|[Authorize]\\|requiresRole\\|hasPermission' /opt/app/src/ --include='*.java' --include='*.py' --include='*.cs' --include='*.ts' | wc -l",
+        "file_path": "/opt/app/src/",
+        "navigation": null,
+        "expected_output": "A count matching the total number of privileged endpoints indicates 'all'. A lower count relative to total endpoints suggests 'partial'. Zero indicates 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect API gateway route configurations (e.g., Kong, AWS API Gateway, NGINX) to verify that authorization policies are attached to all privileged routes.",
+        "command": "curl -s http://localhost:8001/services | jq '.data[].id' | xargs -I{} curl -s http://localhost:8001/services/{}/plugins | jq '.[].name' | grep -i 'jwt\\|oauth\\|acl\\|key-auth'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every service having an authorization plugin (jwt, acl, oauth2) indicates 'all'. Some services missing plugins indicates 'partial'. No plugins indicate 'none'."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the API gateway management console and review route-level authorization policy attachments across all defined routes.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS API Gateway Console → APIs → Select API → Resources → Review Authorizer column for each Method | Kong Manager → Services → Routes → Plugins tab",
+        "expected_output": "All privileged routes showing an assigned authorizer or ACL plugin indicates 'all' coverage. Gaps indicate 'partial'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the application development or security team to determine if a policy exists requiring role-permission annotations on all new privileged endpoints, and review recent code review checklists for enforcement evidence.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented and enforced policy with evidence in code review checklists suggests 'all'. Inconsistent application suggests 'partial'. No policy indicates 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "all",
+      "partial",
+      "none"
+    ]
+  },
+  {
+    "option_name": "default_deny_policy",
+    "option_description": "Determines whether the RBAC system defaults to denying access to all functions and resources unless a role explicitly grants permission. When true, the system operates on an implicit-deny posture, requiring affirmative permission grants. When false, the system may default to allowing access unless explicitly denied, creating significant privilege exposure.",
+    "security_impact": "The unauthorized_function_prevention Rego rule requires input.default_deny_policy == true in both triggering conditions, making it a mandatory co-condition for the countermeasure to activate. Without default deny, even a fully deployed RBAC system with comprehensive permission checks may allow unauthorized access to functions where role grants have not been explicitly defined, creating coverage gaps.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the authorization framework or policy engine configuration for default access mode settings. Common files include OPA policy files, Spring Security config, AWS IAM permission boundaries, or Casbin model definitions.",
+        "command": "grep -rE '(default|fallback).*(deny|allow|permit|reject|effect)' /etc/opa/ /opt/app/policies/ /etc/casbin/ --include='*.rego' --include='*.yaml' --include='*.conf' -i",
+        "file_path": "/etc/opa/policies/",
+        "navigation": null,
+        "expected_output": "Values such as default effect = deny, default_decision: deny, or implicit deny rules in OPA/Casbin indicate default deny is active."
+      },
+      {
+        "type": "command",
+        "instruction": "Test the default deny posture directly by attempting to access a resource with a newly created test user that has no role assignments and confirm a 403 Forbidden response.",
+        "command": "curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer <no_role_test_token>' https://<app-host>/api/admin/test-endpoint",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 403 Forbidden confirms default deny is active. HTTP 200 or 401 without role enforcement indicates default deny is not functioning."
+      },
+      {
+        "type": "api",
+        "instruction": "Query IAM or authorization service API for the default effect setting on policies or the global authorization configuration.",
+        "command": "aws iam get-account-authorization-details --query 'Policies[?PolicyName==`default`].PolicyVersionList[].Document' --output json | python3 -c \"import sys,json; d=json.load(sys.stdin); [print(s) for p in d for s in [str(p)] if 'Deny' in str(p) or 'Allow' in str(p)]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Absence of wildcard Allow statements and presence of explicit Deny or no-match behavior confirms default deny posture."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the security framework settings in the application admin console or IAM portal for the default access rule configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure AD → Enterprise Applications → App Registration → Manifest → Check 'accessTokenAcceptedVersion' and permission configuration | Okta Admin → Security → API → Authorization Servers → Default Policy Rules → Review 'Deny' rule priority",
+        "expected_output": "A catch-all Deny rule at lowest priority or an explicit implicit-deny configuration confirms the default deny posture is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "access_denial_logging_enabled",
+    "option_description": "Controls whether access-denial events generated by RBAC policy violations — such as HTTP 403 responses, policy engine rejections, and IAM access-denied errors — are captured in application logs or forwarded to a centralized SIEM system for detection, alerting, and forensic analysis.",
+    "security_impact": "The privilege_escalation_detection Rego rule requires input.access_denial_logging_enabled == true as a core condition. Without this logging, the system cannot generate detection signals when users attempt to access functions outside their role scope. Even with RBAC enforcement active, the absence of denial logging means privilege-seeking behavior is invisible to security operations, eliminating the detection capability entirely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search application and web server logs for the presence of 403 Forbidden entries to verify that access denial events are being captured in log files.",
+        "command": "grep -c 'HTTP/1.[01]\" 403\\|\" 403 \\|access denied\\|permission denied\\|authorization failed' /var/log/nginx/access.log /var/log/app/*.log 2>/dev/null | grep -v ':0$'",
+        "file_path": "/var/log/nginx/access.log",
+        "navigation": null,
+        "expected_output": "Non-zero counts of 403 or access-denied entries confirm that denial events are being logged. Zero counts may indicate logging is disabled or no denials have occurred."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the application logging configuration and SIEM forwarder settings to confirm authorization failure events are included in the log output and forwarding pipeline.",
+        "command": "grep -rE '(403|access.denied|authorization|permission).*(log|event|emit|capture|forward)' /etc/app/logging.yaml /etc/logstash/ /etc/fluentd/ --include='*.yaml' --include='*.conf' -i",
+        "file_path": "/etc/app/logging.yaml",
+        "navigation": null,
+        "expected_output": "Explicit configuration capturing 403 responses or RBAC denial events with a SIEM forwarding destination confirms logging is enabled."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM or centralized logging platform for access-denial events from the application to confirm they are being received and indexed.",
+        "command": "curl -s -H 'Authorization: Bearer <siem_token>' 'https://<siem-host>/api/v1/query' -d '{\"query\": \"index=* sourcetype=access_log status=403 OR action=denied | stats count by host\", \"earliest_time\": \"-24h\"}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Results showing denial events per host within the last 24 hours confirm events are flowing to the SIEM. No results indicate logging or forwarding is broken."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the SIEM dashboard or cloud-native logging service to verify access-denial events are present and arriving from application sources.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk → Search → Run: index=* (status=403 OR action=denied) | table host, user, uri, _time | AWS CloudWatch → Log Groups → Select application log group → Filter for 'AccessDenied' or '403'",
+        "expected_output": "Populated results showing recent 403 or access-denied events from application hosts confirm the logging pipeline is functioning."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "least_privilege_policy_applied",
+    "option_description": "Indicates whether role definitions are scoped to the minimum set of permissions required for each user group to perform their job functions, rather than granting broad or administrative access by default. This limits the blast radius if a role is compromised or a user attempts privilege escalation.",
+    "security_impact": "The privilege_escalation_detection Rego rule includes a condition branch where input.least_privilege_policy_applied == true combined with rbac_enforcement_enabled and access_denial_logging_enabled provides stronger privilege escalation detection coverage. Overly permissive roles make privilege escalation attempts harder to detect because authorized over-permissions mask anomalous behavior. Without least privilege, even detected escalation attempts may succeed silently within broad role grants.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Audit IAM role policies for wildcard permissions or broad administrative grants that violate least privilege principles.",
+        "command": "aws iam get-account-authorization-details --output json | jq '[.RolePolicyList[],.UserPolicyList[],.GroupPolicyList[] | select(.PolicyDocument.Statement[]?.Action == \"*\" or .PolicyDocument.Statement[]?.Action[] == \"*\")] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A count of 0 wildcard Action grants indicates least privilege is applied. Non-zero counts indicate roles with overly broad permissions requiring remediation."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review role definition files in policy-as-code repositories (e.g., Terraform IAM roles, Kubernetes RBAC YAML, OPA role policies) for permission scope.",
+        "command": "grep -rE '\"\\*\"|action: \\*|verbs: \\[\"\\*\"\\]|Effect.*Allow.*Action.*\\*' /opt/iac/roles/ /etc/kubernetes/rbac/ --include='*.tf' --include='*.yaml' --include='*.json'",
+        "file_path": "/opt/iac/roles/",
+        "navigation": null,
+        "expected_output": "No wildcard permissions in role definitions indicates least privilege is applied. Wildcard findings indicate policy violations."
+      },
+      {
+        "type": "gui",
+        "instruction": "Use cloud provider IAM access analyzer or permission boundary review tools to identify overprivileged roles relative to actual usage patterns.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → IAM → Access Analyzer → Findings → Filter by 'Overly Permissive' | Azure Portal → Azure AD → Privileged Identity Management → Roles → Review 'Unused permissions' column | GCP Console → IAM → Recommender → Role Recommendations",
+        "expected_output": "Zero high-severity overpermission findings or access analyzer recommendations indicates least privilege is applied. Multiple findings indicate remediation is needed."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the role design documentation and approval process to verify that new role creation requires a business justification for each permission granted and a security review before provisioning.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented role design process with per-permission justification requirements and evidence of security reviews in ticketing system confirms least privilege governance."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "federated_role_sync_enabled",
+    "option_description": "Controls whether role definitions are actively synchronized from an authoritative identity source (such as LDAP, Active Directory, Azure AD, or Okta) to all integrated downstream systems including cloud IAM platforms and API gateways. When enabled, role changes in the identity provider propagate consistently across the environment; when disabled, role assignments may diverge between systems.",
+    "security_impact": "The cross_system_integration_depth Rego rule requires input.federated_role_sync_enabled == true as a mandatory condition. Without active synchronization, role revocations in the identity provider do not propagate to downstream systems, leaving former employees or changed roles with residual access. This creates windows where RBAC enforcement exists locally but is inconsistent across system boundaries.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the identity provider administration console to verify that provisioning or directory sync is configured and active.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin Console → Applications → Select Application → Provisioning tab → Verify 'Enable API Integration' and 'Push Groups/Roles' are enabled | Azure AD → Enterprise Applications → Provisioning → Provisioning Status = On | Google Workspace → Admin → Apps → SAML Apps → User Provisioning",
+        "expected_output": "Provisioning status showing 'Active' or 'On' with a configured scope including role/group push confirms federated sync is enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Azure AD Connect or LDAP sync service status to verify the synchronization daemon is running and actively processing changes.",
+        "command": "Get-ADSyncScheduler | Select-Object -Property SyncCycleEnabled, NextSyncCyclePolicyType, LastSyncRunTime | ConvertTo-Json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SyncCycleEnabled: true with a recent LastSyncRunTime confirms Azure AD Connect sync is enabled and running."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the SCIM provisioning configuration or directory sync configuration file for enabled status and target system endpoints.",
+        "command": "grep -E '(sync|provisioning|scim).*(enabled|active|endpoint|target)' /etc/okta-provisioning/config.yaml /etc/aad-connect/config.xml /opt/ldap-sync/config.json -i 2>/dev/null",
+        "file_path": "/etc/okta-provisioning/config.yaml",
+        "navigation": null,
+        "expected_output": "enabled: true with defined target_endpoint values confirms federated role sync is configured and enabled."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the identity provider API to verify provisioning app assignments and sync configuration programmatically.",
+        "command": "curl -s -H 'Authorization: SSWS <okta_api_token>' 'https://<okta-domain>/api/v1/apps?filter=status+eq+%22ACTIVE%22&expand=name,features' | jq '.[].features'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response containing PUSH_NEW_USERS, PUSH_PROFILE_UPDATE, or PUSH_GROUPS features for integrated applications confirms federated sync is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "role_policy_coverage",
+    "option_description": "Measures the extent to which centrally defined role policies are enforced across all integrated systems rather than just a subset. 'full' indicates every integrated system enforces the federated role policy without local overrides; 'partial' means some systems are excluded or maintain local permission overrides; 'none' means no cross-system enforcement exists and systems manage permissions independently.",
+    "security_impact": "The cross_system_integration_depth Rego rule requires input.role_policy_coverage == 'full' alongside federated_role_sync_enabled and a successful last sync. A 'partial' or 'none' coverage value means the countermeasure does not activate, leaving systems outside the central policy boundary as uncontrolled access vectors. Systems with local overrides can silently preserve access that has been revoked centrally, creating persistent privilege exposure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IAM or infrastructure team to obtain an inventory of all integrated systems and determine which ones consume role definitions from the central identity provider versus maintaining independent access control.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A complete system inventory with each system's role source documented. All systems sourcing roles from the central IDP indicates 'full'. Any system with local overrides or independent role management indicates 'partial'."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the identity provider for the list of applications with provisioning enabled and cross-reference against the known system inventory to identify gaps.",
+        "command": "curl -s -H 'Authorization: SSWS <okta_api_token>' 'https://<okta-domain>/api/v1/apps?filter=status+eq+%22ACTIVE%22' | jq '[.[] | {id: .id, label: .label, features: .features}]' > /tmp/provisioned_apps.json && cat /tmp/provisioned_apps.json | jq 'length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "App count matching the total known system inventory indicates 'full' coverage. Fewer apps than systems indicates 'partial'. Zero provisioned apps indicates 'none'."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the identity provider application catalog to identify which systems have provisioning connectors active versus those relying on manual or local role management.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin → Applications → Applications → Filter by 'Provisioning Enabled' → Compare count against total application inventory | Azure AD → Enterprise Applications → Filter 'Provisioning Status = Active' → Compare against all app registrations",
+        "expected_output": "All applications showing active provisioning indicates 'full' coverage. Gaps between provisioning-enabled apps and total applications indicate 'partial'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review infrastructure-as-code or configuration management manifests to identify any systems with hardcoded local role definitions that override or supplement central policy.",
+        "command": "grep -rE '(local_role|override|bypass|skip.rbac|custom.permission)' /opt/iac/ /etc/ansible/ /opt/terraform/ --include='*.tf' --include='*.yaml' --include='*.yml' -i | grep -v '#'",
+        "file_path": "/opt/iac/",
+        "navigation": null,
+        "expected_output": "No results indicate all systems enforce central policy ('full'). Findings with local role overrides indicate 'partial' or 'none' coverage."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "full",
+      "partial",
+      "none"
+    ]
+  },
+  {
+    "option_name": "last_sync_status",
+    "option_description": "Captures the outcome of the most recent role synchronization job executed across federated systems. 'success' means all roles propagated correctly to all integrated systems; 'partial_failure' means some targets received updates while others failed; 'failure' means the sync job did not complete successfully; 'never_run' means no synchronization has ever been executed.",
+    "security_impact": "The cross_system_integration_depth Rego rule requires input.last_sync_status == 'success' to activate the countermeasure. Any non-success status means the cross-system integration depth countermeasure does not apply, even if federated sync is enabled and coverage is configured as full. A failed or never-run sync status means downstream systems may hold stale, over-permissive, or missing role assignments, creating undetected privilege inconsistencies across system boundaries.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Review the provisioning or sync dashboard in the identity provider console to check the status and timestamp of the last completed synchronization cycle.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin Console → Reports → System Log → Filter by event type 'system.provisioning.sync' → Review latest entry status | Azure AD → Enterprise Applications → Select App → Provisioning → Provisioning logs → Review latest cycle Status column | Azure AD Connect Health → Sync Services → Latest sync time and status",
+        "expected_output": "A status of 'Success' with a recent timestamp (within expected sync interval) indicates last_sync_status = success. 'Warning' or 'Error' entries indicate partial_failure or failure."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Azure AD Connect sync logs or SCIM provisioning logs for the outcome of the most recent synchronization run.",
+        "command": "Get-EventLog -LogName Application -Source 'ADSync' -Newest 20 | Where-Object {$_.EntryType -in 'Error','Warning','Information'} | Select-Object TimeGenerated, EntryType, Message | ConvertTo-Json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Information entries without accompanying Error events for the most recent run indicates success. Error entries indicate failure or partial_failure."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query SCIM or provisioning audit logs to determine the result of the most recent sync job, including error counts and affected systems.",
+        "command": "curl -s -H 'Authorization: SSWS <okta_api_token>' 'https://<okta-domain>/api/v1/logs?filter=eventType+eq+%22system.provisioning.sync.complete%22&limit=5' | jq '[.[] | {published: .published, outcome: .outcome.result, reason: .outcome.reason}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "outcome.result = 'SUCCESS' for the most recent entry confirms last_sync_status = success. 'FAILURE' or 'PARTIAL_FAILURE' outcomes indicate sync issues requiring investigation."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the sync job log file on the directory synchronization server for the last job execution result and any recorded errors.",
+        "command": "tail -100 /var/log/aad-connect/sync.log /var/log/okta-provisioning/sync.log /opt/ldap-sync/logs/sync.log 2>/dev/null | grep -E '(completed|failed|error|success|partial)' -i | tail -20",
+        "file_path": "/var/log/aad-connect/sync.log",
+        "navigation": null,
+        "expected_output": "Log entries containing 'completed successfully' or 'sync success' for the most recent run indicate status = success. 'failed', 'error', or 'partial' keywords indicate failure or partial_failure. No log file or empty output indicates never_run."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "success",
+      "partial_failure",
+      "failure",
+      "never_run"
+    ]
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "name": "User Input",
+  "classType": "data",
+  "type": "data",
+  "description": "Data described as 'potentially includes PII, stored temporarily on the server' exhibits critical classification ambiguity — the uncertainty around whether PII is actually present means classification enforcement cannot be reliably applied. Temporary storage without defined retention boundaries creates indefinite exposure windows. Without confirmed classification, downstream controls including encryption, access restriction, anonymization, and disposal procedures cannot be consistently enforced, resulting in compounding lifecycle failures.",
+  "category": "Sensitive Information",
+  "status": "reviewed"
+}

@@ -1,0 +1,8 @@
+{
+  "name": "VPN Access Policy",
+  "classType": "control",
+  "type": "control",
+  "description": "This control defines encryption protocols and access rules for secure remote connectivity, delivering structured protection through cryptographic enforcement, identity validation, and policy-driven session management. When properly configured, it provides strong prevention coverage over unauthorized remote access, ensures data confidentiality in transit, and enables auditable session governance.",
+  "category": "Network Security",
+  "status": "reviewed"
+}

@@ -1,0 +1,8 @@
+{
+  "name": "DNS Security Extensions (DNSSEC)",
+  "classType": "control",
+  "type": "DNS Security Extensions",
+  "description": "DNSSEC provides cryptographic authentication of DNS responses through digital signatures, ensuring resolvers can verify that DNS data originates from authoritative sources and has not been tampered with in transit. When properly configured, it delivers strong integrity assurance for DNS resolution chains.",
+  "category": "Infrastructure Services",
+  "status": "reviewed"
+}

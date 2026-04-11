@@ -1,0 +1,1311 @@
+[
+  {
+    "option_name": "mtls_mode",
+    "option_description": "Controls the mutual TLS enforcement mode for service-to-service communication, determining whether both sides must present certificates (strict), certificates are optional (permissive), only the server is authenticated (one_way_tls), or no TLS authentication is enforced (disabled).",
+    "security_impact": "The Rego policy fires `mutual_tls_not_enforced` when mtls_mode is 'one_way_tls' or 'disabled', exposing the service to adversary-in-the-middle attacks (T1557) and service impersonation (T1001.003). Even 'permissive' mode triggers a finding when plaintext_fallback_allowed is true, because unauthenticated peers can still connect. Only 'strict' with both sides authenticated prevents these exposure conditions.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect Istio PeerAuthentication resources across all namespaces to identify the configured mtls mode.",
+        "command": "kubectl get peerauthentication --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}{\"\\t\"}{.metadata.name}{\"\\t\"}{.spec.mtls.mode}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each row shows namespace, policy name, and mode value such as STRICT, PERMISSIVE, or DISABLE."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Linkerd MutualTLS server configuration to determine whether mTLS is enforced for inbound connections.",
+        "command": "kubectl get server --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}{\"\\t\"}{.metadata.name}{\"\\t\"}{.spec.proxyProtocol}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ProxyProtocol value of 'TLS' or 'mTLS' indicates enforcement; absence or 'HTTP' indicates one-way or no mTLS."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect raw Envoy or custom TLS listener configuration for ClientAuth or require_client_certificate settings when not using a service mesh.",
+        "command": null,
+        "file_path": "/etc/envoy/envoy.yaml",
+        "navigation": null,
+        "expected_output": "Look for 'require_client_certificate: true' under tls_context or transport_socket to confirm strict mTLS; absence implies one-way or disabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Istio's Kiali dashboard, navigate to the service graph, select a service, and review the Security panel to see whether mTLS lock icons are shown for both inbound and outbound edges.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kiali UI > Graph > Select Service Node > Detail Panel > Security Tab > mTLS indicators",
+        "expected_output": "A closed padlock on both directions of communication edges indicates STRICT mTLS; an open padlock or absence indicates PERMISSIVE or DISABLED."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "strict",
+      "permissive",
+      "disabled",
+      "one_way_tls"
+    ]
+  },
+  {
+    "option_name": "client_certificate_required",
+    "option_description": "Indicates whether the service enforces that all inbound connections from peer services must present a valid client certificate before the connection is accepted. This is distinct from the mesh-level mtls_mode and reflects the raw TLS server configuration directive.",
+    "security_impact": "The Rego policy fires `mutual_tls_not_enforced` when `client_certificate_required` is false regardless of the mtls_mode setting, because the absence of this directive means the TLS server will accept connections without client certificates. This allows rogue or compromised services to impersonate legitimate callers (T1557, T1587.003). The policy explicitly checks `not input.client_certificate_required` as an independent condition.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Go TLS server configuration in service source or compiled config for the ClientAuth field value.",
+        "command": null,
+        "file_path": "main.go or tls_config.go (service-specific)",
+        "navigation": null,
+        "expected_output": "tls.RequireAndVerifyClientCert confirms client certs are required; tls.NoClientCert, tls.RequestClientCert, or absence indicates not enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Nginx TLS configuration for ssl_verify_client directive on internal service listeners.",
+        "command": "grep -r 'ssl_verify_client' /etc/nginx/conf.d/ /etc/nginx/sites-enabled/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'ssl_verify_client on' indicates client certificates are required; 'optional' or 'off' or absence means client cert is not required."
+      },
+      {
+        "type": "command",
+        "instruction": "Use OpenSSL to probe the service TLS handshake and observe whether a CertificateRequest message is sent by the server.",
+        "command": "openssl s_client -connect <service-host>:<port> -tls1_2 2>&1 | grep -E 'Acceptable client certificate|Request CERT'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'Request CERT' or 'Acceptable client certificate CA names' confirms the server is requesting a client certificate."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Java SSLContext or Spring Boot server.ssl properties for client-auth setting.",
+        "command": null,
+        "file_path": "application.properties or application.yml",
+        "navigation": null,
+        "expected_output": "'server.ssl.client-auth=need' confirms client certs are required; 'want' means optional; 'none' or absent means disabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "plaintext_fallback_allowed",
+    "option_description": "Controls whether the service will accept connections that downgrade to plaintext HTTP or unauthenticated TLS when the connecting peer fails to present a valid client certificate or when mTLS negotiation fails. This is particularly relevant when mtls_mode is set to permissive.",
+    "security_impact": "The Rego policy fires `mutual_tls_not_enforced` when mtls_mode is 'permissive' AND plaintext_fallback_allowed is true, because permissive mode combined with fallback capability means any service — including rogue ones — can connect without authentication. This enables adversary-in-the-middle attacks (T1557) and protocol or service impersonation (T1001.003). Even with mtls_mode set to permissive for migration purposes, disabling plaintext fallback reduces the exposure window.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check Istio PeerAuthentication for PERMISSIVE mode, which by definition allows plaintext fallback when no peer certificate is presented.",
+        "command": "kubectl get peerauthentication --all-namespaces -o json | jq '.items[] | select(.spec.mtls.mode == \"PERMISSIVE\") | {namespace: .metadata.namespace, name: .metadata.name, mode: .spec.mtls.mode}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any result with mode PERMISSIVE indicates plaintext fallback is implicitly allowed; zero results means no permissive policies exist."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to connect to the internal service using plain HTTP or without presenting a client certificate to verify whether the connection is accepted or rejected.",
+        "command": "curl -v --insecure http://<internal-service-host>:<port>/health 2>&1 | grep -E 'Connected|SSL|Connection refused|400'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful HTTP 200 response indicates plaintext fallback is allowed; a connection refused or TLS handshake failure indicates it is not."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Envoy listener filter chain match conditions to determine if a non-TLS filter chain exists that would accept plaintext connections.",
+        "command": null,
+        "file_path": "/etc/envoy/envoy.yaml",
+        "navigation": null,
+        "expected_output": "A filter_chain_match with no transport_socket TLS context present alongside a TLS-enabled filter chain confirms plaintext fallback is permitted."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Nginx configuration for a server block listening on the same port without ssl directive, enabling HTTP fallback.",
+        "command": "grep -A 10 'listen ' /etc/nginx/conf.d/*.conf | grep -v ssl",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A listen directive without 'ssl' keyword on the service port indicates plaintext connections are accepted."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "certificate_validation_mode",
+    "option_description": "Specifies how the service validates TLS certificates presented by peer services during mTLS or one-way TLS connections. This consolidates hostname verification and CA chain validation into a single assessment value: full validation, skipping hostname checks, skipping all validation, or using custom CAs without certificate pinning.",
+    "security_impact": "The Rego policy fires `certificate_validation_bypass` for 'skip_all' (no validation whatsoever), 'skip_hostname' (hostname spoofing possible), and 'custom_no_pinning' when no trusted CA bundle is configured. These conditions allow attackers to present forged or stolen certificates (T1649), install malicious root certificates (T1553.004), and conduct man-in-the-middle attacks even when TLS is nominally enabled (T1608.003). Only 'full' mode with a trusted CA bundle prevents all bypass conditions.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search service source code and configuration for TLS skip verification flags across common language patterns.",
+        "command": "grep -rn --include='*.go' --include='*.py' --include='*.java' --include='*.js' --include='*.yaml' --include='*.yml' -E 'InsecureSkipVerify|VERIFY_NONE|ssl_verify.*false|verify=False|NODE_TLS_REJECT_UNAUTHORIZED' /app/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any match indicates skip_all or skip_hostname mode is in use; no matches suggests full validation (verify against other checks)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect gRPC dial options in service configuration or initialization code for credentials and TLS settings.",
+        "command": null,
+        "file_path": "grpc_client.go or equivalent service client initialization file",
+        "navigation": null,
+        "expected_output": "grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})) with nil or empty Config suggests custom_no_pinning; InsecureSkipVerify:true means skip_all."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Envoy cluster TLS context for validation_context configuration to determine certificate validation posture.",
+        "command": "kubectl exec -n <namespace> <envoy-pod> -- curl -s localhost:15000/config_dump | jq '.configs[] | select(.\"@type\" | contains(\"Cluster\")) | .dynamic_active_clusters[].cluster | select(.transport_socket) | {name: .name, validation: .transport_socket.typed_config.combined_validation_context}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of trusted_ca with a certificate value confirms full validation; absence of validation_context confirms skip_all or no validation."
+      },
+      {
+        "type": "command",
+        "instruction": "Test the service TLS client behavior by presenting a certificate with a mismatched hostname and observing whether the connection is accepted or rejected.",
+        "command": "openssl s_client -connect <peer-service>:<port> -servername wrong.hostname.internal 2>&1 | grep -E 'verify error|Verification|SSL handshake'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No verify error and successful handshake with wrong hostname confirms skip_hostname or skip_all mode; 'verify error:num=62' confirms hostname checking is active."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "full",
+      "skip_all",
+      "skip_hostname",
+      "custom_no_pinning"
+    ]
+  },
+  {
+    "option_name": "trusted_ca_bundle_configured",
+    "option_description": "Indicates whether the service has an explicitly configured trusted Certificate Authority bundle or certificate pinning store used to validate peer service certificates, as opposed to relying on the operating system default trust store, accepting any certificate, or skipping validation entirely.",
+    "security_impact": "The Rego policy fires `certificate_validation_bypass` in two conditions involving this attribute: when certificate_validation_mode is 'custom_no_pinning' and no CA bundle is configured, and when certificate_validation_mode is anything other than 'full' and no CA bundle is configured. Without a specific CA bundle, the service cannot cryptographically verify that a peer certificate was issued by a trusted internal CA, enabling install-root-certificate attacks (T1553.004) and forged certificate acceptance (T1649).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect service TLS client configuration files or Kubernetes Secrets/ConfigMaps for CA certificate references.",
+        "command": null,
+        "file_path": "/etc/ssl/service-ca/ca-bundle.crt or /etc/service/tls/ca.pem (service-specific)",
+        "navigation": null,
+        "expected_output": "Presence of a PEM-encoded CA bundle file with internal CA certificates confirms trusted_ca_bundle_configured is true."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Kubernetes secrets and ConfigMaps in the service namespace for CA certificate data used for peer validation.",
+        "command": "kubectl get secrets,configmaps -n <namespace> -o json | jq '.items[] | select(.data | keys[] | test(\"ca\\.crt|ca-bundle|root-ca\")) | {kind: .kind, name: .metadata.name, keys: (.data | keys)}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Results listing secrets or configmaps with ca.crt or ca-bundle keys confirm a CA bundle is provisioned to the service."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect Istio service mesh CA injection by checking whether the istio-ca-root-cert ConfigMap is mounted in service pods.",
+        "command": "kubectl exec -n <namespace> <pod-name> -- ls /var/run/secrets/istio/ 2>/dev/null || kubectl get configmap istio-ca-root-cert -n <namespace> -o jsonpath='{.data.root-cert\\.pem}' | openssl x509 -noout -subject -issuer",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of root-cert.pem with a valid Istio CA subject confirms the mesh-injected CA bundle is available; absence indicates no CA bundle is configured."
+      },
+      {
+        "type": "command",
+        "instruction": "Search service environment variables and startup flags for CA file path references.",
+        "command": "kubectl exec -n <namespace> <pod-name> -- env | grep -iE 'CA_CERT|CA_BUNDLE|SSL_CERT_FILE|REQUESTS_CA_BUNDLE|NODE_EXTRA_CA_CERTS'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A populated environment variable pointing to a CA file path confirms a custom CA bundle is configured; absence suggests reliance on system defaults or no validation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "self_signed_certs_accepted_without_pinning",
+    "option_description": "Indicates whether the service will accept any self-signed certificate presented by a peer service without requiring that specific certificate or its public key to be pinned in a trust store. When true, any party that can generate a self-signed certificate matching the expected service name can impersonate that service.",
+    "security_impact": "The Rego policy fires `certificate_validation_bypass` directly when self_signed_certs_accepted_without_pinning is true, because accepting unpinned self-signed certificates provides no cryptographic assurance of peer identity. Attackers can generate their own self-signed certificates and present them to impersonate legitimate services (T1649, T1553.004, T1608.003). The only safe use of self-signed certificates in internal service communication is with explicit public key or certificate fingerprint pinning.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether services in the cluster use self-signed certificates by examining certificate issuers in running pods.",
+        "command": "for ns in $(kubectl get ns -o jsonpath='{.items[*].metadata.name}'); do kubectl get secrets -n $ns -o json | jq -r '.items[] | select(.type == \"kubernetes.io/tls\") | .data[\"tls.crt\"]' | base64 -d | openssl x509 -noout -issuer -subject 2>/dev/null | grep -v 'cluster.local\\|cert-manager\\|istio' && echo \"Namespace: $ns\"; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Certificates where issuer equals subject indicate self-signed certificates are in use; check whether pinning is configured for those services."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review TLS client configuration in service code for broad CA trust or explicit disabling of CA chain validation combined with self-signed cert usage.",
+        "command": null,
+        "file_path": "tls_config.yaml or service configuration files",
+        "navigation": null,
+        "expected_output": "Presence of InsecureSkipVerify, VERIFY_NONE, or a CA bundle containing self-signed certs without a pinning fingerprint list confirms self-signed certs are accepted without pinning."
+      },
+      {
+        "type": "command",
+        "instruction": "Probe the peer service certificate chain and verify whether the presented certificate is self-signed and whether the client service accepts it.",
+        "command": "openssl s_client -connect <internal-service>:<port> -showcerts 2>/dev/null | openssl x509 -noout -subject -issuer | awk '/subject/{s=$0} /issuer/{if (s==$0) print \"SELF-SIGNED\"; else print \"CA-SIGNED\"}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'SELF-SIGNED' output confirms self-signed certificates are in use; cross-reference with client connection success to confirm acceptance without pinning."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview service owners or review certificate provisioning documentation to determine whether certificate pinning (fingerprint or SPKI pin) is explicitly implemented in service client code.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review service TLS client code, README documentation, and certificate management runbooks for pinning configuration.",
+        "expected_output": "Documented SPKI pins, certificate fingerprint lists in configuration, or code-level pinning logic confirms pinning is implemented; absence confirms self-signed certs are accepted without pinning."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "minimum_tls_version",
+    "option_description": "Specifies the lowest TLS protocol version that the service will accept for both inbound and outbound connections. Setting this too low allows negotiation of deprecated protocol versions with known cryptographic vulnerabilities such as POODLE (SSLv3/TLS 1.0) and BEAST (TLS 1.0).",
+    "security_impact": "The Rego policy fires `tls_protocol_downgrade` when minimum_tls_version is 'TLS_1_0', 'TLS_1_1', or 'UNSPECIFIED'. TLS 1.0 and 1.1 are deprecated and susceptible to downgrade attacks (T1562.010) and encryption weakening (T1600). UNSPECIFIED is treated as unsafe because the effective minimum is determined by library defaults, which may include legacy versions. Only 'TLS_1_2' or 'TLS_1_3' satisfy the policy requirement and prevent downgrade exposure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect Nginx TLS configuration for the ssl_protocols directive to identify the minimum accepted TLS version.",
+        "command": "grep -r 'ssl_protocols' /etc/nginx/nginx.conf /etc/nginx/conf.d/ /etc/nginx/sites-enabled/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'ssl_protocols TLSv1.2 TLSv1.3;' indicates minimum TLS 1.2; presence of TLSv1 or TLSv1.1 in the list indicates a lower minimum is accepted."
+      },
+      {
+        "type": "command",
+        "instruction": "Use nmap ssl-enum-ciphers script to probe the actual minimum TLS version accepted by the service.",
+        "command": "nmap --script ssl-enum-ciphers -p <port> <internal-service-host> 2>/dev/null | grep -E 'TLSv|SSLv'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Listed protocol versions show what the server actually accepts; presence of TLSv1.0 or TLSv1.1 entries confirms those versions are accepted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Envoy tls_params minimum_tls_protocol_version in the transport socket configuration.",
+        "command": null,
+        "file_path": "/etc/envoy/envoy.yaml",
+        "navigation": null,
+        "expected_output": "'minimum_tls_protocol_version: TLSv1_2' confirms TLS 1.2 minimum; 'TLSv1_0', 'TLSv1_1', or absence (UNSPECIFIED) indicates a downgrade risk."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Java service JVM startup arguments or jdk.tls.disabledAlgorithms in security properties for TLS version controls.",
+        "command": "kubectl exec -n <namespace> <pod-name> -- cat /etc/java-11-openjdk/security/java.security 2>/dev/null | grep -E 'jdk.tls.disabledAlgorithms|jdk.tls.legacyAlgorithms'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'TLSv1, TLSv1.1' in jdk.tls.disabledAlgorithms confirms TLS 1.0/1.1 are disabled, meaning TLS 1.2 is the effective minimum."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLS_1_2",
+      "TLS_1_3",
+      "TLS_1_1",
+      "UNSPECIFIED"
+    ]
+  },
+  {
+    "option_name": "weak_cipher_suites_enabled",
+    "option_description": "Indicates whether the service's TLS configuration permits the use of cryptographically weak cipher suites including RC4, DES, 3DES, NULL encryption, EXPORT-grade, or anonymous Diffie-Hellman variants (ADH/AECDH). These ciphers are vulnerable to known attacks and undermine the confidentiality guarantees of TLS even when the protocol version is acceptable.",
+    "security_impact": "The Rego policy fires `tls_protocol_downgrade` when weak_cipher_suites_enabled is true. Even with TLS 1.2 enforced, weak ciphers allow attackers to force negotiation to broken cipher suites enabling decryption of intercepted traffic (T1562.010) and effective encryption weakening (T1600). RC4 is broken, NULL ciphers provide no encryption, EXPORT ciphers are deliberately weakened, and anonymous DH ciphers provide no authentication — all enabling adversary-in-the-middle attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use testssl.sh to comprehensively test which cipher suites the service actually accepts, including known weak ones.",
+        "command": "testssl.sh --cipher-per-proto --warnings off <internal-service-host>:<port> 2>/dev/null | grep -iE 'RC4|DES|EXPORT|NULL|ADH|AECDH|3DES|WEAK'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any matched cipher suite in the output confirms weak ciphers are accepted; no output indicates only strong ciphers are permitted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Nginx ssl_ciphers directive for weak cipher suite inclusion.",
+        "command": null,
+        "file_path": "/etc/nginx/nginx.conf or /etc/nginx/conf.d/*.conf",
+        "navigation": null,
+        "expected_output": "ssl_ciphers string containing RC4, DES, 3DES, aNULL, eNULL, EXPORT, ADH, or AECDH confirms weak ciphers are enabled; 'HIGH:!aNULL:!MD5:!3DES' style strings with explicit exclusions indicate they are disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Check OpenSSL cipher list in use by the service by examining the configured cipher string against known weak patterns.",
+        "command": "openssl ciphers -v 'ALL:eNULL' 2>/dev/null | grep -iE 'RC4|DES|EXPORT|NULL|ADH|AECDH|3DES' | awk '{print $1}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Listing of weak ciphers that OpenSSL would enable under the service configuration; cross-reference with the actual ssl_ciphers or cipher string in service config."
+      },
+      {
+        "type": "command",
+        "instruction": "Probe the Envoy admin API to dump the active cipher suite configuration for all TLS listeners.",
+        "command": "kubectl exec -n <namespace> <envoy-sidecar-pod> -- curl -s localhost:15000/config_dump | jq '.. | .tls_params? | select(. != null) | {cipher_suites: .cipher_suites, tls_minimum: .tls_minimum_protocol_version}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "cipher_suites array containing entries matching RC4, 3DES, NULL, or EXPORT patterns confirms weak ciphers are configured; empty or strong-only cipher list confirms they are not."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "tls_version_downgrade_protection_enabled",
+    "option_description": "Controls whether the service enforces TLS_FALLBACK_SCSV or equivalent mechanism to prevent protocol downgrade attacks. When enabled, clients that retry a connection with a lower TLS version are rejected if the server supports a higher version, preventing attackers from forcing negotiation to deprecated protocols like TLS 1.0 or 1.1 vulnerable to POODLE or BEAST.",
+    "security_impact": "The Rego policy flags tls_protocol_downgrade when tls_version_downgrade_protection_enabled is false and the minimum_tls_version is not TLS_1_2 or TLS_1_3. Without this protection, an active network attacker can intercept the TLS handshake, strip higher-version support signals, and force both parties to negotiate TLS 1.0/1.1, enabling known cryptographic attacks. Maps to MITRE T1562.010 (Downgrade Attack) and T1600 (Weaken Encryption).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check OpenSSL TLS fallback SCSV support and test against a running service endpoint to verify downgrade protection is active.",
+        "command": "openssl s_client -connect <service-host>:<port> -fallback_scsv 2>&1 | grep -E 'CONNECTED|alert inappropriate fallback|Protocol'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If protected, expect 'alert inappropriate fallback' or an SSL alert error. A successful connection with a lower version indicates the protection is absent."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Istio PeerAuthentication resource for minimum TLS version enforcement which implicitly enforces downgrade protection when set to TLS_1_2 or TLS_1_3.",
+        "command": "kubectl get peerauthentication --all-namespaces -o yaml | grep -A5 'minProtocolVersion'",
+        "file_path": "/etc/istio/config/meshconfig.yaml",
+        "navigation": null,
+        "expected_output": "minProtocolVersion: TLSV1_2 or TLSV1_3 indicates downgrade protection is enforced at mesh level."
+      },
+      {
+        "type": "command",
+        "instruction": "For services using Envoy sidecar, inspect the Envoy listener configuration to verify TLS_FALLBACK_SCSV or minimum version constraints.",
+        "command": "kubectl exec -n <namespace> <pod-name> -c istio-proxy -- curl -s http://localhost:15000/config_dump | jq '.configs[] | select(.\"@type\" | contains(\"ListenersConfigDump\")) | .dynamic_listeners[].active_state.listener.filter_chains[].tls_context.common_tls_context'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "tls_params with tls_minimum_protocol_version of TLS_AUTO, TLSv1_2, or TLSv1_3 confirms enforcement."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use testssl.sh to probe the service for TLS downgrade susceptibility and SCSV support across all offered protocol versions.",
+        "command": "testssl.sh --protocols --scsv <service-host>:<port>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show TLS_FALLBACK_SCSV: offered and absence of TLS 1.0/1.1 support to confirm protection."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (Istio mesh with minProtocolVersion set)",
+      "false (legacy stacks with no explicit SCSV configuration)",
+      "true (TLS 1.3 exclusive deployments where downgrade is structurally impossible)"
+    ]
+  },
+  {
+    "option_name": "payload_signing_mechanism",
+    "option_description": "Specifies the application-layer mechanism used to sign or authenticate message payloads independently of TLS. Options include none (no signing), hmac (shared-secret based message authentication code appended to request), digital_signature (asymmetric signing via RSA/ECDSA), or jwt_with_body_claim (JWT carrying a signed hash or claim over the request body). This operates above the transport layer and survives TLS termination at intermediaries.",
+    "security_impact": "The Rego policy flags missing_message_integrity_signing when payload_signing_mechanism is 'none' and either tls_termination_at_intermediary is true or service_mesh_integrity_policy_enforced is false. When TLS is stripped at a sidecar or load balancer, the plaintext segment between the proxy and the destination service is unprotected. Without payload signing, modified messages cannot be detected by the receiving service. Maps to MITRE T1557 (Adversary-in-the-Middle) and T1001.003 (Protocol or Service Impersonation).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review service middleware registration in the application's framework configuration to identify any HMAC or signing middleware in the request pipeline.",
+        "command": "grep -rn 'hmac\\|signature\\|payload.*sign\\|x-signature\\|x-hmac' <service-source-dir>/src/ --include='*.yaml' --include='*.json' --include='*.py' --include='*.go' --include='*.java'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of HMAC computation, signature verification middleware, or signed JWT body claim libraries indicates a non-none mechanism."
+      },
+      {
+        "type": "api",
+        "instruction": "Intercept a live service-to-service request using the service mesh telemetry or a debug proxy and inspect request headers for signing artifacts.",
+        "command": "kubectl exec -n <namespace> <pod-name> -c istio-proxy -- curl -s http://localhost:15000/stats | grep -i 'hmac\\|signature'; kubectl logs -n <namespace> <pod-name> | grep -i 'x-hmac\\|x-signature\\|authorization'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Headers like X-HMAC-Signature, X-Request-Signature, or Authorization: Bearer <signed-JWT> confirm a signing mechanism is present."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the service development team and review API contracts or OpenAPI specifications to determine if payload signing requirements are documented and enforced.",
+        "command": "grep -rn 'x-hmac\\|x-signature\\|payload.*integrity\\|body.*hash' <service-source-dir>/api/ --include='*.yaml' --include='*.json'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "OpenAPI security scheme or custom header definitions for signing confirm the mechanism type; absence confirms 'none'."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review API gateway or service logs for rejected requests due to missing or invalid payload signatures, confirming server-side enforcement exists.",
+        "command": "kubectl logs -n <namespace> <api-gateway-pod> | grep -iE 'signature.*invalid|hmac.*mismatch|payload.*verification.*failed' | tail -50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log entries rejecting requests for invalid signatures confirm enforcement. No such entries with active traffic strongly suggests 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (majority of internal microservice deployments)",
+      "hmac (financial services APIs, payment microservices)",
+      "jwt_with_body_claim (OAuth2-heavy ecosystems)",
+      "digital_signature (high-assurance government or healthcare systems)"
+    ]
+  },
+  {
+    "option_name": "tls_termination_at_intermediary",
+    "option_description": "Indicates whether TLS is terminated at an intermediary component such as a sidecar proxy (Envoy/Linkerd), ingress controller, or load balancer before the traffic reaches the destination service container. When true, a plaintext HTTP segment exists between the intermediary and the backend application process, which may be on the same node but traverses a network socket not protected by TLS.",
+    "security_impact": "The Rego policy uses this attribute as a trigger condition for missing_message_integrity_signing: when tls_termination_at_intermediary is true and payload_signing_mechanism is 'none', traffic on the plaintext segment can be modified without detection. This is critical in shared-node deployments where other workloads co-exist. Maps to MITRE T1557 (Adversary-in-the-Middle) and aligns with the tls_termination_at_shared_proxy exposure in the policy.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the Envoy sidecar proxy configuration to determine the backend cluster protocol, which reveals whether re-encryption occurs to the application container.",
+        "command": "kubectl exec -n <namespace> <pod-name> -c istio-proxy -- curl -s http://localhost:15000/config_dump | jq '.configs[] | select(.\"@type\" | contains(\"ClustersConfigDump\")) | .dynamic_active_clusters[].cluster | {name: .name, protocol: .http_protocol_options, tls: .transport_socket}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If transport_socket is null and http_protocol_options shows HTTP/1.1 or HTTP/2, TLS terminates at the sidecar without re-encryption to the backend."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Istio DestinationRule resources to check if traffic to the service uses ISTIO_MUTUAL or DISABLE mode, which determines re-encryption behavior.",
+        "command": "kubectl get destinationrule --all-namespaces -o yaml | grep -A10 'trafficPolicy' | grep -E 'mode|tls'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "mode: DISABLE indicates TLS terminates at the sidecar. mode: ISTIO_MUTUAL or SIMPLE indicates re-encryption to the backend."
+      },
+      {
+        "type": "network_test",
+        "instruction": "On the pod network namespace, check if the application port is listening for HTTP or HTTPS to confirm whether it expects plaintext from the sidecar.",
+        "command": "kubectl exec -n <namespace> <pod-name> -c <app-container> -- sh -c 'ss -tlnp | grep <app-port>; curl -v http://localhost:<app-port>/health 2>&1 | head -5'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful HTTP (not HTTPS) response from the application container's health endpoint on localhost confirms TLS termination at the intermediary."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect load balancer or ingress controller backend configuration for protocol settings defining what protocol is used toward upstream services.",
+        "command": "kubectl get ingress --all-namespaces -o yaml | grep -E 'backend|service|port'; kubectl get configmap -n ingress-nginx nginx-configuration -o yaml | grep -E 'proxy-ssl\\|backend-protocol'",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "backend-protocol: HTTP or absence of proxy_ssl_certificate directives confirms plaintext backend communication."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (Istio sidecar with HTTP backend protocol, most common in service mesh deployments)",
+      "false (end-to-end mTLS with re-encryption to backend)",
+      "true (NGINX ingress with HTTP upstream)",
+      "false (Linkerd with per-pod certificate injection)"
+    ]
+  },
+  {
+    "option_name": "service_mesh_integrity_policy_enforced",
+    "option_description": "Controls whether the service mesh enforces a policy that requires application-layer payload integrity verification for incoming requests. This may be implemented via Istio AuthorizationPolicy with custom header requirements, Open Policy Agent (OPA) sidecar checks, or Gatekeeper admission webhooks that validate the presence and validity of payload signatures or HMACs on service-to-service traffic.",
+    "security_impact": "The Rego policy flags missing_message_integrity_signing when payload_signing_mechanism is 'none' and service_mesh_integrity_policy_enforced is false. Without mesh-level enforcement, individual services may inconsistently implement or omit integrity checks. This control acts as a compensating or reinforcing layer ensuring that even if a service developer neglects payload signing, the mesh rejects unsigned traffic. Maps to MITRE T1557 and T1001.003.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Review all Istio AuthorizationPolicy resources for conditions that require custom integrity-related headers, which would indicate mesh-level enforcement.",
+        "command": "kubectl get authorizationpolicy --all-namespaces -o yaml | grep -B5 -A10 -iE 'x-hmac\\|x-signature\\|integrity\\|payload.*hash'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AuthorizationPolicy with a 'when' condition checking for integrity headers confirms enforcement. Empty result indicates no mesh-level integrity policy."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for OPA Gatekeeper ConstraintTemplates or constraints that enforce payload signing requirements on service traffic.",
+        "command": "kubectl get constrainttemplate --all-namespaces -o yaml | grep -i 'integrity\\|signing\\|hmac\\|payload'; kubectl get constraints --all-namespaces -o yaml | grep -i 'integrity'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of a ConstraintTemplate or active Constraint enforcing payload signing confirms service_mesh_integrity_policy_enforced is true."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect OPA sidecar or Envoy ext_authz filter configuration for payload integrity validation logic in the policy bundle.",
+        "command": "kubectl get configmap -n <opa-namespace> opa-policy -o yaml | grep -A20 'payload\\|integrity\\|hmac\\|signature'; kubectl get envoyfilter --all-namespaces -o yaml | grep -i 'ext_authz\\|integrity'",
+        "file_path": "/etc/opa/policies/integrity.rego",
+        "navigation": null,
+        "expected_output": "Rego rules checking request header or body signatures confirm enforcement. Absence of such rules confirms false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Kiali service mesh console, navigate to the Istio Config section and filter AuthorizationPolicies for the target namespace to review enforcement rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kiali UI → Graph → Select Namespace → Istio Config → AuthorizationPolicy → Filter by namespace → Review 'when' conditions for integrity headers",
+        "expected_output": "AuthorizationPolicy entries with custom header conditions for signing artifacts confirm the policy is enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in most service mesh deployments; integrity policy is not a built-in mesh feature)",
+      "false (Istio deployments without custom OPA integration)",
+      "true (regulated environments with OPA sidecars enforcing signing requirements)",
+      "true (custom Envoy ext_authz filters validating HMAC headers)"
+    ]
+  },
+  {
+    "option_name": "request_replay_protection_mechanism",
+    "option_description": "Specifies the mechanism included in service-to-service API requests to prevent replay attacks. Options are: none (no protection), timestamp_only (request includes a timestamp header validated against a skew window), nonce (single-use random value per request validated server-side), sequence_number (monotonically increasing counter per client), or signed_jwt_with_jti (JWT with a unique JTI claim that is tracked server-side to prevent reuse). The mechanism must be present in the request payload or headers.",
+    "security_impact": "The Rego policy fires replay_attack_on_service_requests when request_replay_protection_mechanism is 'none' or 'timestamp_only' and replay_window_enforcement_enabled is false. Without replay protection, a captured valid authenticated request can be retransmitted to trigger duplicate operations, privilege escalation, or bypass of idempotency controls. Timestamp-only without server-side window enforcement provides no real protection since an attacker can replay within any window. Maps to MITRE T1550.001 and T1528.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Intercept a live service-to-service request and inspect headers and body for replay protection fields such as nonce, timestamp, sequence_number, or JTI.",
+        "command": "kubectl exec -n <namespace> <pod-name> -c istio-proxy -- curl -s -X GET http://localhost:15000/listeners; tcpdump -i lo -A -s 0 port <app-port> 2>/dev/null | grep -iE 'nonce|x-nonce|x-timestamp|sequence|jti' | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Headers like X-Nonce, X-Timestamp, X-Sequence-Number, or JWT claims containing 'jti' confirm the mechanism type. No such fields indicate 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the service SDK or framework configuration files and middleware registration for replay protection components such as nonce generators or JTI tracking.",
+        "command": "grep -rn 'nonce\\|jti\\|sequence.number\\|replay\\|x-request-id.*validat' <service-source-dir>/ --include='*.go' --include='*.py' --include='*.java' --include='*.js' -l",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Files containing nonce generation, JTI claim insertion, or sequence number logic confirm the mechanism. Absence confirms 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect API gateway route configuration for replay protection middleware or request transformation plugins that inject or validate nonce/timestamp fields.",
+        "command": "kubectl get configmap -n <gateway-namespace> <gateway-config> -o yaml | grep -iE 'nonce|replay|jti|sequence|timestamp.*valid'; cat /etc/kong/kong.conf | grep -i 'replay\\|nonce'",
+        "file_path": "/etc/kong/declarative/kong.yaml",
+        "navigation": null,
+        "expected_output": "Plugin entries for replay detection, JWT with JTI validation, or nonce checking confirm the mechanism and its type."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the service's OpenAPI specification or internal API documentation for required request fields documenting replay protection requirements.",
+        "command": "cat <service-source-dir>/api/openapi.yaml | grep -A5 -iE 'nonce|jti|x-timestamp|sequence.number|replay'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Required header or body field definitions for nonce, JTI, or timestamp in the API spec confirm the documented mechanism."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (majority of internal microservice deployments)",
+      "timestamp_only (simple time-based implementations without deduplication stores)",
+      "signed_jwt_with_jti (OAuth2/OIDC-integrated service meshes)",
+      "nonce (custom API security frameworks with Redis-backed deduplication)"
+    ]
+  },
+  {
+    "option_name": "replay_window_enforcement_enabled",
+    "option_description": "Indicates whether the receiving service actively validates incoming requests against a time window or uniqueness store on the server side. For timestamp-based protection, this means rejecting requests with timestamps outside an acceptable skew window (typically 5-15 minutes). For nonce or JTI-based protection, this means checking a distributed cache or database to confirm the value has not been seen before and marking it as used.",
+    "security_impact": "The Rego policy fires replay_attack_on_service_requests when replay_window_enforcement_enabled is false, regardless of whether request_replay_protection_mechanism is 'none' or 'timestamp_only'. A timestamp header without server-side window validation is trivially bypassed since the attacker can replay the request within any time period. A nonce without server-side deduplication is equally ineffective. This is the server-side enforcement complement to the client-side mechanism. Maps to MITRE T1550.001 and T1528.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search service source code for timestamp skew validation logic or nonce/JTI deduplication using a cache or database such as Redis or a SQL store.",
+        "command": "grep -rn 'timestamp.*skew\\|time.*window\\|nonce.*cache\\|jti.*store\\|jti.*redis\\|nonce.*dedup\\|replay.*check' <service-source-dir>/src/ --include='*.go' --include='*.py' --include='*.java' --include='*.js'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Code referencing a configurable time window comparison or cache SET/GET for nonce/JTI uniqueness confirms enforcement is enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Test replay protection by replaying a captured valid request to the service and observing whether it is accepted or rejected.",
+        "command": "curl -v -X POST http://<service-host>:<port>/api/endpoint -H 'X-Timestamp: <original-timestamp>' -H 'Authorization: Bearer <original-token>' -d '<original-body>' 2>&1 | grep -E 'HTTP/|replay|expired|invalid'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 401 or 400 with a message like 'request expired', 'timestamp out of window', or 'nonce already used' confirms enforcement. HTTP 200 confirms enforcement is absent."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for Redis or Memcached connections from the service that may serve as the nonce/JTI deduplication store.",
+        "command": "kubectl exec -n <namespace> <pod-name> -- sh -c 'env | grep -iE \"redis|memcache|nonce|replay\"; netstat -tn | grep -E \"6379|11211\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active connections to Redis (port 6379) or Memcached (port 11211) combined with environment variables referencing replay or nonce stores confirm a deduplication backend exists."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review service application logs for entries indicating rejection of expired or duplicate requests, which confirms the window enforcement logic is active.",
+        "command": "kubectl logs -n <namespace> <pod-name> --since=1h | grep -iE 'replay|timestamp.*expired|nonce.*used|jti.*duplicate|request.*window' | tail -30",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log entries showing rejected replayed requests confirm replay_window_enforcement_enabled is true. Complete absence with active traffic is a strong indicator it is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default; most services do not implement server-side replay window validation)",
+      "true (services with Redis-backed JTI deduplication in financial or identity contexts)",
+      "false (services using timestamp headers without server-side skew validation)",
+      "true (API gateways with built-in replay protection plugins like Kong's JWT plugin with JTI checking)"
+    ]
+  },
+  {
+    "option_name": "service_discovery_tls_enabled",
+    "option_description": "Controls whether TLS is configured and enforced for all communication between services and the service registry. This applies to Consul's HTTP and gRPC APIs used for health checks and catalog queries, etcd's client API used by Kubernetes and other components, and DNS-based service discovery where DNS-over-TLS may be configured. Both configuration (certificates present) and enforcement (plaintext connections refused) must be true for this to be set true.",
+    "security_impact": "The Rego policy fires unencrypted_service_discovery_traffic when service_discovery_tls_enabled is false for services with service_registry_network_exposure in internal_cluster or public, or when both service_discovery_tls_enabled and service_discovery_auth_enabled are false regardless of exposure. Unencrypted service discovery allows an attacker with network access to observe service topology, inject poisoned registry responses redirecting traffic to malicious endpoints, or enumerate all microservices in the environment. Maps to MITRE T1046, T1526, and T1590.002.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Consul, inspect the agent configuration to verify ca_file, cert_file, key_file are set and verify_incoming and verify_outgoing are true.",
+        "command": "consul agent -config-format=json -config-dir=/etc/consul.d/ 2>/dev/null; cat /etc/consul.d/*.json | python3 -m json.tool | grep -E 'ca_file|cert_file|key_file|verify_incoming|verify_outgoing|tls'; curl -sk https://localhost:8501/v1/status/leader && echo 'TLS endpoint reachable'",
+        "file_path": "/etc/consul.d/consul.hcl",
+        "navigation": null,
+        "expected_output": "verify_incoming: true, verify_outgoing: true, and valid ca_file/cert_file/key_file paths confirm TLS is configured and enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "For etcd, verify that the etcd server and all clients use --cert-file, --key-file, and --trusted-ca-file flags and that the HTTPS endpoint is the only one accessible.",
+        "command": "ps aux | grep etcd | grep -oE '\\-\\-(cert|key|trusted-ca|client-cert-auth)\\S*'; curl -sk https://localhost:2379/health && curl -s http://localhost:2379/health 2>&1 | grep -v 'Connection refused'",
+        "file_path": "/etc/etcd/etcd.conf",
+        "navigation": null,
+        "expected_output": "--cert-file, --key-file, and --trusted-ca-file flags present, HTTP endpoint refusing connections, and HTTPS endpoint returning healthy confirm TLS enforcement."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Kubernetes-native service discovery, verify the kube-apiserver and DNS components (CoreDNS) TLS configuration.",
+        "command": "kubectl get configmap coredns -n kube-system -o yaml | grep -E 'tls|https|forward'; cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep -E 'tls|etcd-cert|etcd-key|etcd-ca'",
+        "file_path": "/etc/kubernetes/manifests/kube-apiserver.yaml",
+        "navigation": null,
+        "expected_output": "etcd-certfile, etcd-keyfile, and etcd-cafile flags present in the kube-apiserver manifest confirm TLS to etcd is configured."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to connect to the service registry on both plaintext and TLS ports to verify which connections succeed, confirming enforcement status.",
+        "command": "nc -zv <consul-host> 8500 2>&1; nc -zv <consul-host> 8501 2>&1; openssl s_client -connect <consul-host>:8501 -brief 2>&1 | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Port 8500 (plaintext Consul) refusing connections and port 8501 (TLS Consul) accepting them confirms TLS-only enforcement."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (Consul deployed with default HTTP-only configuration in development environments)",
+      "true (production Consul with TLS bootstrap and verify_incoming enforced)",
+      "false (etcd accessed over HTTP in self-managed clusters without hardening)",
+      "true (managed Kubernetes with etcd TLS enforced by the cloud provider)"
+    ]
+  },
+  {
+    "option_name": "service_discovery_auth_enabled",
+    "option_description": "Controls whether authentication is required for all service registry interactions including catalog reads, service registration, health check updates, and configuration queries. For Consul this means ACL tokens are required with appropriate policies. For etcd this means client certificate authentication is enforced. For DNS-based discovery this means TSIG (Transaction Signature) or equivalent authentication is enforced. Unauthenticated access to any of these operations must be blocked for this to be true.",
+    "security_impact": "The Rego policy fires unencrypted_service_discovery_traffic when service_discovery_auth_enabled is false and service_registry_network_exposure is internal_cluster or public, or when both TLS and auth are disabled regardless of exposure. Without authentication, any service or attacker with network access can register arbitrary service endpoints in the catalog, deregister legitimate services, read the full service topology, or modify health check states to manipulate traffic routing. This enables large-scale service impersonation and traffic hijacking. Maps to MITRE T1046, T1526, and T1590.002.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Consul, verify the ACL system is enabled and that unauthenticated API requests are rejected by testing catalog access without a token.",
+        "command": "consul acl policy list 2>&1 | head -5; curl -s http://localhost:8500/v1/acl/info/anonymous | python3 -m json.tool | grep -E 'Enabled|Type|Rules'; curl -s http://localhost:8500/v1/catalog/services | head -3",
+        "file_path": "/etc/consul.d/consul.hcl",
+        "navigation": null,
+        "expected_output": "An HTTP 403 or empty result from unauthenticated catalog query, and ACL enabled: true in the Consul configuration confirms authentication enforcement."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Consul configuration files for ACL stanza with enabled=true and default_policy=deny to confirm authentication and deny-by-default are set.",
+        "command": "cat /etc/consul.d/*.hcl /etc/consul.d/*.json 2>/dev/null | grep -A10 'acl'; kubectl get configmap consul-config -n consul -o yaml | grep -A10 'acl'",
+        "file_path": "/etc/consul.d/consul.hcl",
+        "navigation": null,
+        "expected_output": "acl { enabled = true, default_policy = \"deny\" } confirms authentication is required and defaults to deny for unauthenticated requests."
+      },
+      {
+        "type": "command",
+        "instruction": "For etcd, verify client certificate authentication is required by checking the --client-cert-auth flag and attempting an unauthenticated connection.",
+        "command": "ps aux | grep etcd | grep 'client-cert-auth'; curl -sk https://localhost:2379/v3/kv/range --data '{\"key\":\"Zm9v\"}' 2>&1 | grep -E 'error|certificate required|no certificate'",
+        "file_path": "/etc/etcd/etcd.conf",
+        "navigation": null,
+        "expected_output": "--client-cert-auth=true flag present and unauthenticated requests receiving 'certificate required' error confirms authentication enforcement."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Consul UI, navigate to the ACL section to verify ACLs are enabled, the anonymous token has no policies, and all service tokens are scoped with minimum privilege.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Consul UI → ACL → Tokens → Search 'anonymous' → Verify Policies: none or empty → Tokens → Review service tokens for least-privilege policies",
+        "expected_output": "Anonymous token with no attached policies and all service tokens having scoped read/write policies confirms authentication is enforced with least privilege."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (Consul deployed without ACL bootstrap in development or legacy environments)",
+      "true (production Consul with ACL enabled, default_policy=deny, and per-service tokens)",
+      "false (etcd without --client-cert-auth flag in self-managed clusters)",
+      "true (etcd with mutual TLS client certificate authentication enforced by the Kubernetes provider)"
+    ]
+  },
+  {
+    "option_name": "service_registry_network_exposure",
+    "option_description": "Controls which network interface the service registry API (e.g., Consul, etcd, Eureka) binds to and accepts connections from. Determines whether the registry is reachable only from localhost, from within the cluster network, or from public/external interfaces.",
+    "security_impact": "The Rego policy fires 'unencrypted_service_discovery_traffic' when service_registry_network_exposure is 'internal_cluster' or 'public' and TLS or authentication is absent. A publicly or cluster-wide exposed registry dramatically increases blast radius — an attacker who can reach the registry endpoint without TLS or auth can poison service discovery responses, redirecting inter-service traffic to malicious endpoints (MITRE T1046, T1526, T1590.002). Even 'internal_cluster' exposure is unsafe without encryption in zero-trust scenarios.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Consul agents, inspect the bind address and client address configuration from the running agent config dump.",
+        "command": "consul agent -config-format=json 2>/dev/null || cat /etc/consul.d/*.json | jq '{addresses: .addresses, ports: .ports, bind_addr: .bind_addr, client_addr: .client_addr}'",
+        "file_path": "/etc/consul.d/",
+        "navigation": null,
+        "expected_output": "addresses.http should be '127.0.0.1' for localhost_only; a cluster CIDR like '10.0.0.0/8' for internal_cluster; '0.0.0.0' indicates public exposure."
+      },
+      {
+        "type": "command",
+        "instruction": "For etcd, check the --listen-client-urls flag to determine which network interface it binds to.",
+        "command": "ps aux | grep etcd | grep -o -- '--listen-client-urls=[^ ]*' || kubectl -n kube-system describe pod -l component=etcd | grep listen-client-urls",
+        "file_path": "/etc/etcd/etcd.conf",
+        "navigation": null,
+        "expected_output": "Value of 'https://127.0.0.1:2379' indicates localhost_only; 'https://0.0.0.0:2379' indicates public; cluster IP ranges indicate internal_cluster."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Consul or etcd static configuration file for address binding parameters.",
+        "command": null,
+        "file_path": "/etc/consul.d/consul.hcl",
+        "navigation": null,
+        "expected_output": "Look for 'bind_addr', 'client_addr', or 'advertise_addr' fields. Values matching 0.0.0.0 or non-loopback public IPs indicate elevated exposure."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a connection to the registry API port from outside the expected trust boundary to confirm actual reachability.",
+        "command": "curl -sk https://<registry-host>:8500/v1/status/leader --max-time 3 && echo 'REACHABLE' || echo 'NOT REACHABLE'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If reachable from a node outside the intended scope, exposure is broader than intended. 'NOT REACHABLE' from public internet confirms non-public binding."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "internal_cluster",
+      "public",
+      "localhost_only"
+    ]
+  },
+  {
+    "option_name": "rate_limiting_policy_enforced",
+    "option_description": "Indicates whether rate limiting or traffic shaping policies are actively applied at the inter-service communication layer to cap request throughput from one microservice to another, preventing volumetric abuse or runaway service behavior.",
+    "security_impact": "The Rego policy fires 'absence_of_per_service_rate_limiting' when both rate_limiting_policy_enforced and circuit_breaker_configured are false, or when rate_limiting_policy_enforced is false and inter_service_traffic_control_mechanism is 'none'. Without rate limiting, a compromised or malfunctioning service can flood downstream peers, causing cascading denial-of-service across the application fabric (MITRE T1499.002, T1499.003). Setting this to true requires verified enforcement evidence, not just policy definition.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Istio service mesh, list EnvoyFilter or VirtualService resources that define rate limit actions on inter-service routes.",
+        "command": "kubectl get envoyfilter,virtualservice -A -o yaml | grep -A5 -i 'rateLimit\\|rate_limit\\|local_rate_limit'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'rateLimit' or 'local_rate_limit' configuration blocks in VirtualService or EnvoyFilter resources confirms enforcement. Empty output indicates no mesh-level rate limiting."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kong API gateway, query the rate-limiting plugin applied to service routes.",
+        "command": "curl -s http://localhost:8001/plugins | jq '.data[] | select(.name==\"rate-limiting\") | {service: .service, config: .config}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each inter-service route should have a rate-limiting plugin entry with config.minute or config.second values set. Empty data array means no rate limiting enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Resilience4j or Hystrix configuration files for rate limiter definitions applied to service client beans.",
+        "command": "grep -r 'rateLimiter\\|RateLimiter\\|rate-limiter' /app/src /app/resources /etc/app/ 2>/dev/null | head -40",
+        "file_path": "src/main/resources/application.yml",
+        "navigation": null,
+        "expected_output": "Presence of 'resilience4j.ratelimiter' configuration with 'limitForPeriod' and 'limitRefreshPeriod' values confirms application-level enforcement."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Istio Kiali dashboard, navigate to the service graph, select a service, and inspect traffic policies for rate limit annotations.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kiali Dashboard → Graph → Select Service Node → Detail Panel → Traffic Policies tab → Rate Limiting section",
+        "expected_output": "A populated rate limiting section with configured thresholds confirms enforcement. Absence indicates the attribute should be set to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "circuit_breaker_configured",
+    "option_description": "Indicates whether circuit breaker patterns are configured for downstream service calls, automatically halting requests to a failing downstream service after a threshold of failures to prevent cascading failures across the service mesh.",
+    "security_impact": "The Rego policy evaluates circuit_breaker_configured alongside rate_limiting_policy_enforced in the 'absence_of_per_service_rate_limiting' rule — if both are false, the exposure fires. Circuit breakers serve as a secondary defense: even if rate limiting is absent, a configured circuit breaker can halt request floods to a degraded downstream service. Without either control, a compromised or resource-exhausted service can propagate failures to all dependents (MITRE T1499.002, T1499.003).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Istio, inspect DestinationRule resources for outlier detection (circuit breaker) configuration on each service.",
+        "command": "kubectl get destinationrule -A -o yaml | grep -A15 'outlierDetection' | grep -E 'consecutive|interval|baseEjection|maxEjection'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Fields like 'consecutiveGatewayErrors', 'interval', and 'baseEjectionTime' in outlierDetection blocks confirm circuit breaker is configured. Absent outlierDetection means false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Search application configuration and source code for Resilience4j or Hystrix circuit breaker bean definitions.",
+        "command": "grep -r 'circuitBreaker\\|CircuitBreaker\\|hystrix.command' /app/src /app/resources /etc/app/ 2>/dev/null | grep -v '.class' | head -30",
+        "file_path": "src/main/resources/application.yml",
+        "navigation": null,
+        "expected_output": "Entries like 'resilience4j.circuitbreaker.instances.<name>.failureRateThreshold' confirm circuit breaker configuration. Missing entries indicate false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Resilience4j actuator endpoint to verify circuit breaker instances are registered and active at runtime.",
+        "command": "curl -s http://<service-host>:<mgmt-port>/actuator/circuitbreakers | jq '.circuitBreakers | keys'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-empty array of circuit breaker instance names confirms active configuration. An empty array or 404 response indicates circuit breakers are not configured."
+      },
+      {
+        "type": "command",
+        "instruction": "For Linkerd service mesh, check service profiles for retry budgets which serve as circuit breaker analogs.",
+        "command": "kubectl get serviceprofile -A -o yaml | grep -A5 'retryBudget'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of retryBudget with retryRatio and minRetriesPerSecond values confirms protective retry/circuit-break behavior is configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "inter_service_traffic_control_mechanism",
+    "option_description": "Identifies the specific technology or pattern used to manage and shape inter-service traffic volume, including service mesh sidecars, API gateways, application-level libraries like Resilience4j, or custom implementations. Drives which tooling to inspect for rate limiting and circuit breaker enforcement.",
+    "security_impact": "The Rego policy references inter_service_traffic_control_mechanism in 'absence_of_per_service_rate_limiting': if the value is 'none' and rate limiting is not enforced, the exposure fires regardless of circuit breaker state. The mechanism value also informs the blast radius assessment — 'none' means there is no infrastructure-level choke point to prevent a compromised service from flooding peers (MITRE T1499.002, T1499.003). The value must reflect what is actively enforced, not merely installed.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Detect Istio or Linkerd service mesh presence by checking for sidecar injection labels and control plane pods.",
+        "command": "kubectl get pods -A | grep -E 'istiod|linkerd-control-plane|consul-connect' && kubectl get ns -L istio-injection | grep enabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of istiod/linkerd control plane pods and namespaces with istio-injection=enabled confirms 'service_mesh'. No results suggest mesh is absent."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for API gateway deployments (Kong, Apigee, Ambassador, Traefik) managing service-to-service routes.",
+        "command": "kubectl get pods,services -A | grep -iE 'kong|apigee|ambassador|traefik|nginx-ingress' && kubectl get ingress -A | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of gateway pods managing inter-service routes (not just north-south ingress) indicates 'api_gateway'. Internal-only routes through gateway confirm it controls east-west traffic."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect application build files for Resilience4j, Hystrix, or similar library dependencies that indicate application-level traffic control.",
+        "command": "grep -rE 'resilience4j|hystrix|spring-cloud-circuitbreaker|sentinel' /app/pom.xml /app/build.gradle /app/requirements.txt 2>/dev/null",
+        "file_path": "pom.xml",
+        "navigation": null,
+        "expected_output": "Dependency entries for resilience4j-spring-boot2 or spring-cloud-starter-netflix-hystrix indicate 'application_library'. Absence of all gateway, mesh, and library dependencies indicates 'none'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview platform/SRE team to confirm which mechanism is actively enforced versus installed-but-unconfigured, as mesh sidecars may be injected but not applying traffic policies.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmed active policy enforcement against specific service pairs. 'Installed but no policies defined' should still be recorded as 'none' since no traffic shaping is effective."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "service_mesh",
+      "application_library",
+      "api_gateway"
+    ]
+  },
+  {
+    "option_name": "certificate_max_validity_days",
+    "option_description": "Specifies the maximum number of days a service certificate remains valid from issuance to expiry. Shorter validity periods reduce the window of exposure if a private key is compromised, since the certificate becomes unusable sooner without requiring active revocation.",
+    "security_impact": "The Rego policy fires 'certificate_rotation_gap' when certificate_max_validity_days exceeds 90 and CRL/OCSP is not enforced, or when it exceeds 365 and automatic rotation is disabled. Long-lived certificates mean a stolen private key grants an attacker an extended impersonation window (MITRE T1552.004, T1649, T1596.003). For example, a 365-day cert without revocation gives an attacker up to a year of valid impersonation capability after key compromise.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect cert-manager Certificate resources for the configured duration field, which defines maximum certificate validity.",
+        "command": "kubectl get certificate -A -o jsonpath='{range .items[*]}{.metadata.name}{\"\\t\"}{.metadata.namespace}{\"\\t\"}{.spec.duration}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Duration values like '720h' (30 days) or '8760h' (365 days). Convert to days by dividing hours by 24. Values over 90 days without revocation indicate elevated risk."
+      },
+      {
+        "type": "command",
+        "instruction": "Extract actual validity period from issued TLS certificates using openssl by inspecting the certificate directly from a running pod or secret.",
+        "command": "kubectl get secret -A -o json | jq -r '.items[] | select(.type==\"kubernetes.io/tls\") | .data[\"tls.crt\"]' | head -1 | base64 -d | openssl x509 -noout -dates -subject 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "notBefore and notAfter dates are printed. Calculate the difference in days: a gap of 90 days or less is acceptable; 365+ days is high risk without rotation automation."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Vault PKI, inspect the role TTL configuration that governs certificate issuance lifetimes for service certificates.",
+        "command": "vault read pki/roles/<service-role-name> | grep -E 'max_ttl|ttl' || curl -s -H 'X-Vault-Token: <token>' https://vault:8200/v1/pki/roles/<role> | jq '{ttl: .data.ttl, max_ttl: .data.max_ttl}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TTL values in seconds or duration strings (e.g., '7776000' = 90 days). Convert to days. Vault PKI role max_ttl defines the hard ceiling on certificate validity."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For SPIFFE/SPIRE deployments, check the SVID TTL configuration in the server configuration file.",
+        "command": "grep -E 'svid_ttl|default_svid_ttl|x509_svid_ttl' /etc/spire/server.conf /run/spire/config/server.conf 2>/dev/null",
+        "file_path": "/etc/spire/server.conf",
+        "navigation": null,
+        "expected_output": "Fields like 'default_x509_svid_ttl = \"24h\"' define SVID validity. Values above 90 days warrant further investigation of rotation and revocation controls."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90",
+      "365",
+      "730",
+      "30",
+      "7"
+    ]
+  },
+  {
+    "option_name": "automatic_rotation_enabled",
+    "option_description": "Indicates whether service certificates are automatically renewed and rotated before expiry by a controller or agent such as cert-manager, Istio Citadel, or SPIFFE/SPIRE — eliminating dependence on manual rotation processes that are frequently delayed, skipped, or forgotten under operational pressure.",
+    "security_impact": "The Rego policy fires 'certificate_rotation_gap' when automatic_rotation_enabled is false and CRL/OCSP is also not enforced, and again when certificate_max_validity_days exceeds 365 without automatic rotation. Manual rotation processes fail in practice: certificates expire causing outages, or rotation is skipped because 'it still works'. Without automated rotation, compromised keys persist until someone manually notices and acts (MITRE T1552.004, T1649). Automatic rotation is the primary defense against long-exposure key compromise windows.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check cert-manager Certificate resources for a renewBefore field, which triggers automatic renewal before expiry.",
+        "command": "kubectl get certificate -A -o jsonpath='{range .items[*]}{.metadata.name}{\"\\t\"}{.metadata.namespace}{\"\\t\"}{.spec.renewBefore}{\"\\t\"}{.status.renewalTime}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of renewBefore (e.g., '360h') and a populated renewalTime in status confirms automatic rotation is configured and functioning. Missing renewBefore means rotation is manual."
+      },
+      {
+        "type": "command",
+        "instruction": "For Istio with Citadel/istiod, confirm that workload certificate rotation is active by checking the certificate rotation log events.",
+        "command": "kubectl logs -n istio-system -l app=istiod --tail=100 | grep -i 'cert.*rotat\\|renew\\|expire\\|SVID' | tail -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log entries showing 'rotating certificate for <workload>' or 'SVID renewed' confirm active automatic rotation. No such events in recent logs suggests rotation is not occurring."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify SPIRE agent is performing automatic SVID rotation by checking agent logs for rotation activity.",
+        "command": "journalctl -u spire-agent --since '1 hour ago' | grep -iE 'rotat|renew|svid.*updated' || kubectl logs -n spire -l app=spire-agent | grep -iE 'rotat|renew'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Entries like 'SVID is expiring soon, rotating' or 'X.509 SVID updated' confirm automatic rotation is active. Absence over an hour with short-lived certs indicates a problem."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review operational runbooks and ticket history to determine if certificate rotation is a documented manual process with execution evidence.",
+        "command": "kubectl get events -A | grep -iE 'cert.*renew\\|cert.*rotat\\|cert.*expir' | tail -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Kubernetes events showing certificate renewal confirm automation. If the team describes a 'calendar reminder' rotation process or has no rotation tickets, automatic_rotation_enabled should be set to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "crl_or_ocsp_enforced",
+    "option_description": "Controls whether certificate revocation checking via Certificate Revocation List (CRL) or Online Certificate Status Protocol (OCSP) is actively enforced during mTLS handshakes, allowing compromised certificates to be invalidated before their natural expiry date.",
+    "security_impact": "The Rego policy fires 'certificate_rotation_gap' when certificate_max_validity_days exceeds 90 and crl_or_ocsp_enforced is false, and also when automatic_rotation_enabled is false and crl_or_ocsp_enforced is false. Without revocation enforcement, a certificate remains fully valid and usable even after its private key is known to be compromised — the attacker retains impersonation capability for the full remaining certificate lifetime (MITRE T1552.004, T1649, T1596.003). Revocation is the emergency brake when rotation automation is insufficient.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Envoy/Istio, inspect the TLS context configuration for CRL file paths or OCSP stapling policy settings.",
+        "command": "kubectl exec -n istio-system deploy/istiod -- pilot-discovery request GET /config_dump 2>/dev/null | jq '.. | .tls_context? | select(. != null) | {crl: .common_tls_context.validation_context.crl, ocsp: .ocsp_staple_policy}' 2>/dev/null | head -40",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'crl' field with a file path or 'ocsp_staple_policy: MUST_STAPLE' confirms revocation enforcement. Null or absent values indicate revocation is not enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Envoy bootstrap or static TLS configuration files for CRL or OCSP stapling directives.",
+        "command": "find /etc/envoy /etc/istio /run/secrets -name '*.yaml' -o -name '*.json' 2>/dev/null | xargs grep -l 'crl_file\\|ocsp_staple\\|crl_certificate' 2>/dev/null",
+        "file_path": "/etc/envoy/envoy.yaml",
+        "navigation": null,
+        "expected_output": "Files containing 'crl_file' pointing to a valid CRL, or 'ocsp_staple_policy' set to MUST_STAPLE or LENIENT_STAPLING, confirm enforcement. No matches indicate revocation is absent."
+      },
+      {
+        "type": "command",
+        "instruction": "For custom mTLS implementations, test whether the TLS handshake rejects a revoked certificate by checking OCSP response during handshake.",
+        "command": "openssl s_client -connect <service-host>:<port> -status 2>/dev/null | grep -A5 'OCSP response\\|OCSP Status'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'OCSP Response Status: successful' with a 'Cert Status: good' or 'revoked' response confirms OCSP stapling is active. 'No OCSP response sent' means OCSP is not enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Vault PKI to verify whether CRL is enabled and being generated for the PKI backend used for service certificates.",
+        "command": "vault read pki/config/crl | jq '{disable: .data.disable, expiry: .data.expiry}' || curl -s -H 'X-Vault-Token: <token>' https://vault:8200/v1/pki/config/crl | jq '.data'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'disable: false' with a short expiry (e.g., '72h') confirms CRL is maintained. 'disable: true' means revocation infrastructure exists but is not active. Services must also be configured to fetch and check the CRL."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "network_policy_enforced",
+    "option_description": "Determines whether Kubernetes NetworkPolicy resources or equivalent SDN-level policies are deployed to restrict which pods and services can communicate with each other, replacing a default-allow-all pod networking posture with explicit allowlist rules for inter-service traffic.",
+    "security_impact": "The Rego policy fires 'east_west_traffic_not_segmented' when network_policy_enforced is false alongside absent service mesh authorization policies and no default-deny posture. Without NetworkPolicy, all pods in a cluster can freely communicate with all others — a single compromised service gains unrestricted lateral access to every peer, database, and internal API (MITRE T1599, T1210, T1133). NetworkPolicy enforces microsegmentation at the network layer, complementing mTLS at the cryptographic layer. Note: NetworkPolicy alone without a default-deny rule is insufficient per the Rego logic.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all NetworkPolicy resources across namespaces and identify whether a default-deny policy exists in each namespace containing microservices.",
+        "command": "kubectl get networkpolicy -A -o wide && echo '---' && kubectl get networkpolicy -A -o json | jq '.items[] | select((.spec.podSelector=={}) and (.spec.ingress==[] or .spec.egress==[])) | {name: .metadata.name, ns: .metadata.namespace, spec: .spec}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A default-deny policy has an empty podSelector and empty ingress/egress arrays, catching all pods. Absence of any NetworkPolicy in a namespace means all traffic is permitted; network_policy_enforced should be false."
+      },
+      {
+        "type": "command",
+        "instruction": "Check if the CNI plugin installed in the cluster supports and enforces NetworkPolicy, as policies have no effect without a compatible CNI.",
+        "command": "kubectl get pods -n kube-system | grep -iE 'calico|cilium|weave|antrea|flannel' && kubectl get daemonset -n kube-system | grep -iE 'calico|cilium|weave|antrea'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of Calico, Cilium, Weave Net, or Antrea daemonsets confirms NetworkPolicy enforcement capability. Flannel alone does NOT enforce NetworkPolicy — policies will be ignored even if defined."
+      },
+      {
+        "type": "command",
+        "instruction": "Test actual NetworkPolicy enforcement by attempting a connection between two pods that should be blocked by policy.",
+        "command": "kubectl run nettest --image=busybox --rm -it --restart=Never -- wget -qO- --timeout=3 http://<blocked-service>:<port> && echo 'REACHABLE - policy not enforced' || echo 'BLOCKED - policy enforced'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'BLOCKED - policy enforced' confirms NetworkPolicy is actively restricting traffic. 'REACHABLE' from a pod that should be denied means either no policy exists or the CNI is not enforcing it."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Kubernetes dashboard or Rancher UI, navigate to the namespace network policy section to visualize defined policies and their pod selectors.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kubernetes Dashboard → Namespace → Network Policies → Review each policy's podSelector, ingress, and egress rules. In Rancher: Cluster → Project/Namespace → Security → Network Policies",
+        "expected_output": "At least one default-deny policy (empty podSelector, no ingress/egress rules) plus explicit allow policies for each permitted service pair. No policies at all means network_policy_enforced should be false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "service_mesh_authorization_policy_enforced",
+    "option_description": "Controls whether a service mesh (e.g., Istio, Linkerd, Consul Connect) has AuthorizationPolicy or equivalent objects deployed that explicitly restrict which source services are permitted to call which destination services, rather than allowing all inter-service traffic by default.",
+    "security_impact": "The Rego rule east_west_traffic_not_segmented fires when service_mesh_authorization_policy_enforced is false (or absent) in combination with missing network policy and default deny posture. Without explicit authorization policies, any compromised microservice gains unrestricted lateral communication access to every peer service, directly enabling MITRE T1599 (Network Boundary Bridging) and T1210 (Exploitation of Remote Services). Even if Kubernetes NetworkPolicy exists, the absence of mesh-level authorization means application-layer identity is not verified.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all Istio AuthorizationPolicy objects across all namespaces and inspect for ALLOW_ALL or missing source principal restrictions.",
+        "command": "kubectl get authorizationpolicy -A -o yaml | grep -E 'action:|principals:|namespaces:|notPrincipals:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policies showing 'action: ALLOW' with specific 'source.principals' or 'source.namespaces' entries, not a wildcard '*'. Absence of any output means no authorization policies are deployed."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for Linkerd Server and ServerAuthorization resources, or Consul service intentions, as equivalents to Istio AuthorizationPolicy.",
+        "command": "kubectl get server,serverauthorization -A -o yaml 2>/dev/null || consul intention list 2>/dev/null || kubectl get accesspolicy -A -o yaml 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server and ServerAuthorization objects with explicit allow rules for named service accounts, or Consul intentions listing permitted source/destination pairs."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the Kiali service mesh observability dashboard and inspect the Graph view for authorization policy indicators. Unlocked padlock icons on service edges indicate no AuthorizationPolicy is enforced for that path.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kiali Dashboard → Graph → Select Namespace → Enable 'Security' display option → Review edge icons for lock/unlock status",
+        "expected_output": "Locked padlock icons on all inter-service edges confirm mTLS and authorization policy enforcement. Unlocked icons indicate missing policy."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify that no catch-all permissive AuthorizationPolicy exists that grants access to all workloads without source restrictions.",
+        "command": "kubectl get authorizationpolicy -A -o json | jq '.items[] | select(.spec.rules[].from == null or .spec.rules[].from[].source.principals == [\"*\"]) | {name: .metadata.name, namespace: .metadata.namespace}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty output confirms no wildcard-permissive authorization policies exist. Any returned objects require immediate review."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in most clusters without explicit mesh policy configuration)",
+      "true (Istio-managed clusters with GitOps-deployed AuthorizationPolicy manifests)"
+    ]
+  },
+  {
+    "option_name": "default_deny_posture",
+    "option_description": "Controls whether a baseline default-deny rule exists at the Kubernetes NetworkPolicy layer and/or service mesh layer such that any inter-service communication not explicitly permitted is blocked. This requires both a catch-all deny NetworkPolicy (empty podSelector with no ingress/egress rules) and optionally a mesh-level default-deny AuthorizationPolicy to be effective.",
+    "security_impact": "The Rego rule east_west_traffic_not_segmented fires when default_deny_posture is false, even when network_policy_enforced or service_mesh_authorization_policy_enforced are individually true. This reflects a defense-in-depth requirement: explicit allow-list policies alone are insufficient without a foundational deny baseline, since newly deployed services with no policy would be reachable by default. The absence of a default-deny posture directly enables lateral movement (T1599) and exploitation of remote services (T1210, T1133) from any compromised workload.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for the presence of a catch-all deny NetworkPolicy in each namespace. A compliant deny-all policy has an empty podSelector and no ingress or egress rules defined.",
+        "command": "kubectl get networkpolicy -A -o json | jq '.items[] | select(.spec.podSelector == {} and (.spec.ingress == null or .spec.ingress == []) and (.spec.egress == null or .spec.egress == [])) | {name: .metadata.name, namespace: .metadata.namespace}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each application namespace should return at least one deny-all NetworkPolicy entry. Namespaces absent from output lack a default-deny baseline."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for an Istio mesh-level default-deny AuthorizationPolicy (empty selector targeting all workloads with action DENY and no rules, or a root namespace DENY-all).",
+        "command": "kubectl get authorizationpolicy -n istio-system -o yaml; kubectl get authorizationpolicy -A -o json | jq '.items[] | select(.spec.action == \"DENY\" and (.spec.rules == null or .spec.rules == []))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A DENY action AuthorizationPolicy with an empty or absent rules block in the root namespace (istio-system or mesh config namespace) indicates mesh-level default deny is active."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Helm chart values or GitOps repository manifests for NetworkPolicy and AuthorizationPolicy templates to confirm default-deny objects are included in the deployment baseline.",
+        "command": "find . -name '*.yaml' -o -name '*.yml' | xargs grep -l 'kind: NetworkPolicy' | xargs grep -l 'podSelector: {}'",
+        "file_path": "charts/*/templates/network-policy.yaml, manifests/base/network-policies/, overlays/*/network-policies/",
+        "navigation": null,
+        "expected_output": "NetworkPolicy manifests with 'podSelector: {}' and empty or absent ingress/egress arrays present in every application namespace template."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform or security engineering team to confirm whether a default-deny posture is part of the namespace provisioning runbook and whether enforcement is validated in CI/CD pipeline policy gates (e.g., OPA Gatekeeper ConstraintTemplate requiring deny-all NetworkPolicy).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented namespace provisioning procedure explicitly mandates and validates default-deny NetworkPolicy creation as a pre-condition for workload deployment."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most clusters rely on implicit trust without a deny baseline)",
+      "true (mature zero-trust clusters with namespace provisioning automation enforcing default-deny)"
+    ]
+  },
+  {
+    "option_name": "tls_reencryption_to_backend_enabled",
+    "option_description": "Controls whether the proxy or ingress controller re-encrypts traffic after performing TLS termination, establishing a new TLS session to the backend/upstream service. When disabled, a plaintext segment exists between the termination point and the destination service, even though the client-facing connection was encrypted.",
+    "security_impact": "The Rego rule tls_termination_at_shared_proxy fires directly when tls_reencryption_to_backend_enabled is false (not input.tls_reencryption_to_backend_enabled), as well as when the proxy is shared across trust boundaries without re-encryption. A plaintext segment between a shared proxy and backend services means any process or attacker with access to the proxy host, container network namespace, or shared overlay network can intercept decrypted traffic. This undermines encrypted channel guarantees (T1573) and enables protocol tunneling for exfiltration (T1572). It also compounds the risk when proxy_trust_boundary_scope is shared_across_trust_boundaries.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect NGINX ingress controller ConfigMap and annotations for backend protocol settings. The nginx.ingress.kubernetes.io/backend-protocol annotation must be HTTPS or GRPCS for re-encryption.",
+        "command": "kubectl get ingress -A -o json | jq '.items[] | {name: .metadata.name, namespace: .metadata.namespace, backendProtocol: .metadata.annotations[\"nginx.ingress.kubernetes.io/backend-protocol\"]}'; kubectl get configmap nginx-configuration -n ingress-nginx -o yaml | grep -E 'ssl-passthrough|backend-protocol'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "backend-protocol annotation values of 'HTTPS' or 'GRPCS' confirm re-encryption. Values of 'HTTP', 'GRPC', or absent annotations indicate plaintext backend connections."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Envoy proxy upstream cluster TLS context configuration in the mesh or gateway configuration to confirm TLS transport socket is defined for upstream connections.",
+        "command": "kubectl exec -n istio-system deploy/istio-ingressgateway -- curl -s localhost:15000/config_dump | jq '.configs[] | select(.\"@type\" | contains(\"ClustersConfigDump\")) | .dynamic_active_clusters[].cluster | {name: .name, tls: .transport_socket}' | grep -A5 'tls_context\\|envoy.transport_sockets.tls'",
+        "file_path": "/etc/envoy/envoy.yaml, /etc/nginx/nginx.conf, /etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "Presence of 'envoy.transport_sockets.tls' or equivalent upstream TLS socket context confirms re-encryption. Absence means plaintext upstream connections."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a packet capture on the network interface or veth pair between the proxy and a backend service pod to confirm traffic is encrypted (TLS handshake visible) rather than plaintext HTTP.",
+        "command": "kubectl debug -it node/<node-name> --image=nicolaka/netshoot -- tcpdump -i any -n port <backend-service-port> -w /tmp/backend-capture.pcap && tcpdump -r /tmp/backend-capture.pcap -A | grep -E 'HTTP/|GET |POST |TLS|ClientHello'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS ClientHello/ServerHello handshake records visible in capture confirm encrypted backend connection. Plaintext HTTP verbs (GET, POST, HTTP/1.1) confirm absence of re-encryption."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the HAProxy Stats dashboard or Traefik dashboard, navigate to the backend server pool configuration and verify the server entries use HTTPS scheme or have SSL verification enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "HAProxy Stats UI → Backend Pools → Select Pool → Server List → Check 'SSL' column | Traefik Dashboard → HTTP → Backends → Verify scheme is https://",
+        "expected_output": "Server entries showing SSL/TLS enabled status or HTTPS scheme confirm backend re-encryption is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in clusters where ingress terminates TLS and forwards plaintext to ClusterIP services)",
+      "true (security-hardened deployments using HTTPS backends or service mesh with mTLS sidecar re-encryption)",
+      "null (unknown; common when proxy configuration has not been formally reviewed)"
+    ]
+  },
+  {
+    "option_name": "proxy_trust_boundary_scope",
+    "option_description": "Describes whether the terminating proxy serves workloads from a single trust boundary (single namespace, security zone, or tenant) or is shared across multiple distinct trust boundaries such as different security zones, Kubernetes namespaces with different sensitivity classifications, or multi-tenant environments. A shared proxy creates a co-tenancy risk at the TLS termination point.",
+    "security_impact": "The Rego rule tls_termination_at_shared_proxy fires when proxy_trust_boundary_scope is shared_across_trust_boundaries and tls_reencryption_to_backend_enabled is false, and also fires independently when the value is unknown without re-encryption. A shared proxy that terminates TLS from multiple security zones holds decrypted traffic from all tenants simultaneously, meaning a compromise of the proxy process exposes cross-boundary traffic. This enables asymmetric cryptography key exposure (T1573.002) and protocol tunneling for data exfiltration (T1572). The unknown state is treated as potentially risky because unreviewed proxy scope cannot be assumed safe.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify which namespaces and services route through the same ingress controller or proxy instance by listing Ingress and HTTPRoute objects grouped by ingress class or gateway reference.",
+        "command": "kubectl get ingress -A -o json | jq 'group_by(.metadata.annotations[\"kubernetes.io/ingress.class\"] // .spec.ingressClassName) | .[] | {ingressClass: .[0].metadata.annotations[\"kubernetes.io/ingress.class\"] // .[0].spec.ingressClassName, namespaces: [.[].metadata.namespace] | unique}'; kubectl get httproute -A -o json | jq '[.items[] | {namespace: .metadata.namespace, parentRefs: .spec.parentRefs}] | group_by(.parentRefs[].name)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Groups showing multiple distinct namespaces routing through the same ingress class or gateway name indicate shared proxy scope across trust boundaries."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the proxy pod's routing configuration to determine whether it has backend pools or upstream clusters from namespaces classified under different security zones or tenant labels.",
+        "command": "kubectl get pods -n ingress-nginx -o wide; kubectl get svc -A -o json | jq '.items[] | select(.metadata.annotations[\"nginx.ingress.kubernetes.io/proxy-upstream\"] != null) | {namespace: .metadata.namespace, securityZone: .metadata.labels[\"security-zone\"]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Services with differing security-zone label values being routed through the same proxy instance confirms shared_across_trust_boundaries scope."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the ingress controller or API gateway deployment manifest to determine if namespace selectors or security zone labels are used to isolate proxy instances per trust boundary.",
+        "command": "kubectl get deployment -n ingress-nginx ingress-nginx-controller -o yaml | grep -E 'namespaces:|watchNamespace:|--watch-namespace'",
+        "file_path": "deploy/ingress-nginx/values.yaml, helm/gateway/values.yaml",
+        "navigation": null,
+        "expected_output": "'--watch-namespace=<single-namespace>' or equivalent namespace restriction flag confirms the proxy is scoped to a single trust boundary. Absence of namespace restriction means the proxy serves all namespaces (shared)."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform team to obtain the proxy deployment topology diagram and confirm whether separate proxy instances are provisioned per security zone (PCI, production, staging, tenant A/B) or whether a single shared ingress tier handles all zones.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture documentation showing one ingress controller deployment per security classification zone with no cross-zone backend routing confirms single_trust_boundary scope."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "shared_across_trust_boundaries (most common in cost-optimized deployments with a single shared NGINX ingress)",
+      "single_trust_boundary (security-hardened environments with dedicated ingress per namespace or zone)",
+      "unknown (environments where proxy topology has not been inventoried or documented)"
+    ]
+  },
+  {
+    "option_name": "backend_protocol",
+    "option_description": "Specifies the application protocol used by the proxy to communicate with the backend destination service after performing TLS termination on the client-facing side. Determines whether the proxy-to-backend segment is encrypted (https, grpcs, tcp_tls) or plaintext (http, grpc, tcp_plaintext), which directly controls whether a decrypted transit segment exists within the cluster network.",
+    "security_impact": "The Rego rule tls_termination_at_shared_proxy fires when backend_protocol is http, grpc, or tcp_plaintext, regardless of whether the proxy has a shared trust boundary scope. These plaintext values confirm that decrypted traffic traverses the internal network between proxy and backend, undermining end-to-end encrypted channel guarantees (T1573). An attacker with access to the cluster network, a compromised sidecar, or a rogue CNI plugin can intercept this plaintext segment. Even grpc (without TLS) is treated equivalently to http because gRPC over h2c provides no confidentiality. Only https, grpcs, and tcp_tls confirm re-encrypted backend communication.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query NGINX ingress backend-protocol annotations for all Ingress objects to identify which backends are configured for plaintext vs encrypted protocols.",
+        "command": "kubectl get ingress -A -o json | jq '.items[] | {name: .metadata.name, namespace: .metadata.namespace, backendProtocol: (.metadata.annotations[\"nginx.ingress.kubernetes.io/backend-protocol\"] // \"HTTP (default, plaintext)\"), serviceName: .spec.rules[].http.paths[].backend.service.name}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Entries showing 'HTTPS' or 'GRPCS' are secure. Entries showing 'HTTP', 'GRPC', or the default unset value confirm plaintext backend_protocol."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect Envoy sidecar or gateway upstream cluster definitions via the admin API to identify the transport protocol and TLS context for each upstream.",
+        "command": "kubectl exec -n <namespace> <envoy-proxy-pod> -- curl -s localhost:15000/clusters | grep -E 'tls_context|transport_socket|grpc|http' | head -40; kubectl exec -n istio-system deploy/istio-ingressgateway -- curl -s localhost:15000/config_dump | python3 -c \"import sys,json; d=json.load(sys.stdin); [print(c['cluster']['name'], c['cluster'].get('transport_socket',{}).get('@type','NO_TLS')) for c in d.get('configs',[])[3].get('dynamic_active_clusters',[])]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Clusters showing 'envoy.transport_sockets.tls' type confirm TLS upstream (https/grpcs/tcp_tls). Clusters with 'NO_TLS' or no transport socket entry confirm plaintext backend protocol."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Traefik IngressRoute or service router configuration files for protocol scheme definitions on backend service URLs.",
+        "command": "kubectl get ingressroute -A -o yaml | grep -E 'url:|scheme:|loadBalancer:|serversTransport:'; kubectl get serverstransport -A -o yaml | grep -E 'insecureSkipVerify:|rootCAs:|serverName:'",
+        "file_path": "traefik/config/dynamic.yaml, traefik/helm/values.yaml, kong/declarative/kong.yaml",
+        "navigation": null,
+        "expected_output": "Service URLs beginning with 'https://' or 'grpcs://' and ServersTransport objects with rootCAs configured confirm encrypted backend protocol. 'http://' or 'grpc://' URLs confirm plaintext."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use a network sniffer on the pod network namespace of the proxy to observe whether backend-bound traffic contains TLS Client Hello records or cleartext HTTP headers.",
+        "command": "POD=$(kubectl get pod -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx -o jsonpath='{.items[0].metadata.name}'); kubectl exec -n ingress-nginx $POD -- sh -c 'apk add tcpdump -q && tcpdump -i eth0 -A -n port 443 or port 80 or port 8080 -c 50 2>/dev/null' | grep -E 'GET |POST |HTTP/|TLSv|ClientHello'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS version strings and ClientHello records confirm encrypted backend communication (https/grpcs/tcp_tls). Plaintext HTTP method verbs (GET, POST) or HTTP version strings confirm plaintext backend_protocol (http/grpc/tcp_plaintext)."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "http (most common default; NGINX ingress forwards to ClusterIP services over HTTP)",
+      "https (used in hardened deployments with backend TLS termination at service pods)",
+      "grpc (common in gRPC microservice environments without mesh-enforced mTLS)",
+      "grpcs (used in gRPC environments with explicit TLS configured on backend services)",
+      "tcp_plaintext (stream proxies without encryption)",
+      "tcp_tls (encrypted TCP stream proxying, less common)"
+    ]
+  }
+]

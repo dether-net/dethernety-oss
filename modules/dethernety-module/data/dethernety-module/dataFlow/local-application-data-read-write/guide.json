@@ -1,0 +1,921 @@
+[
+  {
+    "option_name": "ipc_channel_type",
+    "option_description": "Identifies the specific inter-process communication mechanism used between the application and any filesystem proxy or daemon layer, such as UNIX domain sockets, named pipes, TCP sockets, shared memory segments, or no IPC at all.",
+    "security_impact": "The Rego policy triggers the unencrypted_ipc_channel_data_exposure finding when ipc_channel_type is unix_domain_socket or named_pipe combined with missing encryption or permissive permissions. TCP sockets carry additional network exposure risk. Knowing the channel type is the foundational input for all IPC-related exposure rules.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List open file descriptors for the target process to identify socket and pipe types in use.",
+        "command": "ls -la /proc/$(pgrep -f <app_name>)/fd | grep -E 'socket|pipe'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Symlinks labeled 'socket:[inode]' indicate UNIX domain sockets; 'pipe:[inode]' indicates named pipes."
+      },
+      {
+        "type": "command",
+        "instruction": "Use ss to enumerate UNIX domain sockets and identify the application process binding.",
+        "command": "ss -xlp | grep <app_name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing socket path, PID, and process name confirm unix_domain_socket usage."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect systemd socket unit files to determine configured IPC channel type for the service.",
+        "command": "systemctl cat <service_name>.socket 2>/dev/null || find /etc/systemd /lib/systemd -name '*.socket' | xargs grep -l <app_name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ListenStream with a path indicates UNIX domain socket; ListenFIFO indicates named pipe; ListenStream with port indicates TCP."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the application configuration file for explicit IPC channel declarations.",
+        "command": null,
+        "file_path": "/etc/<app_name>/<app_name>.conf",
+        "navigation": null,
+        "expected_output": "Keys such as socket_path, pipe_path, listen_address, or ipc_type reveal the configured channel."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "unix_domain_socket",
+      "named_pipe",
+      "none"
+    ]
+  },
+  {
+    "option_name": "ipc_channel_encryption_enabled",
+    "option_description": "Controls whether the application applies an application-layer encryption or cryptographic integrity wrapper around data transmitted over the IPC channel to a filesystem proxy or daemon, beyond what the OS kernel provides by default.",
+    "security_impact": "The Rego policy fires unencrypted_ipc_channel_data_exposure when ipc_channel_encryption_enabled is false on unix_domain_socket or named_pipe channels. Without encryption, any co-resident process with ptrace access or kernel tracing privileges can read plaintext data in transit from /proc/<pid>/mem or via eBPF probes.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether the application binary is linked against TLS libraries that would indicate encryption capability.",
+        "command": "ldd $(which <app_binary>) | grep -E 'ssl|tls|gnutls|crypto|mbedtls'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of libssl.so, libgnutls.so, or similar confirms TLS linkage; absence suggests no transport encryption."
+      },
+      {
+        "type": "command",
+        "instruction": "Search application source or installed files for references to encryption initialization on IPC paths.",
+        "command": "grep -rE 'SSL_CTX|TLS_client|HMAC|EVP_Encrypt|nacl|age.Encrypt' /opt/<app_name>/src/ /etc/<app_name>/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Matches indicate application-layer encryption is implemented; no matches strongly suggest encryption is absent."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect application configuration for explicit encryption toggle or TLS settings on IPC channel.",
+        "command": null,
+        "file_path": "/etc/<app_name>/config.yaml",
+        "navigation": null,
+        "expected_output": "Settings like ipc_tls: true or encrypt_socket: enabled confirm the feature; missing or false values indicate disabled."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the application owner or review developer documentation to confirm whether IPC channel encryption is in scope for the implementation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written confirmation or design document explicitly addressing encryption of IPC channel data."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "ipc_socket_permissions_restrictive",
+    "option_description": "Indicates whether the UNIX domain socket or named pipe filesystem node has permission bits and ownership configured to allow access only by the intended communicating processes, specifically mode 0600 or 0660 owned by a dedicated service account.",
+    "security_impact": "The Rego policy includes ipc_socket_permissions_restrictive as a mitigating factor in unencrypted_ipc_channel_data_exposure. When this is false and encryption is also absent, the exposure fires unconditionally for unix_domain_socket and named_pipe channels. World-readable or world-writable sockets allow any local user to connect and intercept data.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run stat on the socket or pipe path to retrieve permissions and ownership details.",
+        "command": "stat -c '%a %U %G %F %n' /run/<app_name>/<app_name>.sock 2>/dev/null || find /tmp /run /var/run -name '*.sock' -o -name '*.pipe' 2>/dev/null | xargs stat -c '%a %U %G %n'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permission string 600 or 660 with owner matching the service account indicates restrictive; 666, 777, or other-writable bits indicate permissive."
+      },
+      {
+        "type": "command",
+        "instruction": "List all open UNIX sockets with their socket file paths and verify access bits.",
+        "command": "ss -xlp | awk '{print $5}' | grep '/' | sort -u | xargs -I{} stat -c '%a %U %G %n' {} 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any entry showing permissions other than 600 or 660 indicates a non-restrictive configuration."
+      },
+      {
+        "type": "command",
+        "instruction": "Check POSIX ACLs on the socket file for additional grants beyond standard permission bits.",
+        "command": "getfacl /run/<app_name>/<app_name>.sock 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show only owner user and group entries; any 'other' or named-user ACE entries indicate additional access."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "kernel_tracing_interfaces_accessible",
+    "option_description": "Reflects whether kernel-level tracing and introspection interfaces including ptrace, /proc/<pid>/mem reads, eBPF tracing programs, and ftrace are available to unprivileged or moderately privileged co-resident processes on the host.",
+    "security_impact": "The Rego policy fires unencrypted_ipc_channel_data_exposure when kernel_tracing_interfaces_accessible is true on unix_domain_socket or named_pipe channels regardless of encryption state, because an attacker can use ptrace or eBPF to read plaintext IPC data directly from process memory. A permissive ptrace_scope or open eBPF access nullifies channel-level protections.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the Yama ptrace_scope sysctl to determine whether ptrace is restricted to parent processes or fully open.",
+        "command": "cat /proc/sys/kernel/yama/ptrace_scope",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "0 means unrestricted (accessible); 1 means restricted to parent; 2 means admin-only; 3 means fully disabled. Values 0 or 1 without strict control indicate accessible."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether unprivileged eBPF is enabled, allowing non-root users to load tracing programs.",
+        "command": "cat /proc/sys/kernel/unprivileged_bpf_disabled && cat /proc/sys/net/core/bpf_jit_enable",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "unprivileged_bpf_disabled=0 means eBPF is accessible to non-root users, indicating tracing interfaces accessible=true."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the perf_event_paranoid setting which controls access to perf and related tracing APIs.",
+        "command": "cat /proc/sys/kernel/perf_event_paranoid",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Value -1 or 0 grants broad access to all users; 1 restricts to performance counters; 2 or 3 restricts further. Values 0 or below indicate accessible."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review sysctl configuration files for persistent kernel tracing parameter settings.",
+        "command": null,
+        "file_path": "/etc/sysctl.conf",
+        "navigation": null,
+        "expected_output": "Entries for kernel.yama.ptrace_scope, kernel.unprivileged_bpf_disabled, and kernel.perf_event_paranoid with hardened values confirm restricted tracing."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "integrity_verification_enabled",
+    "option_description": "Indicates whether the application cryptographically verifies data read from the filesystem before processing it, using mechanisms such as HMAC validation, digital signature checking, or hash comparison against a trusted reference.",
+    "security_impact": "The Rego policy uses integrity_verification_enabled as the primary mitigation for both missing_integrity_verification_on_read_path and replay_of_cached_filesystem_responses. When false combined with filesystem_write_accessible_to_non_owner or read_path_on_shared_or_network_filesystem being true, tampered file data can be silently consumed. The fuse_filesystem_man_in_the_middle rule also depends on this attribute.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search application source code and installed scripts for cryptographic verification function calls on file read paths.",
+        "command": "grep -rE 'hmac|HMAC|verify_signature|sha256sum|sha512sum|EVP_DigestVerify|gpg.verify|openssl.dgst' /opt/<app_name>/ /usr/lib/<app_name>/ 2>/dev/null | grep -v '.pyc'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Matches tied to file read operations confirm integrity verification; absence indicates the feature is not implemented."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect application configuration for integrity or checksum verification settings on read paths.",
+        "command": null,
+        "file_path": "/etc/<app_name>/security.conf",
+        "navigation": null,
+        "expected_output": "Keys like verify_integrity: true, checksum_validation: enabled, or signature_check: required confirm the feature is active."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review application runbooks, secure coding standards, or design documents to confirm whether read-path integrity verification is a documented requirement and implementation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation explicitly describing post-read HMAC or signature verification steps before data is passed to the processing pipeline."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check application logs for integrity check events or verification failure messages that would confirm the feature is active.",
+        "command": "journalctl -u <service_name> | grep -iE 'integrity|checksum|signature|hmac|verify|tamper' | tail -50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log entries containing integrity check pass or fail messages confirm the verification pipeline is executing."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "filesystem_write_accessible_to_non_owner",
+    "option_description": "Indicates whether the filesystem paths from which the application reads sensitive data can be written to by users, groups, or processes other than the owning application account, enabling injection of tampered content into the read path.",
+    "security_impact": "The Rego policy fires missing_integrity_verification_on_read_path when this attribute is true and integrity_verification_enabled is false. If an attacker or unprivileged process can write to the directory or files the application reads, they can substitute malicious content. The risk is compounded when no HMAC or signature check catches the substitution.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check permissions on the target data files and parent directories for write access granted beyond the owner.",
+        "command": "stat -c '%a %U %G %n' /var/lib/<app_name>/data/ /etc/<app_name>/config/ && ls -la /var/lib/<app_name>/data/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permissions showing group-write without tight group control, or world-write bits (o+w), indicate non-owner write access is possible."
+      },
+      {
+        "type": "command",
+        "instruction": "Use find to locate files under application read paths that have write bits set for group or others.",
+        "command": "find /var/lib/<app_name> /etc/<app_name> -type f -perm /022 -ls 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any files returned are writable by group or world; an empty result confirms owner-only write access."
+      },
+      {
+        "type": "command",
+        "instruction": "Retrieve extended ACLs on read-path files to identify hidden write grants beyond standard permission bits.",
+        "command": "getfacl -R /var/lib/<app_name>/data/ 2>/dev/null | grep -E 'write|rw'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACL entries granting write to named users or groups other than the service account indicate non-owner write access."
+      },
+      {
+        "type": "command",
+        "instruction": "Check directory sticky bit status on shared directories where application data files reside.",
+        "command": "stat -c '%a %U %G %n' $(dirname /var/lib/<app_name>/data/) | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permissions without sticky bit on world-writable directories indicate file substitution risk."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "read_path_on_shared_or_network_filesystem",
+    "option_description": "Indicates whether the filesystem paths accessed by the application for sensitive data reads are mounted from a network or shared storage backend such as NFS, SMB/CIFS, FUSE, or shared tmpfs, which increases the attack surface for data tampering in transit to storage.",
+    "security_impact": "The Rego policy fires missing_integrity_verification_on_read_path when this is true and integrity_verification_enabled is false. Network filesystems introduce an off-host transit segment where data can be intercepted or modified by network-layer attackers. Without integrity verification on the read path, the application cannot detect tampering that occurred during network transit to storage.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all currently mounted filesystems and their types to identify network or shared mount points.",
+        "command": "mount | grep -E 'nfs|cifs|smbfs|fuse|overlay|tmpfs|glusterfs|ceph|s3fs' && df -T | grep -E 'nfs|cifs|fuse|overlay|tmpfs'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any entry showing a network filesystem type covering the application read paths confirms this attribute is true."
+      },
+      {
+        "type": "command",
+        "instruction": "Check /proc/mounts for the exact mount point and filesystem type covering the application data directory.",
+        "command": "cat /proc/mounts | awk '{print $2, $3}' | while read mnt fstype; do [[ '/var/lib/<app_name>' == $mnt* ]] && echo \"$mnt $fstype\"; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines containing nfs, cifs, fuse, or overlay confirm the read path is on a shared or network filesystem."
+      },
+      {
+        "type": "command",
+        "instruction": "Use findmnt to recursively display the filesystem type for the specific application read path.",
+        "command": "findmnt -T /var/lib/<app_name>/data --output TARGET,FSTYPE,SOURCE",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "FSTYPE column showing nfs4, cifs, fuse, overlay, or tmpfs confirms shared or network filesystem."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review /etc/fstab for persistent mount configurations covering the application data paths.",
+        "command": null,
+        "file_path": "/etc/fstab",
+        "navigation": null,
+        "expected_output": "Entries with server:/export or //server/share mounted to paths matching the application data directory confirm network filesystem."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "shm_owner_isolation_enforced",
+    "option_description": "Indicates whether POSIX or System V shared memory segments used by the application are configured with permission masks of 0600 or 0660 at most, with no world-readable or world-writable bits set, ensuring only the owning process and its authorized group can access the segment.",
+    "security_impact": "The Rego policy fires shared_memory_segment_eavesdropping when shm_owner_isolation_enforced is false or absent. Shared memory with permissive bits allows any co-resident process to mmap the segment and read data in flight between the application and filesystem buffers. This constitutes a direct eavesdropping path requiring no kernel exploit.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use ipcs to list System V shared memory segments and inspect their permission octals.",
+        "command": "ipcs -m -p | head -1 && ipcs -m | awk 'NR>3 {print $1, $2, $5, $6, $7}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Perms column values of 600 or 660 indicate isolation is enforced; 666, 644, or any value with other-readable bits indicates isolation is not enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "List POSIX shared memory objects in /dev/shm and check their permission bits and ownership.",
+        "command": "ls -la /dev/shm/ && stat -c '%a %U %G %n' /dev/shm/*",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permission strings of 600 or 660 owned by the service account confirm isolation; 644, 666, or other values indicate exposure."
+      },
+      {
+        "type": "command",
+        "instruction": "Identify the application process shared memory mappings by examining its proc maps file.",
+        "command": "grep '/dev/shm\\|SYSV' /proc/$(pgrep -f <app_name>)/maps 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Entries showing mapped shared memory regions indicate segments in use; cross-reference with ipcs or ls /dev/shm for permission verification."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether the application creates shared memory with explicit permission restriction in its initialization.",
+        "command": "strace -e openat,shm_open,shmget -p $(pgrep -f <app_name>) 2>&1 | grep -E 'shm_open|shmget' | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "shm_open calls with mode 0600 or shmget with IPC_CREAT and 0600 flags confirm isolation is enforced at creation time."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "uses_abstract_socket",
+    "option_description": "Controls whether the application creates or connects to a Linux abstract namespace socket (identified by a leading null byte or '@' prefix). Abstract sockets exist only in the kernel's abstract namespace, are not visible in the filesystem, and are not subject to filesystem permission controls or MAC policies tied to file paths.",
+    "security_impact": "Directly gates the 'missing_mutual_authentication_on_abstract_socket' Rego rule. When true, any process in the same network namespace can attempt to connect to the socket without any filesystem DAC barrier. The policy fires when uses_abstract_socket is true and peer_credential_verification_enabled is false or absent — meaning the absence of SO_PEERCRED checks leaves the socket open to impersonation by any co-resident process.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all UNIX sockets and filter for abstract namespace entries (those with a '@' prefix or blank inode path indicating a null-byte name)",
+        "command": "ss -xlp | grep -E '^u_str|^u_dgr' | awk '{print $5}' | grep -E '^@|^$'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines beginning with '@' indicate abstract sockets; empty output means no abstract sockets are in use"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the kernel's UNIX socket table directly for abstract socket entries (null byte represented as leading blank in the Path column)",
+        "command": "grep ' @' /proc/net/unix || awk '$NF ~ /^@/ {print}' /proc/net/unix",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rows with a Path starting with '@' confirm abstract namespace socket usage by the application"
+      },
+      {
+        "type": "command",
+        "instruction": "Use strace on the application process to capture socket creation calls and identify AF_UNIX sockets bound to names with a null leading byte",
+        "command": "strace -e trace=bind,connect -p $(pgrep -f <app-process-name>) 2>&1 | grep -E 'AF_UNIX.*\\\\x00|AF_UNIX.*@'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "bind() or connect() calls containing a null byte (\\x00) or '@' as the first socket name character confirm abstract socket use"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review application source or configuration for explicit abstract socket binding patterns such as a name starting with a null character or the use of autobind mode",
+        "command": "grep -rE '\"\\\\x00|\\\\0[a-zA-Z]|abstract' /etc/<app-config-dir>/ /opt/<app>/ --include='*.conf' --include='*.yaml' --include='*.json' 2>/dev/null",
+        "file_path": "/etc/<app-config-dir>/",
+        "navigation": null,
+        "expected_output": "Configuration entries or source patterns referencing abstract socket names confirm the feature is enabled"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "peer_credential_verification_enabled",
+    "option_description": "Indicates whether the server-side application calls getsockopt(SO_PEERCRED) or getpeereid() on each accepted UNIX domain socket connection and validates the returned UID, GID, and optionally PID against a compiled-in or configured allowlist before processing any request payload.",
+    "security_impact": "This attribute is evaluated alongside uses_abstract_socket in the 'missing_mutual_authentication_on_abstract_socket' Rego rule. When uses_abstract_socket is true and this attribute is false or null, the rule fires unconditionally — any process in the network namespace can impersonate the legitimate client or server. Even in isolated namespaces, the absence of credential verification leaves the IPC channel unauthenticated, relying solely on namespace boundaries which can be escaped through container misconfigurations.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search application source or installed binary strings for SO_PEERCRED usage indicating peer credential retrieval is implemented",
+        "command": "grep -rn 'SO_PEERCRED\\|getsockopt.*peer\\|getpeereid' /opt/<app>/src/ /usr/lib/<app>/ 2>/dev/null || strings $(which <app-binary>) | grep -i 'peercred\\|peereid'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of SO_PEERCRED or getpeereid references confirms the call exists; absence means verification is not implemented"
+      },
+      {
+        "type": "command",
+        "instruction": "Use strace to trace the running application and observe whether getsockopt with SO_PEERCRED is called after accept() on UNIX sockets",
+        "command": "strace -e trace=getsockopt,accept,accept4 -p $(pgrep -f <app-process-name>) 2>&1 | grep -A2 'accept' | grep 'SO_PEERCRED'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A getsockopt call with SO_PEERCRED appearing after each accept() call confirms credential retrieval is active"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review application configuration files for UID/GID allowlist entries that would be meaningless unless peer credential checking is active",
+        "command": "grep -rE 'allowed_uid|peer_uid|trusted_gid|socket_auth' /etc/<app>/ /opt/<app>/conf/ 2>/dev/null",
+        "file_path": "/etc/<app>/socket.conf",
+        "navigation": null,
+        "expected_output": "Presence of UID/GID allowlist directives strongly suggests peer credential verification is configured; absence indicates it is not"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview application developers or review the IPC design document to confirm whether peer credential validation was included in the socket handler implementation and what the allowlist contains",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written confirmation of SO_PEERCRED usage and documented UID/GID allowlist constitutes a positive result"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "socket_namespace_isolation",
+    "option_description": "Describes the network namespace scope within which the abstract socket is visible and connectable. 'host' means the socket is in the default host network namespace accessible to all host processes. 'shared_container_group' means multiple containers share a namespace (e.g., a Kubernetes pod). 'isolated' means the socket is confined to a dedicated namespace with no untrusted co-tenants.",
+    "security_impact": "Used in the 'missing_mutual_authentication_on_abstract_socket' Rego rule as an escalating risk factor. When the value is 'host' or 'shared_container_group', the rule fires together with uses_abstract_socket=true and absent peer credential verification, reflecting that the attack surface includes all processes in that namespace. An 'isolated' value reduces but does not eliminate risk because namespace isolation can be broken by privileged container runtimes or host mounts.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate all network namespaces on the host and identify which namespace contains the application process to determine isolation level",
+        "command": "lsns -t net -o NS,PID,PPID,COMMAND | sort -k1,1 && cat /proc/$(pgrep -f <app-process-name>)/ns/net | xargs -I{} ls -la /proc/1/ns/net {}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the application's net namespace inode matches /proc/1/ns/net, the socket is in the host namespace; a unique inode indicates isolation"
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether the container runtime shares the host network namespace by inspecting Docker or containerd container configuration",
+        "command": "docker inspect <container-name> --format '{{.HostConfig.NetworkMode}}' 2>/dev/null || crictl inspect <container-id> 2>/dev/null | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d['info']['runtimeSpec']['linux']['namespaces'])\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'host' network mode confirms the socket is in the host namespace; bridge or none indicates per-container isolation"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Kubernetes pod spec or Docker Compose files for hostNetwork settings that would place the pod in the host namespace",
+        "command": "kubectl get pod <pod-name> -o jsonpath='{.spec.hostNetwork}' 2>/dev/null || grep -E 'network_mode|hostNetwork' /etc/docker/compose*.yml /etc/kubernetes/manifests/*.yaml 2>/dev/null",
+        "file_path": "/etc/kubernetes/manifests/",
+        "navigation": null,
+        "expected_output": "hostNetwork: true or network_mode: host confirms 'host' isolation level; absence or false suggests container-scoped namespace"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify whether multiple containers share a network namespace (pod-level sharing) by comparing namespace inodes across processes",
+        "command": "for pid in $(pgrep -f <app>); do echo -n \"PID $pid net ns: \"; readlink /proc/$pid/ns/net; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Multiple PIDs from different containers sharing the same net namespace inode indicates 'shared_container_group'; unique inodes indicate 'isolated'"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "host",
+      "shared_container_group",
+      "isolated"
+    ]
+  },
+  {
+    "option_name": "filesystem_layer_type",
+    "option_description": "Identifies the type of filesystem abstraction or caching intermediary layer sitting between the application and the underlying block storage. Options include no intermediary ('none'), FUSE user-space filesystems ('fuse'), NFS mounted loopback ('nfs_loopback'), overlay filesystems ('overlayfs'), explicit caching daemons, or other abstractions. This determines which transit attack surfaces are relevant.",
+    "security_impact": "Used as the primary condition in both the 'replay_of_cached_filesystem_responses' and 'fuse_filesystem_man_in_the_middle' Rego rules. Any value other than 'none' activates the replay rule, which also checks cache_freshness_validation_enabled. The FUSE-specific rule triggers when this is 'fuse', checking fuse_handler_integrity_verified and fuse_daemon_privilege_level. The intermediary layer represents an additional data-in-transit attack surface not present with direct kernel block I/O.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all active mount points and their filesystem types to identify FUSE, NFS, or overlay layers in use by the application",
+        "command": "mount | grep -E 'fuse|nfs|overlay|tmpfs|cifs|sshfs' && cat /proc/mounts | awk '{print $1, $2, $3}' | grep -E 'fuse|nfs|overlay'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Entries with type 'fuse', 'fuse.sshfs', 'nfs', 'nfs4', or 'overlay' directly indicate the relevant filesystem_layer_type value"
+      },
+      {
+        "type": "command",
+        "instruction": "Check specifically for FUSE mounts using the standard FUSE detection command and identify the daemon providing the mount",
+        "command": "mount | grep fuse; ls -la /proc/$(pgrep -f <app-process-name>)/fd 2>/dev/null | grep fuse; lsof -p $(pgrep -f <app-process-name>) 2>/dev/null | grep -i fuse",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Open file descriptors to /dev/fuse or mount entries with fuse type confirm filesystem_layer_type='fuse'"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review application configuration and systemd unit files for mount dependencies or ExecStartPre commands that set up filesystem abstraction layers",
+        "command": "systemctl cat <app-service-name> 2>/dev/null | grep -E 'After=|RequiresMountsFor=|ExecStartPre=|mount\\|fuse\\|nfs'; cat /etc/fstab | grep -E 'fuse|nfs|overlay'",
+        "file_path": "/etc/fstab",
+        "navigation": null,
+        "expected_output": "fstab entries or systemd dependencies referencing fuse/nfs/overlay indicate the relevant layer type; clean output suggests 'none'"
+      },
+      {
+        "type": "command",
+        "instruction": "Check for caching daemons such as cachefilesd, varnish, or application-specific file caching services that interpose on the data path",
+        "command": "systemctl list-units --state=running | grep -E 'cachefiles|fscache|caching|overlay'; ps aux | grep -E 'cachefilesd|gvfsd-fuse|sshfs|bindfs|rclone'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Running cachefilesd confirms 'caching_daemon'; gvfsd-fuse or rclone mount confirms 'fuse'; no hits suggests 'none'"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "fuse",
+      "overlayfs",
+      "caching_daemon"
+    ]
+  },
+  {
+    "option_name": "cache_freshness_validation_enabled",
+    "option_description": "Controls whether the filesystem abstraction layer (FUSE, NFS loopback, overlayfs, or caching daemon) enforces data freshness validation using mechanisms such as cache coherence tokens, ETags, inode generation numbers, sequence numbers, or equivalent timestamp-based revalidation to prevent serving stale or replayed data.",
+    "security_impact": "Evaluated in the 'replay_of_cached_filesystem_responses' Rego rule. When any non-passthrough filesystem layer is present and this attribute is false, the rule fires — a caching or abstraction layer without freshness controls can serve stale data, enabling injection of replayed filesystem responses into the application's read path. This is particularly dangerous when combined with absent integrity_verification_enabled, which the Rego rule also checks as a second condition.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect NFS mount options in /etc/fstab or /proc/mounts for freshness-related parameters such as actimeo, acregmin, acdirmin, or lookupcache settings",
+        "command": "cat /proc/mounts | grep nfs | awk '{print $4}' | tr ',' '\\n' | grep -E 'actimeo|acregmin|acregmax|acdirmin|lookupcache|noac'",
+        "file_path": "/etc/fstab",
+        "navigation": null,
+        "expected_output": "lookupcache=none or noac confirms freshness validation is enforced; actimeo=0 also disables caching; default or large actimeo values indicate stale cache risk"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review FUSE daemon configuration files for cache invalidation or freshness token settings specific to the FUSE implementation in use (e.g., rclone, s3fs, bindfs)",
+        "command": "find /etc /opt /usr/local/etc -name '*.conf' -o -name '*.ini' 2>/dev/null | xargs grep -l 'cache\\|freshness\\|ttl\\|expire\\|etag' 2>/dev/null | head -5 | xargs grep -E 'cache_ttl|cache_expire|dir_cache_time|vfs_cache_mode|freshness'",
+        "file_path": "/etc/rclone/rclone.conf",
+        "navigation": null,
+        "expected_output": "vfs-cache-mode=off or cache_ttl=0 indicates freshness validation is effectively enforced; large TTL values indicate stale data risk"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check caching daemon configurations (e.g., cachefilesd, Varnish, or application-level caching) for TTL, revalidation, and cache coherence settings",
+        "command": "cat /etc/cachefilesd.conf 2>/dev/null; find /etc -name 'caching*.conf' -o -name 'varnish*.vcl' 2>/dev/null | xargs grep -E 'ttl|beresp\\.ttl|grace|stale|revalidate|sequence' 2>/dev/null",
+        "file_path": "/etc/cachefilesd.conf",
+        "navigation": null,
+        "expected_output": "Explicit revalidation rules or zero TTL settings confirm freshness enforcement; absent revalidation rules indicate the attribute should be set to false"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the application or infrastructure team to confirm whether the caching layer was explicitly configured with freshness requirements and review design documents for cache coherence strategy",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written policy or design documentation specifying freshness tokens or mandatory revalidation constitutes a positive result"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "fuse_handler_integrity_verified",
+    "option_description": "Indicates whether the FUSE user-space daemon binary and all associated configuration files have been verified for integrity through a trusted mechanism such as package manager signature verification (rpm -V / dpkg --verify), IMA/EVM kernel integrity measurement, code-signing enforcement, or file integrity monitoring tools like AIDE or Tripwire. A compromised FUSE handler sits directly in the data path and can silently alter all data in transit.",
+    "security_impact": "Evaluated in the 'fuse_filesystem_man_in_the_middle' Rego rule. When filesystem_layer_type indicates FUSE usage and fuse_handler_integrity_verified is false, the rule fires because an unverified handler may have been tampered with. A malicious or compromised FUSE daemon occupies a privileged position in the data path — it receives every read and write request and can modify, drop, or replay data without the application or kernel detecting the manipulation. This risk compounds when fuse_daemon_privilege_level is 'root'.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify the FUSE daemon package integrity using the package manager's built-in checksum and signature verification",
+        "command": "rpm -V $(rpm -qf $(which <fuse-daemon-binary>) 2>/dev/null) 2>/dev/null || dpkg --verify $(dpkg -S $(which <fuse-daemon-binary>) 2>/dev/null | cut -d: -f1) 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output from rpm -V or dpkg --verify indicates the installed files match the signed package; any output lines indicate modified files"
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether IMA (Integrity Measurement Architecture) is active and has an appraisal policy covering the FUSE daemon binary",
+        "command": "cat /sys/kernel/security/ima/policy 2>/dev/null | grep -E 'appraise|measure' | grep -i 'fuse\\|<daemon-name>'; dmesg | grep -i 'ima.*fuse\\|evm' | tail -20",
+        "file_path": "/sys/kernel/security/ima/policy",
+        "navigation": null,
+        "expected_output": "IMA appraise rules matching the FUSE daemon path confirm integrity enforcement; absence means IMA is not protecting the FUSE binary"
+      },
+      {
+        "type": "command",
+        "instruction": "Check AIDE or Tripwire database for the FUSE daemon binary to confirm file integrity monitoring is active and the binary is within scope",
+        "command": "aide --check 2>/dev/null | grep -E 'fuse|<fuse-daemon-path>' || tripwire --check 2>/dev/null | grep -E 'fuse|<fuse-daemon-path>'",
+        "file_path": "/etc/aide/aide.conf",
+        "navigation": null,
+        "expected_output": "Clean check output with the FUSE daemon in scope confirms integrity monitoring; 'changed' or 'added' entries indicate tampering or unchecked state"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the FUSE daemon binary has not been modified since installation by comparing its checksum against the package manager's recorded value",
+        "command": "sha256sum $(which <fuse-daemon-binary>) && rpm -ql <fuse-package> --dump 2>/dev/null | grep $(which <fuse-daemon-binary>) | awk '{print $4, $1}' | sha256sum -c 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Matching checksums confirm binary integrity; mismatches indicate the binary has been modified outside package management"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "fuse_daemon_privilege_level",
+    "option_description": "Describes the OS privilege level under which the FUSE user-space filesystem daemon process runs. 'root' means the daemon runs as UID 0 with full system privileges. 'privileged_user' means a dedicated service account with elevated Linux capabilities (e.g., CAP_DAC_READ_SEARCH, CAP_SYS_ADMIN). 'unprivileged_user' means the daemon runs as a normal user account with no special capabilities beyond those needed for FUSE mounting.",
+    "security_impact": "Referenced in the 'fuse_filesystem_man_in_the_middle' Rego rule. When the privilege level is 'root', a compromised FUSE daemon has unrestricted access to all system resources, making interception or manipulation of data in transit trivial and its blast radius maximal. The rule specifically checks for root privilege combined with absent integrity verification as a high-risk combination. Higher privilege levels also reduce the effectiveness of any sandboxing or MAC controls around the data path.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the running FUSE daemon process and inspect its UID to determine whether it runs as root, a service account, or an unprivileged user",
+        "command": "ps aux | grep -E 'fuse|sshfs|rclone|gvfs|<fuse-daemon-name>' | grep -v grep | awk '{print $1, $2, $11}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "UID column showing 'root' or '0' confirms root level; a named service account suggests privileged_user; a standard username indicates unprivileged_user"
+      },
+      {
+        "type": "command",
+        "instruction": "Check the effective capabilities of the FUSE daemon process to identify elevated capabilities even when not running as root",
+        "command": "cat /proc/$(pgrep -f <fuse-daemon-name>)/status | grep -E '^Cap(Eff|Prm|Inh):' | while read line; do capsh --decode=$(echo $line | awk '{print $2}') ; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CapEff value decoding to include cap_sys_admin, cap_dac_read_search, or cap_dac_override indicates 'privileged_user'; 0000000000000000 or minimal caps indicates 'unprivileged_user'"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review systemd service unit for the FUSE daemon to determine the configured User and AmbientCapabilities settings",
+        "command": "systemctl cat <fuse-service-name> 2>/dev/null | grep -E '^User=|^Group=|^AmbientCapabilities=|^CapabilityBoundingSet='",
+        "file_path": "/etc/systemd/system/<fuse-service>.service",
+        "navigation": null,
+        "expected_output": "User=root confirms root level; User=<service-account> with AmbientCapabilities entries confirms privileged_user; User=<service-account> with no capabilities confirms unprivileged_user"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect /etc/fuse.conf for the allow_other or user_allow_other options which affect what privilege level is required for the FUSE mount and who may access it",
+        "command": "cat /etc/fuse.conf 2>/dev/null; ls -la /dev/fuse; stat -c '%U %G %a' /dev/fuse",
+        "file_path": "/etc/fuse.conf",
+        "navigation": null,
+        "expected_output": "allow_other in fuse.conf with a root-owned FUSE process confirms root level; mount_max and user_allow_other settings provide additional privilege context"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "root",
+      "privileged_user",
+      "unprivileged_user"
+    ]
+  },
+  {
+    "option_name": "io_rate_limiting_enabled",
+    "option_description": "Controls whether OS-level or application-level I/O bandwidth throttling is enforced on the filesystem data paths used by the application. Mechanisms include cgroup v1 blkio or cgroup v2 io controllers with throttle parameters, systemd IOReadBandwidthMax/IOWriteBandwidthMax directives, ionice I/O scheduling class assignment, or application-internal rate limiting logic that caps filesystem throughput.",
+    "security_impact": "The primary condition in the 'unthrottled_io_enabling_denial_of_service_via_transit_saturation' Rego rule. When io_rate_limiting_enabled is false, the rule fires unconditionally. Without I/O rate limits, a single application process can saturate kernel I/O queues and block device bandwidth, starving other legitimate dataflows and constituting a denial-of-service against dependent services. The Rego rule fires additional conditions when combined with zero io_queue_depth_limit or no I/O priority class, making this attribute the foundational control.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check cgroup v1 blkio throttle settings for the application process to determine if read/write BPS limits have been configured",
+        "command": "CGPATH=$(cat /proc/$(pgrep -f <app-process-name>)/cgroup 2>/dev/null | grep blkio | cut -d: -f3); cat /sys/fs/cgroup/blkio${CGPATH}/blkio.throttle.read_bps_device 2>/dev/null; cat /sys/fs/cgroup/blkio${CGPATH}/blkio.throttle.write_bps_device 2>/dev/null",
+        "file_path": "/sys/fs/cgroup/blkio/",
+        "navigation": null,
+        "expected_output": "Non-zero BPS values in the throttle files confirm rate limiting is active; empty files or '0' values indicate no throttling is configured"
+      },
+      {
+        "type": "command",
+        "instruction": "Check cgroup v2 io controller for the application process to detect bandwidth limits under the unified hierarchy",
+        "command": "CGPATH=$(cat /proc/$(pgrep -f <app-process-name>)/cgroup 2>/dev/null | grep '^0:' | cut -d: -f3); cat /sys/fs/cgroup${CGPATH}/io.max 2>/dev/null",
+        "file_path": "/sys/fs/cgroup/",
+        "navigation": null,
+        "expected_output": "Output lines with 'rbps=' or 'wbps=' values other than 'max' confirm cgroup v2 I/O rate limiting; 'max' for all entries means no limit is applied"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the systemd service unit file for the application to check for IOReadBandwidthMax, IOWriteBandwidthMax, or IOWeight directives",
+        "command": "systemctl cat <app-service-name> 2>/dev/null | grep -E 'IOReadBandwidthMax|IOWriteBandwidthMax|IOReadIOPSMax|IOWriteIOPSMax|IOWeight|BlockIOWeight'",
+        "file_path": "/etc/systemd/system/<app>.service",
+        "navigation": null,
+        "expected_output": "Presence of IOReadBandwidthMax or IOWriteBandwidthMax with non-'infinity' values confirms rate limiting via systemd; absence means no systemd-level throttling"
+      },
+      {
+        "type": "command",
+        "instruction": "Check the ionice I/O scheduling class assigned to the application process to determine if I/O priority controls are in place",
+        "command": "ionice -p $(pgrep -f <app-process-name>) 2>/dev/null; cat /proc/$(pgrep -f <app-process-name>)/ioprio 2>/dev/null | awk '{class=int($1/8192); prio=$1%8192; print \"class=\"class\" prio=\"prio}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "I/O class 'best-effort' or 'idle' with a priority level indicates I/O scheduling is applied; class 'none' or 'realtime' without limits suggests no effective rate control"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "io_queue_depth_limit",
+    "option_description": "Controls the maximum number of outstanding (in-flight) I/O operations permitted for a process or block device queue. A value of 0 means no explicit limit is configured, allowing unbounded I/O queue depth. This applies at both the device queue level (nr_requests) and per-process level via ulimit or cgroup blkio controls.",
+    "security_impact": "Directly referenced by the 'unthrottled_io_enabling_denial_of_service_via_transit_saturation' Rego rule. When io_queue_depth_limit == 0 and io_rate_limiting_enabled is false, the exposure fires, indicating that an unrestricted process can flood kernel I/O queues, starving legitimate filesystem dataflows and constituting a denial-of-service against dependent operations. Setting a non-zero limit constrains queue saturation attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the block device queue depth for the primary storage device (e.g., sda or nvme0n1) from the sysfs queue interface.",
+        "command": "cat /sys/block/$(lsblk -ndo NAME $(findmnt -n -o SOURCE / | sed 's/[0-9]*$//') 2>/dev/null || echo sda)/queue/nr_requests",
+        "file_path": "/sys/block/<dev>/queue/nr_requests",
+        "navigation": null,
+        "expected_output": "An integer such as '128' or '256'. A value of 0 would indicate unconfigured, though most kernels default to 128 for HDD and 64 for SSD."
+      },
+      {
+        "type": "command",
+        "instruction": "Check per-process open file and I/O limits using ulimit for the application process owner, which bounds concurrent I/O descriptors.",
+        "command": "sudo -u <app_user> bash -c 'ulimit -n; ulimit -a' 2>/dev/null || cat /proc/$(pgrep -f <app_name> | head -1)/limits",
+        "file_path": "/proc/<pid>/limits",
+        "navigation": null,
+        "expected_output": "Lines showing 'Max open files' and related limits. 'unlimited' or very high values indicate no effective I/O queue constraint."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect cgroup blkio throttle settings if the application is managed via systemd or a cgroup-based controller, which enforces device-level I/O queue limits.",
+        "command": "systemctl show <service_name> | grep -E 'BlockIO|IO' && cat /sys/fs/cgroup/blkio/system.slice/<service_name>.service/blkio.throttle.read_iops_device 2>/dev/null",
+        "file_path": "/sys/fs/cgroup/blkio/system.slice/<service_name>.service/blkio.throttle.read_iops_device",
+        "navigation": null,
+        "expected_output": "Output showing IOPS throttle values per major:minor device pair, or empty/0 if unconfigured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check application-level configuration for any explicitly defined I/O concurrency or queue depth settings.",
+        "command": "grep -rEi 'queue.?depth|max.?io|io.?concurren|nr_requests' /etc/<app_name>/ /opt/<app_name>/conf/ 2>/dev/null",
+        "file_path": "/etc/<app_name>/application.conf",
+        "navigation": null,
+        "expected_output": "Key-value pairs such as 'queue_depth=256' or absence of any match indicating the default (0/unlimited) is in effect."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "64",
+      "128",
+      "256",
+      "512",
+      "1024"
+    ]
+  },
+  {
+    "option_name": "process_io_priority_class",
+    "option_description": "Represents the Linux I/O scheduling priority class assigned to the application process via the ionice facility. Valid classes are: 'none' (no class set, competes at default best-effort), 'idle' (only scheduled when no other process needs disk), 'best_effort' (default class with configurable priority level 0-7), and 'realtime' (highest priority, preempts all other I/O). This controls how the kernel CFQ/BFQ scheduler allocates disk bandwidth among competing processes.",
+    "security_impact": "Referenced by the 'unthrottled_io_enabling_denial_of_service_via_transit_saturation' Rego rule. When process_io_priority_class == 'none' and io_rate_limiting_enabled is false, the exposure fires because a process with no ionice assignment can compete aggressively for I/O bandwidth, potentially saturating the filesystem data path. Assigning 'idle' or 'best_effort' with a moderate priority level constrains the process's ability to monopolize I/O transit capacity.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the current ionice class and priority level for the target application process by PID.",
+        "command": "ionice -p $(pgrep -f <app_name> | head -1)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output such as 'none: prio 0', 'best-effort: prio 4', or 'idle: prio 7'. 'none' maps to the attribute value 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the process scheduling class directly from the /proc filesystem for all matching application processes.",
+        "command": "for pid in $(pgrep -f <app_name>); do echo \"PID $pid: $(ionice -p $pid)\"; done",
+        "file_path": "/proc/<pid>/ioprio",
+        "navigation": null,
+        "expected_output": "Per-process ionice class strings. Multiple processes may show differing values if worker threads have different priorities."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the systemd unit file or startup wrapper script for explicit ionice or ioprio configuration applied at process launch.",
+        "command": "grep -E 'ionice|IOScheduling|IOSchedulingClass|IOSchedulingPriority' /lib/systemd/system/<service>.service /etc/systemd/system/<service>.service 2>/dev/null",
+        "file_path": "/etc/systemd/system/<service>.service",
+        "navigation": null,
+        "expected_output": "Lines such as 'IOSchedulingClass=best-effort' and 'IOSchedulingPriority=4', or absence indicating no class is set (maps to 'none')."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "best_effort",
+      "idle",
+      "realtime"
+    ]
+  },
+  {
+    "option_name": "kernel_tracing_interfaces_enabled",
+    "option_description": "Indicates whether kernel-level tracing subsystems—including auditd, strace/ltrace attached to processes, eBPF/bpftrace programs, and ftrace—are actively capturing filesystem-related syscalls (open, read, write, mmap, etc.) on the host. When true, data transiting between application processes and the filesystem layer passes through these capture points in plaintext.",
+    "security_impact": "Directly triggers the 'cleartext_data_in_kernel_audit_or_trace_transit' Rego exposure when true and tracing_access_control_enforced is false. Even a partial condition (tracing enabled without access control or encryption) causes the rule to fire, because sensitive data written to kernel audit trails or eBPF ring buffers during transit is captured in plaintext and accessible to any consumer of those interfaces. Also referenced indirectly by 'unencrypted_ipc_channel_data_exposure' when kernel_tracing_interfaces_accessible is true.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether auditd is running and actively configured with filesystem-related watch rules.",
+        "command": "systemctl is-active auditd && auditctl -l | grep -E 'path|syscall (open|read|write|mmap|close)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'active' followed by audit rules targeting filesystem paths or syscalls. No rules or 'inactive' means auditd is not capturing."
+      },
+      {
+        "type": "command",
+        "instruction": "List loaded eBPF programs to detect active bpftrace, bcc-tools, or custom eBPF probes intercepting filesystem syscalls.",
+        "command": "bpftool prog list 2>/dev/null | grep -iE 'kprobe|tracepoint|raw_tracepoint' && ls /sys/kernel/debug/tracing/events/syscalls/sys_enter_open*/enable 2>/dev/null | xargs grep -l '^1$'",
+        "file_path": "/sys/kernel/debug/tracing/events/syscalls/",
+        "navigation": null,
+        "expected_output": "eBPF program entries with kprobe or tracepoint type, or '1' in enable files indicating active tracepoints. Empty output means no eBPF tracing active."
+      },
+      {
+        "type": "command",
+        "instruction": "Detect strace or ltrace processes currently attached to application PIDs, which capture syscall data in real time.",
+        "command": "ps aux | grep -E '(strace|ltrace)' | grep -v grep && ls -la /proc/$(pgrep -f <app_name> | head -1)/fd 2>/dev/null | grep pipe",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "strace/ltrace process entries with target PID arguments indicate active syscall tracing. No output means no tracer attached."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check ftrace activation status by reading the tracing_on flag and verifying whether filesystem-related function tracers are set.",
+        "command": "cat /sys/kernel/debug/tracing/tracing_on && cat /sys/kernel/debug/tracing/current_tracer && grep -c '^[^#]' /sys/kernel/debug/tracing/set_ftrace_filter 2>/dev/null",
+        "file_path": "/sys/kernel/debug/tracing/tracing_on",
+        "navigation": null,
+        "expected_output": "'1' for tracing_on with a non-'nop' tracer and non-zero filter count indicates active ftrace. '0' or 'nop' means inactive."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "tracing_access_control_enforced",
+    "option_description": "Indicates whether access to kernel tracing outputs—including audit log files in /var/log/audit/, eBPF ring buffer map file descriptors, perf_event outputs, and ptrace capabilities—is restricted exclusively to privileged/authorized users through a combination of filesystem DAC permissions, Mandatory Access Control (SELinux/AppArmor) policies, Linux capability restrictions (CAP_SYS_PTRACE, CAP_PERFMON, CAP_BPF), and kernel sysctl parameters (perf_event_paranoid, bpf_jit_enable).",
+    "security_impact": "Central to the 'cleartext_data_in_kernel_audit_or_trace_transit' Rego rule: when kernel_tracing_interfaces_enabled is true and tracing_access_control_enforced is false, the exposure fires unconditionally. A second condition also fires when both tracing_access_control_enforced and audit_log_encryption_at_rest are false simultaneously. Without access control, any process or user able to read audit logs, attach eBPF readers, or invoke perf can extract plaintext filesystem data captured during transit, including sensitive application data.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify audit log directory and file permissions are restricted to root or the audit group, with no world-readable bits.",
+        "command": "ls -la /var/log/audit/ && stat -c '%A %U %G %n' /var/log/audit/audit.log && getfacl /var/log/audit/ 2>/dev/null",
+        "file_path": "/var/log/audit/audit.log",
+        "navigation": null,
+        "expected_output": "Permissions of '-rw------- root root' or '-rw-r----- root adm' on audit.log. World-readable (o+r) bits indicate access control is NOT enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Check perf_event_paranoid and BPF-related sysctl settings that restrict unprivileged access to kernel tracing interfaces.",
+        "command": "sysctl kernel.perf_event_paranoid kernel.unprivileged_bpf_disabled kernel.yama.ptrace_scope 2>/dev/null",
+        "file_path": "/etc/sysctl.conf",
+        "navigation": null,
+        "expected_output": "perf_event_paranoid >= 2, unprivileged_bpf_disabled = 1, ptrace_scope >= 1 all indicate restrictive access control. Values of 0 or -1 indicate unrestricted access."
+      },
+      {
+        "type": "command",
+        "instruction": "Review SELinux or AppArmor policy enforcement status and verify that auditd and BPF-related domains are confined.",
+        "command": "getenforce 2>/dev/null || aa-status 2>/dev/null | head -20 && sesearch -A -t auditd_t -p read 2>/dev/null | head -10",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Enforcing' for SELinux or AppArmor profiles listed as 'enforce' mode for auditd and bpf-related processes. 'Permissive' or 'Disabled' means MAC is not enforcing access control."
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm that CAP_SYS_PTRACE and CAP_BPF capabilities are not granted to unprivileged processes or containers on the host.",
+        "command": "capsh --print 2>/dev/null && for pid in $(pgrep -f <app_name>); do grep CapAmb /proc/$pid/status; done | awk '{print $2}' | xargs -I{} capsh --decode={}",
+        "file_path": "/proc/<pid>/status",
+        "navigation": null,
+        "expected_output": "Ambient and permitted capability sets should not include 0000000000200000 (CAP_SYS_PTRACE) or equivalent BPF caps. Their presence indicates insufficient restriction."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "audit_log_encryption_at_rest",
+    "option_description": "Indicates whether the storage volumes backing kernel audit trail files (/var/log/audit/), eBPF ring buffer backing stores, and related tracing output files are encrypted at rest using block-level encryption (LUKS/dm-crypt), filesystem-level encryption (fscrypt, eCryptfs), or equivalent mechanisms. When true, offline extraction of audit logs does not yield plaintext data captured during filesystem transit operations.",
+    "security_impact": "Referenced in the 'cleartext_data_in_kernel_audit_or_trace_transit' Rego rule as a secondary control: the exposure fires when kernel_tracing_interfaces_enabled is true and both audit_log_encryption_at_rest and tracing_access_control_enforced are false. Even if access control fails (e.g., a credential compromise or misconfiguration), encryption at rest prevents an attacker with physical disk access or offline copy access from extracting the plaintext filesystem data captured in audit trails during data transit.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the block device backing /var/log/audit and check whether it is a LUKS-encrypted dm-crypt device.",
+        "command": "findmnt -n -o SOURCE /var/log/audit 2>/dev/null || findmnt -n -o SOURCE /var/log && lsblk -o NAME,TYPE,FSTYPE,MOUNTPOINT | grep -E 'crypt|luks' && cryptsetup status $(lsblk -ndo PKNAME $(findmnt -n -o SOURCE /var/log/audit 2>/dev/null) 2>/dev/null) 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'type:  LUKS2' and 'cipher: aes-xts-plain64' in cryptsetup status output confirms block-level encryption. 'No such file' or no crypt entries in lsblk indicates unencrypted storage."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for filesystem-level encryption on the audit log directory using fscrypt or e4crypt, which encrypts at the directory level without full disk encryption.",
+        "command": "fscrypt status /var/log/audit/ 2>/dev/null && tune2fs -l $(findmnt -n -o SOURCE /var/log 2>/dev/null) 2>/dev/null | grep -i encrypt",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "fscrypt status showing 'encrypted: Yes' or tune2fs showing 'encrypt' in filesystem features. 'not an encrypted directory' or absent encrypt feature means no filesystem encryption."
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate all mounted filesystems and cross-reference with dm-crypt or LUKS devices to determine if the audit log partition is on an encrypted volume.",
+        "command": "lsblk -o NAME,TYPE,FSTYPE,MOUNTPOINT,SIZE && dmsetup table 2>/dev/null | grep crypt && grep -E '/var/log|/var$|/$' /proc/mounts",
+        "file_path": "/proc/mounts",
+        "navigation": null,
+        "expected_output": "Presence of 'dm-crypt' type devices in dmsetup table whose mapped names appear under lsblk as the backing device for the /var/log or /var/log/audit mount point confirms encryption."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the storage/infrastructure team or review deployment documentation to confirm whether full-disk encryption was applied during system provisioning (e.g., cloud provider disk encryption, hardware-based self-encrypting drives).",
+        "command": "aws ec2 describe-volumes --filters Name=attachment.instance-id,Values=$(curl -s http://169.254.169.254/latest/meta-data/instance-id) --query 'Volumes[*].{ID:VolumeId,Encrypted:Encrypted}' 2>/dev/null || gcloud compute disks list --filter='name~instance-name' --format='table(name,diskEncryptionKey)' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Cloud API output showing 'Encrypted: true' for volumes attached to the instance. 'Encrypted: false' or absence of encryption key metadata confirms audit logs are stored unencrypted."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  }
+]

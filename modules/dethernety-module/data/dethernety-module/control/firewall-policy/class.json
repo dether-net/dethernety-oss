@@ -1,0 +1,8 @@
+{
+  "name": "Firewall Policy",
+  "classType": "control",
+  "type": "control",
+  "description": "Firewall rule configuration delivers network traffic filtering capabilities that determine which connections are permitted or denied based on defined policies. When properly configured, this control provides stateful packet inspection, granular access control, and traffic visibility across network boundaries.",
+  "category": "Network Security",
+  "status": "reviewed"
+}

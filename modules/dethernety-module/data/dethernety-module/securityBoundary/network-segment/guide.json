@@ -1,0 +1,1206 @@
+[
+  {
+    "option_name": "explicit_deny_default",
+    "option_description": "Controls whether boundary ACLs or firewall policies enforce a default-deny stance, requiring all cross-segment traffic to be explicitly permitted. When false, any traffic not matching an allow rule may pass implicitly through the boundary.",
+    "security_impact": "The Rego policy triggers the 'implicit_inter_segment_trust' exposure whenever this attribute is false, regardless of other controls. It also compounds risk in two additional conditions: when inter_segment_traffic_inspection is 'stateless' and this is false, and when shared_credentials_across_segments is true and this is false. Additionally, the 'uncontrolled_inter_zone_protocol_tunneling' exposure fires when protocol_tunneling_inspection_enabled is absent and this is false. Without an explicit deny-all, misconfigured or missing allow rules silently permit unintended cross-zone traffic.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE boundary routers or switches, display the ACL applied to each zone-boundary interface and check whether the final ACE is an explicit deny.",
+        "command": "show ip access-lists | grep -A 2 'deny any any\\|deny ip any any'; show running-config | grep -E 'ip access-group|ip access-list'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each ACL referenced on a boundary interface should end with 'deny ip any any' or equivalent. Absence of this entry means the implicit permit or implicit deny is in effect (IOS implicitly denies, but explicit confirmation is required by policy)."
+      },
+      {
+        "type": "command",
+        "instruction": "For Linux-based firewalls using iptables, inspect the default chain policies on the FORWARD chain for inter-segment traffic.",
+        "command": "iptables -L FORWARD -v -n --line-numbers; iptables -L INPUT -v -n --line-numbers; ip6tables -L FORWARD -v -n --line-numbers",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The chain policy should show 'DROP' (not 'ACCEPT') as the default, indicating an explicit deny-all stance."
+      },
+      {
+        "type": "api",
+        "instruction": "In AWS, query security group default rules and Network ACL configurations to check whether inbound/outbound default actions are DENY for network boundary controls.",
+        "command": "aws ec2 describe-network-acls --query 'NetworkAcls[*].{ID:NetworkAclId,Entries:Entries}' --output json | jq '.[] | select(.Entries[].RuleAction==\"deny\" and .Entries[].RuleNumber==32767)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each Network ACL should have rule number 32767 (lowest priority) set to DENY ALL for both inbound and outbound, indicating an explicit default-deny."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Networks Panorama or the firewall web UI, navigate to Policies > Security and inspect the last rule in each zone-pair policy. Verify a 'deny all' rule exists with logging enabled as the terminal entry.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama/Device Web UI > Policies > Security > [Zone Pair Policy] > Review last rule row for Action=Deny, Source=any, Destination=any, Application=any",
+        "expected_output": "The final rule in each inter-zone policy should be an explicit deny with all-source, all-destination, all-application scope and logging enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "inter_segment_traffic_inspection",
+    "option_description": "Describes the depth of inspection applied to east-west traffic traversing internal zone boundaries. Values range from 'none' (no inspection whatsoever) through 'stateless' (header-only ACL matching), 'stateful' (connection-tracked session filtering), to 'deep' (application-layer or IDS/IPS-level inspection).",
+    "security_impact": "The Rego policy fires the 'implicit_inter_segment_trust' exposure when this value is 'none' (unconditionally) or 'stateless' combined with explicit_deny_default being false. The 'boundary_monitoring_blind_spots' exposure also triggers when this attribute is absent or falsy. Insufficient east-west inspection allows lateral movement, reconnaissance, and C2 callbacks between segments to go undetected and unblocked.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify whether an IDS/IPS sensor or inline firewall is deployed between internal zones by checking network device configurations for service-policy or zone-based firewall definitions on inter-segment interfaces.",
+        "command": "show zone-pair security | grep -E 'zone-pair|inspect|drop'; show policy-map type inspect; show running-config | grep -E 'service-policy|zone-member'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zone-pair definitions should reference an inspect-type policy-map, and that policy-map should contain 'inspect' actions for relevant protocols. Absence indicates stateless or no inspection."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether Snort, Suricata, or equivalent IDS/IPS is receiving mirrored or inline traffic from inter-segment interfaces via SPAN or TAP.",
+        "command": "show monitor session all; show interfaces | grep -i 'span\\|mirror'; ip link show | grep -i 'mirror'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one SPAN or mirror session should reference each inter-segment boundary interface as a source and send traffic to an IDS/IPS sensor port."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the Suricata or Snort configuration to confirm interfaces being monitored include east-west boundary segments, not just north-south perimeter links.",
+        "command": null,
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "The 'af-packet' or 'pcap' section should list interface names corresponding to inter-segment boundary links. If only the perimeter interface (e.g., eth0) is listed and internal segment interfaces are absent, east-west inspection is missing."
+      },
+      {
+        "type": "api",
+        "instruction": "In a cloud environment (Azure), query Network Watcher and NSG flow log configuration to determine if east-west traffic between VNets or subnets is subject to traffic analytics or deep packet inspection via Azure Firewall Premium.",
+        "command": "az network watcher flow-log list --output table; az network firewall show --name <fw-name> --resource-group <rg> --query 'sku.tier'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Flow logs should be enabled on all internal subnet NSGs. Azure Firewall tier should be 'Premium' to indicate IDPS (deep inspection) capability is available."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "stateless",
+      "stateful",
+      "deep"
+    ]
+  },
+  {
+    "option_name": "shared_credentials_across_segments",
+    "option_description": "Indicates whether the same service accounts, API keys, SSH keys, or administrative credentials are used in more than one network trust zone. If true, compromise of a lower-trust segment can directly provide access to higher-trust segments without requiring additional credential theft.",
+    "security_impact": "The Rego policy triggers the 'implicit_inter_segment_trust' exposure when this is true and explicit_deny_default is also false. Shared credentials across zones eliminate the authentication barrier that network segmentation is intended to enforce, enabling lateral movement via valid credentials (MITRE T1078) and making credential stuffing attacks (T1110.004) effective across multiple zones simultaneously.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query Active Directory or LDAP to identify service accounts with group memberships or delegation rights spanning multiple OU structures that map to different trust zones.",
+        "command": "Get-ADServiceAccount -Filter * -Properties MemberOf, PasswordLastSet | Select-Object Name, MemberOf, PasswordLastSet | Export-Csv service_accounts.csv; dsquery user -scope subtree -name svc_* | dsget user -memberof",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service accounts should not appear in groups granting access to hosts in both DMZ and internal production zones, or across PCI and non-PCI segments."
+      },
+      {
+        "type": "api",
+        "instruction": "In AWS, use IAM Access Analyzer and credential reports to identify IAM users or roles whose access keys are used from multiple VPCs or by resources in different trust-classified accounts.",
+        "command": "aws iam generate-credential-report; aws iam get-credential-report --query 'Content' --output text | base64 -d | grep -v 'N/A' | awk -F',' '$9==\"true\" || $14==\"true\"'; aws accessanalyzer list-findings --analyzer-arn <arn>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No IAM access keys should be actively used by resources in both high-trust (e.g., production database VPC) and low-trust (e.g., dev/DMZ VPC) environments under the same key ID."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview infrastructure and operations teams to determine whether a single privileged account (e.g., a shared 'admin' or 'root' account) or automation API key is deployed into configuration management tools (Ansible, Terraform) that manage hosts across multiple trust zones.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each trust zone should have dedicated, non-overlapping service account credentials. Automation platforms should use zone-scoped credential vaults with separate secrets per zone."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect secrets management configurations (HashiCorp Vault policies, AWS Secrets Manager resource policies) to determine whether the same secret ARN or Vault path is referenced by applications in multiple network segments.",
+        "command": "vault policy list; vault policy read <policy-name> | grep -E 'path|capabilities'; aws secretsmanager get-resource-policy --secret-id <secret-id>",
+        "file_path": "/etc/vault.d/vault.hcl",
+        "navigation": null,
+        "expected_output": "Each secret containing credentials should have a resource policy restricting access to principals in a single trust zone. Cross-zone secret access grants indicate shared credentials."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "boundary_monitoring_coverage",
+    "option_description": "Describes how comprehensively traffic at zone boundary crossing points is logged, monitored, and whether flow telemetry is collected from internal boundary devices. Values are 'none' (no logging), 'partial' (some boundaries or some traffic types logged), or 'full' (all boundary interfaces produce flow records and event logs ingested by a SIEM or NDR platform).",
+    "security_impact": "The Rego policy triggers 'boundary_monitoring_blind_spots' when this attribute is absent or falsy (evaluating to none/empty), and also combines with inter_segment_traffic_inspection to identify detection gaps. Without full boundary monitoring coverage, attackers can conduct reconnaissance, lateral movement, and data exfiltration between segments without generating alerts. This directly enables evasion of indicator-based detection (MITRE T1562.006) and undetected network sniffing (T1040).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify that NetFlow, sFlow, or IPFIX export is configured on all boundary router and switch interfaces, and confirm a flow collector is receiving records.",
+        "command": "show ip flow interface; show ip cache flow; show running-config | grep -E 'ip flow-export|flow record|flow monitor'; nfdump -R /var/cache/nfdump/ -s record/bytes -n 20 -o 'fmt:%sa %da %sp %dp %byt'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every interface at a zone boundary should appear in the flow interface list. The flow collector (nfdump, ntopng, Elastic) should show recent records from internal boundary device IPs."
+      },
+      {
+        "type": "command",
+        "instruction": "Check firewall and router syslog configurations to confirm boundary crossing events (ACL matches, connection establishments, denies) are forwarded to a central SIEM.",
+        "command": "show logging | grep -E 'trap|host|facility'; show running-config | grep -E 'logging host|logging trap'; grep -E 'ACL|PERMIT|DENY|CONN' /var/log/syslog | tail -50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each boundary device should show 'logging trap informational' or higher and at least one 'logging host' entry pointing to the SIEM collector. Recent ACL permit/deny messages should be visible in the SIEM."
+      },
+      {
+        "type": "api",
+        "instruction": "In GCP, verify that VPC Flow Logs are enabled on all subnets that form zone boundaries and that log records are being exported to Cloud Logging or a SIEM.",
+        "command": "gcloud compute networks subnets list --format='table(name,region,logConfig.enable,logConfig.aggregationInterval)'; gcloud logging sinks list --format='table(name,destination,filter)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All boundary subnets should show logConfig.enable=True. A logging sink should exist that routes VPC flow log entries to a SIEM destination (e.g., Pub/Sub topic or Cloud Storage bucket with downstream ingestion)."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM or NDR platform to verify that boundary crossing events from all expected internal segment pairs are present within the last 24 hours, identifying any segment pairs with no telemetry as monitoring gaps.",
+        "command": "# Splunk example: index=network_traffic sourcetype=cisco:asa OR sourcetype=paloalto:firewall | stats count by src_zone, dest_zone | where count < 1; # Elastic example: GET /filebeat-*/_search?q=event.category:network AND NOT network.direction:inbound",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All defined segment pairs (e.g., DMZ-to-Internal, Dev-to-Prod) should appear with non-zero event counts. Any pair with zero counts represents a monitoring blind spot."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "partial",
+      "full"
+    ]
+  },
+  {
+    "option_name": "egress_acl_enforced",
+    "option_description": "Indicates whether outbound traffic originating from hosts within this network segment is subject to rule-based ACL filtering at the segment boundary device. When false, no egress policy engine evaluates or restricts outbound flows, allowing unrestricted communication to any destination.",
+    "security_impact": "The Rego policy unconditionally triggers the 'insufficient_egress_filtering' exposure whenever this is false. Without egress ACLs, a compromised host can freely initiate command-and-control callbacks, exfiltrate data over any protocol (MITRE T1048, T1048.003), and communicate with attacker-controlled infrastructure without restriction. This is the foundational prerequisite for all other egress controls—egress_destination_restriction and egress_dns_filtered are only evaluated if this is true.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, inspect each boundary interface for an outbound ACL assignment and confirm the referenced ACL contains explicit deny or permit rules.",
+        "command": "show running-config interface | grep -A 10 'interface\\|ip access-group'; show ip interface | grep -i 'outgoing access list'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each boundary-facing interface should show 'Outgoing access list is <ACL_NAME>' (not 'not set'). The referenced ACL should contain at least one explicit rule beyond a terminal deny."
+      },
+      {
+        "type": "command",
+        "instruction": "For Linux hosts acting as segment boundary gateways (e.g., using iptables or nftables), check whether FORWARD chain rules exist that filter outbound traffic from the internal segment subnet.",
+        "command": "iptables -L FORWARD -v -n --line-numbers | grep -E 'DROP|REJECT|ACCEPT'; nft list ruleset | grep -A 5 'forward\\|output'; iptables -S FORWARD | grep -v '^-P'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The FORWARD chain should contain rules matching the internal segment source CIDR with explicit ACCEPT or DROP actions, not solely rely on the default policy for all traffic decisions."
+      },
+      {
+        "type": "api",
+        "instruction": "In Azure, verify that Network Security Groups (NSGs) attached to boundary subnets contain outbound security rules beyond the default 'AllowVnetOutBound' and 'AllowInternetOutBound' rules.",
+        "command": "az network nsg show --name <nsg-name> --resource-group <rg> --query 'securityRules[?direction==\"Outbound\"]' --output table; az network nsg list --query '[*].{Name:name,RG:resourceGroup}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NSGs on boundary subnets should contain custom outbound rules (priority < 65000) that explicitly permit only required destinations and protocols before the default deny-all rules take effect."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Fortinet FortiGate, navigate to Policy & Objects > Firewall Policy, filter by the source zone corresponding to the segment, and confirm outbound policies exist with explicit matching criteria rather than relying solely on implicit policy behavior.",
+        "command": null,
+        "file_path": null,
+        "navigation": "FortiGate GUI > Policy & Objects > Firewall Policy > Filter by Source Interface (segment interface) > Review Action, Source, Destination, Service columns for outbound policies",
+        "expected_output": "Explicit ACCEPT policies should exist for permitted outbound flows, and the policy list should conclude with a DENY all-to-all rule or have the implicit policy set to 'Deny'."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "egress_destination_restriction",
+    "option_description": "Describes how strictly outbound destination addresses and ports are controlled for hosts in this segment. 'none' means destinations are fully unrestricted; 'partial' means only broad CIDR blocks constrain destinations without specific allowlisting; 'strict' means an explicit allowlist of approved destination IPs/FQDNs and specific ports is enforced.",
+    "security_impact": "The Rego policy triggers 'insufficient_egress_filtering' in two conditions involving this attribute: when egress_acl_enforced is true but this value is 'none', and when this value is 'none' or 'partial' combined with egress_dns_filtered being false. Even with an ACL in place, overly broad destination rules allow data exfiltration to arbitrary internet addresses (T1048) and C2 callouts. 'partial' with no DNS filtering is insufficient because DNS tunneling bypasses IP-based restrictions.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Examine egress ACL rules for the segment boundary to determine whether destination entries use wildcard 0.0.0.0/0, large CIDR blocks (/8, /16), or specific allowlisted IPs and ports.",
+        "command": "show ip access-lists <egress-acl-name>; show running-config | grep -A 100 'ip access-list extended <egress-acl-name>' | grep -E 'permit|deny' | awk '{print $1,$2,$3,$4,$5,$6,$7}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "For 'strict' classification: all permit entries should reference specific host IPs or narrow /28-/32 CIDRs with explicit port numbers. Presence of 'permit ip any any', 'permit ip <subnet> any', or broad CIDR blocks indicates 'partial' or 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the firewall policy export or running configuration file to systematically identify destination address objects used in egress rules and classify their breadth.",
+        "command": "grep -E 'dst|destination|permit.*any|0\\.0\\.0\\.0' /etc/iptables/rules.v4; cat /etc/nftables.conf | grep -A 3 'daddr\\|dport'",
+        "file_path": "/etc/iptables/rules.v4",
+        "navigation": null,
+        "expected_output": "Strict egress destination control shows specific IP addresses or small CIDR ranges (e.g., 10.1.2.3/32, 192.168.1.0/30) as destinations. Any rule with '0.0.0.0/0' as destination or missing destination specification indicates none or partial control."
+      },
+      {
+        "type": "api",
+        "instruction": "In AWS, retrieve outbound Network ACL rules and security group egress rules for the boundary subnet to assess destination specificity.",
+        "command": "aws ec2 describe-network-acls --filters Name=association.subnet-id,Values=<subnet-id> --query 'NetworkAcls[*].Entries[?Egress==`true`]' --output table; aws ec2 describe-security-groups --group-ids <sg-id> --query 'SecurityGroups[*].IpPermissionsEgress'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Strict control: egress rules reference specific CidrIp ranges of /28 or smaller and specific port numbers. 'partial': rules use /8 or /16 ranges. 'none': CidrIp is '0.0.0.0/0' with all ports or protocol -1."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Check Point SmartConsole, review the Access Policy rulebase filtered for the segment's source network objects and examine destination columns for rules permitting outbound traffic.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SmartConsole > Security Policies > Access Control > Policy > Filter Source by segment network object > Review Destination column for each Outbound rule",
+        "expected_output": "For 'strict': Destination column should contain named host or small network objects, not 'Any'. Rules with 'Any' in Destination indicate 'none' or 'partial' restriction."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "partial",
+      "strict"
+    ]
+  },
+  {
+    "option_name": "egress_dns_filtered",
+    "option_description": "Indicates whether outbound DNS queries (UDP/TCP port 53, and optionally DoH/DoT) from hosts in this segment are intercepted and filtered through a DNS firewall, Response Policy Zone (RPZ), or DNS proxy that blocks resolution of known-malicious or unauthorized domains. When false, DNS queries pass directly to external or internal resolvers without content inspection.",
+    "security_impact": "The Rego policy triggers 'insufficient_egress_filtering' when egress_acl_enforced is true and egress_destination_restriction is 'none' or 'partial' and this attribute is false. DNS filtering is a critical defense-in-depth control because DNS tunneling (a key exfiltration and C2 technique, MITRE T1048) bypasses IP-based egress restrictions. Without DNS filtering, an attacker can encode exfiltrated data in DNS query names or use domain generation algorithms (DGA) to reach C2 infrastructure even when IP-based egress rules are partially applied.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Perform a DNS query for a known-malicious domain from a test host within the segment to verify the DNS firewall blocks resolution, and confirm that direct DNS queries to external resolvers (8.8.8.8:53) are blocked.",
+        "command": "dig @8.8.8.8 known-bad-domain.example.com; dig @<internal-resolver> known-bad-domain.example.com; nslookup known-bad-domain.example.com; nc -zv 8.8.8.8 53; nc -zv 1.1.1.1 53",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Direct queries to external resolvers (8.8.8.8:53) should be blocked (connection refused or timed out). Queries to the internal resolver for malicious domains should return NXDOMAIN or a sinkhole IP, not the real resolution."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether a DNS RPZ or firewall policy is loaded on the authoritative/recursive resolver used by this segment, and verify the policy is actively applied.",
+        "command": "rndc dumpdb -cache; named-checkconf -p | grep -E 'response-policy|rpz'; unbound-control dump_cache; grep -E 'rpz|response-policy' /etc/named.conf /etc/bind/named.conf.options 2>/dev/null",
+        "file_path": "/etc/named.conf",
+        "navigation": null,
+        "expected_output": "The named.conf or unbound configuration should contain a 'response-policy' zone block referencing at least one RPZ feed. DNS server logs should show RPZ action hits for known-bad domains."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify that firewall egress rules for this segment redirect all DNS traffic (UDP/TCP 53, and port 853 for DoT) to the internal filtered resolver rather than permitting direct external resolution.",
+        "command": "iptables -t nat -L PREROUTING -n -v | grep -E 'dpt:53|dpt:853'; show running-config | grep -E 'dns inspect|fixup protocol dns'; show ip nat translations | grep ':53'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NAT PREROUTING rules should redirect UDP/TCP port 53 traffic destined for any external IP to the internal DNS filtering resolver's IP. Absence of redirection rules with direct external DNS permission indicates filtering is absent."
+      },
+      {
+        "type": "api",
+        "instruction": "In AWS Route 53 Resolver, verify that a Resolver DNS Firewall rule group with domain blocklists is associated with the VPC containing this segment's subnets.",
+        "command": "aws route53resolver list-firewall-rule-group-associations --query 'FirewallRuleGroupAssociations[*].{VPC:VpcId,RuleGroup:FirewallRuleGroupId,Status:Status}' --output table; aws route53resolver list-firewall-rules --firewall-rule-group-id <rg-id> --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The target VPC should have at least one active FirewallRuleGroupAssociation. The associated rule group should contain BLOCK actions for managed domain lists (AWSManagedDomainsMalwareDomainList, AWSManagedDomainsBotnetCommandandControl)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "least_privilege_ingress_rule_set",
+    "option_description": "Indicates whether all ingress ACL rules at this segment boundary are scoped to the minimum necessary source CIDRs, destination ports, and protocols required for legitimate traffic flows. False means one or more rules permit overly broad source ranges (e.g., /8, /16 blocks, or 0.0.0.0/0), wildcard port ranges (0-65535), or all-protocol matches that exceed what legitimate use cases require.",
+    "security_impact": "The Rego policy unconditionally triggers the 'overpermissive_ingress_acl' exposure when this attribute is false (via 'not input.least_privilege_ingress_rule_set'). Overly broad ingress rules expand the attack surface by permitting unauthorized source hosts or protocols to reach segment resources. This directly enables network boundary bridging (MITRE T1599) and is equivalent to disabling or inadequately configuring network device firewall rules (T1562.013). Broad ingress rules also undermine microsegmentation objectives and facilitate reconnaissance and exploitation from any permitted source range.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Parse ingress ACL configurations on boundary devices to identify any rules containing source wildcard 0.0.0.0/0, CIDR prefixes shorter than /24, port ranges spanning more than 1024 ports, or protocol 'any'/'ip' without further qualification.",
+        "command": "show ip access-lists | grep -E 'permit ip any|permit .* any any|0\\.0\\.0\\.0 255\\.255\\.255\\.255|/8|/16'; show running-config | grep -E 'permit ip any any|permit tcp any any|permit udp any any'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero results for broad permit rules indicates potential compliance. Any output showing 'permit ip any any', 'permit tcp any any range 1 65535', or source wildcards of 0.255.255.255 or larger indicates a non-least-privilege rule set."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Export the firewall ruleset to a text file and use grep patterns to flag overly permissive ingress entries—specifically source /8 or /16 CIDRs, port range 0-65535, and any-source with specific service rules that could be narrowed.",
+        "command": "grep -nE 'permit.*(0\\.0\\.0\\.0/0|any any|/8 |/16 |range 0 65535|eq 0)' /etc/iptables/rules.v4; nft list ruleset | grep -E 'iifname.*accept|saddr 0\\.0\\.0\\.0/0.*accept'",
+        "file_path": "/etc/iptables/rules.v4",
+        "navigation": null,
+        "expected_output": "No matches for broad CIDR or wildcard port rules. Any matched lines require rule tightening to specific source IPs and port numbers aligned with documented application requirements."
+      },
+      {
+        "type": "api",
+        "instruction": "Use AWS Config or Azure Policy to evaluate whether security groups or NSGs attached to boundary subnets contain overly permissive inbound rules (0.0.0.0/0 sources or all-port ranges) and retrieve findings programmatically.",
+        "command": "aws ec2 describe-security-groups --query 'SecurityGroups[*].IpPermissions[?contains(IpRanges[].CidrIp, `0.0.0.0/0`) == `true`]' --output json; aws config get-compliance-details-by-config-rule --config-rule-name restricted-ssh --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Security groups permitting 0.0.0.0/0 as a source CIDR for any port should be flagged. AWS Config should show NON_COMPLIANT status for the 'restricted-ssh' and 'restricted-common-ports' managed rules if broad ingress is present."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Networks Panorama, use the Policy Optimizer feature to identify security policies with 'Any' in the Source Address or port fields that have been used, indicating overly broad rules that could be tightened.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama > Policies > Security > Policy Optimizer > Filter by 'Any Source' or 'Unused App-IDs' > Review rules with broad source address 'any' and note traffic hit counts to determine if narrowing is feasible",
+        "expected_output": "Policy Optimizer should show zero rules with 'any' source that could not be replaced by specific source address groups. Rules with 'any' source and non-zero hit counts from unexpected source ranges confirm overpermissive ingress."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "broad_cidr_permit_present",
+    "option_description": "Controls whether any ingress ACL rule permits traffic from an overly broad source CIDR, such as 0.0.0.0/0 (all IPv4), ::/0 (all IPv6), or any prefix shorter than /24 (IPv4) or /48 (IPv6) without documented justification. This attribute captures the presence of catch-all or near-catch-all source address ranges in boundary allow rules.",
+    "security_impact": "Directly triggers the overpermissive_ingress_acl exposure in the Rego policy (input.broad_cidr_permit_present == true). A broad CIDR permit expands the ingress attack surface beyond legitimate traffic sources, enabling external attackers or compromised adjacent hosts to reach internal services. Combined with wildcard_port_permit_present, the exposure is compounded. On sensitive, critical, or privileged zone boundaries, this misconfiguration is rated high criticality.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE devices, dump all extended ACLs and grep for permit entries with /0 or short prefix masks. Review each permit line's source field.",
+        "command": "show ip access-lists | grep -E 'permit.*(0\\.0\\.0\\.0|any|/[0-9] )'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing 'permit ip any any', 'permit tcp 0.0.0.0 255.255.255.255', or source wildcards equivalent to /0–/23 indicate broad_cidr_permit_present = true."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based firewalls using iptables or nftables, list all INPUT and FORWARD chain rules and identify rules with source 0.0.0.0/0 or no source restriction.",
+        "command": "iptables -L INPUT -n -v --line-numbers && iptables -L FORWARD -n -v --line-numbers | grep -v '255.255.255'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules with source '0.0.0.0/0' or blank source field in ACCEPT entries confirm broad_cidr_permit_present = true."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS EC2 security group ingress rules via AWS CLI to identify rules permitting traffic from 0.0.0.0/0 or ::/0.",
+        "command": "aws ec2 describe-security-groups --query 'SecurityGroups[*].{ID:GroupId,Ingress:IpPermissions}' --output json | jq '.[] | select(.Ingress[].IpRanges[].CidrIp == \"0.0.0.0/0\" or .Ingress[].Ipv6Ranges[].CidrIpv6 == \"::/0\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any security group returned with a 0.0.0.0/0 or ::/0 ingress rule sets broad_cidr_permit_present = true for that boundary."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect firewall policy configuration files (e.g., Palo Alto running config, Fortinet policy export) for any source zone/address object set to 'any' or mapped to 0.0.0.0/0.",
+        "command": null,
+        "file_path": "/opt/paloalto/config/running-config.xml",
+        "navigation": null,
+        "expected_output": "Source address elements containing 'any' or explicit 0.0.0.0/0 in permit/allow policy rules confirm broad_cidr_permit_present = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common in legacy environments and internet-facing DMZ boundaries)",
+      "false (expected in hardened sensitive/critical zone boundaries)"
+    ]
+  },
+  {
+    "option_name": "wildcard_port_permit_present",
+    "option_description": "Controls whether any ingress ACL rule permits all destination ports, expressed as port range 0-65535, protocol 'any', or equivalent wildcard syntax. This captures over-broad service exposure at the boundary layer where only specific application ports should be allowed.",
+    "security_impact": "Directly triggers the overpermissive_ingress_acl exposure (input.wildcard_port_permit_present == true) alongside broad_cidr_permit_present. Permitting all ports eliminates protocol-level filtering at zone boundaries, allowing attackers to exploit non-standard ports, abuse management protocols, or conduct lateral movement using services that would otherwise be blocked. This is rated high criticality and is especially dangerous on sensitive and critical zone boundaries.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, review ACL entries for 'permit ip' (which implies all protocols and all ports) or explicit port ranges spanning 0-65535.",
+        "command": "show ip access-lists | grep -E 'permit ip|permit tcp .* eq 0|permit udp .* range 0 65535'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'permit ip any any' or 'permit tcp any any' lines indicate wildcard_port_permit_present = true. Protocol 'ip' in Cisco ACLs implies all ports."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux nftables, list all rules and identify accept rules with no destination port restriction or explicit port range 0-65535.",
+        "command": "nft list ruleset | grep -E 'accept' | grep -v 'dport'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACCEPT rules without 'dport' conditions or with 'dport 0-65535' confirm wildcard_port_permit_present = true."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Azure Network Security Group rules via Azure CLI to find inbound rules where destination port range is '*' or '0-65535'.",
+        "command": "az network nsg list --query '[].{Name:name,Rules:securityRules}' -o json | jq '.[] | .Rules[] | select(.direction==\"Inbound\" and .access==\"Allow\" and (.destinationPortRange==\"*\" or .destinationPortRange==\"0-65535\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any matching NSG rule with destinationPortRange '*' or '0-65535' sets wildcard_port_permit_present = true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Panorama or the local NGFW web UI, navigate to Policies > Security, filter by action 'Allow', and inspect the Service/Application column for entries set to 'any' or 'application-default' with application set to 'any'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama > Policies > Security Rules > Filter: Action=Allow > Review Service column for 'any'",
+        "expected_output": "Rules showing Service='any' with Application='any' or a mapped port group covering all ports confirm wildcard_port_permit_present = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (frequently observed in flat networks and legacy firewall rulesets)",
+      "false (expected in well-segmented environments with application-aware policies)"
+    ]
+  },
+  {
+    "option_name": "credential_isolation_per_zone",
+    "option_description": "Controls whether administrative and service credentials—including service account passwords, SSH keys, API tokens, and certificates—are unique per trust zone and not reused across zone boundaries. When true, a compromised credential in one zone cannot be used to authenticate to resources in a different zone.",
+    "security_impact": "When false (the default), combined with cross_zone_privilege_escalation_path == true or absent zone_boundary_mfa_enforced, the shared_credentials_across_zones exposure is triggered in the Rego policy. Additionally, it appears as a condition in trust_propagation_via_management_plane (input.management_network_scope == 'multi_zone_controlled' and input.credential_isolation_per_zone == true still triggers management plane trust propagation). Credential reuse across zones is a primary lateral movement enabler, allowing one compromised DMZ service account to pivot directly into production or management zones.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview IAM administrators to determine whether a separate credential lifecycle policy exists per zone. Review onboarding and offboarding procedures to confirm zone-scoped credential issuance.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirming distinct service account naming conventions, separate vaults or secret stores per zone, and no cross-zone password reuse policy."
+      },
+      {
+        "type": "command",
+        "instruction": "Audit Active Directory or LDAP service accounts to identify accounts with permissions spanning multiple zone-associated OUs, security groups, or resource servers.",
+        "command": "Get-ADServiceAccount -Filter * -Properties MemberOf | Select-Object Name, MemberOf | Where-Object { ($_.MemberOf -match 'DMZ') -and ($_.MemberOf -match 'Production') }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Accounts with memberships in both DMZ and Production (or other cross-zone) groups indicate credential_isolation_per_zone = false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query a secrets management platform (e.g., HashiCorp Vault) to verify that secret paths and policies are scoped to individual zone namespaces with no shared paths across zone boundaries.",
+        "command": "vault policy list && vault policy read <policy-name> | grep -E 'path|capabilities'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policies with path prefixes matching multiple zone namespaces (e.g., 'secret/dmz/*' and 'secret/prod/*') in a single policy indicate credential_isolation_per_zone = false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review SSH authorized_keys files and certificate authority trust stores on hosts in different zones to identify shared keys authorized across zone boundaries.",
+        "command": "find /home /root /etc/ssh -name 'authorized_keys' -exec grep -l '' {} \\; | xargs -I{} sh -c 'echo {}; cat {}' | sort | uniq -d",
+        "file_path": "/etc/ssh/authorized_keys",
+        "navigation": null,
+        "expected_output": "Identical public key fingerprints appearing in authorized_keys files on hosts across different zones confirm credential_isolation_per_zone = false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default; very common in organizations without mature PAM programs)",
+      "true (observed in PCI DSS compliant environments and mature zero-trust implementations)"
+    ]
+  },
+  {
+    "option_name": "cross_zone_privilege_escalation_path",
+    "option_description": "Indicates whether any credential valid in a lower-trust zone (e.g., DMZ, dev, or staging) also grants authentication access to resources in a higher-trust zone (e.g., production, sensitive, or management) without requiring an additional authentication gate or step-up verification. This captures direct credential-based lateral movement paths across zone trust boundaries.",
+    "security_impact": "When true and credential_isolation_per_zone is false (not set), the shared_credentials_across_zones exposure is triggered in the Rego policy. This is a critical lateral movement enabler: an attacker compromising a low-value DMZ host can immediately authenticate to production systems using the same credential set, bypassing zone boundary controls entirely. Rated medium criticality in the exposure definition but extremely high in real-world impact, especially when combined with absent MFA enforcement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Test whether service account credentials from a DMZ-tier host can authenticate to production-tier systems by reviewing Kerberos delegation settings and SPNs spanning multiple zone resource groups.",
+        "command": "Get-ADObject -LDAPFilter '(msDS-AllowedToDelegateTo=*)' -Properties msDS-AllowedToDelegateTo | Select-Object Name, msDS-AllowedToDelegateTo | Where-Object { $_.msDS-AllowedToDelegateTo -match 'prod' }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Accounts with Kerberos delegation targets in production SPNs from DMZ-registered accounts confirm a cross-zone privilege escalation path."
+      },
+      {
+        "type": "api",
+        "instruction": "Query cloud IAM role policies (AWS) to identify IAM roles assumed by lower-trust workloads (e.g., dev EC2 instances) that include permissions on higher-trust resources (e.g., production RDS, S3 buckets tagged as sensitive).",
+        "command": "aws iam simulate-principal-policy --policy-source-arn arn:aws:iam::<account>:role/<dmz-role> --action-names rds:DescribeDBInstances s3:GetObject --resource-arns arn:aws:rds:::db:prod-* --output json | jq '.EvaluationResults[] | select(.EvalDecision==\"allowed\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any 'allowed' decision for production resources using DMZ role credentials confirms cross_zone_privilege_escalation_path = true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review access request and provisioning records in the ITSM or PAM system to determine whether any service account or shared credential has been granted access to resources in more than one trust classification tier.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Access records showing a single service account provisioned across DMZ and production, or dev and sensitive zone resources, without a documented step-up auth gate confirm cross_zone_privilege_escalation_path = true."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review authentication logs (Windows Event ID 4624/4648, Linux PAM logs, or RADIUS logs) for service accounts originating from lower-trust zone hosts that successfully authenticate to higher-trust zone systems.",
+        "command": "grep -E 'Accepted|authentication success' /var/log/auth.log | awk '{print $9}' | sort | uniq -c | sort -rn | head -20",
+        "file_path": "/var/log/auth.log",
+        "navigation": null,
+        "expected_output": "Service account usernames appearing in successful authentication events on both DMZ-tier and production-tier hosts within the same log window confirm cross_zone_privilege_escalation_path = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default; expected in properly segmented environments)",
+      "true (frequently observed in flat networks, shared-services environments, and organizations with undifferentiated service accounts)"
+    ]
+  },
+  {
+    "option_name": "zone_boundary_mfa_enforced",
+    "option_description": "Controls whether multi-factor authentication is required whenever a credential is used to access resources across different trust zone boundaries. This includes human administrator access, service-to-service authentication, and API access that crosses trust tiers. MFA enforcement at zone ingress points is a compensating control when full credential isolation is not achievable.",
+    "security_impact": "In the Rego policy, absence of zone_boundary_mfa_enforced combined with credential_isolation_per_zone == false (not set) triggers the shared_credentials_across_zones exposure. MFA at zone boundaries is the last-line compensating control preventing a single-factor credential compromise from propagating across zone boundaries. Without it, phished or stolen credentials enable immediate lateral movement regardless of zone segmentation. Rated medium criticality in the Rego definition but acts as a critical compensating control.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In your identity provider (e.g., Okta, Azure AD/Entra ID, Duo), navigate to Conditional Access or Authentication Policies and verify whether policies enforcing MFA are scoped to include cross-zone resource access, not only VPN or external access.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure AD > Security > Conditional Access > Policies > Review policies targeting 'All cloud apps' or specific zone-boundary applications > Check Grant controls for MFA requirement",
+        "expected_output": "An active Conditional Access policy that requires MFA for access to sensitive/critical/privileged zone resources from any network location confirms zone_boundary_mfa_enforced = true."
+      },
+      {
+        "type": "command",
+        "instruction": "Query Azure AD Conditional Access policies via Microsoft Graph API to identify whether MFA is required for cross-zone resource access.",
+        "command": "az rest --method GET --uri 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' --query 'value[?state==`enabled`].{Name:displayName,GrantControls:grantControls}' -o json | jq '.[] | select(.GrantControls.builtInControls[]? == \"mfa\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policies with 'mfa' in builtInControls that are scoped to include cross-zone resource applications confirm zone_boundary_mfa_enforced = true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview network security and IAM teams to determine whether jump server or bastion host authentication policies require MFA before permitting access from a lower-trust zone to higher-trust zone resources.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation that bastion host or PAM platform (e.g., CyberArk, BeyondTrust) requires MFA step-up for all cross-zone sessions, including service accounts, sets zone_boundary_mfa_enforced = true."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect PAM authentication configuration files (e.g., PAM module stacks, RADIUS server policy files) on jump hosts or zone-ingress authentication proxies for MFA module requirements.",
+        "command": "grep -E 'pam_duo|pam_google_authenticator|pam_radius|required|sufficient' /etc/pam.d/sshd /etc/pam.d/sudo",
+        "file_path": "/etc/pam.d/sshd",
+        "navigation": null,
+        "expected_output": "PAM stacks showing 'pam_duo.so required' or 'pam_google_authenticator.so required' on the auth stack for SSH/sudo on zone-boundary access systems confirm zone_boundary_mfa_enforced = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default; common in internal-to-sensitive boundary transitions that lack conditional access policies)",
+      "true (observed in mature zero-trust deployments, PCI DSS compliant environments, and organizations using PAM platforms with session MFA)"
+    ]
+  },
+  {
+    "option_name": "management_plane_zone_isolated",
+    "option_description": "Indicates whether the management network—including out-of-band (OOB) management interfaces, iDRAC/iLO/IPMI, network device management planes, and administrative SSH/HTTPS access paths—is confined to a dedicated trust zone with equivalent ACL and boundary controls enforced at every crossing point. When true, the management plane cannot be used as a pivot path between production, DMZ, or other trust tiers.",
+    "security_impact": "Directly triggers the trust_propagation_via_management_plane exposure in the Rego policy when false (input.management_plane_zone_isolated is not set). An unconfined management plane is one of the most dangerous network segmentation failures: an attacker gaining access to any device with a management interface reachable from multiple zones gains implicit access to every zone the management network touches. This is rated medium criticality in the exposure but frequently enables critical-impact pivots in real environments.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review network device configurations for management VRF or management interface VLANs to confirm they are assigned exclusively to a dedicated management VLAN/VRF with no route leakage to production or DMZ VRFs.",
+        "command": "show running-config | section ^interface.*Management|^vrf.*management|^ip vrf",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Management interfaces assigned to a dedicated VRF (e.g., 'vrf management') with no route redistribution into global or production routing tables confirms management_plane_zone_isolated = true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a production or DMZ host, attempt to reach known management plane IP ranges (iDRAC, iLO, network device management interfaces) to verify whether connectivity is blocked at the boundary.",
+        "command": "nmap -sn 192.168.100.0/24 --source-address <dmz-host-ip> 2>/dev/null | grep -E 'Host is up|open'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No reachable hosts in the management CIDR range from DMZ or production sources confirms management_plane_zone_isolated = true. Any responsive hosts indicate the management plane is not fully isolated."
+      },
+      {
+        "type": "command",
+        "instruction": "Query firewall or router ACL configurations to verify that management plane source/destination ranges are blocked in ingress and egress policies for all non-management zones.",
+        "command": "show ip access-lists | grep -A3 -B3 '192.168.100\\|10.0.0.1\\|mgmt'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Explicit deny entries for management CIDR ranges in non-management zone ACLs, with no corresponding permit entries, confirms management_plane_zone_isolated = true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In a network management platform (e.g., Cisco DNA Center, SolarWinds NTA, Kentik), review the topology view to verify that management interface IP addresses appear only in the dedicated management network segment and not as reachable hosts from other zone subnets.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco DNA Center > Design > Network Hierarchy > Select Management Zone > Verify IP ranges are exclusive and non-overlapping with other zones",
+        "expected_output": "Management IP ranges appearing only within the management zone segment with no cross-zone reachability confirms management_plane_zone_isolated = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default; widespread in environments using flat management networks or in-band management across all zones)",
+      "true (observed in hardened environments, CIS Benchmark compliant deployments, and NERC CIP regulated networks)"
+    ]
+  },
+  {
+    "option_name": "management_network_scope",
+    "option_description": "Describes the breadth of the management network's reach across trust zones and whether equivalent boundary controls are enforced at each crossing point. 'single_zone' means management traffic is fully confined to a dedicated zone. 'multi_zone_controlled' means the management network crosses trust boundaries but has ACLs and filtering policies equivalent to perimeter controls at every crossing. 'multi_zone_uncontrolled' means the management network spans multiple zones without equivalent filtering, creating unrestricted pivot paths.",
+    "security_impact": "Directly triggers trust_propagation_via_management_plane in multiple Rego conditions: 'multi_zone_uncontrolled' unconditionally fires the exposure, and 'multi_zone_controlled' triggers it when credential_isolation_per_zone is also true (indicating that even controlled multi-zone management networks present residual risk). This attribute determines the blast radius of a management plane compromise: uncontrolled multi-zone scope means a single compromised management credential or device can pivot to every zone the management network touches.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect routing tables and VRF configurations on core routers and management switches to determine whether management VLANs or VRFs have routes to subnets in multiple trust zones.",
+        "command": "show ip route vrf management | awk '/^[COSR]/{print $0}' && show vlan brief | grep -i mgmt",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'single_zone': routes only within management CIDR range. 'multi_zone_controlled': routes to multiple zones with matching ACL deny/permit entries verified. 'multi_zone_uncontrolled': routes to multiple zones with no restrictive ACL entries."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From the management network, attempt traceroute to hosts in multiple trust zones (DMZ, production, sensitive) to map reachability and identify whether filtering exists at crossing points.",
+        "command": "for target in <dmz_host> <prod_host> <sensitive_host>; do echo \"--- $target ---\"; traceroute -n $target 2>/dev/null | tail -5; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Traceroutes reaching only management-zone hosts = single_zone. Traces reaching multiple zones with observed hop-count increases at firewalls = multi_zone_controlled. Direct layer-3 reachability across all zones with no blocking hops = multi_zone_uncontrolled."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review network architecture documentation, approved topology diagrams, and firewall change records to determine the designed scope of the management network and whether ACL equivalency was documented and validated at each zone crossing point.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture diagrams showing management network confined to one segment = single_zone. Diagrams showing controlled cross-zone management with documented ACLs = multi_zone_controlled. Flat management network spanning all zones with no ACL documentation = multi_zone_uncontrolled."
+      },
+      {
+        "type": "api",
+        "instruction": "Query cloud network flow logs or VPC peering configurations to determine whether the management VPC/subnet has peering or transit gateway routes to multiple zone VPCs, and whether security group rules restrict the scope of that access.",
+        "command": "aws ec2 describe-vpc-peering-connections --query 'VpcPeeringConnections[?Status.Code==`active`].{Requester:RequesterVpcInfo.VpcId,Accepter:AccepterVpcInfo.VpcId,Tags:Tags}' --output json | jq '.[] | select((.Tags[]? | .Key==\"Zone\") and (.Tags[]? | .Value==\"management\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Management VPC peered only to a dedicated management zone VPC = single_zone. Peered to multiple zone VPCs with restrictive security groups at each peering = multi_zone_controlled. Peered to all zone VPCs with permissive or no security group filtering = multi_zone_uncontrolled."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "multi_zone_uncontrolled (most common in legacy enterprise networks and flat data center designs)",
+      "multi_zone_controlled (observed in organizations that have partially hardened management access but not fully isolated)",
+      "single_zone (found in mature environments, NERC CIP compliant OT networks, and purpose-built zero-trust management architectures)"
+    ]
+  },
+  {
+    "option_name": "routing_protocol_boundary_filtering_enabled",
+    "option_description": "Controls whether ingress/egress filtering is applied at trust zone boundaries to restrict routing protocol adjacency formation, and whether cryptographic authentication (e.g., MD5/SHA for OSPF, BGP MD5/TCP-AO) is configured on routing sessions crossing segment boundaries.",
+    "security_impact": "The Rego policy fires the 'Dynamic Routing Protocol Boundary Leakage' exposure when this attribute is false, allowing unauthorized route injection or routing table pollution that redirects inter-zone traffic across unintended paths. Without boundary filtering, any adjacent device can establish a routing adjacency and advertise arbitrary prefixes, bypassing ACL-based segmentation entirely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE boundary routers, review OSPF interface authentication and distribute-list/prefix-list filters applied to routing protocol peers at zone boundary interfaces.",
+        "command": "show ip ospf | include authentication\nshow ip ospf interface <boundary-interface>\nshow ip prefix-list\nshow route-map\nshow ip protocols",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show 'Message digest authentication enabled' or 'Cryptographic authentication enabled' for OSPF, and prefix-list or distribute-list names referenced under 'ip protocols'. Absence of these indicates filtering is not enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "For BGP peers crossing trust boundaries, verify neighbor password and route filtering commands are applied to cross-zone BGP sessions on boundary routers.",
+        "command": "show bgp neighbors | include BGP neighbor|password|route-map|prefix-list\nshow running-config | section router bgp",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each cross-zone BGP neighbor entry should show 'Passphrase configured' and reference an inbound/outbound prefix-list or route-map. Missing entries indicate unauthenticated or unfiltered peering."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the running configuration for all boundary routing devices to confirm route-map, prefix-list, or distribute-list policies are applied to routing protocol neighbors or interfaces that cross trust zones.",
+        "command": "show running-config | include ip ospf authentication|neighbor.*password|prefix-list|distribute-list|route-map",
+        "file_path": "/etc/frr/frr.conf (for FRRouting-based appliances) or exported running-config archive",
+        "navigation": null,
+        "expected_output": "Configuration should contain explicit authentication and filtering statements for each cross-zone routing peer or interface. Absence of these keywords confirms filtering is not enabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco FMC or equivalent NGFW management console, navigate to the routing configuration for boundary devices and confirm that route filtering policies and neighbor authentication are applied to cross-zone dynamic routing sessions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco FMC: Devices > Device Management > [Boundary Device] > Routing > [Protocol] > Neighbor Authentication / Route Filtering",
+        "expected_output": "Each cross-zone routing neighbor should have authentication method and key configured, and inbound/outbound route filters should be assigned."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unauthorized_routing_adjacency_detected",
+    "option_description": "Indicates whether any active routing protocol adjacency exists between a device in one trust zone and a peer in a different trust zone that is not explicitly listed in the authorized peer registry or network security policy exception process.",
+    "security_impact": "The Rego policy fires 'Dynamic Routing Protocol Boundary Leakage' whenever this attribute is true, regardless of whether boundary filtering is enabled. An unauthorized adjacency means a rogue or misconfigured device has successfully formed a routing peer relationship, potentially injecting routes that redirect or expose traffic across segment boundaries, mapping directly to MITRE T1599 (Network Boundary Bridging).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate all active OSPF and BGP neighbors on boundary routers and compare each neighbor IP address against the authorized peer list maintained in the network security policy.",
+        "command": "show ip ospf neighbor\nshow ip bgp neighbors | include BGP neighbor is\nshow ip eigrp neighbors",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every IP address listed as a neighbor should appear in the authorized peer registry. Any neighbor IP belonging to a subnet outside the expected trust zone without a documented exception indicates an unauthorized adjacency."
+      },
+      {
+        "type": "command",
+        "instruction": "Use a scripted comparison to extract neighbor IPs and cross-reference against the IPAM or authorized peer database, flagging any IP in a cross-zone subnet without an explicit policy exception.",
+        "command": "show ip ospf neighbor | awk '{print $1}' > /tmp/active_neighbors.txt\n# Compare against authorized list:\ncomm -23 <(sort /tmp/active_neighbors.txt) <(sort /tmp/authorized_peers.txt)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output of comm should be empty. Any lines printed indicate neighbor IPs not in the authorized peer list, confirming unauthorized adjacency exists."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the network security policy document for the authorized routing peer registry. Confirm that a formal approval process exists requiring sign-off before any cross-zone routing adjacency is established, and that the registry is current.",
+        "command": null,
+        "file_path": "Network Security Policy / Routing Peer Authorization Register (typically maintained in ITSM or network documentation system)",
+        "navigation": null,
+        "expected_output": "An up-to-date registry listing all authorized cross-zone routing peers with approval dates and business justifications. Absence of such a registry means unauthorized adjacencies cannot be detected."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review syslog or network management system (NMS) logs for routing protocol neighbor up/down events, focusing on adjacencies involving IPs in different trust zone subnets that were not pre-approved.",
+        "command": "grep -E 'OSPF|BGP|EIGRP|neighbor.*up|adjacency' /var/log/syslog\n# Or from NMS: filter topology change events by cross-zone peer IP ranges",
+        "file_path": "/var/log/syslog or NMS log archive",
+        "navigation": null,
+        "expected_output": "Log entries showing routing adjacency establishment events should correspond only to pre-authorized peers. Cross-zone adjacency events for unknown IPs indicate unauthorized routing adjacencies."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "trunk_port_vlan_controls",
+    "option_description": "Controls whether switch trunk ports at segment boundaries have three hardening measures in place: an explicit permitted VLAN list (not defaulting to 'all'), DTP negotiation disabled to prevent dynamic trunking attacks, and the native VLAN changed from the insecure default (VLAN 1) to prevent double-tagging VLAN hopping.",
+    "security_impact": "The Rego policy fires 'VLAN Hopping at Segment Boundary' when this attribute is false. Without these controls, an attacker on an access port can send double-tagged 802.1Q frames to hop into a different VLAN, or negotiate a trunk link via DTP to gain access to all VLANs. This directly undermines Layer 2 segment isolation, enabling lateral movement mapped to MITRE T1599 (Network Boundary Bridging).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE switches, inspect all trunk port configurations at segment boundaries to verify explicit VLAN allow lists, DTP disabled state, and non-default native VLAN.",
+        "command": "show interfaces trunk\nshow running-config interface <trunk-interface>\nshow interfaces <trunk-interface> switchport",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Allowed VLANs' should list specific VLAN IDs (not 'all' or '1-4094'). 'Negotiation of trunking' should be 'Off'. 'Native Mode VLAN' should not be 1. Any deviation from these conditions means trunk_port_vlan_controls is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Run a targeted configuration grep to identify trunk interfaces missing explicit VLAN allow lists, DTP disable commands, or still using native VLAN 1.",
+        "command": "show running-config | include switchport trunk allowed vlan|switchport nonegotiate|switchport trunk native vlan|switchport mode trunk",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each trunk interface should have 'switchport trunk allowed vlan <specific-list>', 'switchport nonegotiate', and 'switchport trunk native vlan <non-1-value>'. Missing any of these three lines for a boundary trunk port indicates the control is not fully configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Export and parse the full running configuration of boundary switches to audit all trunk port configurations for the three required hardening attributes programmatically.",
+        "command": "show running-config | begin interface",
+        "file_path": "Exported switch running-config archive (e.g., /tftp/switch01-running.cfg)",
+        "navigation": null,
+        "expected_output": "Automated parse should confirm every trunk interface block contains nonegotiate, an explicit VLAN allow list, and a native VLAN other than 1. Interfaces failing any check should be flagged as non-compliant."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco DNA Center or equivalent network management platform, review the port configuration report for boundary switches and filter for trunk ports to verify VLAN pruning, DTP mode, and native VLAN settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco DNA Center: Provision > Network Devices > [Switch] > Port Configuration > Filter: Trunk Ports > Review VLAN Allowed List, DTP Mode, Native VLAN columns",
+        "expected_output": "Trunk ports should show DTP=Off, Allowed VLANs=explicit list, Native VLAN≠1. Ports not meeting these criteria indicate trunk_port_vlan_controls is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "split_tunnel_disabled_for_privileged_segments",
+    "option_description": "Controls whether VPN client profiles accessing privileged or sensitive internal network segments (production, PCI, OT, management networks) are configured to force all traffic through the VPN gateway (full-tunnel mode), preventing the client from simultaneously routing traffic to the internet or other networks outside the VPN.",
+    "security_impact": "The Rego policy fires 'Split Tunnel VPN Segment Bypass' when this attribute is false AND privileged_segments_accessible_via_vpn is true. A split-tunnel VPN client bridging an external network and a privileged internal segment creates an uncontrolled ingress path: an attacker on the same local network as the VPN client, or malware on the endpoint, can reach privileged segments by routing through the VPN client. This maps to MITRE T1572 (Protocol Tunneling) and T1133 (External Remote Services).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect VPN gateway client profile or connection policy configurations to confirm full-tunnel enforcement is set for profiles granting access to privileged segments. Check for split-tunnel include ACL or exclude ACL definitions.",
+        "command": "show running-config | section crypto isakmp|webvpn|split-tunnel (Cisco ASA)\nshow running-config group-policy <policy-name> | include split-tunnel",
+        "file_path": "/etc/ocserv/ocserv.conf (OpenConnect), or ASA/FTD running-config export",
+        "navigation": null,
+        "expected_output": "For Cisco ASA/FTD: 'split-tunnel-policy tunnelall' should appear for group policies associated with privileged segment access. Any policy showing 'tunnelspecified' or 'excludespecified' for privileged-segment profiles indicates split tunneling is not disabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco FMC, Palo Alto Panorama GlobalProtect, or equivalent VPN management console, review the VPN client profile/gateway configuration for each profile that includes routes to privileged segments.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco FMC: Objects > Object Management > VPN > Group Policy > [Privileged-Access Policy] > Split Tunneling tab | Palo Alto Panorama: Network > GlobalProtect > Gateways > [Gateway] > Agent > Tunnel Settings > Split Tunnel",
+        "expected_output": "Profiles with access to privileged segments should show 'Tunnel All Networks' or equivalent full-tunnel enforcement. Any profile showing 'Split Tunnel' with a route list, or 'Exclude' mode, indicates the control is not met."
+      },
+      {
+        "type": "command",
+        "instruction": "For Palo Alto GlobalProtect, review the gateway and portal configuration to confirm split tunnel exclusions are not defined for gateways serving privileged segments.",
+        "command": "show vpn gateway\nshow running security policies | match split-tunnel",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No split-tunnel include or exclude domains/routes should be defined for gateways providing access to production, PCI, or management network segments."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview VPN administrators and review the VPN access control policy to confirm a documented requirement exists mandating full-tunnel enforcement for any profile with routes to privileged segments, and that this is enforced through a profile assignment process.",
+        "command": null,
+        "file_path": "VPN Access Control Policy / Remote Access Security Standard document",
+        "navigation": null,
+        "expected_output": "Policy document explicitly prohibits split tunneling for privileged segment access profiles, and a review of profile assignments confirms no privileged-access profiles have split-tunnel enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "privileged_segments_accessible_via_vpn",
+    "option_description": "Indicates whether the VPN infrastructure advertises routes to or permits connectivity to one or more privileged or sensitive internal network segments, such as production environments, PCI cardholder data environments, OT/ICS networks, or management/out-of-band networks, to authenticated VPN clients.",
+    "security_impact": "The Rego policy evaluates this attribute in combination with split_tunnel_disabled_for_privileged_segments to determine whether 'Split Tunnel VPN Segment Bypass' is a risk. When this is true and split tunneling is not disabled, VPN clients become a bridge between external networks and privileged internal segments, creating an exploitable ingress path for lateral movement (MITRE T1133, T1572, T1599). Even with split tunnel disabled, VPN access to privileged segments requires strong compensating controls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Review VPN routing tables and access control policies on the VPN gateway to identify which internal network prefixes are advertised or reachable by VPN client pools.",
+        "command": "show ip route | grep -E 'VPN|tunnel'\nshow vpn-sessiondb detail anyconnect (Cisco ASA)\nshow bgp neighbors <vpn-peer> advertised-routes",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Routing table entries accessible to VPN clients should be compared against the list of privileged segment subnets. Any match (e.g., 10.10.0.0/16 for production, 192.168.99.0/24 for management) confirms privileged segments are accessible via VPN."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect ACLs, access policies, or split-tunnel include lists on the VPN gateway to determine which internal destinations are permitted for VPN client traffic.",
+        "command": "show running-config | include access-list.*vpn|split-tunnel-network-list|vpn-filter\nshow access-list <vpn-split-tunnel-acl>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACL or network list entries should be cross-referenced against privileged segment CIDR blocks. Presence of privileged segment subnets in permitted destinations confirms this attribute is true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the VPN management console, review the routing policy or network access control configuration for each VPN gateway or client profile to enumerate which internal segments are reachable.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco FMC: Site-to-Site VPN or Remote Access VPN > Connection Profiles > [Profile] > Address Pools and Access Policies | Palo Alto: Network > GlobalProtect > Gateways > Agent > Network Services > Route",
+        "expected_output": "The list of advertised or accessible internal routes should be compared against the privileged segment inventory. Any overlap confirms privileged_segments_accessible_via_vpn is true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Conduct a controlled connectivity test from a VPN-connected client to confirm or deny reachability to known privileged segment hosts (e.g., management interface IPs, production server ranges, PCI segment hosts).",
+        "command": "ping <privileged-segment-host-ip> (from connected VPN client)\ntraceroute <privileged-segment-host-ip>\nnmap -sn <privileged-segment-cidr> (from VPN client, authorized test only)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Successful ping or traceroute responses from VPN client to privileged segment hosts confirm the attribute is true. All traffic should be expected to traverse the VPN gateway if split tunneling is properly disabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "rule_shadowing_audit_performed",
+    "option_description": "Controls whether a formal, documented audit has been conducted against the active firewall rule set to identify shadowed rules — cases where a permissive rule appearing earlier in the policy order matches traffic that should have been handled by a more restrictive rule later in the list, effectively making the restrictive rule unreachable.",
+    "security_impact": "The Rego policy fires 'Firewall Rule Shadowing' when this attribute is false, indicating no audit has been performed and shadowed rules may exist undetected. Shadowed rules create silent policy failures where intended restrictions are never evaluated, allowing traffic across zone boundaries that should be blocked. This is a direct boundary policy integrity failure. Even if the audit is true, the policy also fires if shadowed_rule_count > 0, meaning the audit must also result in remediation of discovered shadows.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review change management records, security operations documentation, or firewall management platform audit logs to confirm whether a rule shadowing analysis has been formally performed and documented within the current review cycle.",
+        "command": null,
+        "file_path": "Change management system (ServiceNow, Jira) for firewall review tickets; Firewall management platform audit log exports",
+        "navigation": null,
+        "expected_output": "Evidence of a completed rule shadowing audit should exist as a closed change ticket, audit report, or automated tool output dated within the organization's defined review period (typically quarterly or annually). No such evidence means the audit has not been performed."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Tufin SecureTrack or AlgoSec Firewall Analyzer, navigate to the policy analysis module for each boundary firewall and check whether a shadow/redundancy analysis report has been generated and reviewed.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Tufin SecureTrack: Policy > Policy Analysis > [Firewall Device] > Rule Usage / Shadowed Rules Report | AlgoSec Firewall Analyzer: Firewall > [Device] > Policy Analysis > Shadowed Rules",
+        "expected_output": "A completed shadow analysis report should exist for each boundary firewall. Report generation timestamp should fall within the organization's required audit cadence. No report or an outdated report means the audit has not been performed."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco Firepower Management Center (FMC), use the built-in Access Control Policy analysis features to check for redundant or shadowed rules within boundary firewall policies.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco FMC: Policies > Access Control > [Policy Name] > Policy Analysis > Warnings/Errors — look for 'Rule Shadowed by Rule #X' warnings in the policy editor",
+        "expected_output": "FMC should display warnings for shadowed rules in the policy editor. If no analysis has been run or warnings have not been reviewed/acknowledged, the audit is not considered performed."
+      },
+      {
+        "type": "command",
+        "instruction": "For Palo Alto firewalls, use the built-in policy optimizer or CLI to check for shadowed and unused security rules in the boundary firewall policy.",
+        "command": "show running security-policy\n> request security policy-optimizer shadowed (Panorama CLI)\n> show predefined xpath /config/devices/...security/rules (parse for shadowing)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy optimizer output listing rules flagged as shadowed by earlier entries. If this command has not been run and its output reviewed and documented, the audit is not considered performed."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "shadowed_rule_count",
+    "option_description": "Stores the integer count of firewall rules in the active boundary firewall policy that have been identified as shadowed — unreachable because an earlier, more permissive rule in the ordered rule set matches all traffic that would otherwise reach the shadowed rule. A count of zero indicates a clean policy; any value above zero indicates confirmed policy integrity failures requiring remediation.",
+    "security_impact": "The Rego policy fires 'Firewall Rule Shadowing' when this value is greater than zero, even when rule_shadowing_audit_performed is true. Each shadowed rule represents a restrictive control that is silently bypassed: traffic that should be blocked or logged by the shadowed rule is instead permitted by the earlier permissive rule. This directly undermines zone boundary enforcement, mapping to MITRE T1562.004 (Disable or Modify System Firewall). The count provides a quantitative measure of policy integrity degradation.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Run a shadow analysis in Tufin SecureTrack against each boundary firewall device and record the number of rules flagged as shadowed in the analysis report output.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Tufin SecureTrack: Policy > Policy Analysis > [Boundary Firewall] > Shadowed Rules > Count of flagged rules in report summary",
+        "expected_output": "Numerical count of shadowed rules displayed in the analysis report summary. Zero indicates no shadowing detected. Any positive integer must be investigated and remediated."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AlgoSec Firewall Analyzer, run a policy compliance report for boundary firewall devices and extract the shadowed rule count from the redundancy and shadowing section.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AlgoSec Firewall Analyzer: Reports > Policy Compliance > [Device] > Shadowing and Redundancy > Shadowed Rules count",
+        "expected_output": "Report section 'Shadowed Rules' should display a count. Exported report can be archived as audit evidence. Count value is the shadowed_rule_count."
+      },
+      {
+        "type": "command",
+        "instruction": "On Palo Alto firewalls using Panorama, use the policy optimizer to identify and count shadowed security rules in the boundary device policy.",
+        "command": "show running security-policy | match shadowed\n# Or via API:\ncurl -k -X GET 'https://<panorama-ip>/api/?type=op&cmd=<show><running><security-policy></security-policy></running></show>&key=<api-key>' | grep -c 'shadowed'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Count of lines or entries marked as shadowed in policy optimizer output. This integer value is the shadowed_rule_count to record."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the firewall management platform API (Tufin, AlgoSec, or vendor-native) to programmatically retrieve the current shadowed rule count for boundary firewall policies as part of automated security posture monitoring.",
+        "command": "curl -s -u '<user>:<pass>' 'https://<tufin-host>/securetrack/api/devices/<device_id>/ruleshadowing' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('shadowed_rules_count', 0))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response containing shadowed rule count for the specified device. Integer value should be 0 for a clean policy. Positive values indicate the number of shadowed rules requiring remediation."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "1",
+      "5",
+      "15",
+      "50"
+    ]
+  },
+  {
+    "option_name": "protocol_tunneling_inspection_enabled",
+    "option_description": "Controls whether deep packet inspection (DPI) engines at segment boundary devices are configured to inspect, detect, and enforce policy on encapsulating protocols capable of carrying covert channels — specifically GRE, IP-in-IP, L2TP, and DNS tunneling — on inter-zone traffic flows. This goes beyond simple ACL port/protocol matching to include payload inspection of encapsulated traffic.",
+    "security_impact": "The Rego policy fires 'Uncontrolled Inter-Zone Protocol Tunneling' when this attribute is false and either permitted tunneling protocols exist or no explicit deny-default is configured. Without DPI for encapsulating protocols, an attacker can exfiltrate data or establish C2 channels by tunneling arbitrary traffic inside GRE or DNS queries, bypassing ACL rules that only inspect the outer protocol headers. This maps to MITRE T1572 (Protocol Tunneling), T1095 (Non-Application Layer Protocol), and T1599 (Network Boundary Bridging).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Panorama or NGFW management UI, verify that security profiles with App-ID and threat inspection are applied to inter-zone policies at segment boundaries, and that GRE, IP-in-IP, and DNS tunneling application signatures are either blocked or inspected.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto Panorama: Policies > Security > [Inter-zone Policy] > Profile column — verify Vulnerability, Anti-Spyware, and URL Filtering profiles are attached | Objects > Applications > search 'gre', 'ip-in-ip', 'dns-tunneling' — confirm these are addressed in policy",
+        "expected_output": "Inter-zone security policies should reference security profiles enabling threat inspection. GRE and IP-in-IP applications should appear in policy rules with defined actions (allow with inspection or deny). Absence of these confirms DPI is not enabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco FMC, verify that Intrusion Prevention and Network Discovery policies applied to inter-zone access control rules include signatures for GRE tunneling, IP-in-IP encapsulation, and DNS tunneling detection.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco FMC: Policies > Access Control > [Inter-zone Policy] > each inter-zone rule > Inspection tab — verify IPS policy assigned | Policies > Intrusion > [IPS Policy] > Rules — search for GRE, ISAKMP, DNS-tunnel rule categories",
+        "expected_output": "Inter-zone access control rules should have an IPS policy assigned. The IPS policy should include enabled rules for tunneling protocol detection. Rules without IPS assignment indicate blind spots."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS-XE or ASA with Firepower modules, verify that zone-based firewall or Firepower policies include deep inspection rules for GRE and IP-in-IP traffic on inter-zone interfaces.",
+        "command": "show policy-map type inspect (Cisco ZBF)\nshow running-config | include inspect gre|inspect ip-options|class-map.*tunnel\nshow access-list | include gre|protocol 47|protocol 4",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy-map output should show 'inspect gre' or equivalent DPI action in the inter-zone policy. ACLs alone permitting or denying protocol 47 (GRE) or 4 (IP-in-IP) without inspect action confirm only static filtering, not DPI."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review IDS/IPS or NGFW alert logs at boundary devices to confirm whether tunneling protocol detection signatures are generating events, indicating the inspection engine is active and encountering tunneled traffic.",
+        "command": "grep -E 'GRE|IP.in.IP|L2TP|DNS.tunnel|protocol.tunnel' /var/log/snort/alert (Snort/Suricata)\n# Or query SIEM:\nindex=network_security sourcetype=ids_alerts (GRE OR \"dns tunnel\" OR \"ip-in-ip\") | stats count by signature",
+        "file_path": "/var/log/snort/alert or equivalent IDS log path",
+        "navigation": null,
+        "expected_output": "Presence of GRE, IP-in-IP, or DNS tunneling detection events in the log confirms the inspection engine is active. Complete absence of such events (especially in environments with known VPN or tunneling use) may indicate signatures are not enabled or traffic is not being inspected."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "permitted_tunneling_protocols",
+    "option_description": "Defines the explicit list of encapsulating or tunneling protocols (e.g., GRE, IP-in-IP, L2TP, DNS) that are permitted to traverse segment boundaries. An empty list indicates no tunneling protocols are authorized to cross zone boundaries.",
+    "security_impact": "The Rego policy triggers the 'Uncontrolled Inter Zone Protocol Tunneling' exposure when permitted_tunneling_protocols contains one or more entries and protocol_tunneling_inspection_enabled is false. Even individually harmless protocols like GRE (IP protocol 47) or DNS (UDP 53) can serve as covert channels to encapsulate arbitrary traffic and bypass ACL enforcement, enabling lateral movement (T1572, T1095) and zone boundary bridging (T1599). The presence of any entry in this array without corresponding deep packet inspection represents an uncontrolled exfiltration or C2 path.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE boundary routers, display all extended ACLs and filter for protocol numbers corresponding to GRE (47), IPIP (4), and L2TP (UDP 1701).",
+        "command": "show ip access-lists | grep -E 'permit (gre|47|ipinip|4|udp .* 1701)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines beginning with 'permit gre', 'permit 47', 'permit 4', or 'permit udp ... eq 1701' indicate tunneling protocols explicitly allowed. An empty result means no tunneling protocols are permitted at the ACL level."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based firewalls using iptables, list all FORWARD chain rules and filter for tunnel-capable protocol matches.",
+        "command": "iptables -L FORWARD -n -v --line-numbers | grep -E '(proto 47|proto 4|gre|dpt:1701|dpt:53)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACCEPT rules referencing protocol 47, protocol 4, UDP port 1701, or port 53 with broad CIDR sources indicate permitted tunneling protocols. Absence of such lines confirms no tunneling is permitted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Palo Alto Networks firewall security policy and service objects for GRE, IPIP, and L2TP application or protocol entries in the running configuration XML.",
+        "command": null,
+        "file_path": "/opt/pancfg/mgmt/saved-configs/running-config.xml",
+        "navigation": null,
+        "expected_output": "Search for <application> tags containing 'gre', 'ipsec', 'l2tp', or <protocol> entries with values '47' or '4'. Each match represents an explicitly permitted tunneling protocol."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Panorama or the NGFW web UI, navigate to Policies > Security, filter rules by zone pairs at segment boundaries, and inspect the Application and Service columns for tunnel-capable entries.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama > Policies > Security > [Select Device Group] > filter by Source Zone / Destination Zone > inspect Application column for 'gre', 'l2tp', 'ipsec' entries",
+        "expected_output": "Any rule with Application set to 'gre', 'l2tp', or Service set to 'application-default' for tunnel protocols confirms a permitted tunneling protocol entry to populate this attribute."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[]",
+      "[\"GRE\"]",
+      "[\"GRE\", \"IPIP\"]",
+      "[\"GRE\", \"L2TP\", \"DNS\"]",
+      "[\"GRE\", \"IPIP\", \"L2TP\", \"DNS\", \"VXLAN\"]"
+    ]
+  },
+  {
+    "option_name": "boundary_policy_review_cadence_defined",
+    "option_description": "Indicates whether a formal, documented, and recurring review schedule exists for evaluating segment boundary policies, including ACLs, firewall rules, and trust relationships, to account for topology changes such as host decommissions, subnet reorganizations, and new service deployments.",
+    "security_impact": "The Rego policy triggers the 'Stale Boundary Policy Drift' exposure directly when boundary_policy_review_cadence_defined is false (not set or set to false). Without a defined review cadence, boundary policies accumulate orphaned allow rules for decommissioned services and undocumented trust relationships over time. Stale policies create exploitable paths that no longer reflect the intended security posture, enabling attackers to leverage outdated NAT traversal paths (T1599.001), stale trust dependencies (T1590.003), and untracked policy modifications (T1484).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security or change management team to determine whether a formal policy or runbook mandates recurring ACL and trust rule reviews. Request documentation of the last three review cycles including date, reviewer, and scope.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented runbook, security policy document, or change management record specifying a review interval (e.g., quarterly) and evidence of completed reviews (meeting minutes, tickets, sign-offs) confirms this attribute is true. Absence of any such documentation sets this attribute to false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Search the organization's IT policy repository or GRC platform for documents referencing firewall review, ACL audit, or network segmentation review schedules.",
+        "command": "grep -r -i 'acl review\\|firewall rule review\\|boundary policy\\|zone trust review' /path/to/policy-documents/",
+        "file_path": "/path/to/policy-documents/",
+        "navigation": null,
+        "expected_output": "Policy files containing review frequency keywords (quarterly, semi-annual, annual) tied to network segmentation or ACL artifacts confirm a defined cadence. No matching documents indicate the attribute value is false."
+      },
+      {
+        "type": "gui",
+        "instruction": "Check the organization's ITSM or GRC platform (e.g., ServiceNow, Archer) for recurring firewall or network policy review tasks assigned to a security team.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ServiceNow > Process Automation > Scheduled Jobs (or Governance module) > Search for 'firewall review' or 'ACL audit' recurring tasks",
+        "expected_output": "An active, recurring scheduled job or governance task with a defined interval and responsible team confirms this attribute is true. No matching tasks or only ad-hoc records set the attribute to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "orphaned_allow_rules_present",
+    "option_description": "Indicates whether boundary ACLs or firewall rulesets contain allow rules that reference hosts, subnets, services, or IP ranges that no longer exist in the current network topology due to asset decommissioning, segment retirement, or infrastructure migrations.",
+    "security_impact": "The Rego policy triggers the 'Stale Boundary Policy Drift' exposure when orphaned_allow_rules_present is true, regardless of whether boundary_policy_review_cadence_defined is set. Orphaned rules targeting retired IP ranges may be reclaimed by new or rogue hosts that inherit those addresses, instantly inheriting unintended boundary access. These stale paths facilitate unauthorized lateral movement across zones (T1590.003) and provide attackers footholds that security teams may overlook during incident response due to the rules appearing legitimate in aging documentation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Export current boundary ACL rules and compare permitted source/destination IP ranges against the live IPAM or asset inventory to identify rules referencing unallocated or retired subnets.",
+        "command": "show ip access-lists | grep permit > /tmp/acl_permits.txt && diff <(sort /tmp/acl_permits.txt) <(sort /tmp/active_subnets_from_ipam.txt)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines present in acl_permits.txt but absent from the active IPAM export represent orphaned allow rules. Any such delta confirms orphaned_allow_rules_present should be set to true."
+      },
+      {
+        "type": "command",
+        "instruction": "Use a firewall policy analysis tool such as Tufin or AlgoSec to run an unused rule report, or manually query hit counts on Cisco ASA or Palo Alto to find zero-hit permit rules.",
+        "command": "show access-list | grep -E 'permit.*0 matches|0 hits'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules with 0 matches or 0 hits that have been in place for more than the policy review period are candidates for orphaned rules. Cross-reference against IPAM to confirm the referenced addresses are decommissioned."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Panorama, use the Policy Optimizer feature to identify security rules with zero hit counts over the past 90 days at segment boundary device groups.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama > Policies > Security > Policy Optimizer > Filter by Device Group [boundary devices] > Set time range to 90 days > Sort by Hit Count ascending",
+        "expected_output": "Rules with zero hits referencing specific host addresses or subnets should be cross-referenced against the CMDB. Rules for hosts confirmed as decommissioned confirm orphaned_allow_rules_present is true."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Palo Alto NGFW REST API to retrieve all security policies and filter for rules referencing address objects whose IP ranges are not present in the current IPAM allocation export.",
+        "command": "curl -k -H 'X-PAN-KEY: <API_KEY>' 'https://<FIREWALL>/restapi/v10.1/Policies/SecurityRules?location=vsys&vsys=vsys1' | jq '.result.entry[] | select(.action==\"allow\") | {name: .name, src: .source, dst: .destination}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output of allow rules with source or destination objects should be cross-referenced against current IPAM data. Address objects resolving to retired ranges confirm orphaned rules are present."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null"
+    ]
+  },
+  {
+    "option_name": "undocumented_trust_relationships_present",
+    "option_description": "Indicates whether any implicit or explicit trust relationships exist between network segments that are not recorded in current network architecture documentation, zone trust matrices, or security policy documents. This includes undocumented firewall bypass rules, implicit routing adjacencies, or inherited trust from shared infrastructure.",
+    "security_impact": "The Rego policy triggers the 'Stale Boundary Policy Drift' exposure when undocumented_trust_relationships_present is true. Undocumented trust paths represent a category of implicit inter-segment trust that enables attackers to pivot laterally across zone boundaries without triggering controls (T1590.003). Because these relationships are unrecorded, they are excluded from threat models, incident response playbooks, and routine audits, allowing reconnaissance and lateral movement (T1484) to proceed undetected. They may also create NAT traversal paths (T1599.001) that security teams cannot remediate because they are unaware of their existence.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Extract all current firewall allow rules and cross-reference against the documented zone trust matrix. Identify source-destination zone pairs in the ruleset that do not appear in the approved trust documentation.",
+        "command": "show running-config | section ip access-list | grep permit > /tmp/fw_allow_rules.txt",
+        "file_path": "/tmp/fw_allow_rules.txt",
+        "navigation": null,
+        "expected_output": "Source-destination pairs from firewall rules not listed in the zone trust matrix document indicate undocumented trust relationships. Any discrepancy confirms this attribute should be set to true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Run a cross-zone reachability scan using nmap between segment pairs that should not have trust relationships per the architecture documentation, to discover undocumented connectivity paths.",
+        "command": "nmap -sS -p 22,80,443,8080,3389,445 --open <destination_segment_CIDR> -S <source_segment_test_host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Open ports discovered on destination hosts in segments that should not have connectivity to the source segment indicate undocumented trust relationships or missing boundary controls. Any successful connection between documented untrusted zones confirms the attribute is true."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review firewall or NetFlow logs for allowed traffic flows between zone pairs that are not listed in the zone trust matrix, identifying cross-zone communication that is permitted but not documented.",
+        "command": "grep -E 'ACCEPT|allow|permit' /var/log/firewall/boundary.log | awk '{print $8, $10}' | sort -u | grep -vF -f /tmp/approved_zone_pairs.txt",
+        "file_path": "/var/log/firewall/boundary.log",
+        "navigation": null,
+        "expected_output": "Log entries showing permitted traffic between zone pairs not found in the approved zone pairs reference file indicate undocumented trust relationships. Any output from this differential grep confirms the attribute should be set to true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In a SIEM such as Splunk or Microsoft Sentinel, query firewall allow events for traffic crossing zone boundaries and visualize unique source-destination zone pair combinations, then compare the result against the architecture trust matrix.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk > Search & Reporting > Enter query: index=firewall action=allowed | stats count by src_zone, dest_zone | table src_zone dest_zone count | Export results and compare against zone trust matrix document",
+        "expected_output": "Zone pairs appearing in the SIEM results but absent from the approved trust matrix document represent undocumented trust relationships. Any such pairs confirm this attribute is true and identify the specific boundary requiring remediation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null"
+    ]
+  },
+  {
+    "option_name": "vpn_client_endpoint_posture_check_enforced",
+    "option_description": "Determines whether VPN clients must satisfy an endpoint posture or health assessment before being permitted to access this network segment. Posture checks typically verify criteria such as OS patch level, antivirus/EDR presence and signature currency, disk encryption status, and firewall state. When enforced, non-compliant devices are denied or quarantined prior to segment access.",
+    "security_impact": "Without endpoint posture enforcement, compromised, unpatched, or unmanaged devices that hold valid VPN credentials can freely access the network segment. This significantly expands the attack surface by allowing malware-infected or policy-violating endpoints to reach internal resources, facilitating lateral movement, data exfiltration, and persistence. Enforcing posture checks is a critical zero-trust control for VPN-accessed segments.",
+    "how_to_obtain": "Review the VPN gateway or ZTNA platform configuration (e.g., Cisco Secure Client, Palo Alto GlobalProtect, Zscaler Private Access, Cloudflare Access). Check whether a host information profile (HIP), device compliance policy, or posture profile is applied to the tunnel policy governing this segment. Verify the policy is in enforce (not monitor-only) mode.",
+    "value_type": "boolean",
+    "typical_values": [
+      "true — posture check is enforced for all VPN clients before segment access is granted",
+      "false — no posture check is required; any device with valid credentials may connect"
+    ]
+  }
+]

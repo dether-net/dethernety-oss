@@ -1,0 +1,89 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552",
+      "name": "Unsecured Credentials",
+      "relevance": "Directly addresses the risk of credentials and secrets stored in plaintext without proper protection."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.001",
+      "name": "Credentials In Files",
+      "relevance": "Specifically covers plaintext secrets stored in files, which is the core concern of this vector."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.004",
+      "name": "Private Keys",
+      "relevance": "Covers private keys stored insecurely in plaintext, a common form of plaintext secret storage."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1027.013",
+      "name": "Encrypted/Encoded File",
+      "relevance": "Relates to how inconsistent data classification can lead to improper handling of files that should be encrypted or labeled sensitive."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1222",
+      "name": "File and Directory Permissions Modification",
+      "relevance": "Directly relates to filesystem permission issues, covering modification and abuse of file/directory permissions."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1548.001",
+      "name": "Setuid and Setgid",
+      "relevance": "Excessive filesystem permissions via setuid/setgid bits are a classic privilege escalation risk tied to this vector."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1222.002",
+      "name": "Linux and Mac File and Directory Permissions Modification",
+      "relevance": "Specifically addresses Linux/Mac filesystem permission abuse, highly relevant to excessive filesystem permission concerns."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1070.004",
+      "name": "File Deletion",
+      "relevance": "Undefined retention policies mean files are not deleted on schedule, and attackers can exploit or manipulate retained files."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1485",
+      "name": "Data Destruction",
+      "relevance": "Inadequate disposal procedures can lead to improper data destruction, leaving sensitive data recoverable."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1490",
+      "name": "Inhibit System Recovery",
+      "relevance": "Inadequate disposal may leave recovery paths intact, and this technique covers the manipulation of system recovery mechanisms."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1074.002",
+      "name": "Remote Data Staging",
+      "relevance": "Copying configuration data across environments mirrors remote data staging behavior used to exfiltrate or leak sensitive data."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1480.001",
+      "name": "Environmental Keying",
+      "relevance": "Directly relevant as attackers or misconfigurations may exploit environment-specific keys when configs are copied between environments."
+    }
+  ],
+  "respondsWith": []
+}

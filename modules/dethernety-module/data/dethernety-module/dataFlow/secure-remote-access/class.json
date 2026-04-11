@@ -1,0 +1,8 @@
+{
+  "name": "Secure Remote Access",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "Encrypted data flow from remote clients to the internal network represents a critical transit security boundary. Key concerns include protocol version enforcement, cipher suite strength, mutual authentication gaps, certificate validation, replay attack vectors, traffic interception via MitM, and insufficient integrity controls on the channel itself.",
+  "category": "Network Traffic",
+  "status": "reviewed"
+}

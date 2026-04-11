@@ -1,0 +1,1793 @@
+[
+  {
+    "option_name": "relay_restriction_policy",
+    "option_description": "Controls which senders and destinations the MTA will accept and forward email for. 'open' imposes no restrictions, 'authenticated_only' requires valid SMTP AUTH credentials before relaying, and 'restricted' limits relay to an explicit IP or domain allowlist defined in the MTA configuration.",
+    "security_impact": "Directly triggers the open_relay_misconfiguration Rego rule when set to 'open'. An open relay allows any unauthenticated external host to send email through your server to any external destination, enabling your server to be weaponized for spam campaigns, phishing distribution, and domain reputation destruction. The policy value is the primary control gate evaluated before smtp_auth_required and open_relay_test_result.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Postfix main.cf for smtpd_relay_restrictions and smtpd_recipient_restrictions directives. The presence of 'permit_mynetworks', 'permit_sasl_authenticated', and 'reject_unauth_destination' together indicates 'restricted' or 'authenticated_only'. Absence of 'reject_unauth_destination' indicates 'open'.",
+        "command": "grep -E 'smtpd_relay_restrictions|smtpd_recipient_restrictions|mynetworks' /etc/postfix/main.cf",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination"
+      },
+      {
+        "type": "command",
+        "instruction": "For Exim, review the acl_smtp_rcpt block in the Exim configuration to determine whether relay is controlled by authenticated senders or IP allowlists.",
+        "command": "grep -A 20 'acl_smtp_rcpt' /etc/exim4/exim4.conf.template | grep -E 'accept|deny|authenticated|relay'",
+        "file_path": "/etc/exim4/exim4.conf.template",
+        "navigation": null,
+        "expected_output": "accept authenticated = * or deny !verify = recipient with appropriate domain controls"
+      },
+      {
+        "type": "command",
+        "instruction": "For Sendmail, inspect the access database and sendmail.cf for relay permissions. The FEATURE('relay_based_on_MX') and access DB entries determine relay scope.",
+        "command": "grep -E 'RELAY|relay' /etc/mail/access && makemap -u hash /etc/mail/access.db | head -30",
+        "file_path": "/etc/mail/access",
+        "navigation": null,
+        "expected_output": "Entries should show specific IP ranges or domains with RELAY permission, not a blanket RELAY for all"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use swaks to test relay behavior from an external IP not in mynetworks. Send to an external destination without authenticating. A '250 OK' response confirms 'open' policy.",
+        "command": "swaks --to external-test@example.net --from attacker@evil.com --server your-mta-ip --port 25 --no-tls",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure: '554 5.7.1 Relay access denied'. Vulnerable: '250 2.0.0 Ok: queued'"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "restricted",
+      "authenticated_only",
+      "open"
+    ]
+  },
+  {
+    "option_name": "smtp_auth_required",
+    "option_description": "Determines whether the MTA mandates SMTP AUTH (SASL) authentication before permitting any outbound relay of messages originating from non-local or untrusted network sources. When false, the MTA may relay messages from unauthenticated external connections.",
+    "security_impact": "One of three independent conditions in the open_relay_misconfiguration Rego rule — if smtp_auth_required is false, the exposure fires regardless of relay_restriction_policy or test results. Without mandatory authentication, any host that can reach port 25 can potentially use the server as a relay for spam or phishing, bypassing organizational sender controls entirely.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "In Postfix, verify that smtpd_sasl_auth_enable is 'yes' AND that 'permit_sasl_authenticated' appears before 'reject_unauth_destination' in smtpd_relay_restrictions. Both conditions must be true for auth to be genuinely required.",
+        "command": "postconf smtpd_sasl_auth_enable smtpd_relay_restrictions smtpd_recipient_restrictions",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "smtpd_sasl_auth_enable = yes and permit_sasl_authenticated present in relay restrictions"
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether the EHLO response from the MTA advertises AUTH, then verify that relay is rejected without credentials. Use telnet to manually issue EHLO and inspect the capability list.",
+        "command": "echo -e 'EHLO test.example.com\nQUIT' | nc your-mta-ip 25",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "250-AUTH PLAIN LOGIN (or similar) listed in EHLO capabilities, confirming AUTH is advertised"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt relay without authentication using swaks. If the server rejects with 554 or 530, SMTP AUTH is required. If it accepts, smtp_auth_required should be recorded as false.",
+        "command": "swaks --to external@otherdomain.com --from test@yourdomain.com --server your-mta-ip --port 587 --no-auth",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "530 5.7.0 Authentication required — confirms smtp_auth_required is true"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the mail server administrator to confirm whether the submission port (587) requires SASL authentication for all relay clients, and whether any IP ranges bypass this requirement via mynetworks.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation that no client can relay without SASL authentication or that only localhost is exempt via mynetworks"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "open_relay_test_result",
+    "option_description": "Records the empirical result of an active relay test conducted from an unauthenticated external IP. True means the MTA accepted a message with an external sender and external recipient without any authentication, definitively confirming open relay behavior regardless of configuration review findings.",
+    "security_impact": "This is the definitive evidence condition in the open_relay_misconfiguration Rego rule. Even if relay_restriction_policy appears restrictive in configuration files, a true test result overrides static analysis — meaning the server is confirmed to be an open relay in practice. This distinction is critical because misconfigured exception lists or MTA bugs can create open relay conditions that config review alone misses.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Use swaks from an IP not in the server's mynetworks or trusted list to send a message with both MAIL FROM and RCPT TO pointing to external domains. Record whether the server queues the message.",
+        "command": "swaks --to victim@external-domain.net --from spoofed@another-external.com --server your-mta-ip --port 25 --no-tls --no-auth --timeout 30",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RELAY ACCEPTED (true): '250 2.0.0 Ok: queued as'. RELAY DENIED (false): '554 5.7.1 Relay access denied'"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use the MXToolbox open relay test or similar online relay checker which tests multiple relay bypass patterns including RCPT TO routing tricks, source routing, and encoded recipients.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Navigate to https://mxtoolbox.com/diagnostic.aspx and select 'SMTP Open Relay Test', enter the MTA IP or hostname",
+        "expected_output": "All relay test patterns should return 'RELAY DENIED' for a secure configuration"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use telnet to manually test relay with a complete SMTP conversation from a non-trusted source IP. Try multiple RCPT TO patterns including with percent signs and UUCP routing to catch all bypass vectors.",
+        "command": "telnet your-mta-ip 25 <<'EOF'\nEHLO attacker.example.com\nMAIL FROM:<test@attacker.example.com>\nRCPT TO:<victim@target-external.org>\nDATA\nSubject: relay test\n.\nQUIT\nEOF",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "554, 550, or 553 response to RCPT TO command indicating relay denial"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "After conducting relay tests, review the MTA logs to confirm whether the test message was queued or rejected. Postfix logs show 'reject: RCPT from' for denials and 'queued as' for acceptances.",
+        "command": "grep -E 'relay|queued|reject.*RCPT' /var/log/mail.log | tail -50",
+        "file_path": "/var/log/mail.log",
+        "navigation": null,
+        "expected_output": "reject: RCPT from external-test[x.x.x.x]: 554 5.7.1 Relay access denied"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "smtp_auth_enabled",
+    "option_description": "Indicates whether SMTP AUTH (RFC 4954) is enabled and operational on the MTA for relay and submission paths. This covers whether the AUTH capability is advertised in EHLO responses and whether the underlying SASL authentication backend is configured and functional.",
+    "security_impact": "The primary condition in the missing_or_weak_smtp_authentication Rego rule — if smtp_auth_enabled is false, the exposure fires unconditionally. Without SMTP AUTH, the MTA cannot distinguish legitimate authenticated senders from unauthorized ones on the submission path, enabling brute-force (T1110.001), password spraying (T1110.003), and credential stuffing (T1110.004) attacks with no authentication gating whatsoever.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "In Postfix, verify smtpd_sasl_auth_enable=yes in main.cf and that the SASL library (Cyrus or Dovecot) is configured. Check master.cf for submission port (587) service configuration.",
+        "command": "postconf smtpd_sasl_auth_enable smtpd_sasl_type smtpd_sasl_path && grep -A 10 '^submission' /etc/postfix/master.cf",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "smtpd_sasl_auth_enable = yes, smtpd_sasl_type = dovecot or cyrus, submission service enabled in master.cf"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Issue an EHLO command to the MTA on port 587 and check whether '250-AUTH' appears in the response. The presence of AUTH mechanisms in EHLO indicates smtp_auth_enabled is true.",
+        "command": "openssl s_client -connect your-mta-ip:587 -starttls smtp 2>/dev/null | grep -E '250|AUTH'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "250-AUTH PLAIN LOGIN GSSAPI — confirms SMTP AUTH is enabled and mechanisms are advertised"
+      },
+      {
+        "type": "command",
+        "instruction": "For Exim, check the authenticators section of the config. For Dovecot SASL integration, verify the auth socket or inet listener is configured and the Postfix-Dovecot path exists.",
+        "command": "grep -E 'auth_advertise_hosts|plain:|login:|authenticators' /etc/exim4/exim4.conf.template | head -20",
+        "file_path": "/etc/exim4/exim4.conf.template",
+        "navigation": null,
+        "expected_output": "Authenticator blocks with driver=plaintext or driver=cyrus_sasl confirming auth is configured"
+      },
+      {
+        "type": "command",
+        "instruction": "Check the Dovecot auth socket that Postfix uses for SASL, confirming the backend authentication service is running and accessible.",
+        "command": "ls -la /var/spool/postfix/private/auth && systemctl is-active dovecot",
+        "file_path": "/var/spool/postfix/private/auth",
+        "navigation": null,
+        "expected_output": "Socket file present with correct permissions, dovecot service active"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "permitted_auth_mechanisms",
+    "option_description": "The explicit list of SMTP AUTH mechanisms the MTA will advertise and accept from clients (e.g., PLAIN, LOGIN, CRAM-MD5, DIGEST-MD5, GSSAPI, XOAUTH2). Weak cleartext mechanisms like PLAIN and LOGIN transmit credentials in base64-encoded form that is trivially decoded if not protected by TLS.",
+    "security_impact": "Combined with tls_required_before_auth in the missing_or_weak_smtp_authentication Rego rule: if PLAIN or LOGIN appear in this list AND tls_required_before_auth is false, the exposure fires because credentials can be intercepted over cleartext connections. PLAIN and LOGIN are inherently cleartext mechanisms — their presence is only safe when TLS is mandatorily enforced before AUTH is advertised or exchanged.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Connect to the MTA on port 587 with STARTTLS and capture the EHLO response to see the exact AUTH mechanisms advertised. This is the authoritative runtime view of what mechanisms are offered.",
+        "command": "openssl s_client -connect your-mta-ip:587 -starttls smtp 2>/dev/null <<< 'EHLO probe.example.com' | grep 'AUTH'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "250-AUTH PLAIN LOGIN (weak if no TLS enforced) or 250-AUTH GSSAPI XOAUTH2 (stronger)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "In Postfix with Cyrus SASL, inspect /etc/postfix/sasl/smtpd.conf for the mech_list directive. For Dovecot SASL, check /etc/dovecot/conf.d/10-auth.conf for auth_mechanisms.",
+        "command": "cat /etc/postfix/sasl/smtpd.conf 2>/dev/null; grep 'auth_mechanisms' /etc/dovecot/conf.d/10-auth.conf 2>/dev/null",
+        "file_path": "/etc/postfix/sasl/smtpd.conf",
+        "navigation": null,
+        "expected_output": "mech_list: plain login (check if TLS enforced) or mech_list: gssapi digest-md5"
+      },
+      {
+        "type": "command",
+        "instruction": "For Exim, parse the authenticators section to extract driver types which map to mechanisms (plaintext driver = PLAIN/LOGIN, cram_md5 driver = CRAM-MD5).",
+        "command": "grep -E 'driver|public_name|server_condition' /etc/exim4/exim4.conf.template | grep -A1 'driver'",
+        "file_path": "/etc/exim4/exim4.conf.template",
+        "navigation": null,
+        "expected_output": "driver = plaintext with public_name = PLAIN or LOGIN entries"
+      },
+      {
+        "type": "command",
+        "instruction": "Use telnet on port 25 without TLS to check whether AUTH mechanisms are advertised in plaintext EHLO, which would indicate mechanisms are exposed before TLS negotiation.",
+        "command": "echo -e 'EHLO test.example.com\nQUIT' | nc -w 5 your-mta-ip 25 | grep AUTH",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No AUTH in response (good — AUTH only after TLS) or AUTH PLAIN LOGIN exposed (bad — cleartext)"
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"PLAIN\", \"LOGIN\"]",
+      "[\"PLAIN\", \"LOGIN\", \"GSSAPI\"]",
+      "[\"GSSAPI\", \"XOAUTH2\"]",
+      "[\"CRAM-MD5\", \"DIGEST-MD5\"]"
+    ]
+  },
+  {
+    "option_name": "tls_required_before_auth",
+    "option_description": "Controls whether the MTA suppresses AUTH advertisement and rejects AUTH exchanges on connections that have not yet negotiated TLS. When true, clients must complete STARTTLS or connect via implicit TLS (port 465) before the server will reveal or accept any authentication mechanisms, preventing cleartext credential transmission.",
+    "security_impact": "Critical gate condition in both the missing_or_weak_smtp_authentication and cleartext_smtp_transmission Rego rules. When false and PLAIN or LOGIN are in permitted_auth_mechanisms, the exposure fires for credential interception risk. When false, it also contributes to the cleartext_smtp_transmission rule if opportunistic STARTTLS is configured. This single attribute prevents credentials from being transmitted in base64-encoded cleartext that any network observer can decode with a trivial command.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "In Postfix, check smtpd_tls_auth_only=yes which suppresses AUTH advertisement on non-TLS connections. Also verify the submission service in master.cf uses -o smtpd_tls_security_level=encrypt.",
+        "command": "postconf smtpd_tls_auth_only smtpd_tls_security_level && grep -A 15 '^submission' /etc/postfix/master.cf | grep tls",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "smtpd_tls_auth_only = yes confirms TLS is required before AUTH advertisement"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Connect to port 587 WITHOUT issuing STARTTLS first and check if AUTH mechanisms appear in the EHLO response. If AUTH is visible before TLS, tls_required_before_auth is false.",
+        "command": "echo -e 'EHLO attacker.example.com\nQUIT' | nc -w 10 your-mta-ip 587 | grep -E 'AUTH|250'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No '250-AUTH' in pre-TLS EHLO (secure) vs '250-AUTH PLAIN LOGIN' visible (insecure)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Exim, check that the authenticators block uses a condition referencing encrypted connections. Look for 'condition = ${if eq{$tls_cipher}{}}' guards on AUTH advertise_condition.",
+        "command": "grep -B2 -A5 'auth_advertise_hosts\\|advertise_condition' /etc/exim4/exim4.conf.template",
+        "file_path": "/etc/exim4/exim4.conf.template",
+        "navigation": null,
+        "expected_output": "advertise_condition = ${if eq{$tls_in_cipher}{}} (empty = no TLS = don't advertise)"
+      },
+      {
+        "type": "command",
+        "instruction": "For Dovecot, verify disable_plaintext_auth=yes in 10-auth.conf which prevents plaintext auth mechanisms on non-SSL connections. This setting enforces TLS before AUTH for Dovecot-backed SASL.",
+        "command": "grep 'disable_plaintext_auth\\|ssl_require' /etc/dovecot/conf.d/10-auth.conf /etc/dovecot/conf.d/10-ssl.conf 2>/dev/null",
+        "file_path": "/etc/dovecot/conf.d/10-auth.conf",
+        "navigation": null,
+        "expected_output": "disable_plaintext_auth = yes confirms plaintext auth is blocked on non-TLS connections"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "starttls_enforcement",
+    "option_description": "Sets whether STARTTLS is enforced as mandatory for all inbound and outbound SMTP connections ('required'), offered opportunistically but not mandated ('opportunistic'), or completely disabled. This controls whether email content and credentials traversing SMTP paths are protected by transport encryption.",
+    "security_impact": "Primary condition in the cleartext_smtp_transmission Rego rule. When set to 'disabled', the rule fires immediately. When set to 'opportunistic', the rule also fires (combined with absence of TLS wrapper mode), because opportunistic TLS can be stripped by active network adversaries via STARTTLS downgrade attacks — a well-documented attack vector. 'Required' is the only value that prevents cleartext SMTP transmission, protecting against T1071.003 (Mail Protocols interception) and T1114.002 (Remote Email Collection).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "In Postfix, read smtpd_tls_security_level (inbound) and smtp_tls_security_level (outbound). 'encrypt' or 'verify' maps to 'required'; 'may' maps to 'opportunistic'; 'none' maps to 'disabled'.",
+        "command": "postconf smtpd_tls_security_level smtp_tls_security_level smtpd_tls_mandatory_protocols smtp_tls_mandatory_protocols",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "smtpd_tls_security_level = encrypt (required), may (opportunistic), or none (disabled)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Exim, inspect tls_advertise_hosts and hosts_require_tls directives. If tls_advertise_hosts = * and hosts_require_tls = *, STARTTLS is required. If only advertised but not required, it is opportunistic.",
+        "command": "grep -E 'tls_advertise_hosts|hosts_require_tls|tls_on_connect_ports' /etc/exim4/exim4.conf.template",
+        "file_path": "/etc/exim4/exim4.conf.template",
+        "navigation": null,
+        "expected_output": "tls_advertise_hosts = * AND hosts_require_tls = * (required) or tls_advertise_hosts = * without require (opportunistic)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Connect to port 25 and attempt to send mail without issuing STARTTLS. If the server accepts the message without TLS, enforcement is opportunistic or disabled. If it rejects with 530, it is required.",
+        "command": "swaks --server your-mta-ip --port 25 --to internal@yourdomain.com --from test@yourdomain.com --no-tls 2>&1 | grep -E '220|530|250|STARTTLS'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "530 Must issue a STARTTLS command first (required) vs 250 OK without TLS (opportunistic/disabled)"
+      },
+      {
+        "type": "command",
+        "instruction": "Use testssl.sh or nmap SMTP scripts to assess TLS enforcement on the SMTP listener and capture whether STARTTLS is required or optional for session continuation.",
+        "command": "nmap --script smtp-starttls-injection,smtp-commands -p 25,587 your-mta-ip",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "STARTTLS listed in capabilities; follow-up test without STARTTLS should show rejection if 'required'"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "opportunistic",
+      "required",
+      "disabled"
+    ]
+  },
+  {
+    "option_name": "tls_wrapper_mode_enabled",
+    "option_description": "Controls whether the MTA listens on port 465 (SMTPS) with implicit TLS (wrapper mode), where the entire session is encrypted from the first byte without requiring a STARTTLS upgrade. This provides a fully encrypted submission path independent of STARTTLS enforcement on ports 25 and 587.",
+    "security_impact": "The Rego policy flags cleartext_smtp_transmission when starttls_enforcement is 'opportunistic' AND tls_wrapper_mode_enabled is false. This means if STARTTLS is not mandatory on port 587/25, the absence of an SMTPS listener on port 465 leaves no guaranteed encrypted path for mail submission. Enabling this attribute ensures at least one port enforces encryption unconditionally, closing the plaintext interception window.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check if Postfix is actively listening on port 465 using ss or netstat",
+        "command": "ss -tlnp | grep ':465' && postconf -M smtps/inet 2>/dev/null || echo 'smtps not defined'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show a process bound to *:465 or 0.0.0.0:465, and postconf should return a non-empty smtps/inet entry"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Postfix master.cf for an smtps inet entry with wrapper mode enabled",
+        "command": "grep -A5 '^smtps' /etc/postfix/master.cf",
+        "file_path": "/etc/postfix/master.cf",
+        "navigation": null,
+        "expected_output": "Should show 'smtps inet n - y - - smtpd' with '-o smtpd_tls_wrappermode=yes' in the options block beneath it"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt an implicit TLS connection to port 465 using OpenSSL to confirm TLS wrapping occurs immediately",
+        "command": "openssl s_client -connect mail.example.com:465 -quiet 2>&1 | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "OpenSSL should immediately negotiate a TLS handshake and display certificate information without first showing an SMTP banner; receiving a raw '220' banner indicates wrapper mode is not active"
+      },
+      {
+        "type": "command",
+        "instruction": "For Exim, check if port 465 is defined with tls_on_connect set",
+        "command": "grep -E 'port.*465|tls_on_connect' /etc/exim4/exim4.conf.template /etc/exim4/conf.d/main/* 2>/dev/null",
+        "file_path": "/etc/exim4/exim4.conf.template",
+        "navigation": null,
+        "expected_output": "Should show a daemon_smtp_ports or listen directive including 465 alongside tls_on_connect = true in the relevant ACL or daemon config"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most MTAs only configure STARTTLS on 25/587)",
+      "true (hardened submission servers or those supporting legacy SMTPS clients)"
+    ]
+  },
+  {
+    "option_name": "plaintext_auth_permitted_without_tls",
+    "option_description": "Controls whether the MTA advertises and accepts AUTH LOGIN, AUTH PLAIN, or other cleartext credential mechanisms on unencrypted (non-TLS) SMTP sessions. When true, credentials can be transmitted in base64-encoded (effectively cleartext) form over unencrypted connections, making them trivially interceptable.",
+    "security_impact": "The Rego cleartext_smtp_transmission policy triggers when plaintext_auth_permitted_without_tls is true and starttls_enforcement is not 'required'. This means any network-position adversary performing passive interception can harvest SMTP credentials. Additionally, the missing_or_weak_smtp_authentication policy fires when PLAIN or LOGIN mechanisms are permitted without TLS being required before auth (tls_required_before_auth). Together these policies ensure that credential exposure via unencrypted AUTH is treated as a high-criticality finding.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check Postfix main.cf for smtpd_tls_auth_only which restricts AUTH advertisement to TLS sessions only",
+        "command": "postconf smtpd_tls_auth_only smtpd_sasl_auth_enable",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure configuration shows 'smtpd_tls_auth_only = yes' and 'smtpd_sasl_auth_enable = yes'; if smtpd_tls_auth_only is 'no' or absent, AUTH may be advertised on plaintext sessions"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Connect to port 25 or 587 without TLS and issue EHLO to check if AUTH mechanisms are advertised on unencrypted sessions",
+        "command": "echo -e 'EHLO test.example.com\nQUIT' | nc -w5 mail.example.com 25 | grep -i auth",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If '250-AUTH LOGIN PLAIN' or similar appears in the EHLO response without first negotiating STARTTLS, plaintext auth is being advertised; secure servers should show no AUTH line before TLS establishment"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Exim configuration for auth_advertise_hosts to determine if AUTH is restricted to TLS-only connections",
+        "command": "grep -r 'auth_advertise_hosts\\|server_advertise_condition' /etc/exim4/ 2>/dev/null",
+        "file_path": "/etc/exim4/conf.d/auth/",
+        "navigation": null,
+        "expected_output": "Secure Exim config shows 'auth_advertise_hosts = ${if eq{$tls_cipher}{}{}{*}}' or equivalent condition preventing AUTH advertisement without TLS; an empty or '* (all hosts)' value indicates plaintext auth is permitted"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Sendmail sendmail.mc for STARTTLS requirements tied to AUTH configuration",
+        "command": "grep -E 'TRUST_AUTH_MECH|confAUTH_OPTIONS|STARTTLS' /etc/mail/sendmail.mc /etc/mail/sendmail.cf 2>/dev/null",
+        "file_path": "/etc/mail/sendmail.mc",
+        "navigation": null,
+        "expected_output": "Should show AUTH mechanisms restricted with confAUTH_OPTIONS including 'A' (require auth only after STARTTLS) or AUTH mechanisms not including PLAIN/LOGIN without TLS guard"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (default in many unconfigured MTAs, especially Postfix with smtpd_tls_auth_only not set)",
+      "false (hardened configurations with smtpd_tls_auth_only=yes or equivalent)"
+    ]
+  },
+  {
+    "option_name": "minimum_tls_version",
+    "option_description": "Specifies the oldest TLS protocol version the MTA will accept for both inbound (smtpd) and outbound (smtp client) connections. Values range from the long-deprecated SSLv2 through the current TLSv1.3. This setting governs which protocol negotiation handshakes the MTA will complete, directly determining the minimum encryption strength available for any SMTP session.",
+    "security_impact": "The Rego weak_tls_cipher_or_protocol_version policy fires whenever minimum_tls_version is set to SSLv2, SSLv3, TLSv1.0, or TLSv1.1. These versions are vulnerable to documented attacks including BEAST, POODLE, DROWN, and SLOTH. Even opportunistic TLS is weakened if a downgrade to these versions is possible, as an active adversary can force negotiation of the oldest mutually supported version. The policy maps this to MITRE T1562.010 (Downgrade Attack) and T1600 (Weaken Encryption).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query Postfix for both inbound and outbound TLS protocol settings using postconf",
+        "command": "postconf smtpd_tls_protocols smtp_tls_protocols smtpd_tls_mandatory_protocols smtp_tls_mandatory_protocols",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure output shows values like 'smtpd_tls_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1' or '>=TLSv1.2'; absence of exclusions for older protocols indicates they remain enabled"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Postfix main.cf directly for TLS protocol directives",
+        "command": "grep -E 'tls_protocols|tls_mandatory_protocols' /etc/postfix/main.cf",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "Should contain explicit exclusion of old protocols such as '!SSLv2, !SSLv3, !TLSv1, !TLSv1.1' or a minimum version specifier of TLSv1.2 or TLSv1.3"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the MTA to test whether it accepts TLSv1.1 connections, which should be rejected by a correctly configured server",
+        "command": "openssl s_client -connect mail.example.com:587 -starttls smtp -tls1_1 2>&1 | grep -E 'Protocol|handshake failure|no protocols'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A hardened server returns 'handshake failure' or 'no protocols available'; if it returns 'Protocol: TLSv1.1', the minimum version is set too low"
+      },
+      {
+        "type": "command",
+        "instruction": "Check Exim TLS configuration for minimum protocol version settings",
+        "command": "grep -E 'tls_require_ciphers|openssl_options|tls_minimum_version' /etc/exim4/exim4.conf.template /etc/exim4/conf.d/main/03_exim4-config_tlsoptions 2>/dev/null",
+        "file_path": "/etc/exim4/conf.d/main/03_exim4-config_tlsoptions",
+        "navigation": null,
+        "expected_output": "Should include 'openssl_options = +no_sslv2 +no_sslv3 +no_tlsv1 +no_tlsv1_1' or equivalent GnuTLS priority string with VERS-TLS1.0 and VERS-TLS1.1 excluded"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLSv1.2 (modern default for well-maintained servers)",
+      "TLSv1.0 (legacy servers that haven't been hardened)",
+      "TLSv1.1 (transitional configurations)",
+      "TLSv1.3 (hardened forward-looking deployments)"
+    ]
+  },
+  {
+    "option_name": "weak_cipher_suites_enabled",
+    "option_description": "Indicates whether the MTA's TLS cipher suite string allows negotiation of weak, deprecated, or cryptographically broken ciphers including RC4, DES, 3DES, NULL encryption, EXPORT-grade ciphers, anonymous Diffie-Hellman (aNULL/eNULL), SEED, IDEA, or MD5-based HMAC suites. When true, even TLS-protected sessions may be decryptable or manipulable by a capable adversary.",
+    "security_impact": "The Rego weak_tls_cipher_or_protocol_version policy fires when weak_cipher_suites_enabled is true, regardless of the TLS version in use. This maps to T1600.001 (Reduce Key Space) and T1600 (Weaken Encryption). NULL ciphers provide no confidentiality at all while appearing encrypted; export-grade ciphers underpin FREAK and LOGJAM attacks; RC4 is statistically biased enabling plaintext recovery. Even if TLSv1.2 is the minimum version, permitting these ciphers undermines the entire encryption posture.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve the current cipher configuration from Postfix for both inbound and outbound connections",
+        "command": "postconf smtpd_tls_ciphers smtp_tls_ciphers smtpd_tls_exclude_ciphers smtp_tls_exclude_ciphers smtpd_tls_mandatory_ciphers",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure configuration shows smtpd_tls_exclude_ciphers containing at minimum 'aNULL, eNULL, EXPORT, DES, RC4, MD5, 3DES' and smtpd_tls_ciphers set to 'high' or 'medium'; absence of exclusions is a finding"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap's ssl-enum-ciphers script to enumerate all accepted cipher suites on the SMTP port",
+        "command": "nmap --script ssl-enum-ciphers -p 465,587 mail.example.com 2>/dev/null | grep -E 'TLS_|SSL_|EXPORT|RC4|DES|NULL|ANON'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A hardened server should list only ECDHE and DHE suites with AES-GCM or ChaCha20; presence of any RC4, DES, EXPORT, NULL, or ANON cipher in the output confirms weak_cipher_suites_enabled should be true"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Exim cipher configuration for weak suite inclusion",
+        "command": "grep -E 'tls_require_ciphers|MAIN_TLS_REQUIRE_CIPHERS' /etc/exim4/exim4.conf.template /etc/exim4/conf.d/main/* 2>/dev/null",
+        "file_path": "/etc/exim4/conf.d/main/03_exim4-config_tlsoptions",
+        "navigation": null,
+        "expected_output": "Should show a cipher string that explicitly excludes weak families, e.g. 'SECURE192' GnuTLS string or OpenSSL string containing '!RC4:!DES:!3DES:!NULL:!EXPORT:!aNULL:!eNULL:!MD5'; absence of these exclusions is a finding"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use testssl.sh for comprehensive cipher suite enumeration against the MTA",
+        "command": "testssl.sh --cipher-per-proto --starttls smtp mail.example.com:587 2>/dev/null | grep -E 'WEAK|INSECURE|LOW|RC4|DES|NULL|EXPORT'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should contain no lines labeled WEAK, INSECURE, or LOW; any such finding confirms weak ciphers are negotiable and the attribute should be set true"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (correctly configured servers with explicit cipher exclusions)",
+      "true (default Postfix/Exim without explicit cipher hardening, especially on older OS distributions)"
+    ]
+  },
+  {
+    "option_name": "tls_security_level",
+    "option_description": "Defines the TLS enforcement policy for SMTP sessions. 'none' disables TLS entirely; 'may' is opportunistic (TLS used if available but plaintext fallback allowed); 'encrypt' requires TLS but does not validate certificates; 'dane'/'dane-only' uses DNSSEC-authenticated TLSA records; 'verify'/'secure' enforce certificate chain and hostname validation. This applies separately to inbound (smtpd_tls_security_level) and outbound (smtp_tls_security_level) in Postfix.",
+    "security_impact": "The Rego weak_tls_cipher_or_protocol_version policy fires when tls_security_level is 'none', treating complete TLS disablement as equivalent to a protocol weakness finding. Additionally, 'may' mode (opportunistic only) is referenced in the cleartext_smtp_transmission policy as a condition that—combined with tls_wrapper_mode_enabled being false—triggers a cleartext finding. Setting 'none' maps to T1600 (Weaken Encryption) and T1071.003 (Mail Protocols), as all traffic is unprotected.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query Postfix for both inbound (smtpd) and outbound (smtp client) TLS security level settings",
+        "command": "postconf smtpd_tls_security_level smtp_tls_security_level",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Best practice shows 'smtpd_tls_security_level = may' or 'encrypt' for inbound and 'smtp_tls_security_level = dane' or 'encrypt' for outbound; 'none' on either is a critical finding"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Directly inspect Postfix main.cf for TLS security level directives",
+        "command": "grep -E 'tls_security_level' /etc/postfix/main.cf",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "Should contain explicit smtpd_tls_security_level and smtp_tls_security_level lines; if either is absent, postconf defaults apply (typically 'none' on older installs) and should be checked via postconf command"
+      },
+      {
+        "type": "command",
+        "instruction": "Check Exim for STARTTLS advertisement scope to determine effective security level",
+        "command": "grep -E 'tls_advertise_hosts|hosts_require_tls|tls_on_connect' /etc/exim4/exim4.conf.template /etc/exim4/conf.d/transport/* 2>/dev/null",
+        "file_path": "/etc/exim4/conf.d/transport/",
+        "navigation": null,
+        "expected_output": "For 'encrypt' equivalent: hosts_require_tls should be set to '*' in the smtp transport; tls_advertise_hosts = '*' indicates opportunistic ('may'); absence of tls_advertise_hosts indicates TLS is not offered ('none')"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test whether the MTA accepts a plain SMTP connection without STARTTLS to empirically confirm enforcement level",
+        "command": "echo -e 'EHLO probe.example.com\nMAIL FROM:<test@probe.example.com>\nQUIT' | openssl s_client -connect mail.example.com:587 -starttls smtp -verify_quiet 2>&1 | grep -E 'Verify|STARTTLS|220|250'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If 'encrypt' or higher is set, the server should reject MAIL FROM before STARTTLS is negotiated; if 'may', the session proceeds even without TLS; compare with EHLO response to see if STARTTLS is advertised"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "may (default in most distributions, opportunistic TLS)",
+      "none (misconfigured or legacy servers)",
+      "encrypt (hardened submission servers)",
+      "dane (highest security for outbound when DNSSEC is available)"
+    ]
+  },
+  {
+    "option_name": "inbound_spf_validation_enabled",
+    "option_description": "Controls whether the MTA checks Sender Policy Framework (SPF) DNS records on inbound messages to verify that the sending IP address is authorized to send mail for the claimed envelope sender domain (MAIL FROM / Return-Path). When disabled, any IP can claim to originate from any domain without triggering an SPF-based rejection or flag.",
+    "security_impact": "The Rego missing_spf_dkim_dmarc_enforcement policy fires when inbound_spf_validation_enabled is false, contributing to a high-criticality finding mapped to T1672 (Email Spoofing). Without SPF validation, the MTA accepts mail from unauthorized senders claiming legitimate domains, enabling phishing, business email compromise (BEC), and domain impersonation attacks. SPF is also a prerequisite for effective DMARC enforcement, since DMARC alignment checks require either SPF or DKIM to pass.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check Postfix main.cf and master.cf for SPF policy service or postscreen DNSBL/SPF integration",
+        "command": "postconf smtpd_recipient_restrictions smtpd_relay_restrictions | grep -i 'spf\\|policy\\|check_policy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SPF enforcement shows 'check_policy_service unix:private/policy-spf' or similar in smtpd_recipient_restrictions; absence of any policy service reference indicates SPF is not being checked"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the policyd-spf or spf-engine configuration files to confirm SPF checking is active",
+        "command": "cat /etc/postfix-policyd-spf-python/policyd-spf.conf 2>/dev/null || cat /etc/postfix/policyd-spf.conf 2>/dev/null || systemctl status postfix-policyd-spf-python 2>/dev/null | head -10",
+        "file_path": "/etc/postfix-policyd-spf-python/policyd-spf.conf",
+        "navigation": null,
+        "expected_output": "Service should be running and config should show HELO_reject and Mail_From_reject set to values other than 'Never'; if the service is inactive or absent, SPF validation is not enabled"
+      },
+      {
+        "type": "command",
+        "instruction": "Check for Exim's built-in SPF lookups or spf acl condition in Exim ACL configuration",
+        "command": "grep -r 'spf\\|check_spf\\|verify=spf' /etc/exim4/ 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/exim4/conf.d/acl/",
+        "navigation": null,
+        "expected_output": "Exim SPF checking shows 'spf = pass:neutral:none:softfail:fail:permerror:temperror' condition in an acl_check_rcpt or acl_check_mail block; absence indicates SPF is not validated"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search mail logs for SPF result headers or policy service decisions to confirm SPF checking is operational",
+        "command": "grep -i 'SPF\\|Received-SPF\\|policy.*spf' /var/log/mail.log /var/log/maillog 2>/dev/null | tail -20",
+        "file_path": "/var/log/mail.log",
+        "navigation": null,
+        "expected_output": "Active SPF checking produces log lines containing 'SPF check: pass/fail/softfail' or policy service responses; complete absence of SPF-related log entries strongly suggests SPF validation is not enabled"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default on most MTAs without additional packages installed)",
+      "true (servers with policyd-spf, spamassassin SPF plugin, or Exim built-in SPF enabled)"
+    ]
+  },
+  {
+    "option_name": "inbound_dkim_verification_enabled",
+    "option_description": "Controls whether the MTA verifies DKIM (DomainKeys Identified Mail) cryptographic signatures on inbound messages. DKIM verification confirms that specific message headers and the body have not been modified in transit, and that the signing domain authorized the message. Verification typically occurs via a milter (e.g., OpenDKIM) or equivalent built-in mechanism.",
+    "security_impact": "The Rego missing_spf_dkim_dmarc_enforcement policy fires when inbound_dkim_verification_enabled is false, contributing to the high-criticality T1672 (Email Spoofing) finding. Without DKIM verification, the MTA cannot distinguish legitimate signed messages from spoofed or tampered ones. DKIM is also essential for DMARC alignment: a DMARC policy of 'reject' cannot be meaningfully enforced if DKIM signatures are never verified, leaving domain impersonation attacks undetected.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check if OpenDKIM milter is configured in Postfix and the service is running",
+        "command": "postconf smtpd_milters non_smtpd_milters | grep -i dkim && systemctl status opendkim 2>/dev/null | grep -E 'Active|running'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Should show opendkim socket path (e.g., 'unix:/var/run/opendkim/opendkim.sock') in milters configuration and opendkim service in 'active (running)' state; absence from milters or stopped service means DKIM verification is inactive"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect OpenDKIM configuration to confirm it is in verification mode with appropriate trusted hosts",
+        "command": "grep -E 'Mode|KeyTable|SigningTable|InternalHosts|Socket' /etc/opendkim.conf 2>/dev/null",
+        "file_path": "/etc/opendkim.conf",
+        "navigation": null,
+        "expected_output": "Mode should include 'v' (verify) flag, e.g., 'Mode v' or 'Mode sv'; Socket should match the value in postconf milters; absence of 'v' in Mode means only signing (not verification) is active"
+      },
+      {
+        "type": "command",
+        "instruction": "Check Exim for DKIM verification ACL conditions in the exim configuration",
+        "command": "grep -r 'dkim_verify\\|verify.*dkim\\|acl.*dkim' /etc/exim4/ 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/exim4/conf.d/acl/",
+        "navigation": null,
+        "expected_output": "Exim DKIM verification shows 'dkim_status = pass:fail:invalid:miss' conditions in acl_check_data; absence indicates DKIM signatures are not being verified"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search mail headers in delivered messages or mail logs for DKIM verification result headers",
+        "command": "grep -i 'DKIM-Signature\\|Authentication-Results.*dkim\\|dkim=pass\\|dkim=fail' /var/log/mail.log /var/log/maillog 2>/dev/null | tail -20",
+        "file_path": "/var/log/mail.log",
+        "navigation": null,
+        "expected_output": "Active DKIM verification produces 'Authentication-Results' headers with 'dkim=pass' or 'dkim=fail' entries in logs or delivered message headers; complete absence of dkim result entries indicates verification is not operating"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default on MTAs without milter packages installed)",
+      "true (servers running OpenDKIM, OpenARC, or mail platforms with built-in DKIM verification such as Exchange Online or Google Workspace)"
+    ]
+  },
+  {
+    "option_name": "dmarc_policy_enforcement_mode",
+    "option_description": "Specifies the action the MTA takes when an inbound message fails DMARC alignment checks (i.e., neither SPF nor DKIM aligns with the From: header domain). 'none' means DMARC results are logged or reported but no delivery action is taken; 'quarantine' routes failing messages to spam/junk folders; 'reject' causes the MTA to issue a 550 rejection during the SMTP transaction, preventing delivery entirely.",
+    "security_impact": "The Rego missing_spf_dkim_dmarc_enforcement policy fires when dmarc_policy_enforcement_mode is 'none', creating a high-criticality T1672 (Email Spoofing) finding. A DMARC enforcement mode of 'none' means that even if SPF fails and DKIM is absent or invalid, spoofed messages are still delivered to recipients. Only 'quarantine' or 'reject' modes provide meaningful protection against domain impersonation. 'Reject' is the strongest posture, closing the spoofing path at the SMTP transaction level rather than relying on downstream filtering.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check if OpenDMARC milter is installed, running, and configured with a non-none enforcement policy",
+        "command": "systemctl status opendmarc 2>/dev/null | grep -E 'Active|running' && grep -E 'RejectFailures|IgnoreFailures|Action|Policy' /etc/opendmarc.conf 2>/dev/null",
+        "file_path": "/etc/opendmarc.conf",
+        "navigation": null,
+        "expected_output": "'RejectFailures true' in opendmarc.conf indicates 'reject' mode is active; 'RejectFailures false' or absence means 'none' or 'quarantine' mode; the service must be in 'active (running)' state for any enforcement to apply"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect OpenDMARC configuration for the enforcement action and milter integration in Postfix",
+        "command": "grep -E 'RejectFailures|IgnoreFailures|DispositionAction|Socket' /etc/opendmarc.conf 2>/dev/null && postconf smtpd_milters | grep -i dmarc",
+        "file_path": "/etc/opendmarc.conf",
+        "navigation": null,
+        "expected_output": "Postfix smtpd_milters should include the opendmarc socket path; opendmarc.conf should show explicit disposition settings; if opendmarc socket is absent from milters, DMARC is not enforced at the MTA layer regardless of DNS records"
+      },
+      {
+        "type": "gui",
+        "instruction": "For hosted mail platforms (Microsoft 365), check DMARC enforcement in the Security & Compliance Center anti-phishing policies",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft 365 Defender portal > Email & Collaboration > Policies & Rules > Threat Policies > Anti-phishing > Default policy > Edit > Phishing threshold & protection > Check 'Honor DMARC record policy when the message is detected as spoof'",
+        "expected_output": "Policy should show DMARC rejection or quarantine action enabled; if the DMARC honor setting is disabled, the platform overrides the sending domain's DMARC policy and enforcement_mode should be recorded as 'none'"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check mail logs for DMARC processing results to confirm active enforcement is occurring",
+        "command": "grep -i 'dmarc\\|opendmarc\\|Authentication-Results.*dmarc' /var/log/mail.log /var/log/maillog 2>/dev/null | grep -v '^#' | tail -30",
+        "file_path": "/var/log/mail.log",
+        "navigation": null,
+        "expected_output": "Active DMARC enforcement with 'reject' shows log entries like 'reject=550' alongside dmarc=fail; 'quarantine' mode shows message disposition to junk; 'none' mode shows dmarc=fail with no corresponding delivery action in subsequent log lines"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (default for most self-hosted MTAs without explicit DMARC milter configuration)",
+      "quarantine (common in organizations beginning DMARC adoption)",
+      "reject (mature email security posture, typically enforced by large mail providers and security-conscious organizations)"
+    ]
+  },
+  {
+    "option_name": "outbound_dkim_signing_enabled",
+    "option_description": "Controls whether the MTA cryptographically signs all outbound email messages using DKIM (DomainKeys Identified Mail), attaching a digital signature header that receiving servers can verify against a public key published in DNS.",
+    "security_impact": "The Rego policy fires the missing_spf_dkim_dmarc_enforcement exposure when input.outbound_dkim_signing_enabled is false. Without outbound DKIM signing, any server can send email claiming to be from your domain without detection, enabling phishing, business email compromise, and domain impersonation attacks (MITRE T1672). Receiving MTAs that enforce DMARC will reject or quarantine unsigned messages, degrading delivery reputation and rendering your domain unprotectable via DMARC enforcement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether an OpenDKIM or similar milter process is actively running and connected to Postfix",
+        "command": "ps aux | grep -E 'opendkim|dkimproxy|amavis' && postconf -n | grep -E 'milter|smtpd_milters|non_smtpd_milters'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An opendkim process should appear in ps output, and smtpd_milters or non_smtpd_milters should reference a socket path such as unix:/var/run/opendkim/opendkim.sock"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the OpenDKIM configuration for active signing keys and domain coverage",
+        "command": "grep -E 'KeyTable|SigningTable|Domain|KeyFile' /etc/opendkim.conf && cat /etc/opendkim/signing.table 2>/dev/null || cat /etc/opendkim/SigningTable 2>/dev/null",
+        "file_path": "/etc/opendkim.conf",
+        "navigation": null,
+        "expected_output": "KeyTable and SigningTable should reference valid key files under /etc/opendkim/keys/; Domain should match your sending domain"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the DKIM private key file exists and the corresponding DNS TXT record is published",
+        "command": "ls -la /etc/opendkim/keys/*/*.private 2>/dev/null; dig +short TXT default._domainkey.yourdomain.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Private key files should exist with mode 600, owned by opendkim. The DNS TXT record should return a v=DKIM1 p=<public_key> record"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send a test message and inspect headers for a DKIM-Signature field to confirm end-to-end signing",
+        "command": "echo 'Subject: DKIM Test' | sendmail -v test@external-domain.com && swaks --to test@external-domain.com --from you@yourdomain.com 2>&1 | grep -i dkim",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Received message headers should contain a DKIM-Signature: v=1; a=rsa-sha256; d=yourdomain.com line"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "per_ip_connection_rate_limit_configured",
+    "option_description": "Controls whether the MTA restricts the number of new inbound SMTP connections a single source IP address may initiate within a defined time window, throttling aggressive senders before they consume significant server resources.",
+    "security_impact": "The Rego policy triggers the insufficient_rate_limiting_and_connection_throttling exposure when both per_ip_connection_rate_limit_configured and auth_failure_rate_limit_configured are false, and also when per_ip_connection_rate_limit_configured and concurrent_connection_limit_configured are both false. Without this control, a single compromised host or botnet node can open unlimited connections per second, exhausting file descriptors and process slots (MITRE T1499.002 Service Exhaustion Flood) and enabling unlimited brute-force authentication attempts (MITRE T1110).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the Postfix main.cf for smtpd_client_connection_rate_limit and its governing time unit",
+        "command": "postconf -n smtpd_client_connection_rate_limit anvil_rate_time_unit anvil_status_update_time",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "smtpd_client_connection_rate_limit should return a non-zero integer (e.g., 10); anvil_rate_time_unit should be a time expression such as 60s"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Exim, check ratelimit ACL conditions in the SMTP connect or mail ACL blocks",
+        "command": "grep -n 'ratelimit\\|smtp_connect_backlog\\|RATE' /etc/exim4/exim4.conf /etc/exim4/conf.d/acl/*.conf 2>/dev/null",
+        "file_path": "/etc/exim4/exim4.conf",
+        "navigation": null,
+        "expected_output": "ACL stanzas should contain ratelimit = <N> / <period> / per_conn / $sender_host_address entries"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the Postfix anvil service is running, which is responsible for enforcing rate limits",
+        "command": "postfix status && postconf -n | grep anvil",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Postfix should report running, and the master.cf-defined anvil service should be listed as active"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "max_messages_per_connection_configured",
+    "option_description": "Controls whether the MTA caps the number of MAIL FROM commands (individual message deliveries) a sender may issue within a single persistent SMTP connection, preventing queue flooding via connection reuse.",
+    "security_impact": "The Rego policy triggers insufficient_rate_limiting_and_connection_throttling when max_messages_per_connection_configured and concurrent_connection_limit_configured are both false. A sender that maintains a single long-lived SMTP connection can inject thousands of messages without triggering per-connection rate limits, flooding the mail queue, exhausting disk space, and masking malicious bulk delivery campaigns (MITRE T1499.002). Without this cap, queue processors cannot distinguish legitimate bulk senders from abusive ones using persistent connections.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the Postfix message rate limit per client within a rate window",
+        "command": "postconf -n smtpd_client_message_rate_limit smtpd_client_recipient_rate_limit",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "smtpd_client_message_rate_limit should be a non-zero integer (e.g., 100); value of 0 means unlimited"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Exim, check smtp_accept_max_per_connection or message-count ACL conditions",
+        "command": "grep -n 'smtp_accept_max_per_connection\\|smtp_max_messages_per_connection\\|MESSAGES_PER_CONNECTION' /etc/exim4/exim4.conf /etc/exim4/conf.d/*.conf 2>/dev/null",
+        "file_path": "/etc/exim4/exim4.conf",
+        "navigation": null,
+        "expected_output": "A numeric value assigned to smtp_accept_max_per_connection in the global configuration section"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Sendmail, check the MaxMessageSize and connection-level message cap in sendmail.cf or sendmail.mc",
+        "command": "grep -E 'O MaxMessageSize|confMAX_MESSAGES_PER_CONNECTION|MaxMessages' /etc/mail/sendmail.cf /etc/mail/sendmail.mc 2>/dev/null",
+        "file_path": "/etc/mail/sendmail.mc",
+        "navigation": null,
+        "expected_output": "A confMAX_MESSAGES_PER_CONNECTION or equivalent define with a non-zero integer value"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "concurrent_connection_limit_configured",
+    "option_description": "Controls whether the MTA enforces a hard ceiling on the total number of simultaneous active inbound SMTP connections, both globally across all sources and optionally per originating IP address, preventing connection slot exhaustion.",
+    "security_impact": "The Rego policy fires insufficient_rate_limiting_and_connection_throttling when per_ip_connection_rate_limit_configured and concurrent_connection_limit_configured are both false, and also when max_messages_per_connection_configured and concurrent_connection_limit_configured are both false. Without a concurrent connection ceiling, a coordinated attack using many persistent connections from distributed sources can exhaust the MTA's process pool or file descriptor limits, causing a denial of service for legitimate mail (MITRE T1499.002). Per-host limits specifically contain individual botnet nodes.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check Postfix for global and per-client concurrent connection limits",
+        "command": "postconf -n smtpd_client_connection_count_limit default_process_limit smtpd_client_event_count_limit",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "smtpd_client_connection_count_limit should be a non-zero integer (e.g., 10 per client); default_process_limit controls total smtpd processes (default 100)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Exim, check smtp_accept_max (global) and smtp_accept_max_per_host (per source IP)",
+        "command": "grep -n 'smtp_accept_max\\|smtp_accept_max_per_host\\|smtp_accept_max_per_connection' /etc/exim4/exim4.conf 2>/dev/null",
+        "file_path": "/etc/exim4/exim4.conf",
+        "navigation": null,
+        "expected_output": "smtp_accept_max = <N> and smtp_accept_max_per_host = <M> should both be present with non-zero values"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Sendmail, check MaxDaemonChildren and ConnectionRateThrottle in sendmail.cf",
+        "command": "grep -E 'O MaxDaemonChildren|confMAX_DAEMON_CHILDREN|O ConnectionRateThrottle' /etc/mail/sendmail.cf /etc/mail/sendmail.mc 2>/dev/null",
+        "file_path": "/etc/mail/sendmail.cf",
+        "navigation": null,
+        "expected_output": "MaxDaemonChildren should be set to a non-zero integer limiting total simultaneous connections"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "auth_failure_rate_limit_configured",
+    "option_description": "Controls whether the MTA or an associated policy daemon detects repeated SMTP AUTH failures from a source IP and responds by throttling, temporarily blocking, or permanently rejecting further connection attempts from that IP, mitigating credential brute-force attacks.",
+    "security_impact": "The Rego policy triggers insufficient_rate_limiting_and_connection_throttling when per_ip_connection_rate_limit_configured and auth_failure_rate_limit_configured are both false. Without authentication failure throttling, an attacker can attempt unlimited username and password combinations via SMTP AUTH, executing password guessing (T1110.001), password spraying (T1110.003), and credential stuffing (T1110.004) attacks at machine speed. Compromised accounts then become authenticated relay sources that bypass most anti-spam controls.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check for Postfix smtpd_client_auth_rate_limit directive controlling AUTH attempts per time window",
+        "command": "postconf -n smtpd_client_auth_rate_limit smtpd_hard_error_limit smtpd_soft_error_limit",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "smtpd_client_auth_rate_limit should be a non-zero integer; smtpd_hard_error_limit (default 20) should be set to a lower value such as 5"
+      },
+      {
+        "type": "command",
+        "instruction": "Check for fail2ban jail targeting SMTP authentication failures",
+        "command": "fail2ban-client status | grep -i smtp; fail2ban-client status postfix-sasl 2>/dev/null; grep -r 'postfix\\|smtp\\|sasl' /etc/fail2ban/jail.d/ /etc/fail2ban/jail.local 2>/dev/null | grep -v '^#'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A postfix-sasl or similar jail should appear as active with a non-zero maxretry and bantime configuration"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check for policy daemons such as postfwd or policyd with auth-failure thresholds configured",
+        "command": "grep -r 'auth_fail\\|authfail\\|SASL\\|ratelimit' /etc/postfwd/ /etc/postfwd2/ /etc/policyd/ 2>/dev/null; postconf -n smtpd_recipient_restrictions | grep -i policy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy daemon configuration should define a rule matching SASL authentication failures and applying a throttle or reject action after N attempts"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "mta_process_run_user",
+    "option_description": "Identifies the OS username of the account under which the primary MTA daemon process executes at runtime, determining the OS-level privileges available to the process if it is exploited or misbehaves.",
+    "security_impact": "The Rego policy triggers the overprivileged_mta_service_account exposure when mta_process_run_user equals 'root'. Running the MTA as root means any memory corruption, parsing exploit, or configuration injection vulnerability in the MTA code grants an attacker full system control instantly (MITRE T1548, T1548.002). The MTA processes untrusted external network input from arbitrary internet hosts, making it one of the highest-risk services to run with elevated OS privileges.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the runtime user of all active MTA-related processes",
+        "command": "ps aux | grep -E '(postfix|sendmail|exim|qmail|opendkim|amavis|dovecot)' | grep -v grep | awk '{print $1, $11}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Process owners should show dedicated low-privilege accounts such as postfix, Debian-exim, or mail rather than root"
+      },
+      {
+        "type": "command",
+        "instruction": "Query the systemd service unit for the configured User directive",
+        "command": "systemctl show postfix.service exim4.service sendmail.service 2>/dev/null | grep -E '^User=|^Group=' && systemctl cat postfix 2>/dev/null | grep -E 'User=|Group='",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "User= should be set to a non-root, non-empty value such as postfix or mail"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the Postfix master.cf and main.cf for explicit user directives on SMTP service entries",
+        "command": "postconf -n mail_owner setgid_group | head -5; grep -E '^smtp.*unix.*smtpd$' /etc/postfix/master.cf | head -3",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "mail_owner should return postfix; Postfix master.cf smtp entries should not specify root as the process user"
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "postfix",
+      "mail",
+      "Debian-exim",
+      "exim",
+      "smmsp",
+      "root",
+      "sendmail"
+    ]
+  },
+  {
+    "option_name": "mta_process_run_uid",
+    "option_description": "Records the numeric UID of the operating system account under which the MTA daemon process runs. A UID of 0 unambiguously identifies root execution regardless of the username field, which can be spoofed or aliased.",
+    "security_impact": "The Rego policy fires overprivileged_mta_service_account when mta_process_run_uid equals 0. UID 0 grants unrestricted access to all system resources, kernel interfaces, and other users' data. Unlike the username string which could theoretically be set to an alias for root, the UID provides an authoritative, unforgeable indicator of privilege level. Any exploit of a UID-0 MTA results in immediate full system compromise with no additional privilege escalation required (MITRE T1548).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the effective UID directly from the process status entry in /proc for the running MTA",
+        "command": "pgrep -x 'postfix\\|master\\|exim\\|sendmail' | head -3 | while read pid; do echo \"PID $pid:\"; grep '^Uid:' /proc/$pid/status; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The Uid line shows four values (real, effective, saved, filesystem UIDs); none should be 0 for a correctly configured MTA"
+      },
+      {
+        "type": "command",
+        "instruction": "Resolve the configured MTA run username to its numeric UID",
+        "command": "id -u postfix 2>/dev/null; id -u mail 2>/dev/null; id -u exim 2>/dev/null; getent passwd postfix mail exim smmsp | awk -F: '{print $1, $3}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The UID should be a value above 100 (system account range) and not 0; typical values are 101-999 depending on distribution"
+      },
+      {
+        "type": "command",
+        "instruction": "Use ps with UID output format to get the numeric UID of all MTA-related processes simultaneously",
+        "command": "ps -eo uid,pid,cmd | grep -E '(postfix/master|/usr/sbin/exim|/usr/sbin/sendmail|qmail)' | grep -v grep",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The UID column (first field) should show a non-zero integer for all MTA processes"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "101",
+      "111",
+      "498",
+      "500",
+      "8",
+      "0"
+    ]
+  },
+  {
+    "option_name": "mta_dedicated_service_account_configured",
+    "option_description": "Indicates whether the MTA runs under a purpose-created OS account that is exclusively dedicated to the mail service, configured with a non-interactive shell (e.g., /usr/sbin/nologin or /bin/false), a restricted home directory, membership in no privileged groups, and not shared with any other service or application.",
+    "security_impact": "The Rego policy triggers overprivileged_mta_service_account when mta_dedicated_service_account_configured is false. Shared or general-purpose accounts (such as daemon, nobody, or www-data shared with web services) mean that compromise of any service sharing that account identity grants lateral access to the MTA's files, keys, and queue directories. A login-capable account allows SSH access if credentials are stolen. Membership in privileged groups (sudo, wheel, docker) provides immediate privilege escalation paths (MITRE T1548, T1548.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Verify the MTA account has a nologin shell and restricted home directory in /etc/passwd",
+        "command": "getent passwd postfix mail exim smmsp | awk -F: '{printf \"User: %s, UID: %s, GID: %s, Home: %s, Shell: %s\\n\", $1, $3, $4, $6, $7}'",
+        "file_path": "/etc/passwd",
+        "navigation": null,
+        "expected_output": "Shell field should be /usr/sbin/nologin or /bin/false; home directory should be an MTA-specific path such as /var/spool/postfix rather than /home/postfix"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the MTA service account is not a member of any privileged or cross-service groups",
+        "command": "MTA_USER=$(postconf -h mail_owner 2>/dev/null || echo postfix); groups $MTA_USER; id $MTA_USER; grep $MTA_USER /etc/group | grep -vE '^(postfix|mail|postdrop):'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The account should belong only to its own group and possibly a mail group; it should not appear in sudo, wheel, docker, adm, or other privileged group entries"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm through configuration review and staff interview that the MTA account is not shared with any other service (web server, database, cron jobs, or monitoring agents)",
+        "command": "grep -r 'postfix\\|mail\\|exim' /etc/crontab /etc/cron.d/ /var/spool/cron/ 2>/dev/null; ps aux | grep -E '(nginx|apache|mysql|postgres)' | awk '{print $1}' | sort -u",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The MTA service account username should not appear as the owner of non-MTA processes or cron jobs; no other service should list it as its runtime user"
+      },
+      {
+        "type": "command",
+        "instruction": "Check that the account was created specifically for the MTA and has appropriate account flags set",
+        "command": "passwd -S $(postconf -h mail_owner 2>/dev/null || echo postfix) 2>/dev/null; chage -l $(postconf -h mail_owner 2>/dev/null || echo postfix) 2>/dev/null | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "passwd -S should show L (locked) status; the account should have no password expiry requirements that suggest it is used interactively"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "mta_version",
+    "option_description": "Records the full version string of the installed MTA software, including major, minor, and patch components. This string is used to cross-reference against CVE databases to determine whether the installation is affected by known vulnerabilities.",
+    "security_impact": "The unpatched_mta_software Rego rule triggers when version_has_known_cve is true or when days_since_last_update exceeds 180 and an mta_version string is present. An accurate version string is essential to correctly evaluate CVE exposure; an imprecise or missing version prevents detection of remotely exploitable flaws (MITRE T1190, T1210) such as Exim heap overflow CVEs or Postfix SMTP smuggling issues.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run the version flag for Postfix to obtain the full version string.",
+        "command": "postfix --version 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output such as 'postfix-3.7.4' providing the exact installed version."
+      },
+      {
+        "type": "command",
+        "instruction": "Run the version flag for Exim to obtain the full version string.",
+        "command": "exim --version 2>&1 | head -2",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output such as 'Exim version 4.96 #2 built 12-Dec-2022 14:01:10' including patch level."
+      },
+      {
+        "type": "command",
+        "instruction": "Query Sendmail's version via its debug flag, or retrieve from the package manager for any MTA.",
+        "command": "sendmail -d0.1 < /dev/null 2>&1 | head -1 || rpm -q --queryformat '%{VERSION}-%{RELEASE}' postfix 2>/dev/null || dpkg -s postfix 2>/dev/null | grep Version",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A version string such as 'Version 8.17.1.7' for Sendmail or '3.7.4-1' from the package manager."
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "3.7.4",
+      "4.96",
+      "8.17.1",
+      "2.3.21"
+    ]
+  },
+  {
+    "option_name": "version_has_known_cve",
+    "option_description": "A boolean indicating whether the installed MTA version is listed in at least one publicly disclosed CVE with a CVSS score of 4.0 or higher. This requires cross-referencing the mta_version value against the NVD and vendor security advisories.",
+    "security_impact": "This is a direct input to the unpatched_mta_software Rego rule: when version_has_known_cve is true, the exposure fires unconditionally regardless of update recency. Unpatched MTA software with known CVEs exposes the host to remote code execution and privilege escalation (MITRE T1190, T1210). Historical examples include Exim CVE-2019-10149 (CVSS 9.8) and Postfix SMTP smuggling vulnerabilities.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use the NVD API to query for CVEs affecting the identified MTA and version. Replace PRODUCT and VERSION with actual values.",
+        "command": "curl -s 'https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=postfix+3.7.4&cvssV3Severity=MEDIUM' | python3 -m json.tool | grep -E 'id|baseScore'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output listing CVE IDs and CVSS base scores; any entry with score >= 4.0 indicates version_has_known_cve = true."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for vendor-distributed CVE advisories using the package manager's security update mechanism.",
+        "command": "yum updateinfo list security 2>/dev/null | grep -iE 'postfix|exim|sendmail' || apt-get --simulate upgrade 2>/dev/null | grep -iE 'postfix|exim|sendmail'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Pending security updates listed for the MTA package indicate the current version has known CVEs addressed in newer releases."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the NIST NVD CVE search interface and search for the MTA product name and version to review all associated CVEs and their CVSS scores.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser → https://nvd.nist.gov/vuln/search → Enter product name (e.g., 'postfix') and version → Filter results by CVSS Score >= 4.0 → Review CVE list",
+        "expected_output": "A list of CVEs affecting the specific version; presence of any CVSS >= 4.0 entry means version_has_known_cve = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (for EOL or long-unpatched versions)",
+      "false (for current patched releases)"
+    ]
+  },
+  {
+    "option_name": "days_since_last_update",
+    "option_description": "The number of days elapsed since the MTA software package was last updated on the host, calculated as the difference between today's date and the date of the last recorded package install or upgrade event in the system package manager history.",
+    "security_impact": "The unpatched_mta_software Rego rule triggers when days_since_last_update exceeds 180 AND an mta_version string is present. This threshold captures installations that may not have a CVE listed yet but are operationally stale, increasing drift from vendor-patched baselines. Long update gaps correlate with delayed remediation of newly disclosed vulnerabilities affecting MTA software (MITRE T1190).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On RHEL/CentOS/Rocky systems, query the RPM database for the last install or upgrade date of the MTA package.",
+        "command": "rpm -q --last postfix exim sendmail 2>/dev/null | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output such as 'postfix-3.7.4-1.el9  Mon 14 Aug 2023 09:22:01 AM UTC'; calculate days from that date to today."
+      },
+      {
+        "type": "command",
+        "instruction": "On Debian/Ubuntu systems, search dpkg log for the most recent install or upgrade event for the MTA package.",
+        "command": "grep -E 'install|upgrade' /var/log/dpkg.log* | grep -i 'postfix\\|exim\\|sendmail' | sort | tail -1",
+        "file_path": "/var/log/dpkg.log",
+        "navigation": null,
+        "expected_output": "A log line such as '2023-08-14 09:22:01 upgrade postfix:amd64 3.5.13-1 3.7.4-1' from which the date can be extracted and compared to today."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Python to calculate the exact number of days since the last update date extracted from package manager output.",
+        "command": "python3 -c \"from datetime import date; last=date(2023,8,14); print((date.today()-last).days)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing days elapsed, e.g., '312'. Values over 180 will trigger the unpatched_mta_software rule."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "7-30 (actively maintained)",
+      "90-180 (quarterly patch cycle)",
+      "180-365 (stale, risk zone)",
+      "365+ (critically neglected)"
+    ]
+  },
+  {
+    "option_name": "credentials_stored_in_cleartext",
+    "option_description": "Indicates whether SMTP relay credentials (username/password pairs), API tokens, or TLS private key material appear in plaintext within MTA configuration files such as Postfix sasl_passwd, main.cf, Exim's exim4.conf, or Sendmail's sendmail.cf and associated relay configuration includes.",
+    "security_impact": "The plaintext_credential_storage_in_config Rego rule fires when credentials_stored_in_cleartext is true AND config_file_permissions is either world_readable or group_readable. Cleartext credentials in config files map directly to MITRE T1552.001 (Credentials in Files) and T1552 (Unsecured Credentials), enabling any user with file read access to harvest valid relay or API credentials for unauthorized mail relay or lateral movement.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Postfix SASL password file for cleartext relay credentials in user:password format.",
+        "command": "cat /etc/postfix/sasl_passwd 2>/dev/null || cat /etc/postfix/sasl_passwd.db 2>/dev/null | strings | head -20",
+        "file_path": "/etc/postfix/sasl_passwd",
+        "navigation": null,
+        "expected_output": "Lines such as '[smtp.relay.example.com]:587 username:P@ssw0rd' confirm cleartext credentials (credentials_stored_in_cleartext = true)."
+      },
+      {
+        "type": "command",
+        "instruction": "Search Postfix main.cf and Exim configuration for relay authentication parameters that may contain inline credentials.",
+        "command": "grep -iE 'password|passwd|api_key|secret|relay_password' /etc/postfix/main.cf /etc/postfix/master.cf /etc/exim4/exim4.conf /etc/exim4/conf.d/transport/30_exim4-config_remote_smtp /etc/sendmail.cf 2>/dev/null",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "Any output containing credential values in plaintext (not vault references or encrypted blobs) confirms credentials_stored_in_cleartext = true."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for TLS private key material embedded directly in MTA configuration files rather than referenced by path.",
+        "command": "grep -l 'BEGIN.*PRIVATE KEY' /etc/postfix/*.cf /etc/exim4/*.conf /etc/sendmail.cf 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any file listed confirms that private key material is stored inline in configuration, setting credentials_stored_in_cleartext = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (secure deployments use hashed lookup tables or vault references)",
+      "true (common in quickly provisioned or legacy Postfix relay configurations using sasl_passwd)"
+    ]
+  },
+  {
+    "option_name": "config_file_permissions",
+    "option_description": "Classifies the filesystem permission level of MTA configuration files that contain credentials, as world_readable (o+r bits set, e.g., 644/666), group_readable (group read bits set beyond the mail daemon group), or restricted (read access limited to root or the mail daemon user only, e.g., 600 or 640 with mail group).",
+    "security_impact": "Combined with credentials_stored_in_cleartext, this attribute determines whether the plaintext_credential_storage_in_config exposure fires. The Rego rule triggers on cleartext credentials when permissions are world_readable or group_readable, corresponding to MITRE T1552.001 and T1552. World-readable credential files are accessible to every user on the system; group_readable files expose credentials to all members of that group, which may include web application or daemon accounts.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the octal permissions and ownership of the Postfix SASL password file and main configuration file.",
+        "command": "stat -c '%a %U %G %n' /etc/postfix/sasl_passwd /etc/postfix/main.cf /etc/postfix/master.cf 2>/dev/null",
+        "file_path": "/etc/postfix/sasl_passwd",
+        "navigation": null,
+        "expected_output": "Output such as '640 root postfix /etc/postfix/sasl_passwd' is restricted; '644 root root' indicates world_readable; '640 root mail' with non-daemon group members indicates group_readable."
+      },
+      {
+        "type": "command",
+        "instruction": "Check permissions on Exim and Sendmail credential-containing configuration files.",
+        "command": "stat -c '%a %U %G %n' /etc/exim4/exim4.conf /etc/exim4/passwd.client /etc/sendmail.cf /etc/mail/authinfo 2>/dev/null",
+        "file_path": "/etc/exim4/passwd.client",
+        "navigation": null,
+        "expected_output": "Permissions of 600 or 640 (with daemon-only group) are restricted; 644 or higher other bits indicate world_readable; group bits with broad group membership indicate group_readable."
+      },
+      {
+        "type": "command",
+        "instruction": "Use find to locate any MTA credential files with world-readable or broad group-readable permissions across common configuration directories.",
+        "command": "find /etc/postfix /etc/exim4 /etc/mail /etc/sendmail -type f \\( -perm /o+r -o -perm /g+r \\) -ls 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any files listed with world-readable bits (permissions showing r for others) classify as world_readable; files with group read but restricted other bits require group membership review."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "restricted (600 sasl_passwd owned by root, target state)",
+      "world_readable (644 on main.cf, common misconfiguration)",
+      "group_readable (640 with broad group like 'adm' or 'staff')"
+    ]
+  },
+  {
+    "option_name": "logged_fields",
+    "option_description": "An array listing the specific data fields captured per message transaction in MTA logs. The security baseline requires at minimum five fields: sender (envelope From address), recipient (envelope To address), message_id (the Message-ID header value), source_ip (connecting client IP address), and auth_outcome (SASL authentication result).",
+    "security_impact": "The inadequate_mail_queue_and_audit_logging Rego rule fires individually for each missing required field when log_level_configured is true. Each missing field represents a forensic blind spot: absence of source_ip prevents attribution of relay abuse; missing auth_outcome hides credential-based attacks (MITRE T1110); missing sender/recipient prevents reconstruction of exfiltration paths; missing message_id breaks cross-system message correlation. These gaps are exploited by adversaries to evade detection (MITRE T1070.008, T1505.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For Postfix, review the TLS log level and syslog configuration to identify which per-message fields are enabled.",
+        "command": "postconf smtpd_tls_loglevel smtp_tls_loglevel smtpd_sasl_authenticated_header 2>/dev/null",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "Values such as 'smtpd_tls_loglevel = 1' and 'smtpd_sasl_authenticated_header = yes' indicate TLS and auth fields are logged; default Postfix logs sender/recipient/source_ip/message_id at standard log level."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Exim, inspect the log_selector directive to enumerate which per-message transaction fields are captured.",
+        "command": "grep -E 'log_selector|log_file_path' /etc/exim4/exim4.conf /etc/exim4/conf.d/main/01_exim4-config_listmacrosdefs 2>/dev/null",
+        "file_path": "/etc/exim4/exim4.conf",
+        "navigation": null,
+        "expected_output": "A log_selector value such as '+sender_on_delivery +smtp_confirmation +all' confirms comprehensive field coverage; absence of specific selectors means those fields are not logged."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Examine actual MTA log entries to empirically verify which fields appear per message transaction.",
+        "command": "tail -50 /var/log/mail.log /var/log/maillog 2>/dev/null | grep -E 'from=|to=|client=|sasl_|msgid=' | head -20",
+        "file_path": "/var/log/mail.log",
+        "navigation": null,
+        "expected_output": "Log lines containing 'from=<sender>', 'to=<recipient>', 'client=hostname[source_ip]', 'sasl_method=PLAIN, sasl_username=user' confirm those fields are captured. Absence of any field in real log output confirms it is missing from logged_fields."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"sender\", \"recipient\", \"source_ip\", \"message_id\"] (common but missing auth_outcome)",
+      "[\"sender\", \"recipient\", \"source_ip\", \"message_id\", \"auth_outcome\"] (compliant baseline)",
+      "[] (logging disabled or errors-only)"
+    ]
+  },
+  {
+    "option_name": "log_level_configured",
+    "option_description": "A boolean indicating whether the MTA is configured to log at a verbosity level sufficient to capture individual message transaction details per delivery attempt, as opposed to errors-only or fully disabled logging. This is the gateway condition for evaluating whether specific logged_fields are present.",
+    "security_impact": "The inadequate_mail_queue_and_audit_logging Rego rule triggers immediately when log_level_configured is false, without even evaluating individual fields. Insufficient verbosity means relay abuse, spam campaigns, credential attacks, and data exfiltration via email channels cannot be forensically reconstructed. This directly enables adversaries to abuse the MTA (MITRE T1505.002 transport agents, T1070.008 log clearing) without leaving traceable evidence in the mail logs.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For Postfix, check whether syslog logging is active and what the debug peer and verbosity settings are in main.cf.",
+        "command": "postconf -n | grep -E 'syslog|debug_peer|mail_log|loglevel' 2>/dev/null; postconf mail_log_file 2>/dev/null",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "Absence of 'mail_log_file = /dev/null' and presence of standard syslog configuration indicates logging is active. If debug_peer_level=0 and no syslog facility is configured, log_level_configured = false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Exim, verify that log_selector is not set to a minimal or disabled state and that the log file path is active.",
+        "command": "grep -E '^log_selector|^log_file_path|^syslog_facility' /etc/exim4/exim4.conf 2>/dev/null || exim -bP log_selector log_file_path 2>/dev/null",
+        "file_path": "/etc/exim4/exim4.conf",
+        "navigation": null,
+        "expected_output": "A log_selector of '+all' or containing multiple positive selectors confirms per-message logging. A minimal or absent log_selector, or log_file_path pointing to /dev/null, indicates log_level_configured = false."
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm that the MTA is actively writing transaction-level log entries by checking the live mail log for recent per-message records.",
+        "command": "tail -20 /var/log/mail.log /var/log/maillog 2>/dev/null | grep -cE 'status=sent|status=bounced|from=<|to=<'",
+        "file_path": "/var/log/mail.log",
+        "navigation": null,
+        "expected_output": "A count greater than 0 confirms per-message transaction records are being written (log_level_configured = true). A count of 0 with recent mail activity strongly suggests logging is insufficient or disabled (log_level_configured = false)."
+      },
+      {
+        "type": "command",
+        "instruction": "Check syslog or journald configuration to ensure the mail facility is not filtered or redirected to /dev/null.",
+        "command": "grep -E 'mail\\.' /etc/rsyslog.conf /etc/rsyslog.d/*.conf 2>/dev/null; journalctl -u postfix --since '1 hour ago' --no-pager 2>/dev/null | wc -l",
+        "file_path": "/etc/rsyslog.conf",
+        "navigation": null,
+        "expected_output": "rsyslog entries such as 'mail.* /var/log/mail.log' confirm mail facility is captured. A journalctl count greater than 0 confirms the MTA service is generating log entries that are being retained."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (default for most package-installed Postfix/Exim deployments with syslog)",
+      "false (when syslog is misconfigured, mail facility is dropped, or MTA logging explicitly disabled in config)"
+    ]
+  },
+  {
+    "option_name": "admin_interface_network_restriction",
+    "option_description": "Controls whether the MTA administrative interface (e.g., Postfix admin console, management API, postsuper socket) is accessible only from trusted IP ranges, via VPN, or is restricted to localhost only. This governs firewall rules, listen directives, and network ACLs for the admin service port.",
+    "security_impact": "The Rego policy triggers unrestricted_management_interface_exposure when admin_interface_exposed is true AND admin_interface_network_restriction equals 'none'. Without IP allowlisting or VPN enforcement, any host on the internet can attempt to reach the management interface, enabling exploitation of interface vulnerabilities, unauthorized configuration changes, or relay abuse by unauthenticated actors targeting T1190 (Exploit Public-Facing Application) and T1021 (Remote Services).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List firewall rules to check if the admin interface port (commonly 8080, 8443, or a custom port) is restricted by source IP",
+        "command": "iptables -L INPUT -n -v | grep -E '(8080|8443|admin)' ; firewall-cmd --list-rich-rules 2>/dev/null | grep -i admin",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules showing source IP restrictions (-s 10.0.0.0/8 or similar RFC1918 ranges) on the admin port, or REJECT/DROP rules for all other sources"
+      },
+      {
+        "type": "command",
+        "instruction": "Check which interfaces the admin service is listening on using ss or netstat",
+        "command": "ss -tlnp | grep -E '(8080|8443|postfix|admin)' ; netstat -tlnp 2>/dev/null | grep -E '(8080|8443)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Bind address shown as 127.0.0.1, ::1, or a private RFC1918 IP rather than 0.0.0.0 or a public IP"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Postfix or admin tool configuration for listen address and access control directives",
+        "command": "grep -Ei '(listen|bind|inet_interfaces|mynetworks|permit_mynetworks)' /etc/postfix/main.cf /etc/postfix/master.cf 2>/dev/null",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "inet_interfaces set to loopback-only or specific management IP; mynetworks restricted to trusted CIDR blocks"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a connection to the admin interface port from an untrusted external IP to confirm whether the port is reachable",
+        "command": "nmap -Pn -p 8080,8443 <public-ip-of-mta-host> --source-port 12345",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Port shows as 'filtered' or 'closed' from untrusted networks; connection refused or timed out confirms restriction"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "ip_allowlist",
+      "localhost_only",
+      "vpn_required"
+    ]
+  },
+  {
+    "option_name": "admin_interface_exposed",
+    "option_description": "Indicates whether the MTA administrative interface is bound to a publicly routable or untrusted network interface, making it reachable from outside the organization's trusted network perimeter. This is determined by the bind address of the admin web console, management API, or postsuper socket.",
+    "security_impact": "The Rego policy evaluates admin_interface_exposed as the primary gate for unrestricted_management_interface_exposure. When true and combined with no network restriction or no authentication, the finding fires. An exposed admin interface allows attackers to directly target management functions over the internet, enabling unauthorized relay configuration, queue manipulation, or credential harvesting aligned with T1190 and T1021.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify all listening sockets on the MTA host and check whether any admin service is bound to a non-loopback or non-RFC1918 address",
+        "command": "ss -tlnp | awk '$4 !~ /^(127\\.|::1|10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.)/ {print}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No admin service ports (8080, 8443, custom management ports) appear in output bound to public IPs; only SMTP port 25 should appear on public interfaces"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the MTA configuration for the admin interface bind address setting",
+        "command": "grep -Ei '(listen_address|bind_address|inet_interfaces|admin_listen)' /etc/postfix/main.cf /etc/postfixadmin/config.local.php /opt/mailserver/config/*.conf 2>/dev/null",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "Bind address set to 127.0.0.1, localhost, or a private management IP; absence of 0.0.0.0 or a routable public IP"
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an external host, attempt TCP connection to the admin interface port to confirm whether it is reachable from the internet",
+        "command": "curl -v --connect-timeout 5 http://<mta-public-ip>:8080/ ; nc -zv <mta-public-ip> 8443 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection times out or is refused, indicating the interface is not exposed on the public-facing interface"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Ask the mail server administrator whether a reverse proxy or load balancer sits in front of the admin interface and review its ACL configuration",
+        "command": null,
+        "file_path": "/etc/nginx/sites-enabled/postfixadmin.conf",
+        "navigation": null,
+        "expected_output": "Reverse proxy configuration shows allow directives only for internal/management CIDR blocks with a final deny all rule"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "admin_interface_authentication",
+    "option_description": "Specifies the authentication mechanism enforced on the MTA administrative interface before granting access to management functions. Options range from no authentication (none) through HTTP basic authentication, mutual TLS client certificates, to multi-factor authentication (MFA).",
+    "security_impact": "The Rego policy fires unrestricted_management_interface_exposure when admin_interface_exposed is true AND admin_interface_authentication equals 'none', meaning the management interface is completely open to anyone who can reach it. Even when network restrictions exist, absent authentication means any host within the allowed range has full management access. This enables unauthorized configuration changes facilitating relay abuse, queue manipulation, and data exfiltration as described under T1190 and T1021.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the admin web console or reverse proxy configuration for authentication requirements",
+        "command": "grep -Ei '(auth|password|htpasswd|ssl_client_cert|require_certificate|mfa|totp)' /etc/nginx/sites-enabled/postfixadmin.conf /etc/apache2/sites-enabled/mail-admin.conf /etc/postfixadmin/config.local.php 2>/dev/null",
+        "file_path": "/etc/postfixadmin/config.local.php",
+        "navigation": null,
+        "expected_output": "Authentication directives present such as auth_basic, SSLVerifyClient require, or TOTP/MFA plugin configuration; absence of these indicates 'none'"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to access the admin interface URL without credentials and observe whether authentication is challenged",
+        "command": "curl -v -o /dev/null -s -w '%{http_code}' http://<admin-interface-host>:<port>/admin/ ; curl -v --insecure https://<admin-interface-host>:<port>/admin/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 401 or 403 response with WWW-Authenticate header indicates authentication is required; HTTP 200 without prompt indicates 'none'"
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the admin interface URL in a browser without providing credentials to verify whether a login prompt appears",
+        "command": null,
+        "file_path": null,
+        "navigation": "Open browser and navigate to http://<mta-host>:8080/admin or https://<mta-host>:8443/admin; observe whether a login form, certificate prompt, or direct access is presented",
+        "expected_output": "A login form (basic_auth), browser certificate selection prompt (certificate), or MFA code entry page; immediate dashboard access indicates 'none'"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the mail server administrator to confirm whether MFA or certificate-based authentication has been deployed for admin access and review any IAM or SSO integration documentation",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation or verbal confirmation of MFA enforcement via TOTP, hardware token, or mutual TLS client certificates for all admin accounts"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "basic_auth",
+      "certificate",
+      "mfa"
+    ]
+  },
+  {
+    "option_name": "mta_sts_policy_configured",
+    "option_description": "Indicates whether a valid MTA-STS (Mail Transfer Agent Strict Transport Security) policy is published for the domain. A complete MTA-STS deployment requires both a DNS TXT record at _mta-sts.<domain> and a reachable HTTPS policy file at https://mta-sts.<domain>/.well-known/mta-sts.txt. This mechanism instructs sending MTAs to require valid TLS when delivering mail to the domain.",
+    "security_impact": "The Rego policy fires missing_mta_sts_or_dane_policy when neither mta_sts_policy_configured nor dane_tlsa_records_configured is true. Without at least one of these controls, active adversaries can perform SMTP downgrade attacks by stripping STARTTLS advertisements, intercepting email in transit, and conducting man-in-the-middle attacks against outbound delivery. This enables email content interception and credential theft aligned with T1672 and T1588.004.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query DNS for the MTA-STS TXT record to confirm it is published and well-formed",
+        "command": "dig TXT _mta-sts.example.com +short ; nslookup -type=TXT _mta-sts.example.com",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A TXT record returned containing 'v=STSv1; id=<timestamp>' indicates the DNS component is present; NXDOMAIN or empty response means not configured"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Fetch the MTA-STS policy file over HTTPS to confirm it is accessible and contains a valid policy",
+        "command": "curl -v https://mta-sts.example.com/.well-known/mta-sts.txt",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 200 response with body containing 'version: STSv1', 'mode: enforce' (or testing), 'max_age:', and 'mx:' directives; HTTP 404 or connection failure means not configured"
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Google MTA-STS checking tool or MXToolbox API to validate both DNS and HTTPS components simultaneously",
+        "command": "curl -s 'https://mxtoolbox.com/api/v1/lookup/mta-sts/example.com' -H 'Authorization: Bearer <api_key>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "API response showing both DNS record and policy file as valid with mode set to enforce; errors in either component means the policy is not fully configured"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the web server hosting the MTA-STS policy file to confirm the file exists and is served with correct content-type",
+        "command": "cat /var/www/mta-sts/.well-known/mta-sts.txt ; grep -r 'mta-sts' /etc/nginx/sites-enabled/ /etc/apache2/sites-enabled/ 2>/dev/null",
+        "file_path": "/var/www/mta-sts/.well-known/mta-sts.txt",
+        "navigation": null,
+        "expected_output": "Policy file present containing version, mode, max_age, and mx fields; web server config shows the domain mta-sts.<domain> is configured and serving the file"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "dane_tlsa_records_configured",
+    "option_description": "Indicates whether DANE (DNS-Based Authentication of Named Entities) TLSA records are published in DNS for the domain's MX hosts, and whether those DNS zones are signed with DNSSEC. DANE allows sending MTAs to authenticate the receiving server's TLS certificate using DNSSEC-protected TLSA records without relying on the commercial CA trust hierarchy.",
+    "security_impact": "Like mta_sts_policy_configured, the Rego policy fires missing_mta_sts_or_dane_policy when neither DANE nor MTA-STS is configured. Without DANE, certificate validation relies entirely on the CA trust store, leaving the domain vulnerable to attacks using fraudulent certificates issued by compromised or rogue CAs (T1588.004). DANE combined with DNSSEC eliminates CA dependency and prevents TLS downgrade attacks during mail transit (T1584.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query TLSA records for each MX host at the standard SMTP TLSA location _25._tcp.<mx-hostname>",
+        "command": "dig TLSA _25._tcp.mail.example.com +dnssec +short ; for mx in $(dig MX example.com +short | awk '{print $2}'); do echo \"Checking $mx:\"; dig TLSA _25._tcp.$mx +short; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLSA records returned in format '<usage> <selector> <type> <certificate-association-data>'; NXDOMAIN for all MX hosts means DANE is not configured"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify DNSSEC is enabled for the zone by checking for RRSIG records and DNSKEY",
+        "command": "dig MX example.com +dnssec | grep -E '(RRSIG|DNSKEY)' ; delv @8.8.8.8 example.com MX +rtrace 2>&1 | grep -i 'fully validated'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RRSIG records present alongside MX records, and delv output showing 'fully validated' confirms DNSSEC is active; absence means DANE cannot be trusted even if TLSA records exist"
+      },
+      {
+        "type": "api",
+        "instruction": "Use a DANE validation API or tool such as the DANE SMTP checker at internet.nl or dane.sys4.de to validate the full DANE chain",
+        "command": "curl -s 'https://dane.sys4.de/smtp/example.com' | python3 -m json.tool 2>/dev/null ; curl -s 'https://check.dane.de/api/v1/check?domain=example.com' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response indicating TLSA records found, DNSSEC validation successful, and certificate matches TLSA record; any failure in the chain means DANE is not effectively configured"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use the dane-smtpcheck tool or openssl with TLSA verification to confirm end-to-end DANE validation for the MX host",
+        "command": "swaks --to test@example.com --tls --dane 2>&1 | grep -i 'dane' ; openssl s_client -connect mail.example.com:25 -starttls smtp -dane_tlsa_domain mail.example.com 2>&1 | grep -i 'dane'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output indicating 'DANE verification successful' or 'Verified OK with DANE TLSA'; errors or absence of DANE output means not configured"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "attachment_type_filtering_enabled",
+    "option_description": "Controls whether the MTA enforces a policy to block or quarantine email attachments with dangerous file extensions or MIME types known to carry malware or execute code. This includes executable types such as .exe, .bat, .cmd, .js, .vbs, .ps1, and document types capable of containing macros such as .doc, .xls, and .xlsm.",
+    "security_impact": "The Rego policy fires attachment_and_content_filtering_disabled when attachment_type_filtering_enabled is false. Without this control, malicious attachments containing embedded payloads (T1027.009) and HTML smuggling content (T1027.006) pass through the MTA unimpeded and reach end users. Attachment filtering at the MTA layer is a foundational defense against phishing and malware delivery campaigns. The rule also considers antimalware_scan_integration, but attachment type filtering provides blocking without requiring full AV scanning on every message.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check Postfix header_checks and mime_header_checks for attachment extension or MIME type blocklist rules",
+        "command": "grep -i 'header_checks\\|mime_header_checks\\|body_checks' /etc/postfix/main.cf ; cat /etc/postfix/header_checks 2>/dev/null | grep -Ei '(\\.exe|\\.bat|\\.js|\\.vbs|\\.ps1|application/x-msdownload)'",
+        "file_path": "/etc/postfix/header_checks",
+        "navigation": null,
+        "expected_output": "REJECT or DISCARD rules matching dangerous extensions or MIME types present in header_checks or mime_header_checks; absence indicates filtering is not configured at the MTA level"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Amavis or other milter/filter integration for attachment type policies",
+        "command": "grep -Ei '(bad_filename|banned_filename|block_extension|mime_block)' /etc/amavis/conf.d/*.conf /etc/amavisd/amavisd.conf /etc/MailScanner/rules/filename.rules.conf 2>/dev/null | head -40",
+        "file_path": "/etc/amavis/conf.d/20-debian_defaults",
+        "navigation": null,
+        "expected_output": "@banned_filename_re or equivalent array populated with dangerous extension patterns; empty or commented-out arrays indicate filtering is disabled"
+      },
+      {
+        "type": "gui",
+        "instruction": "Log in to the email gateway management console and review the content filtering or attachment policy section",
+        "command": null,
+        "file_path": null,
+        "navigation": "For Exchange: EAC > Mail Flow > Rules > look for rules blocking attachment types. For Proofpoint/Mimecast: Log in to admin portal > Email Security > Attachment Management > confirm active policy blocking dangerous file types",
+        "expected_output": "Active transport rules or gateway policies listing blocked file extensions/MIME types with action set to block or quarantine"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request documentation of the organization's email attachment filtering policy and verify it is implemented in the active MTA or gateway configuration",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written policy defining blocked attachment types that maps to active configuration in the MTA, gateway, or content filter; absence of documentation or implementation gap indicates filtering is not reliably enabled"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "mime_structure_validation_enabled",
+    "option_description": "Controls whether the MTA or an integrated content filter validates the MIME structure of inbound email messages, detecting malformed, nested, or obfuscated MIME constructs that are commonly used to evade antivirus and content inspection engines. This includes checks for invalid boundary definitions, deeply nested MIME parts, illegal encoding combinations, and mismatched Content-Type declarations.",
+    "security_impact": "The Rego policy fires attachment_and_content_filtering_disabled when mime_structure_validation_enabled is false AND antimalware_scan_integration is not 'full'. Attackers craft deliberately malformed MIME structures to bypass scanners that rely on well-formed input for analysis, enabling HTML smuggling (T1027.006) and embedded payload delivery (T1027.009) to succeed. MIME validation ensures that malformed messages are rejected or normalized before downstream scanning, closing a common evasion path.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check Amavis configuration for MIME normalization and validation settings",
+        "command": "grep -Ei '(mime_decode|normalize|malformed|bad_mime|mime_check|decomposeparts)' /etc/amavis/conf.d/*.conf /etc/amavisd/amavisd.conf 2>/dev/null",
+        "file_path": "/etc/amavis/conf.d/15-content_filter_mode",
+        "navigation": null,
+        "expected_output": "MIME normalization enabled via $normalize_originating_headers or equivalent setting set to a non-zero/true value; relevant checks not commented out"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check SpamAssassin or Rspamd configuration for MIME structure checks and invalid MIME scoring rules",
+        "command": "grep -Ei '(mime|malformed|boundary|invalid_mime|mime_boundary)' /etc/spamassassin/local.cf /etc/spamassassin/v320.pre /etc/rspamd/local.d/mime_types.conf 2>/dev/null ; sa-check_spamc -D mime 2>&1 | grep -i enabled",
+        "file_path": "/etc/spamassassin/local.cf",
+        "navigation": null,
+        "expected_output": "MIME-related rules active with scores assigned; MIME_BOUNDARY_DOUBLE_DASH, MIME_HTML_MOSTLY, or similar rule hits visible in test output; absence of MIME rules indicates validation is minimal"
+      },
+      {
+        "type": "command",
+        "instruction": "Send a test email with a deliberately malformed MIME structure (mismatched boundary) to the server and observe whether it is rejected, quarantined, or delivered",
+        "command": "swaks --to postmaster@example.com --server mail.example.com --data - <<'EOF'\nFrom: test@external.com\nTo: postmaster@example.com\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=\"boundary1\"\n\n--boundary2\nContent-Type: text/plain\n\nMismatched boundary test\n--boundary1--\nEOF",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SMTP rejection (5xx) or bounce indicating malformed MIME detected; if delivered without rejection, MIME validation is likely not enforced"
+      },
+      {
+        "type": "gui",
+        "instruction": "Check the email gateway or security appliance management interface for MIME inspection or message normalization policy settings",
+        "command": null,
+        "file_path": null,
+        "navigation": "Proofpoint: Admin Console > Email Protection > Policies > Content Rules > MIME validation. Mimecast: Administration Console > Gateway > Policies > Content Examination. Exchange Online: Security & Compliance > Anti-malware > Advanced options > enable zero-hour auto purge and MIME inspection",
+        "expected_output": "MIME validation or message normalization shown as enabled with action set to quarantine or reject for malformed structures; disabled state means the control is absent"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "antimalware_scan_integration",
+    "option_description": "Controls the level of anti-malware scanning integrated at the MTA layer for email attachments. Determines whether the mail server inspects attachments using no scanning, signature-based detection only, or full heuristic/behavioral analysis via engines such as ClamAV (via Amavis or clamav-milter) or a commercial gateway scanner.",
+    "security_impact": "Directly triggers the 'attachment_and_content_filtering_disabled' exposure in the Rego policy. If set to 'none', the policy fires unconditionally. If set to anything other than 'full', the policy also fires when MIME structure validation is absent, meaning partial scanning still leaves the server exposed to novel or obfuscated malware payloads delivered via email attachments (T1027.009, T1027.006).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether Amavis is installed and active as the integration bridge between the MTA and ClamAV.",
+        "command": "systemctl status amavis amavisd-new clamav-daemon 2>/dev/null; postconf -n | grep -E 'content_filter|smtpd_milters|non_smtpd_milters'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active service status lines for amavis/clamav-daemon, and content_filter or milter directives referencing amavisfeed or clamav-milter in Postfix output."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Amavis configuration to determine whether ClamAV is enabled and whether heuristic scanning is active.",
+        "command": "grep -E 'bypass_virus_checks|@av_scanners|heuristic_code_scanner|decoders' /etc/amavis/conf.d/15-content_filter_mode /etc/amavisd/amavisd.conf /etc/amavisd.conf 2>/dev/null | head -40",
+        "file_path": "/etc/amavis/conf.d/15-content_filter_mode",
+        "navigation": null,
+        "expected_output": "Presence of '@av_scanners' with ClamAV entries and absence of 'bypass_virus_checks_maps' with permissive values; heuristic scanner entries indicate 'full' integration."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for clamav-milter integration directly in the MTA without Amavis as middleware.",
+        "command": "grep -E 'smtpd_milters|InputMailFilters' /etc/postfix/main.cf /etc/mail/sendmail.cf /etc/mail/sendmail.mc 2>/dev/null; systemctl status clamav-milter 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Milter socket paths referencing clamav-milter and an active service state confirm direct milter integration."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the mail server administrator or review change management records to determine if a commercial gateway scanner (e.g., Sophos, McAfee Email Gateway) is positioned upstream of this MTA and whether heuristic/behavioral scanning is licensed and enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirming a scanning appliance with heuristic detection enabled upstream, or confirmation that no scanning is in place."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "signature_only",
+      "full"
+    ]
+  },
+  {
+    "option_name": "ptr_validation_enabled",
+    "option_description": "Indicates whether the MTA performs reverse DNS (PTR) lookup validation on the IP address of each connecting SMTP client before accepting mail. When enabled, the MTA queries DNS for a PTR record matching the client IP and may take action based on the result.",
+    "security_impact": "One of two conditions triggering the 'dns_reverse_lookup_validation_absent' exposure. When false, the Rego policy fires immediately, flagging the absence of any PTR-based friction against spam and phishing sources using ephemeral or dynamically allocated IP infrastructure (T1568.001, T1590.002). Even when true, the exposure still fires unless 'no_ptr_rejection_policy' is set to 'reject'.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "In Postfix, check smtpd_client_restrictions for PTR validation directives.",
+        "command": "postconf -n smtpd_client_restrictions smtpd_helo_restrictions smtpd_sender_restrictions | grep -E 'reject_unknown_client_hostname|reject_unknown_reverse_client_hostname|reject_unknown_helo_hostname'",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "Output containing 'reject_unknown_client_hostname' or 'reject_unknown_reverse_client_hostname' confirms PTR validation is configured; absence means it is not."
+      },
+      {
+        "type": "config_file",
+        "instruction": "In Exim, inspect the ACL configuration for reverse host lookup verification conditions.",
+        "command": "grep -rn 'verify.*=.*reverse_host_lookup\\|dnslookup\\|host_lookup' /etc/exim4/ /etc/exim/ 2>/dev/null | head -20",
+        "file_path": "/etc/exim4/exim4.conf.template",
+        "navigation": null,
+        "expected_output": "ACL stanzas containing 'verify = reverse_host_lookup' confirm PTR validation is active in Exim."
+      },
+      {
+        "type": "config_file",
+        "instruction": "In Sendmail, check the ResolverOptions and any ruleset that invokes DNS lookups for connecting clients.",
+        "command": "grep -E 'ResolverOptions|enhdnsbl|access_db|FEATURE.*dnsbl\\|FEATURE.*delay_checks' /etc/mail/sendmail.cf /etc/mail/sendmail.mc 2>/dev/null | head -20",
+        "file_path": "/etc/mail/sendmail.cf",
+        "navigation": null,
+        "expected_output": "Sendmail ResolverOptions with relevant flags or FEATURE macros enabling DNS-based client checks indicate PTR validation is enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "no_ptr_rejection_policy",
+    "option_description": "Defines the action the MTA takes when a connecting client IP has no matching PTR (reverse DNS) record. Options are to reject the connection outright, tag/flag the message for downstream scoring, or silently accept it with no action taken.",
+    "security_impact": "The second condition in the 'dns_reverse_lookup_validation_absent' Rego rule. Even when 'ptr_validation_enabled' is true, if this policy is 'accept' or 'tag', the exposure still fires, because neither outcome creates a reliable barrier against spam or phishing senders using infrastructure without PTR records (T1568.001). Only a value of 'reject' satisfies the policy check.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "In Postfix, determine whether the PTR check directive causes a hard reject or is used in a milter/policy service that only tags messages.",
+        "command": "postconf -n smtpd_client_restrictions | grep -E 'reject_unknown|warn_if_reject|check_client_access'; postconf -n smtpd_soft_error_limit smtpd_error_sleep_time",
+        "file_path": "/etc/postfix/main.cf",
+        "navigation": null,
+        "expected_output": "'reject_unknown_reverse_client_hostname' without a preceding 'warn_if_reject' modifier indicates hard rejection. 'warn_if_reject' before the check means tagging/logging only."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check SpamAssassin, Rspamd, or Amavis integration to determine if missing PTR records only contribute to a spam score rather than causing rejection.",
+        "command": "grep -rn 'RDNS_NONE\\|PTR_\\|rdns\\|reverse_dns' /etc/spamassassin/ /etc/rspamd/ /etc/amavis/ 2>/dev/null | grep -v '^Binary' | head -20",
+        "file_path": "/etc/spamassassin/local.cf",
+        "navigation": null,
+        "expected_output": "Rules referencing RDNS_NONE with score assignments (rather than reject actions) confirm a 'tag' policy; hard reject rules or 'reject_symbol' entries in Rspamd indicate 'reject'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "In Exim, review the ACL action associated with the reverse_host_lookup verify condition to determine whether it denies or warns.",
+        "command": "grep -A5 'verify.*reverse_host_lookup' /etc/exim4/exim4.conf.template /etc/exim4/conf.d/acl/30_exim4-config_check_rcpt 2>/dev/null | head -30",
+        "file_path": "/etc/exim4/conf.d/acl/30_exim4-config_check_rcpt",
+        "navigation": null,
+        "expected_output": "An 'deny' verb following the verify condition confirms 'reject'; 'warn' or 'add_header' verbs confirm 'tag'; no condition present confirms 'accept'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "accept",
+      "tag",
+      "reject"
+    ]
+  },
+  {
+    "option_name": "queue_directory_world_writable",
+    "option_description": "Indicates whether the mail spool or queue directory (e.g., /var/spool/mqueue for Sendmail, /var/spool/postfix for Postfix) has world-write permission (mode includes o+w), allowing any local OS user to write files into it regardless of their group membership.",
+    "security_impact": "Directly triggers the 'mail_queue_directory_permission_misconfiguration' exposure in the Rego policy when true. World-writable queue directories allow any local user to inject forged or malicious messages into the mail queue, tamper with queued messages before delivery, or stage data for exfiltration via the email channel (T1098.002, T1114.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the octal permission mode of the Postfix queue directories for world-write bits.",
+        "command": "stat -c '%a %U %G %n' /var/spool/postfix /var/spool/postfix/deferred /var/spool/postfix/incoming /var/spool/postfix/active /var/spool/postfix/maildrop 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permission octets with a '2', '3', '6', or '7' in the last (others) position indicate world-write. Secure directories typically show 700 or 710."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the Sendmail mail queue directory for world-write permissions.",
+        "command": "stat -c '%a %U %G %n' /var/spool/mqueue /var/spool/mqueue-client 2>/dev/null; ls -ld /var/spool/mqueue 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permissions of 700 or 750 are expected. Any mode ending in 2, 3, 6, or 7 (others write bit set) is a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "Use find to scan all queue-related paths for world-writable directories across common MTA variants.",
+        "command": "find /var/spool/postfix /var/spool/mqueue /var/spool/exim4 /var/spool/exim /var/qmail/queue -maxdepth 3 -type d -perm -o+w 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output is the expected secure result. Any directory path returned is world-writable and constitutes a finding."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "queue_directory_owner",
+    "option_description": "Records the OS username that owns the mail queue or spool directory. The owner should be the dedicated MTA service account (e.g., postfix, mail, smmsp, mailnull, exim, or qmail). Ownership by root or a general-purpose account with broad group membership increases injection risk when combined with permissive directory modes.",
+    "security_impact": "Used in the 'mail_queue_directory_permission_misconfiguration' Rego rule, which fires if the owner is not in the set ['postfix', 'mail', 'smmsp', 'mailnull', 'exim', 'qmail']. Root ownership combined with loose permissions is particularly dangerous because it widens the blast radius of any local privilege escalation—an attacker who compromises any root-equivalent path gains write access to the mail queue (T1098.002, T1114.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve the owning username of all primary MTA queue directories using stat.",
+        "command": "stat -c '%U %n' /var/spool/postfix /var/spool/mqueue /var/spool/exim4/input /var/spool/exim4 /var/qmail/queue 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each path should be owned by its respective MTA service account (e.g., 'postfix /var/spool/postfix'). Output showing 'root' or any general user account is a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "Cross-reference the directory owner against the user defined in the MTA configuration to confirm alignment.",
+        "command": "postconf -n queue_directory mail_owner 2>/dev/null; stat -c '%U' $(postconf -h queue_directory 2>/dev/null || echo '/var/spool/postfix')",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The username returned by stat should match the value of Postfix's 'mail_owner' directive (default: 'postfix')."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Sendmail, check the RunAsUser parameter and compare to the spool directory owner.",
+        "command": "grep -E 'RunAsUser|RunAsGroup|DefaultUser' /etc/mail/sendmail.cf 2>/dev/null; stat -c '%U %G' /var/spool/mqueue",
+        "file_path": "/etc/mail/sendmail.cf",
+        "navigation": null,
+        "expected_output": "RunAsUser should match the owner shown by stat (typically 'smmsp' or 'mail'). A mismatch or root ownership is a finding."
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "postfix",
+      "mail",
+      "smmsp",
+      "mailnull",
+      "exim",
+      "qmail",
+      "root"
+    ]
+  },
+  {
+    "option_name": "queue_directory_group_writable_by_non_mta",
+    "option_description": "Indicates whether the mail queue directory has group-write permission (g+w) AND the owning group includes members other than the MTA service account. This condition allows any local user who is a member of that group to write to the queue directory, even if they are not the MTA service account itself.",
+    "security_impact": "Directly triggers the 'mail_queue_directory_permission_misconfiguration' Rego exposure when true. Group-write with a broadly-membered group is functionally equivalent to world-write for any group member, enabling message injection or tampering in the queue (T1098.002, T1114.002). This is a common misconfiguration on systems where administrators add users to the 'mail' group for convenience without recognizing the queue write risk.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the group-write bit on the queue directory and identify the owning group name.",
+        "command": "stat -c '%a %G %n' /var/spool/postfix /var/spool/mqueue /var/spool/exim4 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A '6' or '7' in the middle (group) position of the octal mode (e.g., 770, 760) indicates group-write is set. Note the group name for membership inspection."
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate all members of the owning group to determine whether non-MTA users are present.",
+        "command": "QDIR_GROUP=$(stat -c '%G' /var/spool/postfix 2>/dev/null || stat -c '%G' /var/spool/mqueue 2>/dev/null); echo \"Queue group: $QDIR_GROUP\"; getent group \"$QDIR_GROUP\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The group entry should list only the MTA service account (or be empty beyond the primary user). Any additional OS users in the group combined with g+w on the queue directory constitutes a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for users with supplementary group membership in the queue directory's owning group beyond the MTA account.",
+        "command": "QDIR_GROUP=$(stat -c '%G' /var/spool/postfix 2>/dev/null || echo 'mail'); getent passwd | awk -F: '{print $1}' | xargs -I{} sh -c 'groups {} 2>/dev/null | grep -q \"'\"$QDIR_GROUP\"'\" && echo {}' | grep -v -E '^(postfix|mail|smmsp|mailnull|exim|qmail)$'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output is the expected result. Any username printed indicates a non-MTA user with group membership that could be leveraged if g+w is set on the queue directory."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  }
+]

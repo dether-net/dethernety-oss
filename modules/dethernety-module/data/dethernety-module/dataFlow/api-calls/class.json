@@ -1,0 +1,8 @@
+{
+  "name": "API Calls",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "API calls represent a primary data-in-transit attack surface where sensitive requests and responses traverse network boundaries. Key risks include unencrypted transport, weak protocol negotiation, missing mutual authentication, lack of message integrity verification, replay susceptibility, and insufficient rate controls that expose inter-service communication to interception, manipulation, and abuse.",
+  "category": "Application Traffic",
+  "status": "reviewed"
+}

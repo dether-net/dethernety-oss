@@ -1,0 +1,2018 @@
+[
+  {
+    "option_name": "encryption_at_rest_enabled",
+    "option_description": "Controls whether server-side encryption is active on storage volumes or object buckets, ensuring data stored on physical media is unreadable without the appropriate decryption key.",
+    "security_impact": "The Rego policy flags the 'unencrypted_data_at_rest' exposure whenever 'not input.encryption_at_rest_enabled' evaluates true, or when encryption is nominally enabled but 'encryption_key_type' is 'none'. Without this control, any party with physical or hypervisor-level access to underlying storage media can read raw data directly, bypassing all application-layer access controls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check AWS S3 bucket default encryption using the AWS CLI.",
+        "command": "aws s3api get-bucket-encryption --bucket <bucket-name> --query 'ServerSideEncryptionConfiguration.Rules[*].ApplyServerSideEncryptionByDefault.SSEAlgorithm'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'aws:kms' or 'AES256' confirms encryption is enabled; a NoSuchBucketEncryptionError or empty result indicates it is not configured."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Azure Blob Storage or Disk encryption status using the Azure CLI.",
+        "command": "az storage account show --name <storage-account> --query 'encryption.services.blob.enabled' && az disk show --name <disk-name> --resource-group <rg> --query 'encryptionSettingsCollection.enabled'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'true' confirms encryption at rest is enabled on the blob service or disk."
+      },
+      {
+        "type": "command",
+        "instruction": "Check GCS bucket encryption configuration using gcloud CLI.",
+        "command": "gcloud storage buckets describe gs://<bucket-name> --format='value(encryption)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns a KMS key resource name if CMEK is configured, or empty if using Google-managed default encryption (still encrypted but with provider keys)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to S3 > <bucket-name> > Properties > Default encryption to confirm the encryption algorithm and KMS key are set.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > S3 > [bucket] > Properties > Default encryption",
+        "expected_output": "Encryption type shows 'SSE-S3' or 'SSE-KMS' with a key ARN, not 'Disabled'."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "encryption_key_type",
+    "option_description": "Identifies the key management model used for encryption at rest: no key configured, provider-managed default keys, customer-managed keys (CMEK/SSE-KMS), or customer-provided keys (SSE-C or self-managed).",
+    "security_impact": "The Rego 'unencrypted_data_at_rest' rule triggers not only when encryption is disabled but also when 'encryption_key_type' is 'none' even if encryption appears enabled, catching partially misconfigured states. The key type also feeds into 'customer_managed_key_mismanagement' indirectly through 'key_management_type', affecting the level of customer control over key revocation and auditing.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve the SSE algorithm applied to an AWS S3 bucket to determine key type (SSE-S3 = provider_managed, SSE-KMS = customer_managed, SSE-C = customer_provided).",
+        "command": "aws s3api get-bucket-encryption --bucket <bucket-name> --query 'ServerSideEncryptionConfiguration.Rules[*].ApplyServerSideEncryptionByDefault'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output includes 'SSEAlgorithm': 'AES256' (provider_managed), 'aws:kms' with a KMSMasterKeyID (customer_managed), or empty (none)."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Azure Storage account encryption key source to determine if Microsoft-managed or customer-managed keys are in use.",
+        "command": "az storage account show --name <account-name> --query '{keySource:encryption.keySource, keyVaultUri:encryption.keyVaultProperties.keyVaultUri}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Microsoft.Storage' keySource indicates provider_managed; 'Microsoft.Keyvault' with a keyVaultUri indicates customer_managed."
+      },
+      {
+        "type": "api",
+        "instruction": "Call the GCS JSON API to inspect the defaultKmsKeyName field on a bucket, which indicates CMEK (customer_managed) or its absence (provider_managed).",
+        "command": "curl -H 'Authorization: Bearer $(gcloud auth print-access-token)' 'https://storage.googleapis.com/storage/v1/b/<bucket-name>?fields=encryption'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response contains 'encryption.defaultKmsKeyName' for customer_managed, or no 'encryption' key for provider_managed Google-default encryption."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "provider_managed",
+      "customer_managed",
+      "none",
+      "customer_provided"
+    ]
+  },
+  {
+    "option_name": "tls_enabled",
+    "option_description": "Controls whether all data-plane connections to and from the storage service are forced over encrypted TLS channels, with plaintext HTTP, FTP, or unencrypted SMB access blocked or redirected.",
+    "security_impact": "The Rego 'weak_or_absent_encryption_in_transit' rule triggers on 'not input.tls_enabled', making this the first gate for transit security. Disabled TLS allows network-adjacent attackers to intercept credentials, data payloads, and metadata in cleartext. Cloud storage endpoints often expose HTTP redirect options that, if not explicitly disabled, can fall back to plaintext.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether AWS S3 bucket policy enforces HTTPS-only access by requiring 'aws:SecureTransport' to be true.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket-name> | python3 -c \"import json,sys; p=json.load(sys.stdin); [print(s) for s in p['Statement'] if 'SecureTransport' in str(s)]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A Deny statement with Condition 'aws:SecureTransport': 'false' confirms HTTPS is enforced. Absence of this statement means HTTP is permitted."
+      },
+      {
+        "type": "command",
+        "instruction": "Test whether the storage endpoint accepts plaintext HTTP connections using curl.",
+        "command": "curl -v --max-time 10 http://<storage-endpoint>/<bucket-or-path> 2>&1 | grep -E '< HTTP|SSL|TLS|redirect'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 301/302 redirect to HTTPS or a connection refused indicates TLS enforcement. A 200 response over HTTP is a misconfiguration."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap to detect whether port 80 (HTTP) or port 21 (FTP) is open and responding on the storage host or endpoint.",
+        "command": "nmap -p 80,21,443,22 --open <storage-host-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ports 80 and 21 should appear closed or filtered; port 443 or 22 (SFTP) should be open."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Azure Portal, navigate to Storage Account > Configuration and verify 'Secure transfer required' is set to Enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Storage Accounts > [account] > Configuration > Secure transfer required",
+        "expected_output": "Setting shows 'Enabled', meaning HTTP requests are rejected."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "minimum_tls_version",
+    "option_description": "Sets the lowest TLS protocol version the storage service will negotiate, preventing clients from downgrading to deprecated protocols such as SSL 3.0, TLS 1.0, or TLS 1.1 that have known cryptographic weaknesses.",
+    "security_impact": "The Rego 'weak_or_absent_encryption_in_transit' rule explicitly fires when 'minimum_tls_version' is in the set ['none', 'ssl3', 'tls1.0', 'tls1.1'], even when TLS is nominally enabled. Deprecated TLS versions are vulnerable to POODLE, BEAST, and SWEET32 attacks, allowing MITM decryption of in-flight data. Only TLS 1.2 or TLS 1.3 are considered safe by current standards.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the minimum TLS version configured on an Azure Storage Account.",
+        "command": "az storage account show --name <account-name> --query 'minimumTlsVersion'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'TLS1_2' or 'TLS1_3' is secure; 'TLS1_0' or 'TLS1_1' is a misconfiguration."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use testssl.sh to enumerate all accepted TLS protocol versions on the storage endpoint.",
+        "command": "testssl.sh --protocols https://<storage-endpoint>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SSL 3.0, TLS 1.0, and TLS 1.1 should show 'not offered'; TLS 1.2/1.3 should show 'offered'."
+      },
+      {
+        "type": "command",
+        "instruction": "Attempt a TLS 1.0 handshake with OpenSSL to verify rejection.",
+        "command": "openssl s_client -connect <storage-endpoint>:443 -tls1 2>&1 | grep -E 'Cipher|no peer|error'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'no peer certificate available' or handshake failure indicates TLS 1.0 is rejected. A successful cipher line means TLS 1.0 is accepted."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console for CloudFront or API Gateway in front of S3, check Security Policy to confirm the minimum TLS version.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > CloudFront > [Distribution] > General > Security Policy",
+        "expected_output": "Policy should be 'TLSv1.2_2021' or equivalent; older policies (TLSv1, TLSv1.1) are flagged."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls1.2",
+      "tls1.3",
+      "tls1.1",
+      "tls1.0"
+    ]
+  },
+  {
+    "option_name": "certificate_validation_enforced",
+    "option_description": "Controls whether the storage client SDK and any intermediary layers perform full TLS certificate chain and hostname validation, rejecting self-signed, expired, or hostname-mismatched certificates.",
+    "security_impact": "The Rego 'weak_or_absent_encryption_in_transit' rule fires on 'not input.certificate_validation_enforced' independently of TLS being enabled, because disabling cert validation renders TLS encryption useless against MITM attacks. An attacker on the network path can present a self-signed certificate and intercept all traffic without triggering client errors when validation is disabled.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search application configuration files and environment variables for known certificate validation bypass options in Python (boto3), Node.js, or Java AWS SDKs.",
+        "command": "grep -rn --include='*.py' --include='*.js' --include='*.java' --include='*.conf' --include='*.env' -E 'verify_ssl|verify=False|ssl_verify|CURLOPT_SSL_VERIFYPEER|truststore|InsecureSkipVerify|rejectUnauthorized' /opt/app/ /etc/",
+        "file_path": "/opt/app/, /etc/",
+        "navigation": null,
+        "expected_output": "No matches indicate cert validation is not disabled; any match requires investigation to confirm intent and scope."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the AWS CLI configuration for certificate verification settings.",
+        "command": "grep -E 'ca_bundle|verify' ~/.aws/config /etc/boto.cfg 2>/dev/null",
+        "file_path": "~/.aws/config, /etc/boto.cfg",
+        "navigation": null,
+        "expected_output": "'verify = true' or no verify line (default is true). 'verify = false' is a critical misconfiguration."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a connection to the storage endpoint using a self-signed certificate via a proxy to test whether the client rejects it.",
+        "command": "curl --cacert /dev/null --resolve <storage-host>:443:127.0.0.1 https://<storage-host>/<path> 2>&1 | grep -E 'SSL|certificate|error'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'SSL certificate problem' or 'certificate verify failed' error confirms validation is active. A successful response (200) means validation is bypassed."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the application team or review deployment runbooks to confirm no certificate validation bypass flags are used in CI/CD pipelines, container environment variables, or Terraform provider configurations.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirms validation is enforced; absence of HTTPS_PROXY bypass or SDK verify=False flags in pipeline scripts."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "key_management_type",
+    "option_description": "Specifies the architectural model for encryption key ownership and storage: customer-managed keys in an external KMS (strongest isolation), provider-managed default keys (convenient but reduced customer control), or keys co-located with the encrypted data (weakest, defeats encryption guarantees).",
+    "security_impact": "The Rego 'customer_managed_key_mismanagement' rule triggers for both 'provider_managed' and 'co_located_same_host' values, as well as for 'customer_managed_external' without key rotation. Provider-managed keys mean the cloud provider can theoretically decrypt data without customer consent. Co-located keys are catastrophically insecure because compromising the storage host yields both the ciphertext and the decryption key simultaneously.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Determine whether an AWS S3 bucket uses SSE-S3 (provider_managed), SSE-KMS with a CMK (customer_managed_external), or has no encryption (maps to co_located consideration).",
+        "command": "aws s3api get-bucket-encryption --bucket <bucket-name> --query 'ServerSideEncryptionConfiguration.Rules[*].ApplyServerSideEncryptionByDefault.{Algorithm:SSEAlgorithm,KeyId:KMSMasterKeyID}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AES256 = provider_managed; aws:kms with a customer ARN = customer_managed_external; aws:kms with an AWS-managed key alias (aws/s3) = provider_managed."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether the KMS key used for EBS or S3 is AWS-owned/managed or a customer CMK.",
+        "command": "aws kms describe-key --key-id <key-id-from-encryption-config> --query 'KeyMetadata.{KeyManager:KeyManager,Origin:Origin,KeySpec:KeySpec}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KeyManager 'AWS' = provider_managed; KeyManager 'CUSTOMER' = customer_managed_external."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Terraform or CloudFormation IaC files to identify the key management model applied to storage resources.",
+        "command": "grep -rn --include='*.tf' --include='*.yaml' --include='*.json' -E 'kms_key_id|encryption_key|defaultKmsKeyName|keySource|encryptionKeyName' ./infrastructure/",
+        "file_path": "./infrastructure/",
+        "navigation": null,
+        "expected_output": "An explicit KMS key ARN from a separate account/vault = customer_managed_external; 'Microsoft.Storage' keySource = provider_managed; key material stored in the same repo as data config = co_located_same_host concern."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the HashiCorp Vault or AWS KMS API to verify that the key lives in an external, dedicated key management system separated from the storage host.",
+        "command": "aws kms list-aliases --query 'Aliases[?contains(AliasName,`alias/storage`)]' && vault secrets list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Key aliases exist in a dedicated KMS account or Vault namespace isolated from the storage account, confirming customer_managed_external."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "provider_managed",
+      "customer_managed_external",
+      "co_located_same_host"
+    ]
+  },
+  {
+    "option_name": "customer_key_rotation_enabled",
+    "option_description": "Indicates whether an automatic or scheduled rotation policy is configured for customer-managed encryption keys in an external KMS, limiting the blast radius of key compromise by ensuring keys are periodically replaced.",
+    "security_impact": "The Rego 'customer_managed_key_mismanagement' rule fires on 'not input.customer_key_rotation_enabled' when 'key_management_type' is 'customer_managed_external'. Without rotation, a compromised key remains permanently valid, meaning historical encrypted data could be decrypted indefinitely. This attribute is only meaningful when customer-managed external keys are in use, making it a critical companion check to 'key_management_type'.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether automatic rotation is enabled for a customer-managed KMS key in AWS.",
+        "command": "aws kms get-key-rotation-status --key-id <key-id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'KeyRotationEnabled': true confirms annual automatic rotation is configured; 'false' means rotation is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Azure Key Vault key rotation policy for the storage encryption key.",
+        "command": "az keyvault key rotation-policy show --vault-name <vault-name> --name <key-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response contains a 'lifetimeActions' array with 'rotate' action and a time trigger (e.g., 'P1Y' for annual). Empty or missing policy means no rotation is configured."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Google Cloud KMS to check the rotation schedule on a CryptoKey used for CMEK.",
+        "command": "gcloud kms keys describe <key-name> --keyring=<keyring> --location=<location> --format='value(rotationPeriod,nextRotationTime)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-empty 'rotationPeriod' (e.g., '7776000s' for 90 days) and a 'nextRotationTime' confirm rotation is scheduled. Empty fields indicate no rotation policy."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review documented key management procedures to confirm whether manual rotation cadence is defined and evidence of last rotation is available in KMS audit logs.",
+        "command": "aws kms list-key-rotations --key-id <key-id> --query 'Rotations[*].{Date:RotationDate,Type:RotationType}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one rotation event within the past 365 days; absence of any rotation event suggests the key has never been rotated."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "principal_scope",
+    "option_description": "Controls the breadth of principals granted access in storage policies — whether access is restricted to specific named identities, all authenticated users within the cloud provider, or the general public including unauthenticated requesters.",
+    "security_impact": "Directly triggers the overly_permissive_access_control_policies rule when set to 'all_authenticated_users' or 'public_unauthenticated'. Broad principal scopes dramatically increase the blast radius of any credential compromise and violate least-privilege principles. A value of 'public_unauthenticated' means any internet user can access the storage resource without credentials.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS S3, retrieve the bucket policy and check the Principal field for wildcards or allUsers.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket-name> --query Policy --output text | python3 -m json.tool | grep -A2 '\"Principal\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Principal should show specific AWS ARNs (e.g., arn:aws:iam::123456789012:role/MyRole). If it shows '*' or {\"AWS\":\"*\"}, scope is public_unauthenticated."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCS, list IAM bindings and check for allUsers or allAuthenticatedUsers members.",
+        "command": "gcloud storage buckets get-iam-policy gs://<bucket-name> --format=json | jq '.bindings[] | select(.members[] | test(\"allUsers|allAuthenticatedUsers\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If allUsers is present, scope is public_unauthenticated. If allAuthenticatedUsers is present, scope is all_authenticated_users. No output means specific_principals."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure Blob Storage, check the container public access level via the Azure CLI.",
+        "command": "az storage container show --name <container-name> --account-name <storage-account> --query 'properties.publicAccess' --output tsv",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns 'off' (specific_principals), 'blob' (public_read for blobs), or 'container' (public_read_write equivalent for listing and reading)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to S3 > select bucket > Permissions tab > Bucket Policy. Review the Principal element. In GCS Console, navigate to Cloud Storage > select bucket > Permissions tab and look for allUsers or allAuthenticatedUsers entries.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS: S3 > [bucket] > Permissions > Bucket Policy | GCS: Cloud Storage > [bucket] > Permissions | Azure: Storage Accounts > [account] > Containers > [container] > Change access level",
+        "expected_output": "Principal limited to specific account/role ARNs or service account emails indicates specific_principals."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "specific_principals",
+      "all_authenticated_users",
+      "public_unauthenticated"
+    ]
+  },
+  {
+    "option_name": "write_permission_granted_to_non_owners",
+    "option_description": "Indicates whether write, create, update, or delete permissions are granted to principals beyond designated data owners or service accounts that operationally require write access — for example, granting PutObject or DeleteObject to broad roles or groups.",
+    "security_impact": "Triggers the overly_permissive_access_control_policies rule when true. Non-owner write access means any compromised credential in that broad group can destroy, overwrite, or exfiltrate-then-replace data. Combined with public or all-authenticated scopes, this enables anonymous data manipulation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS S3, enumerate all IAM policies and role bindings granting s3:PutObject, s3:DeleteObject, or s3:PutBucketPolicy to principals other than designated owner roles.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket-name> --output text --query Policy | python3 -c \"import sys,json; p=json.load(sys.stdin); [print(s) for s in p['Statement'] if any(a in str(s.get('Action','')) for a in ['PutObject','DeleteObject','s3:*']) and s.get('Effect')=='Allow']\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any statement showing write actions (PutObject, DeleteObject, s3:*) assigned to Principal '*' or broad group ARNs indicates write_permission_granted_to_non_owners is true."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCS, check IAM bindings for roles containing write permissions assigned to non-owner service accounts or groups.",
+        "command": "gcloud storage buckets get-iam-policy gs://<bucket-name> --format=json | jq '.bindings[] | select(.role | test(\"roles/storage.objectAdmin|roles/storage.admin|roles/editor\")) | {role: .role, members: .members}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Members listed under write-capable roles beyond the designated service account indicate true. Expected: only the specific write-access service account email."
+      },
+      {
+        "type": "api",
+        "instruction": "Use AWS IAM Access Analyzer to identify cross-account and public access write permissions on S3 buckets.",
+        "command": "aws accessanalyzer list-findings --analyzer-arn <analyzer-arn> --filter '{\"resourceType\":{\"eq\":[\"AWS::S3::Bucket\"]}}' --query 'findings[?isPublic==`true`].[resource,action]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Findings listing write actions on the bucket confirm write_permission_granted_to_non_owners is true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure, navigate to Storage Account > Access Control (IAM) > Role Assignments and review who holds Contributor, Storage Blob Data Contributor, or Storage Blob Data Owner roles. Any user/group beyond the designated owner constitutes non-owner write access.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal: Storage Accounts > [account] > Access Control (IAM) > Role Assignments > filter by Storage Blob Data Contributor / Contributor",
+        "expected_output": "Only designated service principals or owner accounts should appear with write-capable roles."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "wildcard_resource_scope",
+    "option_description": "Indicates whether the storage access policy uses a wildcard ('*') for the Resource element, granting the stated permissions against all objects and paths within the bucket or storage namespace rather than scoping to specific prefixes, folders, or object keys.",
+    "security_impact": "Triggers the overly_permissive_access_control_policies rule when true. A wildcard resource means even a narrowly-scoped action like GetObject applies to every object in the storage bucket. This violates least-privilege and means any permission escalation in the action field immediately covers the entire storage namespace.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS S3, extract the bucket policy and inspect the Resource field for wildcard patterns.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket-name> --output text --query Policy | python3 -c \"import sys,json; p=json.load(sys.stdin); [print('WILDCARD RESOURCE:', s['Resource']) for s in p['Statement'] if s.get('Resource')=='*' or (isinstance(s.get('Resource'),str) and s['Resource'].endswith('*')) or (isinstance(s.get('Resource'),list) and any(r.endswith('/*') or r=='*' for r in s['Resource']))]\" ",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'arn:aws:s3:::*' or 'arn:aws:s3:::<bucket>/*' with no further prefix restriction confirms wildcard_resource_scope is true."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure, inspect RBAC role definitions for wildcard actions or data actions covering all storage resources.",
+        "command": "az role definition list --query \"[?contains(to_string(permissions[].dataActions), 'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/*')].{name:roleName, dataActions:permissions[].dataActions}\" --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Built-in roles like 'Storage Blob Data Owner' contain wildcard data actions. Custom roles should not have wildcards on the resource path."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the AWS S3 GetBucketPolicy API and parse the Resource array for each statement to detect wildcard coverage of the entire bucket namespace.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket-name> | jq -r '.Policy' | jq '.Statement[] | {Sid: .Sid, Resource: .Resource, Effect: .Effect}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Resources listed as 'arn:aws:s3:::bucketname/*' without a more specific prefix path indicate wildcard_resource_scope true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In GCS Console, navigate to Cloud Storage > select bucket > Permissions > view IAM conditions. Check if any binding lacks a resource condition restricting to specific object name prefixes.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GCS Console: Cloud Storage > [bucket] > Permissions > IAM Conditions column — absence of object name prefix conditions implies wildcard resource scope",
+        "expected_output": "Bindings with IAM conditions like 'resource.name.startsWith(\"projects/_/buckets/bucket/objects/prefix/\")' indicate scoped access. Absence indicates wildcard."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "public_access_level",
+    "option_description": "The access level configured on the storage bucket, share, or endpoint that determines whether unauthenticated public access is permitted, and whether it applies to reads, writes, or both operations.",
+    "security_impact": "Triggers the publicly_exposed_storage_endpoints rule for values 'public_read', 'public_write', or 'public_read_write'. Public read access exposes all stored data to the internet. Public write access allows anyone to upload malicious content or overwrite legitimate data. Both represent critical data exposure and integrity risks requiring no credential compromise.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS S3, check the bucket ACL for public grants and the bucket policy for Principal '*'.",
+        "command": "aws s3api get-bucket-acl --bucket <bucket-name> --query 'Grants[?Grantee.URI==`http://acs.amazonaws.com/groups/global/AllUsers` || Grantee.URI==`http://acs.amazonaws.com/groups/global/AuthenticatedUsers`]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty array means no public ACL grants. Any result with Permission 'READ' indicates public_read; 'WRITE' or 'FULL_CONTROL' indicates public_write or public_read_write."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure Blob, check the public access level setting on the container.",
+        "command": "az storage container list --account-name <storage-account> --auth-mode login --query \"[].{name:name, publicAccess:properties.publicAccess}\" --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'None' maps to 'none', 'Blob' maps to 'public_read' (blobs only), 'Container' maps to 'public_read' (listing + blobs). Azure does not support public_write natively."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCS, check for allUsers IAM bindings and the role they have to determine read vs write public access.",
+        "command": "gcloud storage buckets get-iam-policy gs://<bucket-name> --format=json | jq '.bindings[] | select(.members[] | contains(\"allUsers\")) | {role: .role}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'roles/storage.objectViewer' indicates public_read; 'roles/storage.objectCreator' or 'roles/storage.objectAdmin' indicates public_write or public_read_write."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt an unauthenticated HTTP GET against the bucket URL to verify public read access without credentials.",
+        "command": "curl -s -o /dev/null -w \"%{http_code}\" https://storage.googleapis.com/<bucket-name>/<object-key>  # GCS\ncurl -s -o /dev/null -w \"%{http_code}\" https://<bucket-name>.s3.amazonaws.com/<object-key>  # S3",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 200 without Authorization header confirms public_read. HTTP 403 or 401 confirms none. Test PUT/DELETE for public_write."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "public_read",
+      "public_read_write"
+    ]
+  },
+  {
+    "option_name": "block_public_access_enabled",
+    "option_description": "Controls whether a platform-level 'block all public access' override is active on the storage resource. When enabled, this setting prevents any ACL or bucket policy from granting public access, regardless of what individual policy documents specify.",
+    "security_impact": "Referenced in the publicly_exposed_storage_endpoints rule — when both block_public_access_enabled and authentication_required are false, the rule fires. This platform-level control acts as a safety net that overrides misconfigured bucket policies. Without it, a single policy misconfiguration can inadvertently expose the entire bucket publicly.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS S3, check Block Public Access settings at both the bucket and account level.",
+        "command": "echo '=== Bucket Level ===' && aws s3api get-public-access-block --bucket <bucket-name> && echo '=== Account Level ===' && aws s3control get-public-access-block --account-id $(aws sts get-caller-identity --query Account --output text)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All four settings (BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy, RestrictPublicBuckets) should be true. Any false value means the block is not fully enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure Storage, check the 'Allow Blob public access' property on the storage account.",
+        "command": "az storage account show --name <storage-account> --resource-group <resource-group> --query 'allowBlobPublicAccess' --output tsv",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'false' means public access is blocked at the account level (block_public_access_enabled: true). 'true' or null means it is not blocked."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCS, check the Public Access Prevention policy on the bucket.",
+        "command": "gcloud storage buckets describe gs://<bucket-name> --format='value(iamConfiguration.publicAccessPrevention)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'enforced' means block_public_access_enabled is true. 'inherited' or 'unspecified' means it relies on org policy or is not enforced at bucket level."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to S3 > select bucket > Permissions tab > Block public access (bucket settings). All four checkboxes should be checked for full protection.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console: S3 > [bucket] > Permissions > Block public access (bucket settings) | Azure Portal: Storage Accounts > [account] > Configuration > Allow Blob public access > Disabled | GCS Console: Cloud Storage > [bucket] > Permissions > Public access prevention",
+        "expected_output": "All Block Public Access settings checked (AWS), Blob public access disabled (Azure), or Public access prevention enforced (GCS)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "authentication_required",
+    "option_description": "Determines whether the storage endpoint enforces authentication for all operations, rejecting any anonymous or unauthenticated HTTP requests. When false, the endpoint accepts requests without credentials.",
+    "security_impact": "Used in the publicly_exposed_storage_endpoints rule — when both block_public_access_enabled and authentication_required are false, public exposure is confirmed. An endpoint that does not require authentication is accessible to any internet user. This is often the mechanism by which breaches like the Capital One S3 exposure occurred — the combination of permissive policies and no authentication enforcement.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send an unauthenticated HTTP request to the storage endpoint and verify whether it returns data or requires credentials.",
+        "command": "curl -v --no-progress-meter -H 'Authorization:' https://<bucket-name>.s3.amazonaws.com/ 2>&1 | grep -E 'HTTP/|<Code>|AccessDenied|AllAccessDisabled'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 403 or XML error 'AccessDenied'/'AllAccessDisabled' confirms authentication is required (true). HTTP 200 with bucket listing confirms authentication is NOT required (false)."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS S3, check if the bucket policy contains any Allow statements with Principal '*' and no Condition restricting to authenticated callers.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket-name> --output text --query Policy | python3 -c \"import sys,json; p=json.load(sys.stdin); found=[s for s in p['Statement'] if s.get('Effect')=='Allow' and (s.get('Principal')=='*' or s.get('Principal',{}).get('AWS')=='*') and not s.get('Condition')]; print('ANONYMOUS ACCESS ALLOWED:', bool(found))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'ANONYMOUS ACCESS ALLOWED: False' confirms authentication_required is true. 'True' means unauthenticated access is possible."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCS, verify allUsers is absent from all IAM bindings on the bucket.",
+        "command": "gcloud storage buckets get-iam-policy gs://<bucket-name> --format=json | jq 'any(.bindings[].members[]; . == \"allUsers\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'false' confirms no unauthenticated access (authentication_required: true). 'true' means anonymous access is possible."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the AWS S3 Bucket ACL API to check for AllUsers URI grants which indicate unauthenticated access is permitted.",
+        "command": "aws s3api get-bucket-acl --bucket <bucket-name> | jq '.Grants[] | select(.Grantee.URI == \"http://acs.amazonaws.com/groups/global/AllUsers\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty output means no AllUsers grant exists and authentication_required is true. Any result indicates false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "mfa_enforced",
+    "option_description": "Controls whether multi-factor authentication is mandatory for all accounts and roles accessing the storage host or its management interface, including console logins, API access, and CLI operations.",
+    "security_impact": "Triggers the weak_authentication_for_storage_access rule when false. Storage management access without MFA enforcement means that compromised static credentials (passwords, API keys) alone are sufficient for full administrative access. MFA-Delete for S3 additionally prevents bucket deletion or versioning changes without a second factor, protecting against ransomware-style attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS, verify that IAM policies attached to storage-accessing roles include an MFA condition (aws:MultiFactorAuthPresent) for sensitive operations.",
+        "command": "aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled' && aws iam list-users --query 'Users[].UserName' --output text | xargs -I{} aws iam get-login-profile --user-name {} 2>/dev/null && aws iam list-virtual-mfa-devices --assignment-status Unassigned --query 'VirtualMFADevices[].SerialNumber'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AccountMFAEnabled: 1 for root. No unassigned MFA devices for active users. IAM policies should contain Condition: {Bool: {'aws:MultiFactorAuthPresent': 'true'}}."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS S3, check if MFA Delete is enabled on the bucket versioning configuration.",
+        "command": "aws s3api get-bucket-versioning --bucket <bucket-name> --query '{Status:Status, MFADelete:MFADelete}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'{\"Status\": \"Enabled\", \"MFADelete\": \"Enabled\"}' confirms MFA Delete is active. 'Disabled' or absent MFADelete key means it is not enforced."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the identity provider (IdP) configuration (Azure AD, Okta, AWS IAM Identity Center) to confirm MFA is set to Required (not Optional) for all users with storage management permissions. Check for any exception groups or bypass policies.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure AD: Azure Active Directory > Security > MFA > Additional cloud-based MFA settings | AWS IAM Identity Center: Settings > Authentication > MFA enforcement | Okta Admin: Security > Multifactor > Factor Enrollment",
+        "expected_output": "MFA enforcement set to 'Required for all users' with no exception groups containing storage administrators."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Azure Conditional Access policies to verify MFA is required for access to Azure Storage management.",
+        "command": "az rest --method GET --uri 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' --query 'value[?state==`enabled`] | [?contains(to_string(conditions.applications.includeApplications), `MicrosoftAzureManagement`)].{name:displayName, mfaRequired:grantControls.builtInControls}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy targeting Azure Management app should have 'mfa' in builtInControls. Absence indicates MFA is not enforced for storage management."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "credential_type",
+    "option_description": "Identifies the type of credentials used to authenticate to the storage host or its management interface — ranging from static long-lived API keys and passwords to dynamic short-lived tokens, certificates, or IAM role-based temporary credentials.",
+    "security_impact": "Referenced by both weak_authentication_for_storage_access and hardcoded_or_plaintext_credentials_in_configuration rules. Static long-lived keys (static_long_lived_key, cloud_access_key, api_key) and shared_account_password trigger weak authentication findings because they never expire, can be leaked in code or logs, and cannot be easily rotated at scale. storage_connection_string values often embed both account name and key in a single string, making them extremely high-risk if exposed. IAM roles and short_lived_token types are preferred because credentials expire automatically.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS, identify if storage access uses IAM role credentials (instance profiles, assumed roles) or static access keys by inspecting how the credentials are sourced in the application environment.",
+        "command": "aws sts get-caller-identity && aws configure list && curl -s -m 2 http://169.254.169.254/latest/meta-data/iam/security-credentials/ 2>/dev/null && env | grep -iE 'AWS_ACCESS_KEY|AWS_SECRET|AWS_SESSION_TOKEN'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of AWS_SESSION_TOKEN environment variable indicates short_lived_token/iam_role. Static AWS_ACCESS_KEY_ID without SESSION_TOKEN from ~/.aws/credentials indicates cloud_access_key. Instance metadata response with role name indicates iam_role."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect application configuration files, environment variable declarations, and secrets files for storage credential patterns including connection strings, access keys, and passwords.",
+        "command": "grep -rn --include='*.env' --include='*.config' --include='*.yaml' --include='*.json' --include='*.toml' -E 'DefaultEndpointsProtocol|AccountKey|AZURE_STORAGE|AWS_ACCESS_KEY|GOOGLE_APPLICATION_CREDENTIALS|storage_connection_string' /etc/ /opt/ /var/www/ /app/ 2>/dev/null | grep -v '.git'",
+        "file_path": "/etc/, /opt/, /app/, ~/.aws/credentials, ~/.config/gcloud/application_default_credentials.json",
+        "navigation": null,
+        "expected_output": "Connection strings containing 'AccountKey=' indicate storage_connection_string. Long base64 strings in AWS_SECRET_ACCESS_KEY without STS session tokens indicate cloud_access_key. Service account JSON files indicate certificate or service_account_password types."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure Storage, check how the storage account is accessed — via account key, SAS token, managed identity, or service principal — by reviewing the storage account key status and managed identity assignments.",
+        "command": "az storage account keys list --account-name <storage-account> --resource-group <resource-group> --query '[].{keyName:keyName, value:value[0:8]}' && az storage account show --name <storage-account> --resource-group <resource-group> --query 'identity'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active account keys with applications using them indicate cloud_access_key or storage_connection_string. A managed identity assignment with no active key usage indicates iam_role equivalent."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the development and DevOps teams to determine the credential provisioning process for storage access. Ask whether credentials are manually created and distributed, auto-rotated via secrets manager, or derived from instance/workload identity.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Manual distribution of long-lived keys = static_long_lived_key or cloud_access_key. Secrets manager with auto-rotation = api_key (if rotated) or short_lived_token. Workload identity / instance profile = iam_role. Shared team password = shared_account_password."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "iam_role",
+      "short_lived_token",
+      "cloud_access_key",
+      "static_long_lived_key",
+      "storage_connection_string",
+      "api_key"
+    ]
+  },
+  {
+    "option_name": "shared_accounts_present",
+    "option_description": "Controls whether shared or group accounts (non-individual) are used to access the storage host or management interface, preventing individual accountability and audit traceability.",
+    "security_impact": "The Rego policy flags a 'Weak Authentication For Storage Access' exposure when shared_accounts_present == true. Shared accounts eliminate the ability to attribute individual actions to specific users, making forensic investigation and access revocation impractical. Combined with static credentials, this significantly broadens the blast radius of any credential compromise.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all IAM users or service accounts with storage permissions and identify any with names indicating shared use (e.g., 'admin', 'storage-team', 'devops'). On AWS, use the CLI to enumerate users with S3 policies.",
+        "command": "aws iam list-users --query 'Users[*].UserName' --output table && aws iam list-groups --query 'Groups[*].GroupName' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of IAM usernames; any generic or role-named accounts (e.g., 'svc-storage', 'admin') should be flagged as potentially shared."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the cloud provider's IAM API to retrieve all principals with storage access policies and cross-reference against HR or IdP records to confirm individual vs. shared assignment. For Azure, use the REST API to enumerate role assignments on storage accounts.",
+        "command": "az role assignment list --scope /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/<account> --query '[*].{Principal:principalName,Role:roleDefinitionName}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A table of principals mapped to roles; any generic service principal names shared across teams should be flagged."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the storage service's access control panel and review the list of principals. On AWS S3: open the S3 console, select the bucket, navigate to 'Permissions' > 'Bucket policy' and 'Access control list'. On Azure: Storage Account > 'Access Control (IAM)' > 'Role assignments'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > S3 > [Bucket] > Permissions > Bucket Policy / ACL; Azure Portal > Storage Account > Access Control (IAM) > Role Assignments",
+        "expected_output": "Named individual accounts only; absence of generic group-named accounts indicates shared_accounts_present = false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview storage administrators and review onboarding documentation to determine whether any credentials are distributed to multiple team members or automated processes under a single account identity.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written confirmation that each user and service has its own dedicated account; shared credential distribution documents indicate shared_accounts_present = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "secrets_management_in_use",
+    "option_description": "Controls whether a dedicated secrets management solution (e.g., HashiCorp Vault, AWS Secrets Manager, Azure Key Vault) is configured to supply credentials to applications at runtime, replacing static configuration files or environment variables.",
+    "security_impact": "The Rego policy evaluates 'Hardcoded Or Plaintext Credentials In Configuration' and only suppresses the finding when secrets_management_in_use is true alongside plaintext_credentials_detected == true. Without a secrets manager, credentials are necessarily embedded in static artifacts (config files, container images, environment variables), which are far more likely to be leaked through source control exposure, log leakage, or host compromise.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether a secrets manager agent or sidecar is running on the storage host. Look for common processes such as the Vault agent, AWS SSM agent, or Azure Key Vault sidecar injector.",
+        "command": "ps aux | grep -E 'vault|aws-secrets|azure-keyvault|secret' && systemctl list-units --type=service | grep -E 'vault|ssm|keyvault'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active process entries for vault-agent, amazon-ssm-agent, or equivalent; absence of these indicates secrets management is not in use."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect application configuration files and startup scripts for references to secrets manager endpoints (e.g., vault:// URIs, AWS Secrets Manager ARNs, Azure Key Vault URLs) versus hardcoded credential strings.",
+        "command": "grep -rE '(vault://|secretsmanager|keyvault\\.azure\\.com|/v1/secret)' /etc/app/ /opt/app/ ~/.env 2>/dev/null",
+        "file_path": "/etc/app/config.yaml, /opt/app/.env, /etc/environment",
+        "navigation": null,
+        "expected_output": "Matches containing secrets manager endpoint references confirm integration; no matches suggest credentials are sourced statically."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the secrets manager service directly to verify active secrets and associated applications. On AWS, list secrets and check LastAccessedDate to confirm active consumption.",
+        "command": "aws secretsmanager list-secrets --query 'SecretList[*].{Name:Name,LastAccessed:LastAccessedDate,ARN:ARN}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secrets with recent LastAccessedDate values corresponding to the storage application confirm active secrets management use."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the secrets manager dashboard for the environment. On AWS: Secrets Manager > Secrets list. On Azure: Key Vault > Secrets. Verify that storage connection strings or access keys are stored as managed secrets rather than embedded in application code.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > Secrets Manager > Secrets; Azure Portal > Key Vault > [Vault Name] > Secrets",
+        "expected_output": "Storage credentials listed as managed secrets with recent access timestamps indicate secrets management is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "plaintext_credentials_detected",
+    "option_description": "Controls the detection state of access keys, passwords, or connection strings found in plaintext within configuration files or unencrypted environment variables on the storage host.",
+    "security_impact": "The Rego policy triggers 'Hardcoded Or Plaintext Credentials In Configuration' when plaintext_credentials_detected == true and secrets_management_in_use is false. Plaintext credentials in configuration artifacts are frequently exposed through source control leaks, container image layers, log forwarding, or host compromise, providing direct unauthorized access to storage resources without any additional exploitation steps.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run a credential pattern scan across configuration files and environment exports on the host using grep or a dedicated tool such as detect-secrets or truffleHog to identify common credential formats.",
+        "command": "grep -rEi '(AWS_SECRET_ACCESS_KEY|password\\s*=|api_key\\s*=|connection_string|AZURE_STORAGE_KEY|GOOGLE_APPLICATION_CREDENTIALS)' /etc/ /opt/ /home/ /var/app/ 2>/dev/null | grep -v '.pyc'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any matches containing credential values (not just variable names with empty values) confirm plaintext_credentials_detected = true."
+      },
+      {
+        "type": "command",
+        "instruction": "Scan exported environment variables for all running processes and service units to detect injected plaintext credentials.",
+        "command": "for pid in $(ls /proc | grep -E '^[0-9]+$'); do cat /proc/$pid/environ 2>/dev/null | tr '\\0' '\\n' | grep -iE '(key|secret|password|token|credential)'; done | sort -u",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing variable names with non-empty sensitive values indicate plaintext credentials in environment variables."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the detect-secrets tool to perform a baseline scan of the application directory for high-confidence credential patterns including AWS keys, GCP service account JSON, and generic high-entropy strings.",
+        "command": "detect-secrets scan /opt/app/ /etc/app/ --all-files --list-all-plugins 2>/dev/null || trufflehog filesystem /opt/app/ --json 2>/dev/null | jq '.SourceMetadata.Data.Filesystem.file'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output listing file paths and line numbers where secrets are detected; an empty result set indicates no plaintext credentials found."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect common configuration file locations used by storage SDKs and application frameworks for credential embedding, including .env files, application.yml, and cloud provider credential files.",
+        "command": "cat ~/.aws/credentials ~/.boto /etc/boto.cfg ~/.config/gcloud/application_default_credentials.json 2>/dev/null",
+        "file_path": "~/.aws/credentials, ~/.boto, /etc/boto.cfg, ~/.config/gcloud/application_default_credentials.json, /opt/app/.env",
+        "navigation": null,
+        "expected_output": "Credential files with populated key_id and secret values confirm plaintext storage; files referencing role-based or OIDC authentication indicate secure configuration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "access_logging_enabled",
+    "option_description": "Controls whether storage access logging is enabled on the storage service or bucket, capturing read, write, delete, and permission change events for audit and forensic purposes.",
+    "security_impact": "The Rego policy triggers 'Absent Or Insufficient Access Logging' immediately when access_logging_enabled is false (not input.access_logging_enabled). All downstream logging checks (forwarding destination, event types) are only meaningful when this base control is active. Without access logging, unauthorized data reads, exfiltration events, and permission escalations are completely invisible, preventing detection and incident response.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the storage service API to retrieve the current logging configuration for each bucket or storage container. On AWS S3, retrieve the logging configuration for a specific bucket.",
+        "command": "aws s3api get-bucket-logging --bucket <bucket-name> --query 'LoggingEnabled' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON object with 'TargetBucket' and 'TargetPrefix' keys confirms logging is enabled; null or empty response indicates access logging is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure Blob Storage, retrieve the diagnostic settings to confirm whether storage access logging is configured and which services are covered.",
+        "command": "az monitor diagnostic-settings list --resource /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/<account> --query '[*].{Name:name,Logs:logs[*].{Category:category,Enabled:enabled}}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rows showing StorageRead, StorageWrite, StorageDelete with Enabled=true confirm access logging is active."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the storage bucket or container logging settings in the cloud provider console. On AWS S3: Bucket > Properties > Server access logging. On GCS: Storage > [Bucket] > Configuration > Cloud Audit Logs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > S3 > [Bucket] > Properties > Server access logging; GCP Console > Cloud Storage > [Bucket] > Configuration > Cloud Audit Logs",
+        "expected_output": "Toggle or status indicator showing 'Enabled' with a configured target bucket confirms access_logging_enabled = true."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the GCS JSON API to check audit logging configuration at the project level, which covers Cloud Storage access events.",
+        "command": "gcloud projects get-iam-policy <project-id> --format=json | jq '.auditConfigs[] | select(.service == \"storage.googleapis.com\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An auditConfig entry for storage.googleapis.com with DATA_READ and DATA_WRITE log types confirms access logging is enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_forwarding_destination",
+    "option_description": "Specifies the configured centralized destination to which storage access logs are forwarded, such as a SIEM, log aggregation bucket, or log analytics workspace. An empty string indicates no forwarding is configured.",
+    "security_impact": "The Rego policy triggers 'Absent Or Insufficient Access Logging' when access_logging_enabled == true but log_forwarding_destination == ''. Local-only logging is insufficient because logs stored on the same system can be deleted by an attacker who gains access, and they are not available for correlation with other security events. Centralized forwarding enables SIEM alerting, cross-service correlation, and tamper-evident retention.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve the S3 bucket logging target configuration to identify where access logs are being delivered. The TargetBucket field represents the log forwarding destination.",
+        "command": "aws s3api get-bucket-logging --bucket <bucket-name> --query 'LoggingEnabled.TargetBucket' --output text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A bucket name string (e.g., 'company-central-access-logs') confirms a forwarding destination; 'None' or empty output indicates no forwarding."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure, retrieve the diagnostic settings workspace or storage account destination for the storage resource logs.",
+        "command": "az monitor diagnostic-settings list --resource /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/<account> --query '[*].{WorkspaceId:workspaceId,StorageAccountId:storageAccountId,EventHubName:eventHubName}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-null workspaceId (Log Analytics), storageAccountId, or eventHubName values confirm a forwarding destination is configured."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the log sink configuration for GCS using the Cloud Logging API to identify whether a log sink routes storage audit logs to a centralized destination such as BigQuery or a Pub/Sub topic.",
+        "command": "gcloud logging sinks list --format='table(name,destination,filter)' | grep -i storage",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A sink entry with a non-empty destination (e.g., bigquery.googleapis.com/projects/... or pubsub.googleapis.com/projects/...) and a filter covering storage.googleapis.com."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review log export or diagnostic settings in the cloud console to confirm a SIEM or central log workspace is configured as the destination. On AWS: CloudWatch > Log groups > check for S3 access log subscription filters pointing to a SIEM or Kinesis stream.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > CloudWatch > Log groups > [access-log-group] > Subscription filters; Azure Portal > Monitor > Diagnostic settings > [Storage Account]",
+        "expected_output": "A populated destination ARN, workspace ID, or storage account URI indicates log_forwarding_destination is non-empty."
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "arn:aws:s3:::central-logs-bucket",
+      "https://<workspace-id>.ods.opinsights.azure.com",
+      "bigquery.googleapis.com/projects/<project>/datasets/<dataset>",
+      ""
+    ]
+  },
+  {
+    "option_name": "logged_event_types",
+    "option_description": "Specifies the list of storage event categories currently captured in access logs, such as read, write, delete, and permission_change operations.",
+    "security_impact": "The Rego policy triggers 'Absent Or Insufficient Access Logging' if either 'delete' or 'read' is absent from logged_event_types, even when logging is enabled and forwarded. Missing delete events prevents detection of data destruction or ransomware staging; missing read events prevents detection of data exfiltration. Both are essential for meaningful forensic reconstruction of security incidents.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS S3, check CloudTrail data event configuration to determine which S3 event types (GetObject, PutObject, DeleteObject) are captured for the target bucket.",
+        "command": "aws cloudtrail get-event-selectors --trail-name <trail-name> --query 'EventSelectors[*].{ReadWrite:ReadWriteType,DataResources:DataResources[*]}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ReadWriteType of 'All' covers both read and write/delete events; 'WriteOnly' misses read events; 'ReadOnly' misses delete events."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure, retrieve the specific log categories enabled in diagnostic settings to enumerate which operation types are captured.",
+        "command": "az monitor diagnostic-settings list --resource /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/<account>/blobServices/default --query '[0].logs[*].{Category:category,Enabled:enabled}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "StorageRead (maps to read), StorageWrite (maps to write), and StorageDelete (maps to delete) all showing Enabled=true covers required event types."
+      },
+      {
+        "type": "api",
+        "instruction": "For GCS, query the audit log configuration to identify which log types (DATA_READ, DATA_WRITE) are enabled for the storage service, as delete operations are captured under DATA_WRITE.",
+        "command": "gcloud projects get-iam-policy <project-id> --format=json | jq '[.auditConfigs[] | select(.service==\"storage.googleapis.com\") | .auditLogConfigs[].logType]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Array containing both DATA_READ and DATA_WRITE; absence of either indicates a gap in logged_event_types coverage."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Sample recent access logs from the configured destination and verify that log records exist for each expected event type by examining the operation or method fields in log entries.",
+        "command": "aws s3 cp s3://<log-bucket>/<prefix>/$(date +%Y-%m-%d)/ /tmp/sample-logs/ --recursive --quiet && grep -hE '(GET|PUT|DELETE|HEAD|OPTIONS)' /tmp/sample-logs/*.log | awk '{print $8}' | sort | uniq -c | sort -rn",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Counts for GET (read), PUT (write), and DELETE (delete) operations in the log sample; absence of DELETE entries suggests delete events are not being logged."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      [
+        "read",
+        "write",
+        "delete",
+        "permission_change"
+      ],
+      [
+        "write",
+        "delete"
+      ],
+      [
+        "read",
+        "write"
+      ],
+      []
+    ]
+  },
+  {
+    "option_name": "patch_compliance_status",
+    "option_description": "Indicates whether the storage host OS and firmware are fully patched (compliant), have only non-critical CVEs outstanding (partial), or have known critical/high CVEs unpatched (non_compliant).",
+    "security_impact": "The Rego policy triggers 'Unpatched Storage Host Operating System Or Firmware' directly when patch_compliance_status == 'non_compliant'. An unpatched storage host OS exposes the system to local privilege escalation and remote exploitation vulnerabilities, which can allow an attacker to bypass all application-layer access controls and read raw storage data directly from the underlying media or memory.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the package manager for available security updates on Linux-based storage hosts. A non-empty list of security updates indicates partial or non-compliant status depending on severity.",
+        "command": "apt-get -s upgrade 2>/dev/null | grep -i 'security' || yum check-update --security 2>/dev/null || dnf updateinfo list security 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty output indicates compliant status; output listing packages indicates outstanding patches. Cross-reference package CVEs against NVD to classify severity."
+      },
+      {
+        "type": "command",
+        "instruction": "Run OpenSCAP against the host using a relevant security baseline profile to generate a compliance report with pass/fail status for patch-related rules.",
+        "command": "oscap xccdf eval --profile xccdf_org.ssgproject.content_profile_stig --results /tmp/scap-results.xml --report /tmp/scap-report.html /usr/share/xml/scap/ssg/content/ssg-rhel8-ds.xml 2>/dev/null; grep -c 'fail' /tmp/scap-results.xml",
+        "file_path": "/tmp/scap-results.xml",
+        "navigation": null,
+        "expected_output": "Zero 'fail' results for patch-related rules indicates compliant; any failures with CVSS >= 7.0 indicate non_compliant status."
+      },
+      {
+        "type": "api",
+        "instruction": "Query a patch management platform (e.g., Qualys, Tenable.io, AWS Systems Manager Patch Manager) API to retrieve the current patch compliance state for the storage host.",
+        "command": "aws ssm describe-instance-patch-states --instance-ids <instance-id> --query 'InstancePatchStates[*].{Status:PatchComplianceLevel,MissingCount:MissingCount,CriticalNonCompliantCount:CriticalNonCompliantCount}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CriticalNonCompliantCount > 0 maps to non_compliant; MissingCount > 0 with no critical patches maps to partial; both zero maps to compliant."
+      },
+      {
+        "type": "gui",
+        "instruction": "Access the vulnerability management dashboard for the storage host. In AWS Systems Manager: Patch Manager > Instances > [Instance ID] > Patch details. In Qualys: Assets > [Host] > Vulnerabilities tab filtered by Critical/High severity.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > Systems Manager > Patch Manager > Compliance > [Instance ID]; Qualys VMDR > Assets > [Host] > Vulnerabilities",
+        "expected_output": "A compliance status of 'Compliant' with zero missing critical patches; 'Non-Compliant' with critical CVEs listed maps to non_compliant."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "compliant",
+      "partial",
+      "non_compliant"
+    ]
+  },
+  {
+    "option_name": "days_since_last_patch_applied",
+    "option_description": "Specifies the number of days elapsed since any OS or firmware security patch was last applied to the storage host, ranging from 0 to 3650 days.",
+    "security_impact": "The Rego policy triggers 'Unpatched Storage Host Operating System Or Firmware' when days_since_last_patch_applied > 90, regardless of whether patch_compliance_status indicates compliant or partial status. A 90-day threshold reflects typical vulnerability weaponization timelines; storage hosts not patched within this window are statistically likely to be running software with publicly available exploits, directly enabling remote code execution or privilege escalation attacks against the host.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the package manager log for the most recent security patch installation timestamp on Debian/Ubuntu-based hosts and calculate elapsed days.",
+        "command": "last_patch=$(grep 'status installed' /var/log/dpkg.log* 2>/dev/null | tail -1 | awk '{print $1, $2}'); echo \"Last patch: $last_patch\"; echo \"Days since: $(( ($(date +%s) - $(date -d \"$last_patch\" +%s 2>/dev/null || echo $(date +%s))) / 86400 ))\"",
+        "file_path": "/var/log/dpkg.log",
+        "navigation": null,
+        "expected_output": "An integer number of days; values above 90 indicate the host exceeds the Rego policy threshold and the exposure will be triggered."
+      },
+      {
+        "type": "command",
+        "instruction": "On RHEL/CentOS/Amazon Linux hosts, query the RPM database for the most recent package update timestamp to calculate days since last patch.",
+        "command": "last_update=$(rpm -qa --last 2>/dev/null | grep -iE '(security|kernel|openssl|glibc)' | head -1 | awk '{print $2, $3, $4, $5}'); echo \"Last security patch: $last_update\"; echo \"Days since: $(( ($(date +%s) - $(date -d \"$last_update\" +%s 2>/dev/null || echo $(date +%s))) / 86400 ))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A date string and calculated integer day count; cross-reference with 90-day threshold to assess Rego policy trigger conditions."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS Systems Manager Patch Manager for the last patch installation time on the storage host instance and compute the elapsed days.",
+        "command": "aws ssm describe-instance-patch-states --instance-ids <instance-id> --query 'InstancePatchStates[*].{LastNoRebootInstallOperationTime:LastNoRebootInstallOperationTime,InstalledCount:InstalledCount}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An ISO 8601 timestamp in LastNoRebootInstallOperationTime; calculate (today - timestamp) in days to determine days_since_last_patch_applied value."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the Windows Update or WSUS log on Windows-based storage hosts to identify the most recent successful patch installation date.",
+        "command": "Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 5 HotFixID, InstalledOn; $last = (Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 1).InstalledOn; ((Get-Date) - $last).Days",
+        "file_path": "C:\\Windows\\WindowsUpdate.log",
+        "navigation": null,
+        "expected_output": "An integer representing days since last hotfix; values exceeding 90 will trigger the Rego unpatched host exposure rule."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "7",
+      "30",
+      "45",
+      "90",
+      "180",
+      "365"
+    ]
+  },
+  {
+    "option_name": "critical_cve_identifiers",
+    "option_description": "A list of critical or high-severity CVE identifiers (CVSS >= 7.0) confirmed as unpatched on the storage host OS or firmware, populated from authenticated vulnerability scan output.",
+    "security_impact": "The Rego policy triggers the 'unpatched_storage_host_operating_system_or_firmware' exposure whenever count(input.critical_cve_identifiers) > 0. Even a single unpatched high-severity CVE signals exploitable local privilege escalation or remote code execution risk on the host that underlies all stored data, bypassing all application-layer controls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run a Trivy vulnerability scan against the storage host OS packages and filter for CVSS >= 7.0 CVEs.",
+        "command": "trivy host --severity HIGH,CRITICAL --format json 2>/dev/null | jq '[.Results[].Vulnerabilities[]? | select(.Severity == \"HIGH\" or .Severity == \"CRITICAL\") | .VulnerabilityID] | unique'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON array of CVE IDs such as [\"CVE-2024-1234\", \"CVE-2023-5678\"]. An empty array [] indicates no unpatched critical/high CVEs."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the AWS Inspector or GCP Container Analysis API to list active critical findings for the storage host or container image.",
+        "command": "aws inspector2 list-findings --filter-criteria '{\"severity\":[{\"comparison\":\"EQUALS\",\"value\":\"CRITICAL\"},{\"comparison\":\"EQUALS\",\"value\":\"HIGH\"}]}' --query 'findings[*].packageVulnerabilityDetails.vulnerabilityId' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of CVE IDs currently active on the scanned resource. An empty list confirms no unpatched critical findings in Inspector's scope."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Qualys VMDR, navigate to Vulnerabilities > Search, filter by Asset Group for the storage host, set Severity to 4 or 5, and export the CVE ID column.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Qualys VMDR → Vulnerabilities → Search → Filter: Severity >= 4 AND Asset: <storage-host> → Export CSV → Column: CVE ID",
+        "expected_output": "A CSV containing CVE IDs for all unpatched critical/high findings on the host. No rows under CVE ID means no qualifying vulnerabilities."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Debian/Ubuntu-based storage host, list installed packages with known CVEs using debsecan or apt-check.",
+        "command": "debsecan --suite $(lsb_release -cs) --format summary --only-fixed | grep -E 'CVE-[0-9]{4}-[0-9]+' | awk '{print $1}' | sort -u",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of CVE IDs for packages that have available fixes but are not yet applied. Empty output means no patchable CVEs are outstanding."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[] (no unpatched CVEs — patching is current)",
+      "[\"CVE-2024-21626\"] (single high-severity container breakout CVE)",
+      "[\"CVE-2023-44487\", \"CVE-2024-1086\"] (multiple unpatched critical CVEs)"
+    ]
+  },
+  {
+    "option_name": "encrypted_backups_enabled",
+    "option_description": "Controls whether off-site backups of storage data are encrypted at rest using either a provider-managed key or a customer-provided key (CMEK/BYOK), ensuring backup copies cannot be read without key access.",
+    "security_impact": "The Rego policy fires the 'missing_data_replication_and_backup_integrity_controls' exposure when 'not input.encrypted_backups_enabled'. Unencrypted backup copies represent a second attack surface — a compromised backup storage location or insider with access to raw backup media yields full plaintext data without needing to attack the primary storage encryption.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check AWS Backup vault encryption settings to confirm all recovery points are encrypted.",
+        "command": "aws backup list-backup-vaults --query 'BackupVaultList[*].{Name:BackupVaultName,EncryptionKeyArn:EncryptionKeyArn}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each vault should show a non-null EncryptionKeyArn. A null or missing key ARN indicates backups in that vault are not encrypted with a managed key."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure Backup, check Recovery Services vault encryption configuration using the Azure CLI.",
+        "command": "az backup vault encryption show --name <vault-name> --resource-group <rg-name> --query '{encryptionState:properties.encryptionAtRestType, keyUri:properties.keyUri}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "encryptionAtRestType should be 'CustomerManaged' or 'MicrosoftManaged'. If absent or 'Disabled', backup encryption is not configured."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Google Cloud Console, navigate to Storage > Backup and DR > Backup vaults, select each vault, and check the Encryption section for CMEK configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GCP Console → Backup and DR → Backup Vaults → Select Vault → Details → Encryption → Verify CMEK key or Google-managed key status",
+        "expected_output": "Encryption field shows a KMS key resource name (CMEK) or 'Google-managed encryption key'. Absence of any encryption entry indicates unencrypted backups."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the AWS Backup API to verify encryption on specific recovery points for a storage resource.",
+        "command": "aws backup list-recovery-points-by-backup-vault --backup-vault-name <vault-name> --query 'RecoveryPoints[*].{Id:RecoveryPointArn,Encrypted:IsEncrypted}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All recovery points should show 'Encrypted: True'. Any 'False' entry indicates an unencrypted backup copy."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (encryption enforced via AWS KMS, Azure Key Vault, or GCP CMEK)",
+      "false (backups written without encryption — common in legacy or misconfigured environments)"
+    ]
+  },
+  {
+    "option_name": "cross_region_replication_enabled",
+    "option_description": "Controls whether primary or backup storage data is replicated to at least one geographically separate cloud region, providing resilience against regional outages, ransomware encrypting primary data, or accidental deletion events.",
+    "security_impact": "The Rego policy triggers 'missing_data_replication_and_backup_integrity_controls' when 'not input.cross_region_replication_enabled'. Without cross-region replication, a single ransomware event or regional failure can destroy all data copies simultaneously. Replication to a separate region ensures recovery point availability even when the primary region is entirely unavailable or compromised.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check S3 Cross-Region Replication rules on all buckets containing primary or backup data.",
+        "command": "aws s3api get-bucket-replication --bucket <bucket-name> --query 'ReplicationConfiguration.Rules[*].{Status:Status,DestBucket:Destination.Bucket,DestRegion:Destination.Account}' --output table 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one rule should show Status: Enabled and a Destination bucket in a different region. 'ReplicationConfigurationNotFound' error means CRR is not configured."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure Storage, verify geo-redundant storage (GRS or GZRS) replication tier on the storage account.",
+        "command": "az storage account show --name <account-name> --resource-group <rg-name> --query '{sku:sku.name, kind:kind, geoReplicationStats:geoReplicationStats}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "sku.name should be 'Standard_GRS', 'Standard_RAGRS', 'Standard_GZRS', or 'Standard_RAGZRS'. 'Standard_LRS' or 'Standard_ZRS' indicates no cross-region replication."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the GCP Console, check Cloud Storage bucket location type for multi-region or dual-region configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GCP Console → Cloud Storage → Buckets → Select bucket → Configuration tab → Location type (Multi-region or Dual-region indicates cross-region replication)",
+        "expected_output": "Location type should be 'Multi-region' (e.g., US, EU) or 'Dual-region'. 'Region' indicates data is stored in a single region only."
+      },
+      {
+        "type": "command",
+        "instruction": "List GCS bucket metadata to confirm multi-region placement and replication policy.",
+        "command": "gcloud storage buckets describe gs://<bucket-name> --format='json(location,locationType,rpo)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "locationType should be 'multi-region' or 'dual-region'. rpo of 'ASYNC_TURBO' or 'DEFAULT' confirms active replication. 'region' locationType means no cross-region redundancy."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (GRS, CRR, or multi-region bucket configured)",
+      "false (LRS or single-region only — common in dev/test environments promoted to production)"
+    ]
+  },
+  {
+    "option_name": "backup_integrity_validation_enabled",
+    "option_description": "Controls whether automated integrity checks — such as checksum verification after each backup job completion or scheduled restore drills — are configured to confirm that backup data is uncorrupted and recoverable.",
+    "security_impact": "The Rego policy fires 'missing_data_replication_and_backup_integrity_controls' when 'not input.backup_integrity_validation_enabled'. Backups that are never tested for recoverability provide a false sense of safety; silent bit-rot, incomplete transfers, or ransomware-corrupted backup chains go undetected until a disaster recovery event reveals the backups are unusable.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the storage or backup operations team to determine whether automated restore tests are scheduled and whether job completion logs include checksum comparison results.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team can demonstrate a scheduled restore test job (at minimum monthly) with documented pass/fail results. Absence of any such process is a control gap."
+      },
+      {
+        "type": "command",
+        "instruction": "In AWS Backup, list restore testing plans to confirm automated restore validation is configured.",
+        "command": "aws backup list-restore-testing-plans --query 'RestoreTestingPlans[*].{Name:RestoreTestingPlanName,Schedule:ScheduleExpression,Status:LastExecutionStatus}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one restore testing plan should exist with a valid ScheduleExpression (e.g., 'cron(0 5 ? * MON *)') and LastExecutionStatus of 'PASSED'. No plans means no automated integrity validation."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review backup job completion logs for checksum validation entries. In Veeam, check the job session log for 'Data Verification' or CRC check entries.",
+        "command": "grep -E '(checksum|integrity|verify|hash|CRC|restore test)' /var/log/veeam/Backup/*.log 2>/dev/null | tail -50",
+        "file_path": "/var/log/veeam/Backup/",
+        "navigation": null,
+        "expected_output": "Log entries confirming checksum verification passed after backup completion. Absence of any verification entries indicates integrity validation is not running."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Backup, navigate to the Recovery Services vault, select Backup Jobs, and check whether any jobs of type 'Validate' or 'Test Failover' are present and have run successfully.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Recovery Services Vault → Monitoring → Backup Jobs → Filter by Operation: Validate → Check Last Run Date and Status",
+        "expected_output": "At least one completed validation job within the past 30 days with Status 'Completed'. No validation jobs means integrity checks are not automated."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (automated restore tests and checksum validation configured in backup policy)",
+      "false (backups taken but never validated — extremely common even in mature environments)",
+      "null (not assessed or backup system lacks integrity validation capability)"
+    ]
+  },
+  {
+    "option_name": "management_interface_network_scope",
+    "option_description": "Defines the network boundary from which storage management consoles or administrative APIs (e.g., S3 control plane, Azure Blob management API, MinIO admin UI) are reachable, ranging from unrestricted public internet access to management-VPN-only.",
+    "security_impact": "The Rego policy fires 'unrestricted_management_interface_network_exposure' for 'public_internet' unconditionally, and for 'broad_internal' when a VPN/bastion is also absent. Exposing storage management interfaces to the public internet or broad internal networks dramatically expands the credential attack surface — brute-force, credential stuffing, and exploitation of zero-days in the management plane can bypass data-layer access controls entirely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate inbound security group rules for the storage management port and identify the source CIDR ranges.",
+        "command": "aws ec2 describe-security-groups --filters 'Name=ip-permission.from-port,Values=443' --query 'SecurityGroups[*].{SGId:GroupId,Rules:IpPermissions[*].{Port:FromPort,CIDR:IpRanges[*].CidrIp,IPv6:Ipv6Ranges[*].CidrIpv6}}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CIDR ranges should be private RFC1918 blocks or VPN endpoint IPs only. Presence of '0.0.0.0/0' or '::/0' indicates 'public_internet' scope."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Azure Network Security Group rules for storage management ports (443, 8443) to determine allowed source ranges.",
+        "command": "az network nsg rule list --nsg-name <nsg-name> --resource-group <rg-name> --query '[?destinationPortRange==`443` || destinationPortRange==`8443`].{Name:name,Access:access,Source:sourceAddressPrefix,Priority:priority}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "sourceAddressPrefix should show specific private CIDR ranges or VirtualNetwork tag. '*' or 'Internet' tag indicates public_internet scope."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an external IP (not your corporate network), attempt to reach the storage management endpoint to determine if it is publicly reachable.",
+        "command": "curl -sk --max-time 5 -o /dev/null -w '%{http_code}' https://<storage-mgmt-endpoint>:443/; echo",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A connection timeout or TCP RST indicates the management interface is not publicly exposed. An HTTP response code (200, 401, 403) confirms it is publicly_internet accessible."
+      },
+      {
+        "type": "gui",
+        "instruction": "In GCP Console, review the firewall rules applied to the VPC containing the storage management endpoint and check source IP ranges for admin port rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GCP Console → VPC Network → Firewall → Filter by target tag or service account of storage host → Review Source IP ranges column for management port rules",
+        "expected_output": "Source IP ranges should show specific CIDR blocks from a management VPN range. '0.0.0.0/0' indicates public_internet. A broad internal range (e.g., 10.0.0.0/8) maps to broad_internal."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "management_vpn_only (hardened deployments with dedicated management network)",
+      "restricted_private (specific internal CIDRs allowed, no VPN enforcement)",
+      "broad_internal (entire RFC1918 space allowed — common in flat enterprise networks)",
+      "public_internet (SaaS-style or misconfigured storage — highest risk)"
+    ]
+  },
+  {
+    "option_name": "management_vpn_or_bastion_required",
+    "option_description": "Controls whether network-layer enforcement (firewall rules, security group policies) requires all connections to the storage management interface to originate from or traverse a VPN gateway or bastion host, blocking direct access from other network paths.",
+    "security_impact": "The Rego policy evaluates this attribute in two conditions: 'broad_internal' scope with VPN/bastion absent triggers the exposure, as does any configuration where allowed_management_cidr_count > 5 without VPN/bastion enforcement. Without a VPN or bastion requirement, attackers with any internal network foothold (phished workstation, compromised service) can directly reach the management API without additional authentication barriers.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether security group rules for storage management ports restrict source to the VPN gateway's IP or bastion host security group only.",
+        "command": "aws ec2 describe-security-groups --group-ids <storage-mgmt-sg-id> --query 'SecurityGroups[*].IpPermissions[?FromPort==`443`].{IPv4:IpRanges,IPv6:Ipv6Ranges,SGRef:UserIdGroupPairs}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Source should reference only the VPN endpoint IP/CIDR or the bastion host security group ID (UserIdGroupPairs). Broad CIDR or missing SGRef indicates VPN/bastion enforcement is absent."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect firewall configuration files (iptables, nftables, pfSense) on the storage host to confirm management port rules restrict to VPN tunnel interfaces only.",
+        "command": "iptables -L INPUT -n -v --line-numbers | grep -E ':(443|8443|9000|9001)'",
+        "file_path": "/etc/iptables/rules.v4",
+        "navigation": null,
+        "expected_output": "Rules should show source addresses matching the VPN tunnel subnet (e.g., 10.8.0.0/24 for OpenVPN) or the tun0 interface. Rules accepting from 0.0.0.0/0 or broad private ranges indicate no VPN enforcement."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review network access control documentation and runbooks to confirm there is a documented and enforced policy requiring VPN connection before accessing the storage management console.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation explicitly states management access requires active VPN session, and network controls (not just policy) enforce this. Policy-only without network enforcement is insufficient."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to access the storage management API directly from a non-VPN internal host to verify network-layer enforcement blocks the connection.",
+        "command": "curl -sk --max-time 5 -o /dev/null -w '%{http_code}' https://<storage-mgmt-ip>:443/ --interface <non-vpn-internal-interface>; echo",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection should time out or be refused (000 or connection refused) from a non-VPN host. Any successful HTTP response indicates network-layer enforcement is absent."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (security group or firewall rule restricts management ports to VPN/bastion SG only)",
+      "false (management interface accessible from any internal host — common default)"
+    ]
+  },
+  {
+    "option_name": "allowed_management_cidr_count",
+    "option_description": "The total count of distinct CIDR blocks (IPv4 and IPv6) present in inbound allow rules for storage management ports across all applicable firewall rules, security groups, or network ACLs. A high count indicates overly permissive access with many different network origins permitted.",
+    "security_impact": "The Rego policy fires 'unrestricted_management_interface_network_exposure' when this count exceeds 5 and management_vpn_or_bastion_required is false. Each additional permitted CIDR expands the credential attack surface — more network locations from which brute-force, credential stuffing, or exploitation of management plane vulnerabilities can be launched without requiring VPN compromise first.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Count the number of distinct CIDR ranges in AWS security group inbound rules for management ports on the storage host.",
+        "command": "aws ec2 describe-security-groups --group-ids <sg-id> --query 'SecurityGroups[*].IpPermissions[?contains(`[443,8443,9000,9001]`, FromPort)].[IpRanges[*].CidrIp, Ipv6Ranges[*].CidrIpv6]' --output json | jq '[.. | strings | select(test(\"^[0-9.:/]+$\"))] | unique | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer. Values of 0-3 indicate tightly restricted access. Values above 5 without VPN enforcement are flagged by policy. Values above 20 indicate highly permissive configuration."
+      },
+      {
+        "type": "command",
+        "instruction": "Count distinct allowed source CIDRs for management ports in Azure NSG rules using Azure CLI.",
+        "command": "az network nsg rule list --nsg-name <nsg-name> --resource-group <rg-name> --query '[?access==`Allow` && (destinationPortRange==`443` || destinationPortRange==`8443`)].sourceAddressPrefix' --output tsv | sort -u | wc -l",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer count of unique source address prefixes. Count of 1-2 (VPN CIDR only) is ideal. Count above 5 combined with no bastion requirement is a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "Parse iptables rules on a self-hosted storage system to count distinct source CIDRs allowed to management ports.",
+        "command": "iptables -L INPUT -n | awk '/ACCEPT/ && /:443 |:8443 |:9000 /{print $4}' | sort -u | wc -l",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer count of unique source CIDR entries. Output of 1-2 is expected for a well-locked-down management port. Output of 0 with port still reachable suggests default-allow policies exist."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the GCP compute API to enumerate all firewall rules allowing ingress to management ports and count unique source ranges.",
+        "command": "gcloud compute firewall-rules list --filter='direction=INGRESS AND allowed.ports:(443 8443 9000)' --format='json' | jq '[.[].sourceRanges[]?] | unique | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing unique allowed source CIDRs across all matching firewall rules. Values above 5 combined with no VPN requirement should be flagged."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1 (single VPN gateway CIDR — well-hardened)",
+      "2-3 (primary VPN + secondary/DR VPN gateway CIDRs)",
+      "6-15 (multiple office CIDRs allowed directly — overly permissive without VPN)",
+      "50+ (accumulated legacy rules — high risk, common in long-running environments)"
+    ]
+  },
+  {
+    "option_name": "admin_and_data_roles_separated",
+    "option_description": "Controls whether IAM or RBAC policies enforce a strict separation between storage administrative roles (granting permissions such as SetBucketPolicy, DeleteBucket, PutBucketLogging, ModifyACL) and data access roles (GetObject, PutObject, ListObjects), ensuring no single identity binding combines both privilege sets.",
+    "security_impact": "The Rego policy triggers 'insufficient_privilege_separation_for_storage_roles' when 'not input.admin_and_data_roles_separated'. When data access accounts also hold administrative permissions, a compromised application credential can delete all stored data, disable access logging to cover tracks, or escalate privileges by modifying bucket policies — all without requiring a separate credential compromise. Separation enforces the principle of least privilege and limits blast radius.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all IAM policies attached to the storage service's data access roles and check for the presence of administrative actions.",
+        "command": "aws iam get-policy-version --policy-arn <data-role-policy-arn> --version-id $(aws iam get-policy --policy-arn <data-role-policy-arn> --query 'Policy.DefaultVersionId' --output text) --query 'PolicyVersion.Document.Statement[*].{Effect:Effect,Actions:Action,Resource:Resource}' --output json | jq '.[] | select(.Effect==\"Allow\") | .Actions | if type==\"array\" then .[] else . end | select(test(\"(DeleteBucket|PutBucketPolicy|PutBucketLogging|PutBucketAcl|s3:Delete|SetBucketPolicy)\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output (empty) confirms data roles contain no administrative actions. Any matching action indicates role separation is not enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCP, review custom IAM role bindings on the storage bucket to identify if any service account holds both data and admin permissions simultaneously.",
+        "command": "gcloud storage buckets get-iam-policy gs://<bucket-name> --format=json | jq '.bindings[] | select(.role | test(\"(admin|owner|StorageAdmin)\")) | {role: .role, members: .members}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service accounts used by applications should not appear in admin or owner role bindings. Application SA appearing in 'roles/storage.admin' indicates failed separation."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Azure REST API to list role assignments on the storage account and identify any identity that holds both 'Storage Blob Data Contributor' and 'Storage Account Contributor' simultaneously.",
+        "command": "az role assignment list --scope /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/<account> --query '[*].{Principal:principalName,Role:roleDefinitionName}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each principal should appear with either a data role (Blob Data Reader/Contributor) OR an admin role (Storage Account Contributor), never both. Overlap indicates failed separation."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the access control matrix or RBAC design documentation with the IAM/identity team to confirm that role definitions explicitly prohibit the combination of data and administrative permissions in a single binding.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Access control documentation shows separate role definitions for data access and administration, with a review process confirming no combined bindings exist. Absence of documentation or review process is itself a finding."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (separate data-reader, data-writer, and storage-admin IAM roles with no overlap)",
+      "false (application service accounts granted bucket-level admin permissions — common default in AWS S3 setups using broad managed policies)"
+    ]
+  },
+  {
+    "option_name": "data_access_account_can_modify_permissions",
+    "option_description": "Controls whether IAM roles or service accounts used for routine object read/write operations also hold permissions to modify bucket/object ACLs, IAM policies, or RBAC bindings on the storage resource. True indicates privilege bleed between data-plane and control-plane roles.",
+    "security_impact": "The Rego policy fires `insufficient_privilege_separation_for_storage_roles` when `data_access_account_can_modify_permissions == true`, regardless of any other compensating controls. A compromised data-access credential can then escalate privileges by rewriting bucket policies, granting itself or an attacker full administrative access, exfiltrating all data, or locking out legitimate owners. This collapses the separation between the data plane and the control plane and is treated as a standalone finding.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, simulate the effective permissions of every IAM principal tagged as a data-access role using the IAM policy simulator CLI. Check specifically for s3:PutBucketPolicy, s3:PutBucketAcl, s3:PutObjectAcl, and iam:PassRole.",
+        "command": "aws iam simulate-principal-policy --policy-source-arn <data-access-role-arn> --action-names s3:PutBucketPolicy s3:PutBucketAcl s3:PutObjectAcl --resource-arns 'arn:aws:s3:::*' --query 'EvaluationResults[?EvalDecision==`allowed`]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An empty list indicates no policy-modification actions are allowed. Any entry with EvalDecision=allowed signals a true value for this attribute."
+      },
+      {
+        "type": "command",
+        "instruction": "On GCP, enumerate the IAM bindings on every bucket and resolve whether the bound service accounts carry storage.buckets.setIamPolicy or storage.objects.setIamPolicy in their effective role set.",
+        "command": "gsutil iam get gs://<bucket-name> | jq '.bindings[] | select(.role | test(\"roles/storage.admin|roles/storage.objectAdmin|setIamPolicy\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No entries in output indicates data-access roles do not hold permission-modification rights. Any returned bindings require manual review against service account usage context."
+      },
+      {
+        "type": "api",
+        "instruction": "On Azure, call the Azure Resource Manager REST API to retrieve RBAC role assignments on the storage account, then resolve each role definition to confirm no data-access-scoped identity holds Microsoft.Storage/storageAccounts/write or Microsoft.Authorization/roleAssignments/write.",
+        "command": "az role assignment list --scope /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/<account> --output json | jq '.[] | {principalName:.principalName, roleDefinitionName:.roleDefinitionName}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Data-access service principals should appear only in roles such as Storage Blob Data Reader or Storage Blob Data Contributor, not Owner or roles containing authorization write actions."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to IAM → Roles, filter for roles with S3 access, open each role's Permissions tab, and use 'Simulate' to test s3:PutBucketPolicy. In GCP Console, navigate to Cloud Storage → Bucket → Permissions and inspect each binding's role for setIamPolicy.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → IAM → Roles → [data-access role] → Permissions → Simulate | GCP Console → Cloud Storage → [bucket] → Permissions → View all principals",
+        "expected_output": "Data-access roles should show no policy-mutation actions as Allowed in the simulator."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (recommended)",
+      "true (common in environments using wildcard policies or overly broad managed roles)"
+    ]
+  },
+  {
+    "option_name": "data_access_account_can_disable_logging",
+    "option_description": "Controls whether IAM roles or service accounts used for routine object read/write operations also hold permissions to modify or disable audit and access logging configuration on the storage service, such as s3:PutBucketLogging on AWS or storage.buckets.update on GCP.",
+    "security_impact": "The Rego policy fires `insufficient_privilege_separation_for_storage_roles` when `data_access_account_can_disable_logging == true` AND `privileged_action_requires_additional_authz` is not set. An attacker who compromises a data-access credential can silently disable logging before exfiltrating data, erasing forensic evidence of the breach. Even without full data destruction, this undermines the detective control layer entirely, making the `absent_or_insufficient_access_logging` exposure undetectable after the fact.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, simulate s3:PutBucketLogging against the data-access IAM role using the IAM policy simulator to determine whether routine data roles can silence server access logs.",
+        "command": "aws iam simulate-principal-policy --policy-source-arn <data-access-role-arn> --action-names s3:PutBucketLogging --resource-arns 'arn:aws:s3:::*' --query 'EvaluationResults[?EvalDecision==`allowed`].{Action:EvalActionName,Decision:EvalDecision}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Result should show EvalDecision=implicitDeny or explicitDeny for all principals. Any allowed result sets this attribute to true."
+      },
+      {
+        "type": "command",
+        "instruction": "On GCP, list custom and predefined roles bound to data-access service accounts and grep for storage.buckets.update, which grants the ability to modify logging configuration.",
+        "command": "gcloud projects get-iam-policy <project-id> --format=json | jq '.bindings[] | select(.members[] | test(\"serviceAccount:<data-sa>\")) | .role' | xargs -I{} gcloud iam roles describe {} --format='json' | jq '.includedPermissions[] | select(test(\"storage.buckets.update\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output indicates storage.buckets.update is absent from data-access role effective permissions."
+      },
+      {
+        "type": "api",
+        "instruction": "On Azure, verify that data-access service principals do not have Microsoft.Storage/storageAccounts/blobServices/write or the ability to modify diagnostic settings via Microsoft.Insights/diagnosticSettings/write.",
+        "command": "az role definition list --query \"[?contains(permissions[0].actions, 'Microsoft.Storage/storageAccounts/blobServices/write')].{Name:name, Actions:permissions[0].actions}\" --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Data-access principals should only be assigned roles whose actions list excludes diagnostic settings and blob service configuration writes."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the IAM policy or role definition documents for all service accounts tagged as data-access. Confirm that an explicit Deny statement or absence of logging-configuration actions is documented in the access control matrix.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IAM Policy documentation review; service account inventory register; cloud access control matrix",
+        "expected_output": "Access control matrix explicitly marks logging-configuration permissions as absent or denied for all data-access identities."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (recommended)",
+      "true (often seen when using aws:s3FullAccess or equivalent broad managed policies without customization)"
+    ]
+  },
+  {
+    "option_name": "privileged_action_requires_additional_authz",
+    "option_description": "Controls whether administrative storage operations — including permission changes, object deletion, logging configuration toggles, and bucket policy modifications — require step-up authentication (MFA), approval workflows (PAM/ITSM gates), or break-glass procedures beyond the baseline credential used for normal access.",
+    "security_impact": "The Rego policy uses `privileged_action_requires_additional_authz` as a mitigating control: when `data_access_account_can_disable_logging == true`, the `insufficient_privilege_separation_for_storage_roles` finding is suppressed only if this attribute is also true. Without this control, a single compromised credential is sufficient to both exfiltrate data and destroy the audit trail in a single session. It also reduces the blast radius of credential theft by requiring attackers to satisfy an additional authentication factor before executing destructive or privilege-escalating operations.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, inspect bucket policies and SCPs for IAM condition keys such as aws:MultiFactorAuthPresent, aws:MultiFactorAuthAge, or s3:ResourceAccount that gate privilege-sensitive actions. Check for explicit Deny on admin actions when MFA is absent.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket-name> | jq '.Policy | fromjson | .Statement[] | select(.Condition.BoolIfExists[\"aws:MultiFactorAuthPresent\"] or .Condition.Bool[\"aws:MultiFactorAuthPresent\"])'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy statements should include an explicit Deny block with Condition: Bool: aws:MultiFactorAuthPresent: false for privileged actions such as s3:PutBucketPolicy and s3:DeleteObject."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Service Control Policies at the AWS Organization level for MFA enforcement on storage admin actions.",
+        "command": "aws organizations list-policies --filter SERVICE_CONTROL_POLICY --query 'Policies[*].Id' --output text | xargs -I{} aws organizations describe-policy --policy-id {} --query 'Policy.Content' --output text | jq 'select(.Statement[].Condition.BoolIfExists[\"aws:MultiFactorAuthPresent\"] != null)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SCPs should contain deny rules conditioned on absence of MFA for sensitive S3 actions applicable to the storage account's organization unit."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the cloud operations or IAM team to confirm whether a PAM (Privileged Access Management) tool such as CyberArk, HashiCorp Boundary, or AWS IAM Identity Center with approval workflows gates elevation to storage admin roles. Request evidence of an approval workflow audit log for a recent privileged storage action.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM tool admin console → Session recordings or approval requests → filter for storage-admin role assumptions",
+        "expected_output": "Evidence of time-bound, approval-gated role assumption or session recording for any administrative storage operation in the past 30 days."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS IAM Identity Center (SSO), navigate to Permission Sets used for storage administration and confirm that MFA is set to required, or that session duration is set to a short window with re-authentication enforced.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → IAM Identity Center → Permission Sets → [storage-admin set] → Multi-factor authentication → Require MFA",
+        "expected_output": "MFA setting shows 'Require them to provide a one-time password each time they sign in' or equivalent; Session duration is ≤1 hour."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default; most environments do not enforce MFA conditions on bucket policies)",
+      "true (mature environments with SCPs or PAM tooling)"
+    ]
+  },
+  {
+    "option_name": "object_versioning_enabled",
+    "option_description": "Controls whether the storage bucket retains prior versions of every object upon modification or deletion. When enabled, a delete operation places a delete marker rather than permanently removing the object, and overwrites create a new version while preserving the previous one.",
+    "security_impact": "The Rego policy references `object_versioning_enabled` in two rules. In `missing_object_versioning_and_delete_protection`, the exposure fires when both versioning and object lock are absent, and also when versioning is enabled but neither object lock nor MFA delete provide additional protection. In `absence_of_integrity_verification_for_stored_objects`, absence of versioning combined with absent checksum validation triggers the integrity finding. Without versioning, ransomware or malicious insiders can permanently destroy data by overwriting objects, with no recovery path outside of external backups.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, retrieve the versioning configuration for a specific S3 bucket. A Status of Enabled confirms versioning is active; Suspended or absent output indicates it is disabled.",
+        "command": "aws s3api get-bucket-versioning --bucket <bucket-name> --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "{\"Status\": \"Enabled\", \"MFADelete\": \"Disabled\"} — Status must be Enabled; absence of the Status key or Suspended means versioning is off."
+      },
+      {
+        "type": "command",
+        "instruction": "On GCP, retrieve the bucket metadata and inspect the versioning configuration block.",
+        "command": "gsutil versioning get gs://<bucket-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "gs://<bucket-name>: Enabled — any other output (e.g., Suspended) indicates versioning is not active."
+      },
+      {
+        "type": "command",
+        "instruction": "On Azure, Azure Blob Storage versioning is a storage account-level property. Retrieve the blob service properties to check versioning enablement.",
+        "command": "az storage account blob-service-properties show --account-name <storage-account> --resource-group <rg> --query 'isVersioningEnabled'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "true — false or null indicates versioning is disabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to S3 → [bucket] → Properties → Bucket Versioning section. In GCP Console, navigate to Cloud Storage → [bucket] → Configuration → Object versioning.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → S3 → [bucket] → Properties → Bucket Versioning | GCP Console → Cloud Storage → [bucket] → Configuration → Object versioning",
+        "expected_output": "Status shows 'Enabled' (AWS) or a green checkmark with 'On' (GCP)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default for new buckets on all major providers)",
+      "true (required for compliance-sensitive workloads; commonly enabled in regulated industries)"
+    ]
+  },
+  {
+    "option_name": "object_lock_enabled",
+    "option_description": "Controls whether WORM (Write Once Read Many) object lock or an equivalent immutable-storage mechanism is enabled on the bucket, preventing objects from being deleted or overwritten during a defined retention period regardless of IAM permissions, including by the bucket owner.",
+    "security_impact": "The Rego policy fires `missing_object_versioning_and_delete_protection` when both `object_versioning_enabled` and `object_lock_enabled` are false, and also when versioning is true but object lock and MFA delete are both absent. Object lock is the only control that enforces immutability even against privileged identities, making it the primary defense against ransomware that compromises admin credentials. Without it, an attacker with sufficient IAM rights can permanently destroy all object versions, defeating versioning protections.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, retrieve the object lock configuration for the bucket. Object lock must be enabled at bucket creation time on S3; it cannot be added retroactively.",
+        "command": "aws s3api get-object-lock-configuration --bucket <bucket-name> --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "{\"ObjectLockConfiguration\": {\"ObjectLockEnabled\": \"Enabled\", \"Rule\": {\"DefaultRetention\": {\"Mode\": \"COMPLIANCE\", \"Days\": 30}}}} — ObjectLockEnabled must be Enabled with a DefaultRetention rule present."
+      },
+      {
+        "type": "command",
+        "instruction": "On GCP, check the bucket's retention policy, which is the GCS equivalent of object lock. A locked retention policy enforces WORM behavior.",
+        "command": "gsutil retention get gs://<bucket-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Retention Policy (LOCKED): Duration 2592000s — the LOCKED status confirms immutability; an unlocked policy or absence of output indicates object lock is not in effect."
+      },
+      {
+        "type": "command",
+        "instruction": "On Azure, check whether immutability policies are configured on the blob container using the Azure CLI.",
+        "command": "az storage container immutability-policy show --account-name <storage-account> --container-name <container> --resource-group <rg> --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A policy with state=Locked and immutabilityPeriodSinceCreationInDays > 0 confirms object lock is active. A 404 or empty response indicates it is absent."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to S3 → [bucket] → Properties → Object Lock section. Note that a bucket created without Object Lock enabled cannot have it enabled after creation.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → S3 → [bucket] → Properties → Object Lock → scroll to Object lock configuration",
+        "expected_output": "Object lock status shows 'Enabled' with a retention mode (Compliance or Governance) and a configured retention period."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default; most buckets are created without Object Lock)",
+      "true (required for SEC 17a-4, FINRA, HIPAA, and other immutable-record compliance frameworks)"
+    ]
+  },
+  {
+    "option_name": "mfa_delete_enabled",
+    "option_description": "Controls whether multi-factor authentication is required to permanently delete object versions (i.e., delete a specific version rather than add a delete marker) or to change the versioning state of the bucket. This is an S3-specific control requiring the MFA device serial and token to be passed in the request header.",
+    "security_impact": "The Rego policy fires `missing_object_versioning_and_delete_protection` when `object_versioning_enabled` is true but both `object_lock_enabled` and `mfa_delete_enabled` are false. Versioning alone only soft-deletes objects; an attacker who obtains the IAM credentials can call DeleteObjectVersion in a loop to permanently purge all versions. MFA delete forces possession of a physical or virtual MFA device in addition to the IAM credential, creating a two-factor barrier against version purging that cannot be bypassed by credential compromise alone.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, retrieve the versioning configuration for the bucket and inspect the MFADelete field. This field only appears with a non-empty value when MFA delete has been explicitly configured.",
+        "command": "aws s3api get-bucket-versioning --bucket <bucket-name> --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "{\"Status\": \"Enabled\", \"MFADelete\": \"Enabled\"} — MFADelete must be Enabled. A value of Disabled or absence of the key means MFA delete is not active."
+      },
+      {
+        "type": "command",
+        "instruction": "Attempt to enable MFA delete (in a test environment) to confirm current state. The command will fail with an authentication error if MFA delete is already configured and your current session lacks MFA, confirming it is enforced.",
+        "command": "aws s3api put-bucket-versioning --bucket <bucket-name> --versioning-configuration Status=Enabled,MFADelete=Enabled --mfa '<mfa-device-serial> <mfa-token>' --profile root-account-profile",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Successful execution with no error confirms MFA delete can be enabled; note that enabling MFA delete requires the AWS account root user credentials."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the S3 GetBucketVersioning REST API directly, authenticating with a root-account session, to retrieve the MFADelete element from the XML response body.",
+        "command": "curl -s --aws-sigv4 'aws:amz:<region>:s3' --user '<access-key>:<secret-key>' 'https://<bucket-name>.s3.<region>.amazonaws.com/?versioning' | xmllint --xpath '//MFADelete/text()' -",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Enabled — any other value or empty output means MFA delete is not active."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the storage administrator or cloud operations team. MFA delete on S3 requires the account root user to enable it and requires physical MFA device availability. Confirm whether the root account has an MFA device registered and whether a documented procedure exists for version deletion requests.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → IAM → Account settings → Root user MFA | Internal runbook for permanent version deletion procedures",
+        "expected_output": "Documentation confirms MFA delete is enabled on critical buckets and a process exists requiring MFA device possession for any permanent deletion operation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default and extremely common; MFA delete is rarely configured due to root-account requirement complexity)",
+      "true (uncommon; primarily seen in high-security financial or government workloads)"
+    ]
+  },
+  {
+    "option_name": "namespace_isolation_enforced",
+    "option_description": "Controls whether the storage platform enforces hard namespace boundaries — through bucket/container policies, storage account ACLs, or resource-level IAM — that prevent one tenant's processes or accounts from accessing another tenant's storage namespace at the platform level.",
+    "security_impact": "The Rego policy fires `cross_tenant_isolation_misconfiguration` both when `namespace_isolation_enforced` is false (directly) and when `shared_credential_scope == per_service` combined with the absence of namespace isolation. Without enforced namespace boundaries, a compromised or misbehaving tenant process that obtains a service-level credential can enumerate and access all other tenants' buckets or containers within the same service account. This is a critical multi-tenancy breach scenario that bypasses application-layer authorization entirely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, retrieve bucket policies for each tenant's bucket and confirm that a Deny condition explicitly rejects cross-account or cross-principal access. Verify that no bucket is accessible via wildcard principal.",
+        "command": "aws s3api get-bucket-policy --bucket <tenant-bucket-name> | jq '.Policy | fromjson | .Statement[] | select(.Effect==\"Allow\") | {Principal:.Principal, Actions:.Action, Resource:.Resource}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Principal should reference only the specific tenant's account ID or role ARN, not '*' or other tenant account IDs. Any cross-account Allow without explicit tenant scoping fails isolation."
+      },
+      {
+        "type": "command",
+        "instruction": "On GCP, list all IAM bindings on a tenant bucket and verify that no bindings reference service accounts from other tenant projects.",
+        "command": "gsutil iam get gs://<tenant-bucket> | jq '.bindings[] | {role:.role, members:.members}' | grep -v '<tenant-project-number>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No results after grep — any service account not belonging to the tenant's project appearing in bindings indicates a namespace isolation failure."
+      },
+      {
+        "type": "api",
+        "instruction": "On Azure, use the ARM REST API to list container-level access policies for a storage account hosting multiple tenant containers, confirming each container uses stored access policies scoped to the respective tenant's service principal.",
+        "command": "az storage container list --account-name <shared-storage-account> --output json | jq '.[].properties.publicAccess' && az storage container policy list --account-name <shared-storage-account> --container-name <tenant-container> --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "publicAccess should be null or off for each container. Stored access policies should reference only the specific tenant's managed identity or service principal."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the multi-tenant architecture documentation and IAM design patterns to confirm whether tenant namespaces are enforced at the platform layer (separate accounts per tenant, VPC endpoint policies, or bucket policies with account conditions) versus solely at the application layer.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Architecture review documentation; tenant onboarding runbook; IAM role assignment matrix",
+        "expected_output": "Architecture documents confirm platform-layer enforcement: either separate AWS accounts per tenant, per-tenant GCP projects, or explicit deny-by-default bucket policies with explicit per-tenant allow conditions."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (recommended; enforced in well-designed multi-tenant SaaS platforms using separate accounts or explicit deny policies)",
+      "false (common in early-stage SaaS relying solely on application-layer authorization)"
+    ]
+  },
+  {
+    "option_name": "shared_credential_scope",
+    "option_description": "Describes the blast radius of credentials used by the storage service — whether a single credential or role can access all tenants' namespaces globally, is scoped to a single service (accessing multiple tenants), or is uniquely provisioned per tenant with access to only that tenant's namespace.",
+    "security_impact": "The Rego policy fires `cross_tenant_isolation_misconfiguration` when `shared_credential_scope == global` unconditionally, and also when `shared_credential_scope == per_service` combined with `namespace_isolation_enforced` being false. A global credential is a single point of compromise that exposes all tenant data simultaneously. A per-service credential with absent namespace isolation still permits lateral movement across all tenants served by that service. Only per_tenant credentials with namespace isolation enforced fully contain the blast radius of a credential compromise to a single tenant's data.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, list the IAM roles or access keys used by storage-access services and inspect their attached policies to determine whether the Resource ARN is scoped to a single tenant's bucket prefix or uses a wildcard covering all buckets.",
+        "command": "aws iam list-attached-role-policies --role-name <storage-service-role> --output json | jq '.AttachedPolicies[].PolicyArn' | xargs -I{} aws iam get-policy-version --policy-arn {} --version-id $(aws iam get-policy --policy-arn {} --query 'Policy.DefaultVersionId' --output text) --query 'PolicyVersion.Document.Statement[*].Resource'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Resources should be specific bucket ARNs or prefixed ARNs such as arn:aws:s3:::tenant-<id>-bucket/*. A wildcard arn:aws:s3:::* indicates global scope."
+      },
+      {
+        "type": "command",
+        "instruction": "On GCP, inspect service account key usage and the IAM bindings it holds across all storage buckets to determine the number of distinct tenant buckets accessible from a single service account.",
+        "command": "gcloud asset search-all-iam-policies --scope=projects/<project-id> --query='policy:serviceAccount:<storage-sa>@<project>.iam.gserviceaccount.com' --format='json' | jq '[.[] | select(.resource | test(\"storage.googleapis.com\"))] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Count of 1 indicates per-tenant scoping. A count equal to the total number of tenant buckets indicates per_service or global scope."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform engineering or DevOps team responsible for storage credential provisioning. Request the credential issuance runbook and confirm whether a separate service account or IAM role is created for each tenant at onboarding, or whether a shared service identity is used across all tenants.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Tenant onboarding runbook; service account creation automation scripts; Terraform/Pulumi IAM module definitions",
+        "expected_output": "Runbook confirms per-tenant service account creation with resource-scoped IAM bindings; or flags shared service account as a known risk with namespace isolation as a compensating control."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Terraform, CloudFormation, or Pulumi infrastructure-as-code templates defining IAM roles and service accounts for storage access. Search for role resource policies and identify whether bucket ARNs use per-tenant prefixes, per-service wildcards, or global wildcards.",
+        "command": "grep -rE '(arn:aws:s3:::|gs://|storageAccounts)' <iac-directory>/ | grep -E '(\\*|all_buckets|shared)' | head -40",
+        "file_path": "<iac-directory>/storage-iam.tf or cloudformation/storage-roles.yaml",
+        "navigation": null,
+        "expected_output": "No matches with wildcard bucket references in data-access role definitions. Each role's Resource block should reference a tenant-specific bucket name pattern."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "per_service (most common in SaaS platforms using a single application service identity)",
+      "global (common in early-stage or internally built platforms; highest risk)",
+      "per_tenant (best practice; common in compliance-regulated multi-tenant platforms)"
+    ]
+  },
+  {
+    "option_name": "cross_tenant_policy_violations_detected",
+    "option_description": "Controls whether automated policy scanning has identified IAM policies, ACL entries, or role bindings that incorrectly grant one tenant's principal access to another tenant's storage namespace. This is a detection output attribute representing the result of running cross-tenant policy audit tooling against all storage namespaces in a multi-tenant environment.",
+    "security_impact": "Directly triggers the cross_tenant_isolation_misconfiguration Rego rule when set to true. The policy flags this condition because cross-tenant access violations mean sensitive data belonging to one customer or organizational unit is readable or writable by another tenant's credentials — a critical data isolation failure. Even a single policy misconfiguration can expose the entire namespace of an affected tenant, bypassing all application-layer access controls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run AWS IAM Access Analyzer scoped to S3 bucket policies to detect cross-account or cross-tenant access grants across all buckets in the account.",
+        "command": "aws accessanalyzer list-findings --analyzer-arn $(aws accessanalyzer list-analyzers --query 'analyzers[0].arn' --output text) --filter '{\"resourceType\":{\"eq\":[\"AWS::S3::Bucket\"]}}' --query 'findings[?status==`ACTIVE`].[resource,principal,condition]' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table of active findings showing bucket ARNs with external or cross-account principal grants. Empty output indicates no cross-tenant violations detected."
+      },
+      {
+        "type": "api",
+        "instruction": "Use a CSPM tool API (e.g., Prisma Cloud, Wiz, Orca) to query for cross-tenant policy findings across all storage resources and export results.",
+        "command": "curl -s -H 'Authorization: Bearer $CSPM_TOKEN' 'https://<cspm-host>/api/v1/findings?category=storage&policy=cross_tenant_access&status=open' | jq '[.findings[] | {resource: .resourceId, principal: .principal, tenant: .tenantId}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array of findings. An empty array or findings with status 'closed' indicates no active cross-tenant violations."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCS, use the gcloud asset inventory to enumerate all bucket IAM policies and flag bindings that reference principals outside the expected project or organization domain.",
+        "command": "gcloud asset search-all-iam-policies --scope='organizations/<ORG_ID>' --query='resource:storage.googleapis.com/buckets' --format=json | jq '[.[] | select(.policy.bindings[].members[] | test(\"@external-tenant\")) | {resource: .resource, members: .policy.bindings[].members}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON list of bucket resources with external-tenant principal bindings. No output confirms isolation is intact."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Portal, navigate to Storage Accounts > Select each account > Access Control (IAM) > Role Assignments. Filter by 'External' principals and review any role assignments referencing service principals or users outside your tenant's directory.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Storage Accounts > [Account Name] > Access Control (IAM) > Role Assignments > Filter: Type = External",
+        "expected_output": "No external principals listed under role assignments. Any entries with external GUIDs or cross-directory identities represent policy violations."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (compliant — no cross-tenant violations detected)",
+      "true (violation found — immediate remediation required)",
+      "null (audit tooling not yet run; treat as unknown/high-risk)"
+    ]
+  },
+  {
+    "option_name": "retention_policy_configured",
+    "option_description": "Indicates whether an explicit data retention or lifecycle policy is actively configured on the storage host to automatically expire, archive, or delete data objects after a defined period. This covers S3 lifecycle rules, Azure Blob retention policies, GCS object lifecycle management rules, and database TTL settings.",
+    "security_impact": "A missing retention policy is the primary trigger for the missing_data_classification_and_retention_policy_enforcement Rego rule. When false, the rule flags the exposure unconditionally. Absent retention policies mean data accumulates indefinitely, expanding the attack surface: every additional retained object containing sensitive data is an additional exposure if the storage is compromised, and indefinite retention may violate regulatory requirements (GDPR right to erasure, HIPAA minimum necessary, PCI DSS data retention limits).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check S3 bucket lifecycle configuration to verify at least one rule is active with an expiration or transition action defined.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket <BUCKET_NAME> --query 'Rules[?Status==`Enabled`].[ID,Filter,Expiration,Transitions]' --output table 2>&1 | grep -v 'NoSuchLifecycleConfiguration' || echo 'NO_LIFECYCLE_POLICY'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table of enabled rules with expiration or transition actions. Output of 'NO_LIFECYCLE_POLICY' confirms retention_policy_configured = false."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCS, list object lifecycle rules on the bucket to verify retention actions exist.",
+        "command": "gcloud storage buckets describe gs://<BUCKET_NAME> --format='json(lifecycle)' | jq '.lifecycle.rule[] | select(.action.type == \"Delete\" or .action.type == \"SetStorageClass\") | {condition: .condition, action: .action}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON objects describing lifecycle rules with Delete or SetStorageClass actions. Empty output means no retention policy is configured."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Portal, navigate to Storage Account > Data Management > Lifecycle Management to review active lifecycle policies, or check Immutability Policies under Blob Containers.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Storage Accounts > [Account Name] > Data Management > Lifecycle Management > View/Edit Rules",
+        "expected_output": "At least one active rule with a 'Delete blob' or 'Move to archive' action and a defined day threshold. No rules listed means retention_policy_configured = false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Azure REST API to retrieve lifecycle management policies for a storage account.",
+        "command": "az storage account management-policy show --account-name <STORAGE_ACCOUNT> --resource-group <RG> --query 'policy.rules[?enabled==`true`].[name,definition.actions]' --output table 2>&1 || echo 'NO_POLICY'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table of enabled policy rules with defined actions. 'NO_POLICY' or empty output confirms no lifecycle policy."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (lifecycle rule configured with expiration actions)",
+      "false (no retention policy — common in development and legacy environments)"
+    ]
+  },
+  {
+    "option_name": "data_classification_labels_applied",
+    "option_description": "Indicates whether data stored on the host has classification labels (e.g., PII, sensitive, confidential, restricted) applied at the storage resource level — either via cloud provider tagging, metadata attributes, or data catalog integration — and whether these labels are actively driving lifecycle and retention enforcement decisions.",
+    "security_impact": "Works in combination with retention_policy_configured and oldest_unreviewed_data_age_days in the missing_data_classification_and_retention_policy_enforcement Rego rule. Specifically, if retention_policy_configured is true but data_classification_labels_applied is false and oldest_unreviewed_data_age_days exceeds 90, the exposure fires. Additionally, if classification labels are absent and data is over 365 days old, the rule triggers regardless of retention policy state. Without labels, retention policies cannot be applied with appropriate granularity to different sensitivity tiers, leading to either over-retention of sensitive data or premature deletion of required records.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all tags applied to an S3 bucket and verify the presence of classification-related tag keys (e.g., DataClassification, Sensitivity, DataType).",
+        "command": "aws s3api get-bucket-tagging --bucket <BUCKET_NAME> --query 'TagSet[?Key==`DataClassification` || Key==`Sensitivity` || Key==`data-classification`]' --output table 2>&1 || echo 'NO_TAGS'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Tag entries with classification keys and values (e.g., DataClassification=PII). 'NO_TAGS' or empty output means data_classification_labels_applied = false."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCS, describe the bucket to retrieve labels and check for classification-related label keys.",
+        "command": "gcloud storage buckets describe gs://<BUCKET_NAME> --format='json(labels)' | jq '.labels | to_entries[] | select(.key | test(\"classification|sensitivity|data.type\"; \"i\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Key-value pairs with classification labels. Empty output indicates no classification labels applied."
+      },
+      {
+        "type": "gui",
+        "instruction": "Check Azure Blob Storage container or storage account resource tags in Azure Portal, or review Microsoft Purview data catalog scan results for sensitivity label assignments.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Storage Accounts > [Account Name] > Tags OR Microsoft Purview > Data Catalog > Search [storage resource] > Sensitivity Labels",
+        "expected_output": "Tags or sensitivity labels with values like 'Confidential', 'PII', 'Restricted'. No labels means data_classification_labels_applied = false."
+      },
+      {
+        "type": "api",
+        "instruction": "Use AWS Macie to determine if the bucket has been scanned and if sensitive data findings exist, indicating whether classification is actively assessed.",
+        "command": "aws macie2 list-classification-jobs --filter-criteria '{\"includes\":{\"bucketCriteria\":{\"bucketName\":{\"eq\":[\"<BUCKET_NAME>\"]}}}}' --query 'items[?jobStatus==`COMPLETE`].[name,jobStatus,lastRunTime]' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Completed classification job entries for the bucket. No results mean no active classification scan has been run, implying labels may be absent."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most common — tagging is often manual and inconsistent)",
+      "true (enforced via automated tagging pipelines or IaC templates)"
+    ]
+  },
+  {
+    "option_name": "oldest_unreviewed_data_age_days",
+    "option_description": "The age in days of the oldest data object or record on the storage host that has not been subject to a retention review, expiry, or deletion action. This is calculated from the creation or last-modified timestamp of the oldest object lacking a deletion or archival marker to the current date.",
+    "security_impact": "Used as a threshold-based trigger in two conditions of the missing_data_classification_and_retention_policy_enforcement Rego rule: (1) if retention policy exists but classification labels are absent, the rule fires when this value exceeds 90 days; (2) if classification labels are absent regardless of retention policy, the rule fires when this value exceeds 365 days. A large value indicates data has accumulated without any governance review, meaning sensitive historical records may be retained well beyond their required period, multiplying data exposure risk and regulatory liability over time.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Find the oldest object in an S3 bucket by listing all objects sorted by LastModified and returning the oldest, then calculate its age in days.",
+        "command": "OLDEST=$(aws s3api list-objects-v2 --bucket <BUCKET_NAME> --query 'sort_by(Contents, &LastModified)[0].[Key,LastModified]' --output text); OLDEST_DATE=$(echo $OLDEST | awk '{print $2}'); echo \"Oldest object: $OLDEST\"; echo \"Age in days: $(( ($(date +%s) - $(date -d \"$OLDEST_DATE\" +%s)) / 86400 ))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Object key, last-modified timestamp, and calculated age in days. Values over 90 or 365 may trigger the retention policy exposure rule."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCS, use gsutil to list objects sorted by time created and calculate the age of the oldest unarchived object.",
+        "command": "gsutil ls -l gs://<BUCKET_NAME>/** | sort -k2 | head -5 | awk '{print $2, $3}' && echo 'Calculate days from oldest date to today manually or pipe to date arithmetic.'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Oldest object creation dates and their paths. Oldest timestamp converted to days gives the oldest_unreviewed_data_age_days value."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Azure Blob Storage to find the oldest blob by CreatedOn timestamp using Azure CLI.",
+        "command": "az storage blob list --container-name <CONTAINER> --account-name <STORAGE_ACCOUNT> --query 'sort_by([],&properties.creationTime)[0].[name,properties.creationTime]' --output table --auth-mode login",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Oldest blob name and creation timestamp. Calculate days elapsed to determine the attribute value."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "If object creation timestamps are not directly queryable, analyze storage access or audit logs for the earliest recorded write event to estimate the oldest object age.",
+        "command": "aws logs filter-log-events --log-group-name '/aws/s3/<BUCKET_NAME>' --filter-pattern '{$.eventName=PutObject}' --query 'sort_by(events,&timestamp)[0].[timestamp,message]' --output table 2>/dev/null || echo 'Check CloudTrail S3 data events for earliest PutObject timestamp.'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Earliest PutObject event timestamp from which object age can be derived."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30-90 (active development environments with frequent churn)",
+      "180-730 (typical production workloads without lifecycle policies)",
+      "1000+ (legacy environments or cold storage with no retention enforcement)",
+      "0 (freshly created or regularly purged buckets)"
+    ]
+  },
+  {
+    "option_name": "object_checksum_validation_enabled",
+    "option_description": "Indicates whether the storage service or client enforces checksum or hash validation (e.g., MD5, SHA-256, CRC32) when reading or writing stored objects. When enabled, the storage layer computes and verifies a hash of object data on put/get operations to detect corruption or unauthorized content modification in transit to/from storage.",
+    "security_impact": "Triggers the absence_of_integrity_verification_for_stored_objects Rego rule under two conditions: (1) when false and object versioning is also disabled, the rule fires immediately; (2) when false and integrity_monitoring_policy is 'none', the rule also fires. Without checksum validation, silent data corruption from hardware faults, bit rot, or deliberate tampering of stored objects cannot be detected at the storage layer. An attacker with write access could modify objects without triggering any integrity alert, or corrupted data could be served to applications without detection.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS S3, verify if a bucket policy or server-side validation enforces checksum algorithms by checking if object metadata contains checksum fields (x-amz-checksum-*) and whether bucket policy denies uploads without checksums.",
+        "command": "aws s3api get-bucket-policy --bucket <BUCKET_NAME> --query 'Policy' --output text | python3 -m json.tool | grep -i 'checksum\\|x-amz-checksum' || echo 'No checksum enforcement policy found'; aws s3api head-object --bucket <BUCKET_NAME> --key <SAMPLE_OBJECT_KEY> --checksum-mode ENABLED --query '[ChecksumCRC32,ChecksumSHA256,ChecksumSHA1]' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Bucket policy containing checksum condition keys, and head-object response showing populated checksum fields. Missing checksum values indicate validation is not enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCS, check if object metadata includes MD5 or CRC32c hash fields by inspecting object metadata, which GCS automatically computes but clients must validate.",
+        "command": "gcloud storage objects describe gs://<BUCKET_NAME>/<OBJECT_NAME> --format='json(md5Hash,crc32c,customerEncryption)' | jq '{md5Hash: .md5Hash, crc32c: .crc32c}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON with md5Hash and crc32c values populated. Presence indicates GCS stores hashes; client-side validation must also be confirmed in application code or SDK config."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review application or SDK configuration files for checksum validation settings (e.g., boto3 config, Azure SDK options, GCS client config) to confirm client-enforced checksum validation is enabled.",
+        "command": "grep -rn 'checksum\\|md5\\|sha256\\|content.md5\\|validate_checksum\\|ChecksumAlgorithm' /etc/aws/ ~/.aws/ /app/config/ 2>/dev/null | grep -v '.pyc'",
+        "file_path": "/etc/aws/config, ~/.aws/config, /app/config/storage.yaml",
+        "navigation": null,
+        "expected_output": "Configuration entries with checksum validation enabled (e.g., 'checksum_mode = enabled', 'ChecksumAlgorithm: SHA256'). No results suggest client-side validation is not configured."
+      },
+      {
+        "type": "api",
+        "instruction": "For Azure Blob, verify Content-MD5 header enforcement by checking if blob upload requests include content-md5 and whether the service validates it, using the Azure REST API to inspect blob properties.",
+        "command": "az storage blob show --container-name <CONTAINER> --name <BLOB_NAME> --account-name <STORAGE_ACCOUNT> --auth-mode login --query 'properties.contentMd5' --output tsv",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A base64-encoded MD5 hash string. Null or empty value indicates checksum was not provided or validated at write time."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default for most cloud storage configurations — checksum must be explicitly enabled)",
+      "true (enforced via SDK configuration or bucket policy conditions requiring checksum headers)"
+    ]
+  },
+  {
+    "option_name": "integrity_monitoring_policy",
+    "option_description": "The level of integrity monitoring configured for stored objects, representing a spectrum from no monitoring ('none') to metadata-only checks ('metadata_only' — e.g., size and last-modified timestamp), to hash computed at write time but not validated on read ('hash_on_write'), to full cryptographic hash validation on both write and read operations ('hash_on_read_write').",
+    "security_impact": "The absence_of_integrity_verification_for_stored_objects Rego rule fires when integrity_monitoring_policy is 'none' and object_checksum_validation_enabled is also false. A policy of 'none' provides no tamper detection capability whatsoever — an attacker who gains write access to stored objects can modify content without any integrity alert being generated. Even 'metadata_only' and 'hash_on_write' provide incomplete protection: metadata checks cannot detect content modification, and write-only hashes cannot detect tampering that occurs after the initial write. Only 'hash_on_read_write' provides comprehensive integrity assurance.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview storage administrators or review IaC templates (Terraform, CloudFormation, Bicep) to determine the designed integrity monitoring approach for the storage resource.",
+        "command": "grep -rn 'integrity\\|checksum\\|hash\\|object_lock\\|versioning\\|content.md5\\|crc32' infrastructure/ terraform/ cloudformation/ 2>/dev/null | grep -v '.terraform'",
+        "file_path": "infrastructure/storage.tf, cloudformation/storage-stack.yaml",
+        "navigation": null,
+        "expected_output": "IaC resource definitions showing checksum algorithm settings, versioning configuration, or object lock settings that indicate the intended integrity monitoring level."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS S3, determine integrity policy level by checking versioning (necessary for hash_on_read_write), existing object checksum metadata, and bucket policy checksum enforcement conditions.",
+        "command": "echo '=== Versioning ==='; aws s3api get-bucket-versioning --bucket <BUCKET_NAME>; echo '=== Sample Object Checksum ==='; aws s3api head-object --bucket <BUCKET_NAME> --key <SAMPLE_KEY> --checksum-mode ENABLED 2>/dev/null | grep -i checksum; echo '=== Bucket Policy Checksum Conditions ==='; aws s3api get-bucket-policy --bucket <BUCKET_NAME> 2>/dev/null | python3 -m json.tool | grep -i checksum",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Versioning status (Enabled/Suspended/none), checksum fields populated on object head (indicates hash_on_write or hash_on_read_write), and bucket policy checksum conditions. Absence of all indicates 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review application-layer storage middleware or SDK wrapper configurations to identify if read-time hash validation (hash_on_read_write) is implemented programmatically beyond native storage service capabilities.",
+        "command": "grep -rn 'on_read\\|validate_on_get\\|read_checksum\\|verify_hash\\|get.*checksum\\|download.*verify' /app/ /srv/ /opt/ 2>/dev/null | head -20",
+        "file_path": "/app/storage/client.py, /app/config/storage.json",
+        "navigation": null,
+        "expected_output": "Code or config entries showing read-time hash validation logic. Absence means the policy is at most 'hash_on_write' even if checksums are stored at write time."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, check S3 bucket Properties for Default Encryption and Versioning status, then inspect individual object properties for checksum algorithm fields to assess the effective integrity monitoring level.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > S3 > [Bucket] > Properties > Versioning (check status) AND S3 > [Bucket] > [Object] > Properties > Checksum (check algorithm field)",
+        "expected_output": "Versioning status and checksum algorithm (e.g., SHA-256, CRC32) shown in object properties. No checksum algorithm and disabled versioning maps to 'none'; versioning + checksum maps to 'hash_on_write' at minimum."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (most common default — no integrity controls configured)",
+      "metadata_only (object size and ETag checks only, common in basic deployments)",
+      "hash_on_write (checksum stored at upload, not re-validated on read)",
+      "hash_on_read_write (least common — requires explicit SDK/policy configuration)"
+    ]
+  }
+]

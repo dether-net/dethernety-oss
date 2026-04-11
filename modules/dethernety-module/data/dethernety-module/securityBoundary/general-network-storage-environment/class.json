@@ -1,0 +1,8 @@
+{
+  "name": "General Network Storage Environment",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "Network-attached storage (NAS) solutions introduce significant trust zone boundary risks due to their dual role as shared network resources requiring broad accessibility while simultaneously requiring strict isolation from local system trust domains. Key boundary enforcement weaknesses center on inadequate zone separation between storage access protocols and internal trust zones, permissive ingress/egress filtering on storage traffic, credential propagation across trust boundaries, and insufficient monitoring of lateral movement paths through shared storage channels.",
+  "category": "Network Storage",
+  "status": "reviewed"
+}

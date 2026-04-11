@@ -1,0 +1,8 @@
+{
+  "name": "Privileged Access Management",
+  "classType": "control",
+  "type": "Privileged Access Management",
+  "description": "Privileged Access Management (PAM) control that enforces least-privilege principles, monitors privileged sessions, and provides audit trails to detect and prevent insider threats and compromised account abuse.",
+  "category": "Cross Cutting Controls",
+  "status": "reviewed"
+}

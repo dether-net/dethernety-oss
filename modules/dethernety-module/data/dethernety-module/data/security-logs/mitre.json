@@ -1,0 +1,103 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1213",
+      "name": "Data from Information Repositories",
+      "relevance": "Insufficient sensitivity classification enables attackers to access and exfiltrate data from repositories without triggering appropriate access controls or alerts."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1589",
+      "name": "Gather Victim Identity Information",
+      "relevance": "Improperly classified sensitive data can expose identity information that adversaries gather for reconnaissance and targeting purposes."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1485.001",
+      "name": "Lifecycle-Triggered Deletion",
+      "relevance": "Undefined retention schedules can be exploited or misconfigured to trigger premature or improper deletion of data through lifecycle policies."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1565.001",
+      "name": "Stored Data Manipulation",
+      "relevance": "Without enforced retention schedules, stored data is vulnerable to manipulation or tampering over extended periods without detection."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1070.004",
+      "name": "File Deletion",
+      "relevance": "Unenforced retention policies leave no guardrails to prevent unauthorized or premature deletion of files that should be preserved."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1590.005",
+      "name": "IP Addresses",
+      "relevance": "Absence of masking for quasi-identifiers such as IP addresses exposes network identity information that adversaries can collect and use."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1119",
+      "name": "Automated Collection",
+      "relevance": "Excessive read permissions on metadata aggregates facilitate automated bulk collection of sensitive information by adversaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1069.003",
+      "name": "Cloud Groups",
+      "relevance": "Overly broad access to metadata aggregates often stems from misconfigured cloud group permissions that grant unintended read access."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1654",
+      "name": "Log Enumeration",
+      "relevance": "Unencrypted log fields allow adversaries who enumerate logs to directly read sensitive information without needing to bypass any cryptographic protections."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.001",
+      "name": "Credentials In Files",
+      "relevance": "Sensitive log fields lacking encryption may contain credentials stored in plaintext that adversaries can directly extract."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1530",
+      "name": "Data from Cloud Storage",
+      "relevance": "Missing encryption at rest for cloud-stored log fields exposes sensitive data to adversaries who gain access to cloud storage resources."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1565.002",
+      "name": "Transmitted Data Manipulation",
+      "relevance": "Cross-border transfers of operational metadata are at risk of interception and manipulation in transit by adversaries or state actors."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1591.001",
+      "name": "Determine Physical Locations",
+      "relevance": "Operational metadata transferred across borders can reveal physical location information that adversaries use for reconnaissance."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1485",
+      "name": "Data Destruction",
+      "relevance": "Inadequate disposal procedures fail to ensure complete and irreversible data destruction, leaving residual data recoverable by adversaries."
+    }
+  ],
+  "respondsWith": []
+}

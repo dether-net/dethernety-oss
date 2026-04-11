@@ -1,0 +1,628 @@
+[
+  {
+    "option_name": "pii_classification_confirmed",
+    "option_description": "Controls the confirmed classification state of the data with respect to PII presence. Determines whether the data has been formally assessed and labeled as containing PII, confirmed to not contain PII, or remains unclassified. This value gates enforcement of all downstream protective controls including encryption, access restriction, and disposal procedures.",
+    "security_impact": "The Rego policy for ambiguous_classification_enforcement fires when pii_classification_confirmed is falsy alongside absent mandatory_controls_enforced or retention_boundary_defined. Additionally, undefined_temporary_retention_boundary triggers when pii_classification_confirmed equals 'unclassified' and no automated expiry mechanism exists, or when it equals 'confirmed_pii' without a defined retention period. An unclassified state means protective controls default to optional rather than mandatory, creating a policy gap attackers can exploit via selective exclusion (T1679) or obfuscation (T1027).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's data inventory or data asset registry for the User Input data class entry. Look for a field labeled 'PII Classification', 'Data Sensitivity', or 'Classification Status' and verify whether a formal classification label has been assigned by the data owner or privacy team. Check for supporting documentation such as a Privacy Impact Assessment (PIA) or Data Protection Impact Assessment (DPIA).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Data Governance Portal > Data Inventory > User Input Asset > Classification Status field",
+        "expected_output": "A formal, dated classification label such as 'PII - Confirmed' or 'No PII - Verified', signed off by the data owner or privacy officer. If the field reads 'potentially includes PII', 'unknown', or 'pending', set attribute to 'unclassified'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the organization's DLP platform API (e.g., Microsoft Purview, Google Cloud DLP, or Symantec DLP) for classification scan results associated with the temporary storage location used for User Input data.",
+        "command": "curl -s -H 'Authorization: Bearer ${DLP_API_TOKEN}' 'https://dlp.googleapis.com/v2/projects/${PROJECT_ID}/content:inspect' -d '{\"item\":{\"table\":{\"headers\":[],\"rows\":[]}},\"inspectConfig\":{\"infoTypes\":[{\"name\":\"ALL_BASIC\"}],\"minLikelihood\":\"LIKELY\"}}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A scan result indicating either confirmed presence of PII info types (e.g., EMAIL_ADDRESS, PERSON_NAME, SSN) or confirmed absence. If results are inconclusive or no scan exists, set to 'unclassified'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the data classification policy document and any associated metadata files or configuration manifests for the temporary storage component. Look for a classification tag in infrastructure-as-code definitions such as Terraform resource tags or Kubernetes namespace labels.",
+        "command": "grep -r 'data_classification\\|pii_classification\\|sensitivity_label' /path/to/iac/configs/ --include='*.tf' --include='*.yaml'",
+        "file_path": "/path/to/iac/configs/storage.tf",
+        "navigation": null,
+        "expected_output": "A tag such as 'data_classification = \"confirmed_pii\"' or 'sensitivity_label: no-pii-verified'. Absence of such a tag or a value of 'unknown' maps to 'unclassified'."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the cloud provider's data catalog or storage console and inspect the metadata tags applied to the temporary storage resource (e.g., S3 bucket, Azure Blob container, GCS bucket) used for User Input data.",
+        "command": "aws s3api get-bucket-tagging --bucket <user-input-temp-bucket>",
+        "file_path": null,
+        "navigation": "AWS Console > S3 > <bucket-name> > Properties > Tags",
+        "expected_output": "A tag key-value pair such as 'pii_classification: confirmed_pii' or 'pii_classification: confirmed_no_pii'. No tag or a value of 'pending' maps to 'unclassified'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "unclassified",
+      "confirmed_pii",
+      "confirmed_no_pii"
+    ]
+  },
+  {
+    "option_name": "mandatory_controls_enforced",
+    "option_description": "Indicates whether all three mandatory PII handling controls — encryption-at-rest, role-based access restrictions, and audit logging — are simultaneously and consistently enforced on the User Input data store. A value of false means at least one of these controls is absent, disabled, or configured as optional.",
+    "security_impact": "The Rego ambiguous_classification_enforcement rule fires when both pii_classification_confirmed is falsy and mandatory_controls_enforced is false, and again when both mandatory_controls_enforced and retention_boundary_defined are false. This means that even without confirmed PII classification, if controls are not enforced the exposure is flagged as high criticality (score 8). Absent mandatory controls leave data accessible without auditing and unencrypted, directly enabling techniques like obfuscated exfiltration (T1027) and selective exclusion from security tooling (T1679).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check encryption-at-rest status for the temporary storage resource. For AWS S3, verify default encryption is enabled. For databases, check transparent data encryption settings.",
+        "command": "aws s3api get-bucket-encryption --bucket <user-input-temp-bucket> && aws s3api get-bucket-policy --bucket <user-input-temp-bucket> | jq '.Policy | fromjson | .Statement[] | select(.Condition)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'ServerSideEncryptionConfiguration' with AES256 or aws:kms, plus a bucket policy enforcing 'aws:SecureTransport'. If encryption is absent or optional, set to false."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the storage or database service console and verify that encryption-at-rest, access control policies (IAM/RBAC), and audit logging (e.g., AWS CloudTrail, Azure Monitor, GCS Audit Logs) are all actively enabled for the User Input temporary storage resource.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > S3 > <bucket-name> > Properties > Default Encryption (check enabled) AND Permissions > Bucket Policy (check RBAC rules) AND CloudTrail > Event History (confirm S3 data events logging is active)",
+        "expected_output": "All three sections show active/enabled status. Any single control showing 'disabled', 'not configured', or 'optional' requires setting this attribute to false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query cloud provider APIs to programmatically verify all three control dimensions — encryption, access policy, and logging — are active for the target storage resource.",
+        "command": "aws cloudtrail get-event-selectors --trail-name <trail-name> | jq '.EventSelectors[] | select(.DataResources[] | .Type == \"AWS::S3::Object\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Event selectors confirm data-level logging is active for the S3 resource. Combine with encryption and RBAC checks; only set true if all three confirm active enforcement."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review infrastructure-as-code configuration for the temporary storage component to verify that encryption, IAM policies, and logging are all declared and not overridden with permissive defaults.",
+        "command": "grep -E 'encryption|iam_policy|logging|audit' /path/to/terraform/user_input_storage.tf",
+        "file_path": "/path/to/terraform/user_input_storage.tf",
+        "navigation": null,
+        "expected_output": "All three control blocks are present and set to enforced/true/enabled. Missing blocks or 'enabled = false' entries indicate the control is not enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "retention_boundary_defined",
+    "option_description": "Indicates whether a defined, bounded retention period with an automated disposal procedure exists for the User Input temporary data store. A value of false means data either accumulates indefinitely, uses only a vague 'temporary' label without numeric bounds, or has no enforced automated deletion mechanism, creating an unbounded exposure window.",
+    "security_impact": "The Rego ambiguous_classification_enforcement rule fires when both pii_classification_confirmed is falsy and retention_boundary_defined is false, and also when mandatory_controls_enforced and retention_boundary_defined are both false. cross_border_transfer_compliance_gap also references retention context. An undefined retention boundary means data described as 'temporary' may persist indefinitely, directly violating the GDPR storage limitation principle and expanding the window for data exfiltration via T1530 (Data from Cloud Storage) and T1565.001 (Stored Data Manipulation).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for S3 lifecycle policies on the temporary storage bucket to determine if an expiration rule with a specific day count is configured and active.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket <user-input-temp-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A lifecycle rule with 'Expiration: {Days: <N>}' or 'AbortIncompleteMultipartUpload' confirming a numeric bound. If the command returns 'NoSuchLifecycleConfiguration' or only contains transition rules without expiration, set to false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the data retention policy document and any scheduled deletion job configurations (cron jobs, Lambda functions, Azure Functions) associated with User Input temporary storage to confirm a specific numeric retention period is formally documented and operationally active.",
+        "command": "crontab -l | grep -i 'delete\\|purge\\|cleanup\\|user.input' && find /etc/cron* /var/spool/cron -name '*purge*' -o -name '*cleanup*' 2>/dev/null",
+        "file_path": "/etc/cron.d/data-retention-jobs",
+        "navigation": null,
+        "expected_output": "A cron entry with a specific schedule targeting the User Input data store (e.g., '0 2 * * * /scripts/purge_user_input.sh'). No entry or a script with no time-bound logic maps to false."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the database or cache service management console and verify that TTL settings or expiry policies are configured with explicit numeric time bounds for the User Input data collection or table.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Redis Console > Keyspace Notifications > TTL configuration OR MongoDB Atlas > Collections > <user_input_collection> > Indexes > TTL Index configuration",
+        "expected_output": "A TTL index or keyspace expiry setting showing a specific duration (e.g., expireAfterSeconds: 86400). Absence of TTL configuration or a setting of 0/unlimited maps to false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the data owner or system administrator responsible for the User Input data store and request documentation showing the formal retention boundary, including the specific time bound, how disposal is triggered, and evidence of the last automated deletion run.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented retention policy with a specific numeric bound (e.g., '24 hours', '7 days') and evidence of automated enforcement. Verbal confirmation of 'temporary' without numeric specifics or documentation maps to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "maximum_retention_period_defined",
+    "option_description": "Controls whether a specific, finite, numerically-expressed maximum retention period is formally defined for the User Input temporary storage location. This must be a concrete time-bound commitment (e.g., 24 hours, 7 days) documented in policy and enforced technically. A vague descriptor such as 'temporary' or 'short-term' without a numeric bound does not satisfy this requirement.",
+    "security_impact": "The Rego undefined_temporary_retention_boundary rule fires when maximum_retention_period_defined is false and automated_expiry_mechanism equals 'none', and separately when pii_classification_confirmed is 'confirmed_pii' without a defined maximum retention period. Without a defined maximum, data labeled 'temporary' can persist indefinitely, violating GDPR Article 5(1)(e) storage limitation and creating an indefinitely expanding attack surface for T1530 (Data from Cloud Storage) and T1565.001 (Stored Data Manipulation).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the formal data retention schedule or records management policy for the User Input data class. Locate the entry for temporary server-side storage and verify it specifies a numeric maximum retention duration with units (hours or days), not merely a qualitative descriptor.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Data Governance Portal > Retention Schedules > User Input > Temporary Storage Tier > Maximum Retention",
+        "expected_output": "A documented value such as 'Maximum retention: 24 hours' or 'TTL: 7 days'. Entries reading 'temporary', 'until processed', 'short-term', or blank map to false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the application configuration file or environment variable definitions for explicit retention duration settings applied to the User Input temporary storage layer.",
+        "command": "grep -r 'retention\\|ttl\\|max_age\\|expiry\\|expire' /path/to/app/config/ --include='*.yaml' --include='*.json' --include='*.env' --include='*.properties'",
+        "file_path": "/path/to/app/config/storage.yaml",
+        "navigation": null,
+        "expected_output": "A configuration key such as 'user_input_ttl_hours: 24' or 'max_retention_days: 7' with a numeric value. Absent keys or values set to -1/0/null map to false."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the cache or database layer directly to verify whether a maximum TTL or expiry value is configured at the data store level, confirming the numeric retention bound is technically enforced.",
+        "command": "redis-cli CONFIG GET maxmemory-policy && redis-cli CONFIG GET hz && redis-cli OBJECT HELP | grep -i expire; redis-cli TTL user_input:sample_key",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A positive numeric TTL value in seconds indicating a finite bound (e.g., TTL = 86400 for 24 hours). A result of -1 (no expiry) or -2 (key does not exist) with no policy confirmation maps to false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the cloud provider's storage service API to retrieve lifecycle or expiration policies and confirm a maximum age rule with a specific day count is present and active.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket <user-input-temp-bucket> | jq '[.Rules[] | select(.Status==\"Enabled\") | {id: .ID, expiration_days: .Expiration.Days}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output showing at least one enabled rule with a numeric 'expiration_days' value greater than 0. Empty array, null expiration_days, or no enabled rules maps to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "automated_expiry_mechanism",
+    "option_description": "Identifies the specific type of automated mechanism enforcing deletion or expiry of data in the User Input temporary store. Possible mechanisms include TTL policies (time-to-live at the record level), lifecycle rules (storage-layer age-based deletion), scheduled jobs (cron or orchestrated deletion scripts), event-triggered deletion (deletion upon processing completion or downstream event), or none (no automated enforcement — relying solely on manual deletion).",
+    "security_impact": "The Rego undefined_temporary_retention_boundary rule fires when automated_expiry_mechanism equals 'none' and either maximum_retention_period_defined is false or pii_classification_confirmed is 'unclassified'. The absence of automated expiry is a direct indicator that temporary data may persist indefinitely regardless of policy documentation. Manual deletion is unreliable and creates gaps exploitable via T1530 (Data from Cloud Storage) and T1565.001 (Stored Data Manipulation), as data remains accessible during any deletion delay.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the storage infrastructure for TTL configurations at the database or cache layer. For Redis, check key-level TTL. For MongoDB, check for TTL indexes. For DynamoDB, check TTL attribute configuration.",
+        "command": "aws dynamodb describe-time-to-live --table-name <user_input_table> && mongosh --eval 'db.user_input.getIndexes().filter(i => i.expireAfterSeconds)' && redis-cli CONFIG GET 'hz'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DynamoDB returns TimeToLiveStatus: ENABLED with an AttributeName. MongoDB returns a TTL index with expireAfterSeconds > 0. Redis keys show positive TTL values. Any of these confirm 'ttl_policy'. All returning disabled/absent maps to checking next mechanism type."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for S3 or cloud storage lifecycle rules configured to automatically expire objects in the User Input temporary storage bucket.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket <user-input-temp-bucket> | jq '.Rules[] | select(.Status==\"Enabled\" and .Expiration != null)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An enabled lifecycle rule with an Expiration block confirms 'lifecycle_rule'. No output or only disabled rules requires checking scheduled jobs."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for scheduled deletion jobs (cron, systemd timers, or cloud-native schedulers like AWS EventBridge or Azure Logic Apps) targeting the User Input data store.",
+        "command": "crontab -l 2>/dev/null | grep -i 'user.input\\|temp\\|purge\\|cleanup'; systemctl list-timers | grep -i 'purge\\|cleanup\\|retention'; aws events list-rules --name-prefix 'user-input' 2>/dev/null | jq '.Rules[].Name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An active cron entry, systemd timer, or EventBridge rule targeting User Input data deletion confirms 'scheduled_job'. No results require checking event-triggered mechanisms."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review application source code, message queue configurations, or workflow orchestration definitions (e.g., Airflow DAGs, Step Functions) to determine if User Input data deletion is triggered automatically upon a downstream event such as request processing completion.",
+        "command": "grep -r 'delete\\|dispose\\|cleanup\\|on_complete\\|after_process' /path/to/app/src/ --include='*.py' --include='*.js' --include='*.java' | grep -i 'user_input\\|temp_storage'",
+        "file_path": "/path/to/app/src/handlers/user_input_handler.py",
+        "navigation": null,
+        "expected_output": "Code or configuration showing deletion is called upon a specific event (e.g., 'on_processing_complete: delete_temp_data()') confirms 'event_triggered'. No automated deletion code found in any layer maps to 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "lifecycle_rule",
+      "scheduled_job",
+      "ttl_policy",
+      "event_triggered"
+    ]
+  },
+  {
+    "option_name": "pii_anonymization_applied",
+    "option_description": "Indicates whether anonymization, pseudonymization, tokenization, hashing, or field-level masking has been applied to User Input data prior to or during temporary storage, such that raw personal identifiers are not retained in their original, directly identifiable form in the temporary store.",
+    "security_impact": "The Rego missing_pii_anonymization_or_masking rule fires when pii_presence_confirmed is 'confirmed_present' and pii_anonymization_applied is false, and also when pii_presence_confirmed is 'unclassified' and both pii_anonymization_applied and retention_period_defined are false. Without anonymization, any unauthorized access event — via T1589 (Gather Victim Identity Information), T1589.003 (Employee Names), or T1213 (Data from Information Repositories) — directly yields actionable raw personal data rather than non-sensitive surrogates, maximizing breach impact.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review data pipeline configuration, ETL transform definitions, or data ingestion middleware to determine whether masking, tokenization, or pseudonymization libraries are invoked before User Input data is written to temporary storage.",
+        "command": "grep -rn 'mask\\|anonymi\\|pseudonym\\|tokeniz\\|hash\\|redact' /path/to/pipeline/config/ --include='*.yaml' --include='*.json' --include='*.xml'",
+        "file_path": "/path/to/pipeline/config/user_input_transform.yaml",
+        "navigation": null,
+        "expected_output": "Transform steps referencing masking functions (e.g., 'mask_pii: true', 'tokenizer: sha256', 'redact_fields: [email, name, ssn]') applied before the write-to-temp-storage step confirm true. Absence of any such step maps to false."
+      },
+      {
+        "type": "command",
+        "instruction": "Review application source code for invocation of anonymization or masking libraries on User Input data before persistence to the temporary store.",
+        "command": "grep -rn 'anonymize\\|mask_field\\|pseudonymize\\|tokenize\\|faker\\|hashlib\\|bcrypt\\|hmac' /path/to/app/src/ --include='*.py' --include='*.js' --include='*.java' | grep -v 'test\\|spec\\|\\.pyc'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "References to anonymization or masking functions in the code path that handles User Input before writing to temporary storage confirms true. No such references, or references only in test files, maps to false."
+      },
+      {
+        "type": "gui",
+        "instruction": "If using a cloud-native DLP or data transformation service (e.g., Google Cloud DLP deidentification, AWS Glue transform with masking, Azure Purview), navigate to the pipeline or job configuration and verify that a de-identification or masking transform is applied to the User Input data flow before it reaches temporary storage.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Cloud Console > Data Loss Prevention > Inspect Templates > user-input-pipeline > De-identify Configuration OR AWS Glue Studio > Jobs > user-input-ingestion > Transform steps",
+        "expected_output": "A configured and active de-identification or masking transform step in the pipeline targeting fields containing personal data. Absence of such a step maps to false."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review data flow diagrams or pipeline execution logs to confirm that a masking or anonymization step is recorded as executing between User Input ingestion and temporary storage write operations.",
+        "command": "grep -E 'mask|anonymize|pseudonymize|tokenize|redact' /var/log/pipeline/user_input_pipeline.log | tail -100",
+        "file_path": "/var/log/pipeline/user_input_pipeline.log",
+        "navigation": null,
+        "expected_output": "Log entries showing successful execution of a masking or anonymization step with timestamps preceding storage write entries confirms true. No such log entries map to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "pii_presence_confirmed",
+    "option_description": "Records the confirmed determination of whether personally identifiable information is actually present in the User Input temporarily stored data, based on formal data discovery, DLP scanning, or schema inspection. This is distinct from pii_classification_confirmed in that it reflects the result of technical detection, not just the governance classification label.",
+    "security_impact": "The Rego missing_pii_anonymization_or_masking rule uses this attribute directly: it fires when pii_presence_confirmed is 'confirmed_present' and anonymization is not applied, and also when it is 'unclassified' with both anonymization and retention period absent. The insufficient_access_control_for_unclassified_data rule also checks this field. An 'unclassified' state means the system cannot distinguish PII from non-PII, so protective controls cannot be accurately targeted, enabling T1589 identity-gathering attacks and T1213 repository data extraction to succeed against potentially sensitive data.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run a DLP discovery scan using Google Cloud DLP, AWS Macie, or an open-source tool (e.g., Presidio) against a sample of the User Input temporary storage to detect known PII info types such as email addresses, SSNs, names, and phone numbers.",
+        "command": "python3 -c \"import presidio_analyzer; analyzer = presidio_analyzer.AnalyzerEngine(); results = analyzer.analyze(text=open('/tmp/user_input_sample.txt').read(), language='en'); print([r.entity_type for r in results])\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of detected entity types (e.g., ['PERSON', 'EMAIL_ADDRESS', 'PHONE_NUMBER']) confirms 'confirmed_present'. An empty list from a validated scan confirms 'confirmed_absent'. No scan having been run maps to 'unclassified'."
+      },
+      {
+        "type": "api",
+        "instruction": "Invoke the cloud provider's DLP API to perform a content inspection on a representative sample from the User Input temporary storage location.",
+        "command": "aws macie2 create-classification-job --job-type ONE_TIME --name user-input-pii-scan --s3-job-definition '{\"bucketDefinitions\":[{\"accountId\":\"'${AWS_ACCOUNT_ID}'\",\"buckets\":[\"<user-input-temp-bucket>\"]}]}' --managed-data-identifier-selector ALL && aws macie2 list-findings --finding-criteria '{\"criterion\":{\"classificationDetails.jobId\":{\"eq\":[\"<job-id>\"]}}}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Macie findings listing PII finding types (e.g., SENSITIVE_DATA:S3_OBJECT_CONTAINS_SENSITIVE_DATA) confirms 'confirmed_present'. Zero findings from a completed job on a representative sample confirms 'confirmed_absent'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the data schema definition or data dictionary for the User Input temporary store to identify whether field names or data types indicate PII is expected (e.g., fields named 'email', 'first_name', 'phone_number', 'ip_address', 'user_id').",
+        "command": "mongosh --eval 'db.user_input.findOne()' | jq 'keys' && psql -c '\\d user_input_temp' && cat /path/to/schemas/user_input_schema.json | jq '[.properties | keys[]]'",
+        "file_path": "/path/to/schemas/user_input_schema.json",
+        "navigation": null,
+        "expected_output": "Field names explicitly containing PII-indicative identifiers (email, name, ssn, dob, address) confirms 'confirmed_present'. Purely functional or non-personal fields (session_id, request_payload_hash, timestamp) alongside a validated scan showing no PII confirms 'confirmed_absent'."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the cloud DLP or data catalog tool and retrieve the most recent scan result for the User Input temporary storage resource, noting the scan date, coverage percentage, and PII finding types.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > Amazon Macie > Findings > Filter by bucket: <user-input-temp-bucket> > Review finding types and dates OR Google Cloud Console > Security > Data Loss Prevention > Jobs > user-input-scan > Results",
+        "expected_output": "A completed, recent scan (within the last 30 days) showing either confirmed PII findings or a clean result. Absence of any scan or a scan with 'inconclusive' status maps to 'unclassified'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "unclassified",
+      "confirmed_present",
+      "confirmed_absent"
+    ]
+  },
+  {
+    "option_name": "retention_period_defined",
+    "option_description": "Indicates whether a bounded, technically enforced retention or expiration policy is defined for the User Input temporary storage location, preventing indefinite accumulation of raw data. This attribute confirms that both a policy exists and is operationally active — not merely documented. A value of false means data is stored with no enforced expiry.",
+    "security_impact": "The Rego missing_pii_anonymization_or_masking rule fires when pii_presence_confirmed is 'unclassified', pii_anonymization_applied is false, and retention_period_defined is false simultaneously — meaning unclassified, unmasked data with no defined expiry is a confirmed exposure. The inadequate_disposal_procedure_for_transient_data rule fires when secure_disposal_procedure_defined is true but retention_period_defined is false, highlighting that a disposal procedure without a defined trigger period is operationally hollow. Undefined retention enables indefinite data accumulation, expanding the window for T1530 (Data from Cloud Storage) exfiltration and violating GDPR storage limitation requirements.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for active TTL configurations at the database layer for the User Input temporary collection or table. Verify both that a TTL mechanism exists and that it is currently active and configured with a non-zero, finite value.",
+        "command": "mongosh --eval 'db.user_input_temp.getIndexes().filter(i => i.expireAfterSeconds !== undefined).map(i => ({name: i.name, expireAfterSeconds: i.expireAfterSeconds}))' && redis-cli TTL user_input:session:sample_key && aws dynamodb describe-time-to-live --table-name user_input_temp --query 'TimeToLiveDescription'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "MongoDB returns index with positive expireAfterSeconds value; Redis returns a positive integer TTL in seconds; DynamoDB returns TimeToLiveStatus: ENABLED. Any result showing -1 (no expiry), disabled, or no TTL configuration maps to false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the storage lifecycle configuration file or infrastructure-as-code definition to confirm an expiration policy with a numeric bound is declared and deployed for the User Input temporary storage resource.",
+        "command": "cat /path/to/terraform/user_input_storage.tf | grep -A 10 'lifecycle_rule\\|expiration\\|ttl\\|retention' && kubectl get configmap user-input-retention-config -n <namespace> -o yaml 2>/dev/null",
+        "file_path": "/path/to/terraform/user_input_storage.tf",
+        "navigation": null,
+        "expected_output": "Terraform or Kubernetes configuration showing an active lifecycle rule block with 'expiration { days = N }' or a retention configmap with a numeric value confirms true. Missing blocks, commented-out rules, or 'days = 0' maps to false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the storage service API to retrieve and validate that an expiration-capable lifecycle policy is in place and enabled for the User Input temporary bucket or container.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket <user-input-temp-bucket> | jq '[.Rules[] | select(.Status==\"Enabled\") | select(.Expiration.Days != null) | {id:.ID, days:.Expiration.Days}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array with at least one entry showing a positive 'days' value in an enabled rule confirms true. Empty array, null days value, or error response 'NoSuchLifecycleConfiguration' maps to false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the data retention schedule document from the data governance or legal team and verify that the User Input temporary storage tier has a formal, signed-off retention period with a numeric bound, and obtain evidence that this policy is technically enforced (e.g., last deletion audit log, scheduler confirmation).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Data Governance Portal > Retention Schedules > User Input Temporary Storage > Policy Status AND Last Enforcement Evidence",
+        "expected_output": "A formally approved retention schedule entry with a numeric maximum (e.g., '7 days') and dated evidence of automated enforcement such as a deletion audit log entry or scheduler execution confirmation. Policies without enforcement evidence or numeric bounds map to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "data_classification_status",
+    "option_description": "Controls the confirmed classification state of the User Input data asset — whether it has been formally classified, is pending classification, or remains unclassified/unknown. This label gates all downstream protective controls including encryption, access restriction, anonymization, and disposal procedures.",
+    "security_impact": "The Rego policy for insufficient_access_control_for_unclassified_data triggers when data_classification_status is 'unknown', 'pending', or 'unclassified', because without a confirmed label, sensitivity-tier-based access policies cannot be reliably applied. The ambiguous_classification_enforcement exposure also fires when pii_classification_confirmed is absent, compounding risk across multiple policy rules. An unresolved status means all downstream controls remain optional rather than mandatory.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into your data governance platform (e.g., Collibra, Alation, Microsoft Purview) and search for the data asset by name or storage location. Navigate to the asset's metadata panel and check the 'Classification' or 'Data Sensitivity' field for a confirmed label.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Data Governance Portal → Data Catalog → Search Asset → Asset Details → Classification Status",
+        "expected_output": "A confirmed label such as 'PII - Confidential' or 'Internal Use Only'. Labels showing 'Pending Review', 'Unknown', or blank indicate a gap."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the data catalog API (e.g., Microsoft Purview REST API or Collibra REST API) to retrieve the classification label programmatically for the target asset.",
+        "command": "curl -s -X GET 'https://<purview-account>.purview.azure.com/catalog/api/atlas/v2/entity/guid/<asset-guid>' -H 'Authorization: Bearer <token>' | jq '.entity.classifications[].typeName'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns one or more classification type names (e.g., 'MICROSOFT.PERSONAL', 'MICROSOFT.FINANCIAL'). An empty array or absent field indicates unclassified."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the asset inventory or CMDB export for classification metadata associated with the temporary storage resource (e.g., an S3 bucket or database table). Use AWS CLI to inspect resource tags that carry classification labels.",
+        "command": "aws s3api get-bucket-tagging --bucket <bucket-name> --query 'TagSet[?Key==`DataClassification`]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns a tag entry such as {\"Key\": \"DataClassification\", \"Value\": \"Confidential-PII\"}. Missing tag or value 'Unknown' confirms the gap."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the data owner or privacy team to confirm whether a formal classification review has been completed for User Input data. Request the data classification register or inventory spreadsheet and verify a row exists for this asset with an approved status.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A signed-off classification record referencing the specific data asset, storage location, and assigned sensitivity tier with a review date."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "unknown",
+      "pending",
+      "classified",
+      "unclassified"
+    ]
+  },
+  {
+    "option_name": "access_control_policy_applied",
+    "option_description": "Controls whether a sensitivity-tier-based access control policy (RBAC, ABAC, or equivalent) has been explicitly applied to the User Input data asset or its storage location. This determines whether access is governed by a named, enforceable policy tied to the data's sensitivity rather than defaulting to open or inherited permissions.",
+    "security_impact": "The Rego rule insufficient_access_control_for_unclassified_data fires when data_classification_status is 'unknown', 'pending', or 'unclassified' AND access_control_policy_applied is false or null. Without a confirmed classification, there is no sensitivity tier to bind an access policy to, so the data defaults to whatever ambient permissions exist on the storage resource — frequently broad or open in temporary storage contexts. This directly enables T1222 (File and Directory Permissions Modification) and T1530 (Data from Cloud Storage) exploitation paths.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the S3 bucket policy for the temporary storage location to determine whether a named access control policy referencing a sensitivity tier is attached. Open policies or absent policies confirm access_control_policy_applied is false.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket-name> | jq '.Policy | fromjson' && aws s3api get-bucket-acl --bucket <bucket-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A bucket policy containing explicit Deny or conditional Allow statements referencing IAM roles/groups aligned to sensitivity tiers. A policy with 's3:GetObject' allowed for '*' (public) or no policy present confirms false."
+      },
+      {
+        "type": "command",
+        "instruction": "For database temporary storage, query the database ACL or role assignments to confirm a named policy restricting access by sensitivity tier is applied.",
+        "command": "psql -h <host> -U <admin_user> -d <dbname> -c \"SELECT grantee, privilege_type, table_name FROM information_schema.role_table_grants WHERE table_name = '<temp_table_name>';\" ",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Grants should show only named service accounts or role-based groups with least-privilege access. Grants to PUBLIC or overly broad roles confirm the policy is not applied."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the IAM or access management console (e.g., AWS IAM, Azure RBAC, GCP IAM) and search for policies attached to the storage resource. Confirm whether a named policy referencing data sensitivity tiers is listed as attached.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → IAM → Policies → Filter by resource ARN → Attached Entities; or S3 Console → Bucket → Permissions → Bucket Policy",
+        "expected_output": "A named policy such as 'PII-TempStorage-ReadOnly-Restricted' is listed as attached. Default policies, inherited account policies, or no policy listed confirms false."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the AWS IAM API to list policies attached to the role or user that owns the temporary storage resource and verify a sensitivity-scoped policy is present.",
+        "command": "aws iam list-attached-role-policies --role-name <storage-role-name> && aws iam list-role-policies --role-name <storage-role-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AttachedPolicies list includes a policy explicitly scoped to the data sensitivity tier. An empty list or generic managed policies (e.g., AmazonS3FullAccess) confirms access_control_policy_applied is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "storage_retention_boundary_defined",
+    "option_description": "Controls whether an explicit retention or expiry policy with a bounded time window has been configured for the temporary storage location holding User Input data. This ensures 'temporary' storage has a defined maximum lifespan rather than persisting indefinitely.",
+    "security_impact": "The Rego policy insufficient_access_control_for_unclassified_data has a compound condition that checks for both missing access control AND missing storage_retention_boundary_defined, amplifying the exposure score. The undefined_temporary_retention_boundary exposure also fires when maximum_retention_period_defined is absent and automated_expiry_mechanism is 'none'. Without a bounded retention window, temporary User Input data may persist indefinitely, expanding the exposure window and violating GDPR's storage limitation principle (Article 5(1)(e)). This enables T1530 and T1565.001 exploitation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check S3 lifecycle configuration rules for the temporary storage bucket to confirm a bounded expiry rule (e.g., object expiration after N days) is defined and active.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket <bucket-name> | jq '.Rules[] | {ID: .ID, Status: .Status, Expiration: .Expiration, Filter: .Filter}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one rule with Status 'Enabled' and Expiration.Days set to a specific integer (e.g., 7). No rules or rules with Status 'Disabled' confirm storage_retention_boundary_defined is false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the application's storage configuration or infrastructure-as-code (IaC) files (Terraform, CloudFormation, Helm values) for TTL or lifecycle policy definitions applied to the temporary data store.",
+        "command": "grep -r -E '(retention|ttl|expiry|lifecycle|expiration)' ./infrastructure/ --include='*.tf' --include='*.yaml' --include='*.json' -l",
+        "file_path": "./infrastructure/storage.tf",
+        "navigation": null,
+        "expected_output": "A resource block defining a lifecycle rule with a specific days_after_initiation or expiration_in_days value. Absence of any matching configuration confirms false."
+      },
+      {
+        "type": "command",
+        "instruction": "For Redis or Memcached temporary caches, verify that TTL settings are applied at the key or namespace level by checking the application configuration or querying the cache directly.",
+        "command": "redis-cli -h <redis-host> -p 6379 TTL <sample-user-input-key>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns a positive integer representing seconds remaining (e.g., 3600 for 1 hour). A return value of -1 (no TTL set) or -2 (key does not exist) confirms the retention boundary is not defined."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the data retention schedule or data lifecycle policy document from the data governance or engineering team. Confirm a specific maximum retention period is documented and linked to the temporary User Input store by name or resource identifier.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented policy stating 'User Input temporary storage: maximum retention 48 hours, enforced via S3 lifecycle rule ID X'. Absence of a specific bounded period or reference to the resource confirms false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "secure_disposal_procedure_defined",
+    "option_description": "Controls whether a documented, verifiable disposal procedure — specifically secure deletion (multi-pass overwrite) or cryptographic erasure — is defined and explicitly linked to the retention policy for the User Input transient data store. Simple cache eviction or standard file deletion does not satisfy this requirement.",
+    "security_impact": "The Rego rule inadequate_disposal_procedure_for_transient_data fires unconditionally when secure_disposal_procedure_defined is false or absent, making this a guaranteed exposure trigger for the default configuration. A second condition fires even when the procedure is marked true but retention_period_defined is absent, confirming the procedure must be linked to a retention boundary to be valid. Without a secure disposal procedure, deleted data remains forensically recoverable (enabling T1070.004 exploitation), violating GDPR's right to erasure (Article 17) and data minimization obligations.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the data handling or data lifecycle documentation from the data governance, privacy, or security engineering team. Confirm a disposal procedure section explicitly names the temporary User Input store, specifies the disposal method (secure wipe or crypto-shred), and references the linked retention period trigger.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A procedure document containing a section titled or referencing 'Secure Disposal — User Input Temporary Store' with method, trigger condition, responsible party, and verification step defined."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect application disposal logic, data teardown scripts, or infrastructure cleanup automation for secure deletion or key destruction operations applied to the User Input store.",
+        "command": "grep -r -E '(secure.?delete|shred|crypto.?eras|key.?destroy|wipe|srm)' ./scripts/ ./src/ --include='*.sh' --include='*.py' --include='*.js' -n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Script lines showing calls to secure deletion utilities (e.g., shred, srm, AWS S3 Object Lock deletion with MFA) or key destruction API calls. Absence of any match confirms secure_disposal_procedure_defined is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for AWS S3 Object Lock or versioning configurations that require explicit secure deletion, and verify deletion scripts use the appropriate API calls rather than simple delete operations.",
+        "command": "aws s3api get-object-lock-configuration --bucket <bucket-name> && aws s3api get-bucket-versioning --bucket <bucket-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Object lock enabled with retention mode configured, or versioning enabled with a documented crypto-erasure procedure for version cleanup. No object lock and no versioning with a secure procedure confirms false."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review application or infrastructure logs for evidence that disposal events generate audit log entries confirming secure deletion was executed — not merely that objects were deleted via standard API calls.",
+        "command": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=DeleteObject --start-time <retention-period-ago> | jq '.Events[] | {EventName, Username: .Username, Resources: .Resources}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Delete events referencing the temporary store with associated audit trail. However, standard DeleteObject calls without accompanying secure-overwrite or key-destruction events confirm the disposal procedure is not adequately defined."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "server_jurisdiction",
+    "option_description": "Controls the recorded legal jurisdiction in which the server temporarily storing User Input data physically or logically resides. This determines which cross-border data transfer regulations apply (e.g., GDPR Chapter V for EU, CCPA for US-California) and whether Transfer Impact Assessments or Standard Contractual Clauses are required.",
+    "security_impact": "The Rego rule cross_border_transfer_compliance_gap fires when server_jurisdiction is 'EU', 'UK', 'US-California', 'other_restricted', or 'unknown' AND transfer_impact_assessment_completed is false — which is the default state. The default value of 'unknown' means this exposure fires automatically unless the jurisdiction is confirmed and a TIA is completed. An unknown or restricted jurisdiction without a TIA exposes the organization to regulatory liability under GDPR (fines up to 4% of annual global turnover) and enables T1537 (Transfer Data to Cloud Account) exploitation paths.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the cloud provider console and identify the region of the storage resource (e.g., EC2 instance, RDS, S3). Map the cloud region to its legal jurisdiction using the provider's data residency documentation.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → EC2/RDS/S3 → Select Resource → Details pane → Region (e.g., eu-west-1 = EU, us-east-1 = US, ap-southeast-1 = other); Azure Portal → Resource → Overview → Location",
+        "expected_output": "A region identifier that maps unambiguously to a jurisdiction: eu-west-1/eu-central-1 = EU, eu-west-2 = UK, us-west-1/us-east-1 = US-California (if CCPA applies), etc."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the cloud provider API to retrieve the region of the storage resource and cross-reference with jurisdiction mapping.",
+        "command": "aws ec2 describe-instances --instance-ids <instance-id> --query 'Reservations[].Instances[].{InstanceId: InstanceId, Region: Placement.AvailabilityZone, Tags: Tags}' --output table && aws configure get region",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns availability zone (e.g., eu-west-1a) confirming EU jurisdiction. Zones beginning with 'us-' require further CCPA applicability assessment. Unknown or ambiguous output confirms value should be set to 'unknown'."
+      },
+      {
+        "type": "api",
+        "instruction": "Use infrastructure-as-code state files (Terraform state) to extract the region attribute of the temporary storage resource, which is the authoritative source for provisioned location.",
+        "command": "terraform state show <resource_type>.<resource_name> | grep -E '(region|location|availability_zone)'",
+        "file_path": ".terraform/terraform.tfstate",
+        "navigation": null,
+        "expected_output": "A region attribute value (e.g., region = \"eu-central-1\") that maps definitively to a jurisdiction. Missing or 'null' values confirm the jurisdiction is unknown."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the infrastructure inventory or data center contracts from the infrastructure team to confirm physical or cloud region location of the temporary storage server. For on-premises deployments, verify data center address and governing jurisdiction via contract or colocation agreement.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented record confirming the physical location (country/region) of the server with a corresponding jurisdiction mapping. Inability to provide documentation confirms server_jurisdiction should be set to 'unknown'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "unknown",
+      "EU",
+      "US-California",
+      "other_restricted",
+      "unrestricted"
+    ]
+  },
+  {
+    "option_name": "transfer_impact_assessment_completed",
+    "option_description": "Controls whether a Transfer Impact Assessment (TIA) or equivalent cross-border transfer evaluation — such as a GDPR Chapter V adequacy check or Standard Contractual Clauses (SCC) evaluation — has been completed and documented for the User Input data flow to its server jurisdiction. The assessment must explicitly cover the jurisdiction pair involved and be current relative to the active data flow.",
+    "security_impact": "The Rego rule cross_border_transfer_compliance_gap fires when server_jurisdiction is in a restricted or unknown set AND transfer_impact_assessment_completed is false (the default). This means any User Input data stored in an EU, UK, US-California, other_restricted, or unknown jurisdiction without a completed TIA creates a compliance gap that triggers the exposure. The default value of false means this exposure is active by default for all restricted-jurisdiction deployments, creating immediate GDPR Chapter V regulatory liability and enabling T1537 (Transfer Data to Cloud Account) as an unmitigated risk pathway.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Contact the privacy or legal team and request the Transfer Impact Assessment register or data transfer agreement log. Confirm a TIA record exists that explicitly names the server jurisdiction, the User Input data type, and covers the current data flow path. Verify the assessment date is not older than the current data flow configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A completed TIA document referencing the specific jurisdiction pair (e.g., US → EU), signed off by the Data Protection Officer or legal counsel, with a date postdating the current storage configuration. Absence of any record or an outdated document confirms transfer_impact_assessment_completed is false."
+      },
+      {
+        "type": "gui",
+        "instruction": "Log into the privacy management platform (e.g., OneTrust, TrustArc, Osano) and navigate to the data transfer or vendor assessment section. Search for assessments covering the specific server jurisdiction and User Input data category.",
+        "command": null,
+        "file_path": null,
+        "navigation": "OneTrust → Data Inventory → Data Transfers → Filter by Jurisdiction: EU/UK/US-California → Review Assessment Status column",
+        "expected_output": "An assessment entry with Status 'Completed' and a review date within the current policy period. Status 'Draft', 'Not Started', or absent entry confirms transfer_impact_assessment_completed is false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the privacy management platform API (e.g., OneTrust REST API) to retrieve transfer assessment records for the relevant jurisdiction programmatically.",
+        "command": "curl -s -X GET 'https://<onetrust-tenant>.onetrust.com/api/datamap/v1/data-transfers?jurisdiction=EU&status=COMPLETED' -H 'Authorization: Bearer <token>' | jq '.content[] | {id, name, status, lastModified}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns completed TIA records for the EU jurisdiction with a recent lastModified date. An empty content array or records with status 'INCOMPLETE' or 'DRAFT' confirms transfer_impact_assessment_completed is false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the Standard Contractual Clauses (SCC) or Binding Corporate Rules (BCR) documentation covering the data transfer. Verify the SCCs reference the specific data exporter/importer pair and data categories that include User Input.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Executed SCC agreement with schedules identifying User Input or equivalent data category, the specific controller-processor relationship, and the jurisdiction pair covered. Missing SCCs or SCCs that predate the 2021 updated EU SCC templates (for GDPR) and do not cover the current data flow confirm false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  }
+]

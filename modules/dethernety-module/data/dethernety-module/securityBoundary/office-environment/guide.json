@@ -1,0 +1,1351 @@
+[
+  {
+    "option_name": "egress_application_layer_filtering_enabled",
+    "option_description": "Controls whether outbound traffic from the workstation zone is inspected at Layer 7 (application layer), enabling identification and enforcement of specific applications, protocols, and behaviors on ports 80 and 443 rather than relying solely on port-based allow rules.",
+    "security_impact": "The Rego policy fires the 'insufficient_egress_filtering' exposure whenever egress_application_layer_filtering_enabled is false AND either egress_destination_allowlist_enforced is false OR outbound_traffic_monitoring_coverage is 'none'. Without L7 inspection, an attacker can use standard HTTPS ports to exfiltrate data or beacon to C2 infrastructure using tools like Cobalt Strike, Metasploit, or custom implants that blend into legitimate web traffic. Port-based firewall rules cannot distinguish browser traffic from a reverse shell tunneled over port 443.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log in to the next-gen firewall management console (e.g., Palo Alto Panorama, Fortinet FortiManager, Check Point SmartConsole). Navigate to the Security Policy section and locate rules governing the workstation subnet egress. Inspect whether Application-ID or application-layer inspection is enabled on outbound rules rather than service-only (port-based) matching.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto: Policies > Security > [Workstation Egress Rule] > Applications tab — confirm named applications are listed, not 'any'. Fortinet: Policy & Objects > Firewall Policy > [Egress Rule] > Application Control profile assigned. Check Point: Security Policies > [Egress Rule] > Applications & URL Filtering blade enabled.",
+        "expected_output": "Outbound rules reference specific application objects or an application-control profile is attached, indicating L7 classification is active."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Palo Alto firewall, query the running security policy to confirm App-ID is in use for workstation egress rules. On a Fortinet FortiGate, check that an application control profile is bound to the relevant policy.",
+        "command": "# Palo Alto (SSH to firewall):\nshow running security-policy | match <workstation-subnet>\n\n# Fortinet FortiGate (SSH):\nconfig firewall policy\n  show | grep -A 20 'srcaddr \"workstation-subnet\"'\nend\n\n# Check Point (clish or Expert mode):\nfw tab -t applications_and_url_filtering -s",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Palo Alto rules list application names (not 'any'); Fortinet policy shows 'application-list' bound; Check Point shows APCL/URLF blade active."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a test workstation in the zone, attempt to run a non-browser tool (e.g., curl with a custom User-Agent or ncat) over port 443 to a controlled external endpoint. A properly configured L7 filter should block or log the connection as an unknown/unauthorized application.",
+        "command": "# Test from workstation:\ncurl -v --user-agent 'TestAgent/1.0' https://test.example.com:443\nncat --ssl <controlled-external-ip> 443\n\n# Review proxy or NGFW logs for application classification result",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-standard application traffic is blocked or flagged with application identification 'unknown' or a policy violation; proxy logs show application classification details."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For deployments using Squid or an SSL-inspecting proxy, review the configuration file to confirm ssl-bump (SSL inspection) is enabled and ACLs restrict by application category rather than purely by port.",
+        "command": null,
+        "file_path": "/etc/squid/squid.conf",
+        "navigation": null,
+        "expected_output": "Configuration contains 'ssl_bump' directives and ACL entries that restrict access by content category or application type, not solely by 'port 80 port 443' allow rules."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in traditional port-based firewall environments)",
+      "true (organizations with NGFW or SSL-inspecting proxy deployments)"
+    ]
+  },
+  {
+    "option_name": "egress_destination_allowlist_enforced",
+    "option_description": "Controls whether outbound connections from the workstation zone are restricted to an explicitly defined set of approved destination domains, IP addresses, or URL categories, blocking access to arbitrary internet destinations including newly registered domains and known attacker-controlled infrastructure.",
+    "security_impact": "The Rego policy fires 'insufficient_egress_filtering' when both egress_application_layer_filtering_enabled and egress_destination_allowlist_enforced are false, and also when egress_destination_allowlist_enforced is false and outbound_traffic_monitoring_coverage is 'none'. Without destination allowlisting, workstations can freely connect to any internet host, making C2 beaconing, data exfiltration, and drive-by malware staging trivial. Attackers frequently register domains or use legitimate hosting providers to receive callbacks that are indistinguishable from normal traffic without destination-based controls.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log in to the web proxy or DNS security gateway console (e.g., Zscaler ZIA, Cisco Umbrella, Bluecoat ProxySG, Websense/Forcepoint). Navigate to the policy configuration and determine whether the default posture for uncategorized or unknown destinations is 'block' (allowlist model) or 'allow' (blocklist model).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco Umbrella: Policies > Policy Settings > Default Policy > Block uncategorized domains. Zscaler: Policy > URL & Cloud App Control > Custom URL Category > verify default action. Bluecoat ProxySG: Configuration > Policy > Visual Policy Manager > check default rule for unmatched destinations.",
+        "expected_output": "Default action for uncategorized/unknown destinations is 'block' or 'deny', confirming an implicit-deny allowlist posture."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the egress firewall or proxy to enumerate the default outbound rule. A positive allowlist enforces explicit 'permit' entries with a terminal 'deny all' default. Check the final rule in the outbound policy chain.",
+        "command": "# Palo Alto (SSH):\nshow running security-policy | match 'action deny'\n\n# iptables-based proxy host:\niptables -L FORWARD -n -v | tail -20\n\n# Squid proxy — check if default ACL denies unknown destinations:\ngrep -E '(http_access deny|http_access allow)' /etc/squid/squid.conf | tail -10",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Terminal rule is 'deny all' or equivalent, with preceding explicit permit rules for approved destinations; not a single 'permit any' statement."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a workstation in the zone, attempt to reach a known-unused or freshly registered test domain over HTTP/HTTPS. If the connection succeeds, no destination allowlist is enforced. If blocked with a proxy block page or connection refused, allowlisting is active.",
+        "command": "# From workstation:\ncurl -v http://randomtestdomain-notinany-allowlist.xyz\ncurl -v https://test.newly-registered-domain.example\n\n# Check response: proxy block page = allowlist likely enforced; direct TCP connection = no allowlist",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection is blocked with a proxy denial page or DNS NXDOMAIN from the internal resolver, confirming destination restriction is active."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security team to determine whether egress policy is built on an allowlist (enumerate permitted destinations, deny rest) or blocklist (deny known-bad, allow rest) model. Request the policy change procedure — allowlist environments require explicit approval to add new destinations.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirms a positive allowlist or approved category-based permit model with a default-deny posture for uncategorized destinations."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in most enterprise environments relying on threat-intel blocklists)",
+      "true (mature security programs with explicit URL category allowlisting or DNS-layer filtering)"
+    ]
+  },
+  {
+    "option_name": "outbound_traffic_monitoring_coverage",
+    "option_description": "Describes the extent to which outbound traffic from workstations is actively monitored and generates alerts for anomalous patterns such as beaconing, high-frequency low-volume connections, connections to uncategorized or newly registered domains, and threat-intel-matched destinations.",
+    "security_impact": "The Rego policy fires 'insufficient_egress_filtering' in three conditions involving this attribute: when monitoring is 'none' and L7 filtering is absent, when monitoring is 'none' and destination allowlisting is absent, and the combination of both absent controls. A value of 'none' means attackers can beacon, exfiltrate, and stage tools over outbound connections without any detection capability. Even partial monitoring (logs collected, no automated alerting) significantly delays detection. Full coverage requires automated behavioral detection with alerting pipelines connected to a SOC or SIEM.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Access the SIEM console (e.g., Splunk, Microsoft Sentinel, Elastic SIEM). Search for dashboards or alert rules specifically referencing the workstation subnet's outbound traffic. Verify whether automated detection rules exist for beaconing, DGA domains, or threat-intel matches, and whether those rules generate active alerts.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk: Search & Reporting > Dashboards > look for 'Egress Monitoring' or 'Workstation Outbound' dashboards; Alerts > check for active alert saved searches. Microsoft Sentinel: Analytics > Active Rules > filter by data source for proxy/firewall logs from workstation subnets.",
+        "expected_output": "Active alert rules exist for beaconing patterns and threat-intel matches against workstation outbound traffic, with a confirmed alert pipeline to SOC (full). Logs present but no automated rules = partial. No log ingestion from outbound path = none."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM or log aggregation platform to determine whether proxy, firewall, or DNS logs from the workstation subnet are being ingested and whether recent beaconing detection events exist.",
+        "command": "# Splunk SPL — check for proxy log ingestion from workstation subnet:\nindex=proxy sourcetype=squid_access OR sourcetype=bluecoat src_ip=10.10.0.0/16 | stats count by src_ip | head 20\n\n# Splunk — check for beaconing detection alerts in last 7 days:\nindex=notable search_name=\"*beacon*\" | stats count by search_name, orig_src\n\n# Elastic — check index for outbound workstation traffic:\nGET proxy-logs-*/_count\n{\"query\":{\"range\":{\"@timestamp\":{\"gte\":\"now-7d\"}}}}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Recent log entries from workstation subnet are present in the SIEM; alert rules for beaconing exist and have fired in recent periods. Absence of recent hits or no ingestion indicates partial or none coverage."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the SOC team and network/security engineers to determine whether any automated detection capability exists for outbound workstation anomalies. Ask specifically: Are there SIEM correlation rules or NDR policies that generate alerts for beaconing or connections to newly registered domains from workstation IPs? What is the SLA for investigation?",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SOC confirms active alert rules with defined response procedures (full); acknowledges log collection without automated rules (partial); or confirms no coverage of outbound workstation traffic (none)."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SIEM or NDR API to enumerate active detection rules that reference workstation subnet source addresses and outbound traffic behavioral analytics.",
+        "command": "# Microsoft Sentinel REST API — list active analytics rules:\ncurl -s -H \"Authorization: Bearer $TOKEN\" \\\n  \"https://management.azure.com/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.OperationalInsights/workspaces/$WS/providers/Microsoft.SecurityInsights/alertRules?api-version=2022-11-01\" \\\n  | jq '.value[] | select(.properties.displayName | test(\"beacon|egress|outbound\"; \"i\")) | {name: .properties.displayName, enabled: .properties.enabled}'\n\n# Splunk REST API — list saved searches for beaconing:\ncurl -sk -u admin:$PASS https://splunk:8089/servicesNS/nobody/search/saved/searches \\\n  | grep -i 'beacon\\|outbound\\|egress'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "API returns active detection rules covering workstation outbound traffic behavioral patterns; no matching rules indicates partial or none coverage."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (most common — logs may exist but no automated behavioral detection)",
+      "partial (logs ingested into SIEM, some manual review, limited automated rules)",
+      "full (uncommon — requires dedicated NDR and active SIEM correlation rules with SOC triage)"
+    ]
+  },
+  {
+    "option_name": "workstation_subnet_count",
+    "option_description": "Records the number of distinct subnets used to segment workstations within the office zone. A value of 1 indicates all workstations share a single flat subnet with no network-level segmentation between them.",
+    "security_impact": "The Rego policy fires 'flat_workstation_subnet_segmentation' in two conditions involving this attribute: when workstation_subnet_count equals 1 and inter_workstation_acl_enforced is false, and when workstation_subnet_count equals 1 and microsegmentation_technology is 'none'. A single flat subnet means any compromised workstation can directly reach all peer workstations over the network without crossing any enforcement boundary, enabling rapid lateral movement via SMB, RPC, WMI, and credential replay attacks. Segmenting workstations into role-based or floor/department subnets limits blast radius and creates choke points for east-west traffic inspection.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the network infrastructure to enumerate DHCP scopes allocated to workstations and count distinct subnets. Cross-reference with IPAM data.",
+        "command": "# Windows DHCP Server — list all DHCP scopes:\nGet-DhcpServerv4Scope | Where-Object {$_.Description -match 'workstation|desktop|client'} | Select-Object ScopeId, SubnetMask, Name\n\n# Linux DHCP (isc-dhcpd) — count subnet declarations:\ngrep -c '^subnet' /etc/dhcp/dhcpd.conf\ngrep '^subnet' /etc/dhcp/dhcpd.conf\n\n# Cisco IOS router — show interfaces with workstation subnets:\nshow ip interface brief | grep -v down",
+        "file_path": "/etc/dhcp/dhcpd.conf",
+        "navigation": null,
+        "expected_output": "A list of subnet declarations; count distinct entries assigned to workstation populations. A single entry (e.g., 10.10.0.0/16) indicates a flat model."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the IPAM solution (e.g., SolarWinds IPAM, InfoBlox, BlueCat) or network management platform to enumerate subnets tagged as workstation or client subnets. Count distinct network prefixes.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SolarWinds IPAM: Web Console > IP Address Management > Manage Subnets & IP Addresses > filter by 'Type: Workstation' or 'VLAN: Workstation'. InfoBlox: Data Management > DHCP > Networks > filter by description containing 'workstation'. Cisco DNA Center: Design > Network Hierarchy > review IP pools per floor/department.",
+        "expected_output": "IPAM dashboard shows N distinct workstation subnet entries. Count reflects actual segmentation; a single large /16 or /8 covering all workstations confirms workstation_subnet_count = 1."
+      },
+      {
+        "type": "command",
+        "instruction": "Query switch VLAN configurations to determine how many distinct VLANs carry workstation traffic and whether each has a unique subnet.",
+        "command": "# Cisco IOS switch — show VLANs:\nshow vlan brief\nshow interfaces trunk\n\n# Aruba/HP ProCurve:\nshow vlans\n\n# Parse SVI (Layer 3 interface) addresses to count workstation subnets:\nshow ip interface brief | grep Vlan\n\n# PowerShell — query AD sites and subnets for workstation networks:\nGet-ADReplicationSubnet -Filter * | Select-Object Name, Site | Where-Object {$_.Name -match '10\\.|192\\.168\\'}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Multiple VLAN IDs with distinct SVIs corresponding to workstation populations; a single VLAN (e.g., VLAN 10) for all workstations confirms count = 1."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1 (single flat subnet — very common in SMB and legacy enterprise)",
+      "2-5 (basic segmentation by floor or department)",
+      "10+ (mature segmentation by role, floor, and security classification)"
+    ]
+  },
+  {
+    "option_name": "inter_workstation_acl_enforced",
+    "option_description": "Controls whether explicit access control lists or firewall rules are in place to restrict direct workstation-to-workstation traffic within the workstation zone, preventing peer hosts from freely communicating without crossing an enforcement point.",
+    "security_impact": "The Rego policy fires 'flat_workstation_subnet_segmentation' when inter_workstation_acl_enforced is false and either workstation_subnet_count equals 1 or microsegmentation_technology is 'none'. Without ACLs between workstations, a single compromised host can perform SMB credential harvesting, PsExec lateral movement, NTLM relay attacks, and RDP brute force against all peers in the subnet without any network-level barrier. This is the primary enabler of ransomware propagation and worm-style lateral movement in flat office networks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the firewall or router ACL ruleset for explicit rules governing traffic between workstation subnet IPs. Absence of workstation-to-workstation deny rules indicates the ACL is not enforced.",
+        "command": "# Cisco IOS — show ACL applied to workstation VLAN interface:\nshow ip access-lists\nshow running-config interface vlan 10\n\n# Check for intra-subnet deny rules:\nshow ip access-lists WORKSTATION_ACL | include deny\n\n# Linux iptables on a routing host:\niptables -L FORWARD -n -v | grep -E '(10\\.10\\.|192\\.168\\.1\\.)\\.*(10\\.10\\.|192\\.168\\.1\\.)'\n\n# Windows Firewall policy export:\nnetsh advfirewall export C:\\fw_policy.wfw\nGet-NetFirewallRule | Where-Object {$_.Direction -eq 'Inbound' -and $_.Enabled -eq 'True'} | Select-Object DisplayName, Action",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACL contains explicit deny or restrict entries for workstation-to-workstation traffic (e.g., deny ip 10.10.0.0/24 10.10.0.0/24). Absence of such entries = false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From one workstation, attempt to reach another workstation on the same subnet over common lateral movement ports (445/SMB, 3389/RDP, 135/RPC). Success indicates no ACL is enforced; connection timeout or refusal suggests ACL is present.",
+        "command": "# From workstation A, test connectivity to workstation B:\nTest-NetConnection -ComputerName 10.10.0.50 -Port 445\nTest-NetConnection -ComputerName 10.10.0.50 -Port 3389\nTest-NetConnection -ComputerName 10.10.0.50 -Port 135\n\n# Linux equivalent:\nnc -zv 10.10.0.50 445\nnc -zv 10.10.0.50 3389\nnc -zv 10.10.0.50 135",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If ports 445, 3389, and 135 are accessible between arbitrary workstations, inter_workstation_acl_enforced = false. Connections refused or timed out for all ports indicates potential ACL enforcement."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the NGFW security policy or host-based firewall group policy to confirm that inbound rules on workstations block connections originating from other workstation subnet IPs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto: Policies > Security > filter by destination zone 'Workstation' and source zone 'Workstation' — confirm deny rules exist. Windows Group Policy: Computer Configuration > Windows Settings > Security Settings > Windows Firewall with Advanced Security > Inbound Rules — look for rules blocking src=workstation_subnet. Fortinet: Policy & Objects > IPv4 Policy > filter src/dst = workstation subnet.",
+        "expected_output": "Explicit deny or restrict rules exist for intra-workstation zone traffic, confirming ACL enforcement."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (overwhelming majority of enterprise workstation environments)",
+      "true (organizations with host-based firewall GPO or NGFW intra-zone rules specifically blocking peer-to-peer workstation traffic)"
+    ]
+  },
+  {
+    "option_name": "microsegmentation_technology",
+    "option_description": "Identifies the specific technology deployed to enforce workstation isolation and prevent lateral movement at a granular level beyond traditional VLAN segmentation, such as private VLANs, SDN-based microsegmentation, host-based enforcement policies, or NAC-driven policy isolation.",
+    "security_impact": "The Rego policy fires 'flat_workstation_subnet_segmentation' when microsegmentation_technology is 'none' and either workstation_subnet_count equals 1 or inter_workstation_acl_enforced is false. Without any microsegmentation technology, lateral movement between workstations is only constrained by subnet boundaries (which may not exist) or ACLs (which are commonly absent). Microsegmentation technologies like private VLANs or Illumio enforce per-workstation isolation so that even within the same IP subnet, hosts cannot directly communicate, dramatically limiting ransomware propagation and attacker pivoting.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Check the switch configuration for private VLAN (PVLAN) configuration. Log into the SDN controller or microsegmentation platform console (e.g., VMware NSX, Illumio PCE, Cisco TrustSec) to verify active policies on workstation endpoints.",
+        "command": null,
+        "file_path": null,
+        "navigation": "VMware NSX: Networking > Segments > [Workstation Segment] > check if microsegmentation rules are applied. Illumio PCE: Map > Workloads > filter by workstation group > verify policy enforcement mode. Cisco TrustSec: Identity Services Engine > Policy > TrustSec > Security Group ACL > verify workstation SGT assignments and SGACL rules. Aruba ClearPass: Policy Manager > Enforcement Profiles > verify workstation isolation profile.",
+        "expected_output": "Active microsegmentation policy enforced on workstation endpoints with named technology (NSX distributed firewall, Illumio adaptive policy, TrustSec SGACL, or PVLAN port mode)."
+      },
+      {
+        "type": "command",
+        "instruction": "Query switch configuration for private VLAN mode assignments on workstation-facing access ports, or query the NAC platform for isolation policy enforcement.",
+        "command": "# Cisco IOS — check for private VLAN configuration:\nshow vlan private-vlan\nshow interfaces switchport | grep -A5 'Private-vlan'\n\n# Cisco IOS — check TrustSec SGT assignment on workstation ports:\nshow cts interface brief\nshow cts role-based permissions\n\n# Check for Illumio VEN agent on workstation:\nillumio-ven-ctl status\n\n# VMware NSX — list distributed firewall rules via API:\ncurl -k -u admin:$PASS 'https://nsx-mgr/api/v1/firewall/sections' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Switch shows 'private-vlan host' on access ports, or TrustSec shows SGT assignments, or NSX/Illumio API returns active policy sections covering workstation workloads."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network infrastructure team to determine whether any isolation technology has been deployed for workstations. Request architecture documentation showing how workstation-to-workstation communication is restricted at the network or host layer.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation identifies a specific technology (PVLAN, NSX DFW, Illumio, TrustSec, or NAC isolation VLAN) actively deployed on workstation infrastructure, or confirms none is in place."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (most common — no dedicated microsegmentation deployed)",
+      "private_vlan (mid-sized organizations with managed switch infrastructure)",
+      "nac_policy_isolation (organizations with existing 802.1X NAC deployments)",
+      "sdn_microsegmentation (enterprise environments with NSX or Illumio investments)",
+      "host_based_enforcement (organizations leveraging endpoint security platforms for lateral movement prevention)"
+    ]
+  },
+  {
+    "option_name": "intranet_server_acl_enforced",
+    "option_description": "Controls whether intranet-facing servers have explicit zone-level access control lists that restrict which specific workstation subnets can initiate connections, rather than implicitly trusting any IP address within the broad workstation zone.",
+    "security_impact": "The Rego policy fires 'implicit_intranet_server_trust' unconditionally whenever intranet_server_acl_enforced is false. This is a standalone trigger — no secondary condition is required. Without subnet-level ACLs on intranet servers, any workstation IP (including a compromised one) can reach sensitive internal services such as file servers, application servers, database frontends, and management interfaces. This creates a direct lateral movement path from any compromised workstation to all intranet services, which is the core exploitation scenario for ransomware and data theft campaigns that breach the perimeter.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Review host-based firewall rules on representative intranet servers to determine whether inbound rules explicitly enumerate permitted source subnets or accept connections from any workstation zone IP.",
+        "command": "# Windows Server — inspect inbound firewall rules for subnet-specific sources:\nGet-NetFirewallRule -Direction Inbound -Enabled True | \n  Get-NetFirewallAddressFilter | \n  Where-Object {$_.RemoteAddress -ne 'Any'} | \n  Select-Object RemoteAddress\n\n# Linux (iptables) — check inbound rules on intranet server:\niptables -L INPUT -n -v | grep -E '(ACCEPT|REJECT|DROP)'\n\n# Check for explicit workstation subnet source in ACCEPT rules:\niptables -L INPUT -n | grep '10\\.10\\.'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Firewall rules show explicit source subnet restrictions (e.g., ACCEPT from 10.10.5.0/24 only) rather than 'ACCEPT from any' or absence of source filtering."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the perimeter or internal firewall policy governing traffic from the workstation zone to the server zone. Check whether server-bound rules use specific source subnet objects rather than the entire workstation zone as source.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto: Policies > Security > filter by destination zone 'Servers' — inspect source address objects (specific subnets vs. entire workstation zone). Cisco ASA ASDM: Configuration > Firewall > Access Rules > filter Interface=inside, Destination=server_subnet — review source. FortiGate: Policy & Objects > IPv4 Policy > filter by destination address group 'Intranet-Servers' — inspect source objects.",
+        "expected_output": "Rules restricting access to intranet servers show specific named source subnet objects (e.g., 'Workstation-Subnet-Finance') rather than 'any' or the entire workstation zone supernet."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a workstation subnet that should NOT have access to a specific intranet server, attempt to initiate a connection to that server's service port. If the connection succeeds, ACLs are not enforced; if blocked, zone-level ACL is active.",
+        "command": "# Test from a workstation in a non-privileged subnet:\nTest-NetConnection -ComputerName intranet-server.corp.local -Port 445\nTest-NetConnection -ComputerName intranet-server.corp.local -Port 443\nTest-NetConnection -ComputerName intranet-server.corp.local -Port 1433\n\n# Linux:\nnc -zv intranet-server.corp.local 445\nnc -zv intranet-server.corp.local 1433",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connections from non-authorized workstation subnets are blocked (timeout or refused), confirming ACL enforcement. Successful connection from any workstation indicates no zone-level ACL."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (very common — intranet servers typically accept connections from all workstation zone IPs)",
+      "true (organizations with explicit network segmentation between workstation sub-zones and server zones, or server-side host firewalls with subnet ACLs)"
+    ]
+  },
+  {
+    "option_name": "workstation_device_health_checked_at_access_time",
+    "option_description": "Controls whether workstations are required to demonstrate valid device health or posture compliance (via NAC, 802.1X certificate, or endpoint compliance check) before being granted access to intranet servers, ensuring unhealthy or unmanaged devices cannot reach internal services.",
+    "security_impact": "The Rego policy fires 'implicit_intranet_server_trust' when intranet_zone_segmentation_model is 'flat' and workstation_device_health_checked_at_access is false. Without posture checking at access time, a compromised, unpatched, or rogue device that obtains a valid network address can freely reach intranet servers. Posture enforcement ensures that even if an attacker gains network access, devices failing compliance checks (missing EDR, outdated AV definitions, unpatched OS) are quarantined rather than granted full intranet server access, directly reducing the attack surface for lateral movement.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log in to the NAC platform (e.g., Cisco ISE, Aruba ClearPass, Forescout) and review the posture policy applied to workstation endpoints. Verify that a posture condition is required before authorization grants intranet server access profiles.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco ISE: Policy > Policy Sets > [Workstation Policy Set] > Authorization Policy — verify 'Posture Status = Compliant' is a required condition before matching rules granting intranet access. Aruba ClearPass: Policy Manager > Enforcement Profiles > verify posture-compliant role assignment. Forescout: Policy > Compliance > check enforcement actions for non-compliant workstations.",
+        "expected_output": "Authorization rules require posture_status = Compliant before granting intranet-access profile; non-compliant devices receive quarantine VLAN or limited access profile."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the NAC or 802.1X infrastructure to verify that certificate-based authentication or posture validation is active on workstation switch ports. Check RADIUS accounting logs for posture compliance attributes.",
+        "command": "# Cisco ISE — CLI query for active posture sessions (SSH to ISE):\nshow radius diagnostics\n\n# Check switch port for 802.1X authentication state:\n# Cisco IOS:\nshow authentication sessions interface GigabitEthernet0/1\nshow dot1x interface GigabitEthernet0/1 detail\n\n# Windows workstation — check 802.1X supplicant status:\nnetsh lan show interfaces\nnetsh lan show profiles\n\n# Verify EAP-TLS certificate is enrolled:\nGet-ChildItem Cert:\\LocalMachine\\My | Where-Object {$_.Subject -match 'workstation|machine'}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Switch port shows 'Authorized' state with 'Posture = Compliant' or 'Method = EAP-TLS'; absence of posture attribute or 'Method = none' indicates no health check."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the identity and network access team to determine whether device posture is evaluated at the time of connection to intranet resources. Ask specifically: Does a workstation receive different network access based on its health status? What happens when an endpoint fails a posture check — is it quarantined or still given full access?",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team confirms posture-based dynamic VLAN assignment or access profile downgrade for non-compliant endpoints, with documented quarantine procedures. No posture differentiation = false."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review RADIUS or NAC authentication logs to determine whether posture compliance results are recorded and correlated with authorization decisions for workstation-to-server connections.",
+        "command": "# Cisco ISE RADIUS log review (grep for posture attribute):\ngrep -i 'posture' /var/log/cisco/ise/radius_authentication.log | tail -50\n\n# Windows NPS RADIUS logs:\nGet-WinEvent -LogName 'Security' | Where-Object {$_.Id -eq 6272 -or $_.Id -eq 6273} | \n  Select-Object TimeCreated, Message | \n  Where-Object {$_.Message -match 'posture|health|compliant'} | head -20\n\n# Aruba ClearPass access log:\ngrep 'Posture' /var/log/clearpass/access_tracker.log | tail -30",
+        "file_path": "/var/log/cisco/ise/radius_authentication.log",
+        "navigation": null,
+        "expected_output": "RADIUS logs contain posture status attributes (e.g., PostureStatus=Compliant) in authorization records; absence of posture attributes in logs confirms no health checking is occurring."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default — majority of organizations do not enforce posture at server access time even when NAC is deployed at network admission)",
+      "true (organizations with mature zero-trust or NAC deployments that enforce continuous posture validation, not just at network admission)"
+    ]
+  },
+  {
+    "option_name": "intranet_zone_segmentation_model",
+    "option_description": "Controls the level of Layer-2/3 segmentation applied within the intranet and workstation zone, determining whether workstations share a single broadcast domain (flat), are separated by function-based VLANs with inter-VLAN ACLs (role_segmented), or are enforced at per-host or per-workgroup granularity (microsegmented).",
+    "security_impact": "The Rego policy fires implicit_intranet_server_trust when this value is 'flat' and workstation device health is not checked at access time. It also triggers broadcast_domain_trust_propagation for both 'flat' and 'vlan_segmented' states when DAI or LLMNR/NBT-NS controls are absent. A flat model maximizes blast radius: any compromised workstation can reach all peers and servers without crossing an enforced boundary, enabling unconstrained lateral movement via SMB, RPC, and other protocols.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Cisco IOS/IOS-XE core or distribution switch, enumerate all VLANs in use and their associated interfaces to determine broadcast domain breadth.",
+        "command": "show vlan brief && show interfaces trunk && show ip interface brief",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If all workstation ports appear in a single VLAN ID, segmentation is flat. Multiple VLAN IDs mapped to role-descriptive names indicate role_segmented. Very large numbers of VLANs approaching one per device or workgroup suggest microsegmented."
+      },
+      {
+        "type": "command",
+        "instruction": "Review SDN or network automation controller policies. On Cisco ACI, query the endpoint group (EPG) to contract mappings to assess micro-segmentation enforcement.",
+        "command": "acicli show tenant <tenant> epg && acicli show contract",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of per-host EPGs with deny-by-default contracts indicates microsegmented. Broad EPGs sharing an unrestricted contract indicate flat or role_segmented."
+      },
+      {
+        "type": "gui",
+        "instruction": "Log into the firewall management console (e.g., Palo Alto Panorama, Fortinet FortiManager, or Cisco FMC) and navigate to the zone configuration view to inspect how workstation subnets are assigned to security zones.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama > Network > Zones | FortiManager > Policy & Objects > Firewall Policy | FMC > Devices > Device Management > Interfaces",
+        "expected_output": "A single zone containing all workstation subnets confirms flat. Multiple named zones (e.g., 'workstations-finance', 'workstations-ops') with inter-zone policies indicates role_segmented or microsegmented."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the exported running configuration of the Layer-3 core or distribution switch to review VLAN interface definitions and determine the segmentation model in use.",
+        "command": "show running-config | section ^interface Vlan",
+        "file_path": "/etc/network/topology/switch-core-running.conf",
+        "navigation": null,
+        "expected_output": "Multiple VLAN interfaces with distinct IP subnets and applied ACLs indicate role_segmented or better. A single large VLAN interface or only a management VLAN interface indicates flat."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "flat",
+      "role_segmented",
+      "microsegmented"
+    ]
+  },
+  {
+    "option_name": "vpn_traffic_reinspected_at_zone_ingress",
+    "option_description": "Indicates whether traffic originating from remote access VPN endpoints undergoes stateful re-inspection by an internal firewall, IDS/IPS, or inline security appliance at the workstation zone ingress boundary before being admitted into the internal zone.",
+    "security_impact": "The Rego policy triggers uncontrolled_ingress_from_vpn_or_remote_access when this is false in combination with vpn_assigned_address_pool_isolated being false, when split_tunnel is active, or when the VPN pool is not isolated and a VPN policy is active. Without re-inspection, a compromised remote endpoint or attacker who steals VPN credentials injects traffic directly into the workstation zone, bypassing all perimeter controls and inheriting full intranet trust instantly.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Palo Alto Networks firewall, verify whether a security policy zone pair exists between the VPN termination zone and the workstation zone with an IPS/threat profile applied.",
+        "command": "show running security-policy | match vpn && show zone-protection",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A policy matching source zone 'vpn-clients' to destination zone 'workstations' with a threat-prevention profile name listed confirms re-inspection is enabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the VPN gateway management console (e.g., Cisco ASA ASDM, Fortinet SSL-VPN, or Palo Alto GlobalProtect), trace the post-termination routing path and identify whether traffic traverses an additional inspection appliance before reaching the workstation VLAN.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ASA ASDM > Configuration > Remote Access VPN > Network (Client) Access > Address Pools | Palo Alto > Network > GlobalProtect > Gateways > Agent > Network Settings",
+        "expected_output": "If the VPN pool subnet routes directly into the workstation VLAN with no intermediate next-hop firewall, re-inspection is absent (false). A separate internal firewall next-hop confirms re-inspection."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a connected VPN client, attempt to reach a workstation IP directly using a protocol such as SMB or RDP and simultaneously check whether the internal firewall logs show a matching allowed or inspected session.",
+        "command": "Test-NetConnection -ComputerName <workstation_ip> -Port 445",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the connection succeeds and no log entry appears on an internal inspection device, re-inspection is absent. A firewall log entry showing the session was evaluated confirms inspection is occurring."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the VPN gateway routing table and next-hop assignments for the VPN client address pool to determine if a dedicated inspection appliance is the next-hop.",
+        "command": "show route vpn-client-pool-subnet && show ip route <vpn_pool_network>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A next-hop IP corresponding to an internal firewall interface confirms re-inspection. A next-hop directly pointing to the workstation switch SVI indicates no re-inspection."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "split_tunnel_policy",
+    "option_description": "Defines how remote access VPN client traffic is routed: full_tunnel sends all client traffic through the VPN gateway enabling centralized inspection, split_tunnel only routes corporate-destined traffic through the tunnel while internet-bound traffic exits locally, and none indicates no VPN is deployed.",
+    "security_impact": "The Rego policy fires uncontrolled_ingress_from_vpn_or_remote_access when split_tunnel_policy is 'split_tunnel' and vpn_traffic_reinspected_at_zone_ingress is false. Split tunnel creates a dual-homed condition where the endpoint simultaneously touches untrusted internet and the corporate intranet. Malware on the endpoint can pivot from the untrusted interface into corporate resources via the tunnel without ever traversing perimeter controls, bypassing egress filtering and making the workstation a bridge between untrusted networks and the internal zone.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Cisco ASA or FTD, review the group policy split-tunneling configuration to identify whether a specific ACL defines tunneled subnets or if all traffic is tunneled.",
+        "command": "show running-config group-policy | include split-tunnel",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'split-tunnel policy tunnelspecified' with an ACL name confirms split_tunnel. 'split-tunnel policy tunnelall' confirms full_tunnel. Absence of VPN configuration confirms none."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Palo Alto GlobalProtect gateway or Pulse Secure admin console, review the tunnel configuration route settings to check whether a default route or only specific subnets are pushed to clients.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GlobalProtect > Gateways > Agent > Network Settings > Split Tunnel | Pulse Secure > VPN Tunneling > Connection Profiles > Split Tunneling",
+        "expected_output": "A default route (0.0.0.0/0) pushed to clients confirms full_tunnel. Specific subnet include lists with no default route confirm split_tunnel."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the VPN gateway profile configuration file or exported policy to identify the split-tunneling include/exclude route lists.",
+        "command": "grep -i 'split' /etc/openvpn/server.conf && grep -i 'push.*route' /etc/openvpn/server.conf",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "A 'push redirect-gateway def1' directive confirms full_tunnel. Specific 'push route' lines for corporate subnets only with no redirect-gateway confirms split_tunnel."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network or VPN administrator and request the documented VPN client profile configuration, specifically asking whether employees can access both corporate resources and the internet simultaneously while connected.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation that internet browsing works without going through VPN while connected indicates split_tunnel. Confirmation that all traffic routes through VPN indicates full_tunnel."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "split_tunnel",
+      "full_tunnel",
+      "none"
+    ]
+  },
+  {
+    "option_name": "vpn_assigned_address_pool_isolated",
+    "option_description": "Indicates whether VPN clients receive IP addresses from a dedicated subnet that is separated from the internal workstation zone by an explicit access control boundary, preventing VPN clients from being treated as implicit members of the internal workstation trust zone upon connection.",
+    "security_impact": "The Rego policy fires uncontrolled_ingress_from_vpn_or_remote_access when both vpn_assigned_address_pool_isolated is false and vpn_traffic_reinspected_at_zone_ingress is false, and also when the VPN pool is not isolated and any VPN policy is active. When VPN clients receive addresses from the same subnet as internal workstations and no boundary enforces access control between them, a compromised VPN client inherits all intranet trust of a physical workstation—including access to file servers, domain controllers, and management interfaces—purely by virtue of connecting.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On the VPN gateway (Cisco ASA, Fortinet, or similar), display the address pool assigned to VPN clients and compare it against the IP subnets assigned to physical workstations.",
+        "command": "show ip local pool all && show running-config ip local pool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the VPN pool subnet differs from all workstation subnets and a routing/firewall policy boundary exists between them, isolation is true. If the VPN pool is within the same CIDR range as workstations, isolation is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Review firewall ACLs or routing policies to confirm whether the VPN address pool has explicit permit/deny rules separating it from the workstation VLAN, on both the VPN gateway and internal firewall.",
+        "command": "show access-list VPN_POOL_ACL && show ip access-lists | include <vpn_pool_network>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACL entries restricting the VPN pool source addresses to only explicitly permitted destinations confirm isolation. An implicit permit or no ACL referencing the VPN pool confirms non-isolation."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the DHCP server or VPN gateway admin console, view the IP pool assigned to VPN users and compare it with LAN DHCP scopes to determine if the same scope or VLAN is shared.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco ASA ASDM > Configuration > Remote Access VPN > Network (Client) Access > Address Assignment | Windows DHCP > IPv4 > Scopes",
+        "expected_output": "Separate named scopes with non-overlapping CIDR ranges for VPN and workstations, combined with inter-subnet firewall rules, confirm isolation is true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "While connected via VPN, attempt a direct ping or SMB connection to a known internal workstation IP without any explicit route or firewall rule permitting it, to test whether implicit layer-2 or layer-3 adjacency exists.",
+        "command": "ping <internal_workstation_ip> -S <vpn_assigned_ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If ping succeeds without explicit firewall permit rules, the VPN pool is not isolated from the workstation zone. A timeout with no ICMP response at the firewall confirms boundary isolation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "inter_vlan_routing_device_type",
+    "option_description": "Identifies the type of network device performing inter-VLAN routing between the workstation zone and adjacent internal zones such as server VLANs and management VLANs, distinguishing between a stateful firewall, a Layer-3 switch, and a router without stateful inspection capability.",
+    "security_impact": "The Rego policy fires inter_vlan_routing_without_stateful_inspection whenever this value is 'layer3_switch' or 'router_without_stateful_inspection', regardless of ACL state, because these device types cannot perform connection-tracking-based enforcement. Without stateful inspection, ACLs can only filter based on static IP and port criteria and cannot detect connection hijacking, protocol anomalies, or return-traffic abuse, leaving east-west lateral movement paths substantially under-controlled compared to firewall-mediated inter-zone traversal.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the device performing inter-VLAN routing by tracing the next-hop for cross-VLAN traffic and inspecting its platform type.",
+        "command": "traceroute <server_vlan_host_ip> source <workstation_vlan_ip> && show version",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If traceroute shows a single hop through a Cisco Catalyst, Nexus, or similar switch platform, the routing device is a layer3_switch. If the hop is through a firewall appliance (ASA, Palo Alto, Fortinet), it is a stateful_firewall."
+      },
+      {
+        "type": "command",
+        "instruction": "On the suspected routing device, check whether stateful connection tracking is supported and active for inter-VLAN traffic.",
+        "command": "show conn && show ip inspect sessions",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of active connection-tracked sessions on 'show conn' (ASA) or 'show ip inspect sessions' (IOS with CBAC) confirms stateful inspection. Absence or 'invalid input' on a Layer-3 switch confirms no stateful inspection."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the network management platform (e.g., Cisco DNA Center, SolarWinds NTA, or Kentik), review the device role classification and routing topology map to identify which device sits between workstation and server VLANs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco DNA Center > Provision > Network Devices > Device List | SolarWinds NTA > Network Atlas > Topology View",
+        "expected_output": "A firewall symbol or device classified as 'Firewall' in the topology between workstation and server VLANs confirms stateful_firewall. A switch or router icon confirms layer3_switch or router_without_stateful_inspection."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the running configuration of the inter-VLAN routing device to determine whether stateful inspection features such as zone-based firewall or inspect policies are configured.",
+        "command": "show running-config | include zone-pair|ip inspect|class-map type inspect",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'zone-pair security' and 'inspect' policy-map statements on an IOS device confirms stateful inspection capability in use. Their absence on a Catalyst switch confirms layer3_switch without stateful inspection."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "layer3_switch",
+      "stateful_firewall",
+      "router_without_stateful_inspection"
+    ]
+  },
+  {
+    "option_name": "acl_enforced_between_vlans",
+    "option_description": "Indicates whether explicit ingress and egress Access Control Lists are applied on the routed VLAN interfaces or inter-VLAN routing device to restrict which traffic flows are permitted between workstation VLANs and server or management VLANs.",
+    "security_impact": "The Rego policy fires inter_vlan_routing_without_stateful_inspection when the routing device is a layer3_switch or router and acl_enforced_between_vlans is false. When no ACLs exist on inter-VLAN interfaces, workstations can freely initiate connections to any server or management VLAN resource, enabling lateral movement to domain controllers, file servers, backup systems, and network device management interfaces using standard protocols that would otherwise be restricted. Even with ACLs, the absence of stateful inspection means ACLs alone are insufficient against advanced techniques.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Cisco IOS/IOS-XE Layer-3 switch, list all access groups applied to VLAN interfaces to determine if ACLs are bound and restricting inter-VLAN traffic.",
+        "command": "show ip interface | include Vlan|access list && show running-config | section interface Vlan",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing 'Inbound access list is <ACL_NAME>' and 'Outgoing access list is <ACL_NAME>' on VLAN interfaces confirm ACLs are applied. 'Inbound access list is not set' confirms no ACL enforcement."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the content of any ACLs applied to inter-VLAN interfaces to confirm they are deny-by-default or explicitly restrict cross-VLAN flows rather than permitting all traffic.",
+        "command": "show ip access-lists <ACL_NAME>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An ACL with explicit deny statements for prohibited cross-VLAN protocols (e.g., deny tcp <workstation_net> <mgmt_net> eq 22) and an implicit or explicit deny-all at the end confirms meaningful ACL enforcement. A single 'permit ip any any' confirms ACL is present but non-restrictive."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the exported switch running configuration file and grep for access-group bindings on all VLAN interfaces to enumerate which interfaces have ACLs applied.",
+        "command": "grep -A 10 'interface Vlan' <switch_running_config.txt> | grep 'ip access-group'",
+        "file_path": "/var/network/configs/core-switch-running.txt",
+        "navigation": null,
+        "expected_output": "Each VLAN interface block containing 'ip access-group <name> in' and 'ip access-group <name> out' confirms ACL enforcement. Absence of these lines in workstation or server VLAN interface blocks confirms no ACL enforcement."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a connection from a workstation subnet host to a management VLAN IP on a restricted port (e.g., SSH port 22 to a network device) to verify ACL blocking behavior.",
+        "command": "Test-NetConnection -ComputerName <mgmt_vlan_device_ip> -Port 22 -InformationLevel Detailed",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'TcpTestSucceeded: False' result with no TCP handshake confirms ACL is blocking the connection. A successful handshake or RST without an ACL deny log entry confirms no effective ACL restriction."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "dynamic_arp_inspection_enabled",
+    "option_description": "Controls whether Dynamic ARP Inspection (DAI) is configured on the Layer-2 switches serving workstation subnets to validate ARP packets against a trusted DHCP snooping binding table, preventing ARP cache poisoning and man-in-the-middle attacks within the broadcast domain.",
+    "security_impact": "The Rego policy fires broadcast_domain_trust_propagation when dynamic_arp_inspection_enabled is false and the segmentation model is 'flat' or 'vlan_segmented'. Without DAI, any workstation can broadcast gratuitous ARP replies claiming ownership of another host's IP address, poisoning the ARP caches of all hosts in the broadcast domain. This enables a compromised workstation to perform man-in-the-middle attacks against all zone traffic, intercept credentials, and redirect connections to attacker-controlled infrastructure without crossing any network boundary.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Cisco IOS/IOS-XE access or distribution switch, check whether DAI is enabled on the workstation VLANs and view the current ARP inspection statistics.",
+        "command": "show ip arp inspection && show ip arp inspection vlan <workstation_vlan_id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'Vlan Enabled Forwarded Dropped' with 'Yes' in the Enabled column for workstation VLANs confirms DAI is active. 'No' or absent VLAN entries confirm DAI is not enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify that DHCP snooping, which is a prerequisite for DAI effectiveness, is also enabled on the workstation VLANs and that uplink/trunk ports are marked as trusted.",
+        "command": "show ip dhcp snooping && show ip dhcp snooping binding",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DHCP snooping enabled on relevant VLANs with binding table entries and uplink interfaces listed as trusted confirms the prerequisite for DAI is in place. An empty binding table or snooping disabled invalidates DAI effectiveness even if DAI is technically enabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the switch running configuration for DAI and DHCP snooping configuration directives applied to workstation VLANs.",
+        "command": "show running-config | include arp inspection|dhcp snooping",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines such as 'ip arp inspection vlan 10,20,30' and 'ip dhcp snooping vlan 10,20,30' with 'ip dhcp snooping' globally enabled confirm both controls are active. Absence of these lines confirms DAI is not deployed."
+      },
+      {
+        "type": "gui",
+        "instruction": "In a managed switch web interface or network management platform such as Cisco DNA Center, navigate to the switch device configuration and review Layer-2 security feature settings for the workstation VLANs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco DNA Center > Provision > Network Devices > Select Switch > Configuration > Security | Cisco switch web GUI > Security > Dynamic ARP Inspection",
+        "expected_output": "DAI status shown as 'Enabled' with a list of VLANs matching the workstation VLAN IDs confirms the control is active. 'Disabled' or workstation VLANs absent from the DAI VLAN list confirms it is not deployed."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "llmnr_nbt_ns_disabled",
+    "option_description": "Indicates whether LLMNR (Link-Local Multicast Name Resolution) and NetBIOS Name Service (NBT-NS) broadcast name resolution protocols are disabled on workstation endpoints, eliminating the attack surface for name poisoning tools such as Responder that exploit these protocols to capture Net-NTLMv2 credential hashes within the broadcast domain.",
+    "security_impact": "The Rego policy fires broadcast_domain_trust_propagation when llmnr_nbt_ns_disabled is false and the segmentation model is 'flat' or 'vlan_segmented', and also fires even when DAI is enabled but LLMNR/NBT-NS remain active. These protocols broadcast name resolution queries to all hosts in the subnet when DNS fails, allowing any host in the broadcast domain to respond authoritatively. An attacker running Responder.py on a compromised workstation or rogue device can capture Net-NTLMv2 hashes from all querying hosts, enabling offline cracking or relay attacks to escalate privileges across the zone without any network boundary violation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows workstations, check the registry to verify LLMNR is disabled via Group Policy and that NetBIOS over TCP/IP is set to disabled on all network adapters.",
+        "command": "reg query HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient /v EnableMulticast && wmic nicconfig get TcpipNetbiosOptions",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'EnableMulticast' = 0 confirms LLMNR is disabled by policy. 'TcpipNetbiosOptions' = 2 on all adapters confirms NetBIOS over TCP/IP is disabled. Values of 1 or missing keys confirm these protocols remain active."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Group Policy Management Console (GPMC), review the GPO applied to workstation OUs for LLMNR and NetBIOS settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GPMC > Forest > Domains > <domain> > Group Policy Objects > <Workstation Hardening GPO> > Computer Configuration > Administrative Templates > Network > DNS Client > Turn off Multicast Name Resolution",
+        "expected_output": "'Turn off Multicast Name Resolution' set to 'Enabled' confirms LLMNR is disabled via GPO. 'Not Configured' or 'Disabled' means LLMNR remains active on endpoints receiving this GPO."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Run a passive network test from a monitoring workstation using a tool such as Responder in analyze mode to detect live LLMNR and NBT-NS broadcast traffic on the workstation subnet without responding to it.",
+        "command": "python3 Responder.py -I eth0 -A",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "LLMNR and NBT-NS query packets appearing in Responder analyze output confirm these protocols are active on the network. Zero LLMNR/NBT-NS packets observed over a monitoring period confirms the protocols are suppressed."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows workstations, verify DHCP snooping prerequisite state by checking the network adapter NodeType registry value, which controls NBT-NS behavior, on a representative sample of endpoints.",
+        "command": "Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\NetBT\\Parameters' -Name NodeType | Select-Object NodeType",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NodeType = 2 (P-node, point-to-point only, no broadcasts) or NBT disabled entirely confirms NetBIOS broadcast name resolution is suppressed. NodeType = 1 (B-node) or 8 (H-node) confirms broadcast-based name resolution remains active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "east_west_ids_ndr_deployed",
+    "option_description": "Controls whether network intrusion detection or network detection and response sensors are positioned at internal east-west choke points—such as inter-VLAN routing interfaces, aggregation switch SPAN ports, or micro-segmentation boundaries—within the workstation zone, rather than exclusively at the north-south perimeter.",
+    "security_impact": "The Rego policy fires the 'absence_of_east_west_monitoring_coverage' exposure unconditionally when this attribute is false, and also fires it when east-west sensors exist but lateral movement alerting is absent. Without east-west coverage, an attacker who breaches a single workstation can perform SMB scanning, pass-the-hash relay, and service sweeps across the entire intranet segment without generating any detection event. The policy also relies on this attribute in 'inter_vlan_routing_without_stateful_inspection' because unmonitored inter-VLAN paths compound the traversal risk.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security team and request the sensor deployment topology diagram. Confirm whether IDS/NDR taps, inline sensors, or SPAN/RSPAN sessions are explicitly documented on aggregation switches or inter-VLAN routing interfaces inside the workstation zone—not only on the perimeter firewall or internet edge.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A network diagram showing sensor placement at internal aggregation or distribution layer switch ports servicing workstation VLANs, or a written statement confirming absence of such sensors."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Cisco Catalyst or Nexus aggregation switch, enumerate all configured SPAN and RSPAN sessions to verify at least one destination monitors an inter-VLAN trunk or SVI interface within the workstation zone.",
+        "command": "show monitor session all",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output listing SPAN source interfaces corresponding to workstation VLAN trunks or routed SVIs, with a valid destination port feeding an IDS/NDR appliance or tap aggregator."
+      },
+      {
+        "type": "gui",
+        "instruction": "Log into the NDR platform console (e.g., Darktrace, ExtraHop, Vectra, Corelight) and navigate to the sensor inventory or deployment topology view. Verify that sensors are listed with source interfaces or network segments corresponding to internal workstation VLANs, not only DMZ or WAN-facing interfaces.",
+        "command": null,
+        "file_path": null,
+        "navigation": "NDR Platform Console → Administration → Sensors / Probe Deployment → Review source segment assignments",
+        "expected_output": "One or more sensors mapped to internal workstation VLAN segments or inter-VLAN routing interfaces, confirming east-west coverage."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM for internal east-west flow records or IDS alerts sourced from workstation subnet prefixes (e.g., 10.x.0.0/16 communicating laterally to 10.x.1.0/24). Absence of any such events despite known host activity indicates the sensor is not present or not forwarding internally sourced events.",
+        "command": "grep -E 'src_ip=10\\.' /var/log/siem/ids_alerts.log | grep -v 'dst_ip=0\\.0\\.0\\.0' | head -50",
+        "file_path": "/var/log/siem/ids_alerts.log",
+        "navigation": null,
+        "expected_output": "Alert records with both source and destination IPs within internal RFC-1918 workstation ranges, confirming east-west sensor visibility."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "internal_lateral_movement_alert_capability",
+    "option_description": "Controls whether the monitoring infrastructure—encompassing IDS/NDR rules, SIEM correlation logic, and EDR policies—is configured to generate actionable alerts specifically for lateral movement indicators originating within the workstation subnet, including SMB scanning, credential relay, NTLM pass-the-hash, port sweeps, and cross-zone authentication anomalies.",
+    "security_impact": "The Rego policy fires 'absence_of_east_west_monitoring_coverage' in a second condition when east-west sensors are deployed but this alerting capability is absent, recognizing that sensor presence without tuned lateral movement detection provides no operational value. It also contributes to the 'shared_credential_path_across_zone_boundary' exposure analysis, where undetected credential relay across zones allows an attacker to escalate from a workstation compromise to server-zone access silently.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the IDS/NDR ruleset for lateral movement-specific rule categories. On a Suricata-based sensor, inspect enabled rule files for SMB lateral movement, credential relay, and pass-the-hash signatures.",
+        "command": "grep -rE '(pass.the.hash|smb.*lateral|ntlm.*relay|port.sweep|credential.*relay)' /etc/suricata/rules/ --include='*.rules' -l",
+        "file_path": "/etc/suricata/rules/",
+        "navigation": null,
+        "expected_output": "One or more rule files returned containing lateral movement signatures, confirming the ruleset includes the required detection categories."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the SIEM platform (e.g., Splunk, Microsoft Sentinel, Elastic SIEM), navigate to detection rules and filter by 'lateral movement' or MITRE ATT&CK TA0008. Verify that rules reference log sources covering internal workstation subnets, not only perimeter or cloud sources.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM Console → Analytics / Detection Rules → Filter by MITRE Tactic: Lateral Movement → Review enabled rules and associated log sources",
+        "expected_output": "Enabled rules mapped to internal network traffic, Windows Event Log (4624/4648/4768), or EDR sources that specifically alert on SMB scanning, NTLM relay, or cross-zone authentication anomalies."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search the SIEM for lateral movement alert signatures triggered in the past 30 days from internal workstation source IPs. A complete absence of any such alerts in an environment with >50 workstations warrants investigation into whether the capability exists or alerting is suppressed.",
+        "command": "grep -iE '(lateral.movement|pass.the.hash|smb.scan|port.sweep|ntlm.relay)' /var/log/siem/alerts.log | awk '{print $1}' | sort | uniq -c | sort -rn | head -20",
+        "file_path": "/var/log/siem/alerts.log",
+        "navigation": null,
+        "expected_output": "Alert entries with internal source IPs for lateral movement categories, or a confirmed policy decision that no such alerts have ever fired (indicating misconfiguration or gap)."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request a tabletop demonstration from the SOC team: ask them to show a sample lateral movement alert triggered from a workstation IP, including the detection source (IDS, EDR, SIEM correlation). Confirm whether cross-zone authentication anomaly detection (e.g., workstation credentials authenticating to server-zone resources) is an active use case.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Live demonstration or documented playbook showing lateral movement alert workflow with internal source IPs, confirming operational capability."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "credential_scope_isolation_enforced",
+    "option_description": "Controls whether domain user credentials and service account tokens provisioned for the workstation zone are architecturally prevented from authenticating to resources in adjacent zones (server zone, DMZ, data zone) through mechanisms such as separate AD forests, per-zone service accounts, or PAM boundary enforcement.",
+    "security_impact": "The Rego policy fires 'shared_credential_path_across_zone_boundary' when this attribute is false AND shared accounts exist across zones. This reflects the attack chain where a workstation credential captured via NTLM relay or memory scraping can be immediately reused against server-zone resources without any additional barrier. Enforcing credential scope isolation breaks this pivot path by ensuring workstation-zone credentials are structurally invalid in adjacent zones.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In Active Directory, enumerate service accounts whose SPNs or group memberships span both workstation-zone resources and server-zone resources. Check for accounts with access to both zones.",
+        "command": "Get-ADServiceAccount -Filter * -Properties ServicePrincipalNames,MemberOf | Select-Object Name,ServicePrincipalNames,MemberOf | Export-Csv C:\\audit\\svc_accounts.csv -NoTypeInformation",
+        "file_path": "C:\\audit\\svc_accounts.csv",
+        "navigation": null,
+        "expected_output": "CSV output where each service account's SPNs and group memberships are confined to a single zone's resource scope. Cross-zone memberships indicate credential isolation is not enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for the existence of zone-specific Organizational Units and whether group policy restricts interactive logon rights per zone. Query the 'Deny log on locally' and 'Deny log on through Remote Desktop Services' GPO settings for workstation-zone accounts on server-zone systems.",
+        "command": "Get-GPOReport -All -ReportType XML | Select-String -Pattern 'DenyInteractiveLogon|DenyRemoteInteractiveLogon' -Context 2,2",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "GPO settings that explicitly deny workstation-zone user accounts or groups from logging on to server-zone systems, confirming zone-scoped logon restrictions."
+      },
+      {
+        "type": "gui",
+        "instruction": "In a PAM solution (e.g., CyberArk, BeyondTrust, HashiCorp Vault), navigate to the account onboarding and policy assignment view. Verify that each onboarded account is tagged with a zone scope and that cross-zone check-out policies are absent or explicitly restricted.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM Console → Accounts → Filter by Zone/Environment Tag → Review policy assignments for cross-zone access permissions",
+        "expected_output": "Accounts tagged exclusively to their originating zone with no cross-zone checkout policies enabled, confirming PAM-enforced credential scope isolation."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the AD forest and trust design documentation with the IAM team. Confirm whether separate AD forests or trust boundaries exist between workstation and server zones, or whether a single forest with delegation controls is relied upon. Request evidence of zone-specific service account provisioning standards.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture documentation showing either separate forests per zone, or documented and enforced per-zone service account naming and provisioning standards with access reviews."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "shared_accounts_across_zones",
+    "option_description": "Indicates whether domain user accounts, local administrator accounts (particularly where LAPS is absent resulting in shared local admin passwords), or service account tokens are known to provide valid authentication credentials in both the workstation zone and one or more adjacent zones simultaneously.",
+    "security_impact": "This is a primary condition in the Rego 'shared_credential_path_across_zone_boundary' rule, which fires when shared accounts exist AND either credential scope isolation is not enforced OR zone boundary authentication controls are weak (none or network_only). A value of true with weak boundary controls directly enables credential-reuse attacks, where a single compromised workstation credential provides access to server-zone resources without requiring additional exploitation steps.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Audit LAPS deployment status across all workstations in the zone to determine whether local Administrator accounts share a common password. Machines without LAPS have a uniform local admin password unless manually rotated.",
+        "command": "Get-ADComputer -Filter {OperatingSystem -like '*Windows*'} -SearchBase 'OU=Workstations,DC=corp,DC=local' -Properties ms-Mcs-AdmPwd | Select-Object Name, 'ms-Mcs-AdmPwd' | Where-Object {$_.'ms-Mcs-AdmPwd' -eq $null}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Workstations with null ms-Mcs-AdmPwd attribute have no LAPS-managed password, indicating potential shared local admin credentials. Empty result means LAPS is deployed for all workstations."
+      },
+      {
+        "type": "command",
+        "instruction": "Query AD group memberships for workstation-zone user groups against server-zone resource ACLs. Identify groups that have members from the workstation OU and are also assigned permissions on server-zone file shares, RDP gateway policies, or application servers.",
+        "command": "Get-ADGroup -Filter * -SearchBase 'OU=Groups,DC=corp,DC=local' -Properties Members,Description | Where-Object {$_.Members -like '*Workstation*'} | Select-Object Name,Members | Export-Csv C:\\audit\\cross_zone_groups.csv",
+        "file_path": "C:\\audit\\cross_zone_groups.csv",
+        "navigation": null,
+        "expected_output": "CSV listing groups with workstation-zone members. These groups should then be cross-referenced against server-zone ACLs. Any overlap confirms shared accounts exist across zones."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the LAPS deployment GPO configuration file or registry settings on a sample of workstations and servers to confirm whether LAPS is enabled and whether the same local admin account name exists on both workstation and server classes.",
+        "command": "reg query HKLM\\SOFTWARE\\Policies\\Microsoft Services\\AdmPwd /v AdmPwdEnabled",
+        "file_path": "HKLM:\\SOFTWARE\\Policies\\Microsoft Services\\AdmPwd",
+        "navigation": null,
+        "expected_output": "AdmPwdEnabled = 1 on workstations confirms LAPS is active. If this key is absent or set to 0, shared local admin passwords are likely in use."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IAM or systems administration team to determine whether a standardized built-in Administrator account password is deployed across workstations and servers via imaging or GPO, and whether any service accounts are shared between zones due to application integration requirements.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation from the team that either (a) a common admin password is used across device classes indicating shared accounts, or (b) LAPS and zone-specific service accounts are enforced, with documentation as evidence."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "zone_boundary_auth_controls",
+    "option_description": "Specifies the type of authentication boundary enforcement mechanism in place between the workstation zone and adjacent zones. Values range from no controls (none), network-layer-only restrictions (network_only), mandatory re-authentication via jump server (jump_server_reauth), a fully separate identity provider per zone (separate_identity_provider), or a PAM solution enforcing privileged access workflows at zone crossings (pam_enforced).",
+    "security_impact": "The Rego policy fires 'shared_credential_path_across_zone_boundary' when this attribute is 'none' or 'network_only' AND shared accounts exist across zones. Network-only controls (firewall ACLs) do not prevent credential reuse once a network path exists or is established via pivot. Only jump_server_reauth, separate_identity_provider, or pam_enforced create a true authentication discontinuity that prevents transparent cross-zone credential replay attacks.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview network and IAM architects to determine whether any authenticated re-entry point exists between the workstation and server zones. Request documentation of the access model for workstation users who need to reach server-zone resources (e.g., file servers, application servers, databases).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture documentation confirming one of: direct access with no re-auth (none), firewall rules only (network_only), mandatory jump host (jump_server_reauth), separate IdP (separate_identity_provider), or PAM checkout (pam_enforced)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the PAM solution (e.g., CyberArk Privileged Access Manager, BeyondTrust Password Safe), check whether all cross-zone access sessions require an active PAM checkout and session recording. Navigate to access policies and verify server-zone targets are only reachable via PAM-brokered sessions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PAM Console → Access Policies → Target Systems in Server Zone → Review Connector/Session Policy requiring checkout before connection",
+        "expected_output": "All server-zone targets configured under access policies that require active checkout, MFA, and session recording—confirming pam_enforced status."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether a jump server or bastion host is defined in firewall policy as the sole permitted source for RDP/SSH to server-zone targets. Query the firewall ruleset for rules permitting workstation-zone subnets direct SSH/RDP access to server-zone IP ranges.",
+        "command": "show access-list | grep -E '(10\\.10\\.|10\\.20\\.)' | grep -E '(3389|22)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If only the jump server IP is permitted as a source for RDP/SSH to server-zone ranges, jump_server_reauth is in effect. If workstation subnets appear directly as permitted sources, the control is network_only or none."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a direct RDP or SSH connection from a workstation-zone test host to a server-zone host IP using valid workstation-zone credentials. If the connection succeeds without any re-authentication prompt or PAM mediation, the control level is none or network_only.",
+        "command": "Test-NetConnection -ComputerName 10.20.1.50 -Port 3389",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TcpTestSucceeded: False confirms the network path is blocked (network_only or better). TcpTestSucceeded: True indicates direct access is possible, warranting further authentication testing to determine actual control level."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "network_only",
+      "jump_server_reauth",
+      "pam_enforced"
+    ]
+  },
+  {
+    "option_name": "recursive_query_to_external_resolvers_permitted",
+    "option_description": "Controls whether the DNS resolver(s) accessible to workstation-zone clients will forward or recurse queries to arbitrary external DNS servers on the internet, rather than enforcing resolution only through approved internal resolvers or a curated, restricted set of external forwarders.",
+    "security_impact": "The Rego policy fires 'permissive_dns_recursion_and_tunneling_path' when this is true AND either DNS payload inspection is absent or DNS rate limiting is disabled. Permitting arbitrary external recursion gives attackers a reliable covert channel: DNS tunneling tools (e.g., iodine, dnscat2) can exfiltrate data and receive C2 commands over DNS queries to attacker-controlled nameservers, bypassing HTTP/S egress controls entirely. The risk is compounded when no payload inspection or rate limiting exists to detect abnormal query patterns.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the primary DNS resolver configuration for forwarder and recursion directives. On a BIND resolver, check named.conf for the forwarders block and recursion setting. Unrestricted forwarder lists or recursion enabled without forwarder restrictions indicate external recursion is permitted.",
+        "command": "grep -E '(forwarders|recursion|allow-recursion|forward)' /etc/named.conf /etc/bind/named.conf.options 2>/dev/null",
+        "file_path": "/etc/named.conf",
+        "navigation": null,
+        "expected_output": "Output showing 'recursion yes' with no forwarders defined (open recursion) or a forwarders block containing public IPs like 8.8.8.8 or 1.1.1.1 confirms external recursion is permitted. Forwarders restricted to internal IPs only indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Windows DNS Server, query the forwarder configuration via PowerShell to determine whether external public resolvers are listed as forwarders.",
+        "command": "Get-DnsServerForwarder | Select-Object IPAddress,UseRootHint,Timeout",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IPAddress entries showing public IPs (e.g., 8.8.8.8, 208.67.222.222, 1.1.1.1) confirm external forwarders are configured. Internal-only IPs (10.x.x.x, 172.x.x.x) or an empty result with UseRootHint=False indicates restricted forwarding."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a workstation-zone host, send a DNS query directly specifying an external public resolver as the target server. If the query succeeds and returns a valid answer, the network path to external resolvers is open and recursion may be permitted.",
+        "command": "nslookup -type=A testdomain.example.com 8.8.8.8",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful resolution response from 8.8.8.8 confirms workstation-zone hosts can reach external resolvers directly, indicating true. A timeout or SERVFAIL suggests firewall egress controls restrict direct external DNS, warranting further resolver configuration review."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Windows DNS Manager or the DNS server web interface, navigate to the server's Forwarders tab and review the configured forwarder IP addresses. Also check the Advanced tab for 'Disable recursion' checkbox state.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DNS Manager → Right-click DNS Server → Properties → Forwarders tab (review IPs) → Advanced tab (check 'Disable recursion' state)",
+        "expected_output": "Forwarder IPs limited to internal resolver addresses only, with recursion disabled on the authoritative server, confirms external recursion is not permitted (false). Public IPs in forwarders confirms true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "dns_query_rate_limiting_enabled",
+    "option_description": "Controls whether the DNS resolver serving the workstation zone enforces per-client or aggregate query rate limits, restricting the volume of DNS queries a single workstation or the zone collectively can generate within a defined time window, thereby limiting the throughput available for DNS tunneling or bulk enumeration abuse.",
+    "security_impact": "The Rego policy fires 'permissive_dns_recursion_and_tunneling_path' when recursive external queries are permitted AND this attribute is false. DNS tunneling tools achieve data exfiltration by encoding payload data across high volumes of subdomain queries. Rate limiting directly constrains tunnel throughput, makes tunneling attempts detectable through rate-exceeded events, and degrades the reliability of DNS-based C2 channels. Without rate limiting, a single workstation can sustain high-bandwidth DNS tunnel sessions that evade egress controls.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the BIND DNS resolver configuration for a rate-limit block within named.conf. The absence of this block or a rate-limit value of 0 indicates rate limiting is disabled.",
+        "command": "grep -A 10 'rate-limit' /etc/named.conf /etc/bind/named.conf.options 2>/dev/null",
+        "file_path": "/etc/named.conf",
+        "navigation": null,
+        "expected_output": "A rate-limit block with 'responses-per-second', 'all-per-second', or 'errors-per-second' directives set to non-zero values confirms rate limiting is enabled. Absence of any rate-limit block confirms false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows Server DNS, check whether DNS Response Rate Limiting (RRL) is enabled via PowerShell. RRL was introduced in Windows Server 2016.",
+        "command": "Get-DnsServerResponseRateLimiting | Select-Object Mode,ResponsesPerSecond,ErrorsPerSecond,LeakRate,TruncateRate,WindowInSec",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Mode = Enabled with non-zero ResponsesPerSecond value confirms RRL is active. Mode = Disabled or LogOnly confirms rate limiting is not enforcing limits (false)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If an inline firewall or IPS enforces DNS rate limiting at the network level rather than the resolver, review the firewall policy for UDP/TCP port 53 rate-limiting or connection-rate rules applied to workstation-zone source addresses.",
+        "command": "grep -E '(rate.limit|rate-limit|pps|conn-rate)' /etc/firewall/rules.conf /opt/pf/pf.conf 2>/dev/null | grep -i '53'",
+        "file_path": "/etc/firewall/rules.conf",
+        "navigation": null,
+        "expected_output": "Firewall rules referencing port 53 with rate-limit or pps directives confirm network-level DNS rate limiting is in place. No matches indicate no network-enforced rate limiting exists."
+      },
+      {
+        "type": "gui",
+        "instruction": "In a DNS security appliance or NGFW DNS policy view (e.g., Infoblox, Cisco Umbrella on-prem, Palo Alto DNS Security), navigate to DNS rate limiting or DNS policy settings and verify per-client query thresholds are configured and enforced for workstation-zone source IPs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DNS Security Appliance / NGFW → DNS Policy → Rate Limiting Settings → Verify per-client thresholds are enabled and applied to workstation zone source subnets",
+        "expected_output": "Active per-client query rate limits (e.g., 100 queries/second per client) applied to workstation-zone subnets, confirming the attribute is true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "dns_payload_inspection_enabled",
+    "option_description": "Controls whether DNS traffic originating from workstation-zone clients is actively inspected by a security control—such as an NGFW DNS security profile, IDS/IPS DNS signatures, DNS firewall, or Response Policy Zone (RPZ) implementation—capable of detecting tunneling indicators including high-entropy subdomain labels, oversized query payloads, unusual query type distributions (TXT/NULL/CNAME heavy), or abnormal query frequency patterns.",
+    "security_impact": "The Rego policy fires 'permissive_dns_recursion_and_tunneling_path' in two separate conditions involving this attribute: once when external recursion is permitted and inspection is absent, and once when workstation-zone DNS egress is not restricted to internal resolvers and inspection is absent. DNS payload inspection is the primary compensating control that can detect tunneling even when recursive queries are permitted, by identifying the statistical and structural anomalies in tunnel-encoded subdomain queries that cannot be eliminated by the attacker.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In a Palo Alto Networks NGFW, navigate to the DNS Security profile assigned to workstation-zone security policies. Verify that DNS Security is enabled with anti-spyware profiles covering DNS tunneling detection categories.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama / NGFW → Objects → Security Profiles → Anti-Spyware → DNS Policies tab → Verify DNS Tunneling Detection action is set to sinkhole or block (not allow)",
+        "expected_output": "DNS Security profile with DNS Tunneling category set to 'sinkhole' or 'block' and applied to the security policy covering workstation-zone to internet or external-resolver traffic, confirming inspection is enabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check for a DNS Response Policy Zone (RPZ) configuration on the internal resolver that includes tunneling-indicator rules, or an RPZ feed from a threat intelligence provider (e.g., Infoblox Threat Intelligence, OISF). RPZ with tunneling policies provides content-based DNS filtering.",
+        "command": "grep -E '(response-policy|rpz|dns-firewall)' /etc/named.conf /etc/bind/named.conf.options 2>/dev/null",
+        "file_path": "/etc/named.conf",
+        "navigation": null,
+        "expected_output": "A response-policy block with zone references confirms RPZ is configured. The referenced zone file should then be checked for tunneling-related NXDOMAIN or CNAME override rules, confirming inspection capability."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Suricata or Snort IDS sensor monitoring workstation-zone DNS traffic, verify that DNS-specific tunneling detection rules are loaded and active.",
+        "command": "grep -rE '(dns.tunnel|dns.*entropy|dns.*base64|iodine|dnscat)' /etc/suricata/rules/ /etc/snort/rules/ 2>/dev/null --include='*.rules' -l",
+        "file_path": "/etc/suricata/rules/",
+        "navigation": null,
+        "expected_output": "One or more rule files matched containing DNS tunneling detection signatures, confirming IDS-based DNS payload inspection is enabled."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search SIEM or DNS security logs for any alerts or log entries referencing high-entropy subdomains, oversized DNS queries, or tunneling detection events originating from workstation-zone source IPs. The presence of such log categories confirms inspection is active and generating telemetry.",
+        "command": "grep -iE '(dns.tunnel|high.entropy|dns.exfil|large.dns.query)' /var/log/siem/dns_security.log | grep -E '10\\.[0-9]+\\.[0-9]+\\.[0-9]+' | tail -20",
+        "file_path": "/var/log/siem/dns_security.log",
+        "navigation": null,
+        "expected_output": "Log entries showing DNS tunneling detection events sourced from internal workstation-zone IPs confirm inspection is active. Complete absence of any DNS security event category in logs suggests inspection is not deployed."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "workstation_zone_egress_dns_restricted_to_internal_resolver",
+    "option_description": "Controls whether egress firewall rules block workstations from sending DNS queries (UDP/TCP port 53) directly to arbitrary external resolvers, forcing all DNS traffic through designated internal resolver IPs only.",
+    "security_impact": "The Rego policy fires the 'permissive_dns_recursion_and_tunneling_path' exposure when this attribute is false AND dns_payload_inspection_enabled is false. Without this restriction, attackers can bypass internal DNS controls entirely by querying external resolvers directly, and can use DNS tunneling (e.g., iodine, dnscat2) as a covert exfiltration channel that circumvents egress filtering on ports 80/443.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On the perimeter or internal firewall (Cisco ASA, Palo Alto, iptables), query the egress ACL or security policy for rules covering port 53 from the workstation subnet. Look for permit rules scoped to internal resolver IPs and explicit deny-all for port 53 to any other destination.",
+        "command": "show access-list | include 53",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACE entries showing 'permit udp <workstation-subnet> host <resolver-ip> eq 53' followed by 'deny udp <workstation-subnet> any eq 53'. If only a broad permit exists, the control is absent."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a workstation in the zone, attempt to send a DNS query directly to a public resolver such as 8.8.8.8 using dig or nslookup. If the query succeeds and returns a result, the egress restriction is not enforced.",
+        "command": "dig @8.8.8.8 example.com +time=3 +tries=1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A timed-out or connection-refused response confirms the restriction is in place. A valid DNS response indicates the firewall rule is missing or misapplied."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the firewall management console (e.g., Palo Alto Panorama, Fortinet FortiManager, or Cisco FMC), navigate to the outbound security policy for the workstation zone and filter rules by destination port 53. Verify that only the internal resolver IPs are permitted as DNS destinations.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto Panorama > Policies > Security > Filter by 'Application: dns' or 'Destination Port: 53' > Review destination zone/address for workstation-sourced rules",
+        "expected_output": "A dedicated DNS egress rule explicitly naming internal resolver objects as the destination, with a subsequent deny rule covering any remaining port-53 traffic."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux-based firewall or router appliances, inspect the iptables or nftables ruleset exported from the running configuration. Look for OUTPUT or FORWARD chain rules governing port 53 from workstation subnet CIDRs.",
+        "command": "iptables -L FORWARD -n -v | grep -E '(dpt:53|spt:53)'",
+        "file_path": "/etc/iptables/rules.v4",
+        "navigation": null,
+        "expected_output": "ACCEPT entries scoped to the internal resolver IP for dpt:53, followed by DROP or REJECT entries for all other dpt:53 traffic from workstation CIDRs."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "port_authentication_method",
+    "option_description": "Identifies the authentication mechanism enforced on network switch ports in office common areas and conference rooms, selecting among 802.1X (dot1x), MAC-based admission control (mac_based), both simultaneously, or no authentication (none).",
+    "security_impact": "The Rego policy fires the 'unmonitored_physical_network_access_points' exposure immediately when this value is 'none'. With no port authentication, any device physically plugged into a common-area jack joins the workstation zone without identity verification, enabling rogue device insertion, passive sniffing, and lateral movement from a position that inherits full intranet trust.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS switches, display the interface configuration for ports assigned to common-area or conference-room VLANs. Check for 'dot1x port-control' and 'mab' directives to determine which method, if any, is configured.",
+        "command": "show running-config interface GigabitEthernet0/1 | include dot1x|mab|port-control",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'dot1x port-control auto' indicates 802.1X; 'mab' indicates MAC-based; both lines together indicate 'both'; absence of either indicates 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Aruba or HP ProCurve switches, check the authenticator port-access configuration for common-area ports to identify the active authentication mode.",
+        "command": "show port-access authenticator <port-id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output includes 'Auth Mode' showing '802.1X', 'MAC-Auth', or 'Mixed' (both). No authenticator entry or 'Disabled' indicates 'none'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco ISE or Aruba ClearPass, navigate to the network device or switch port inventory and filter by location tag corresponding to conference rooms or common areas. Review the assigned authorization policy to confirm whether dot1x or MAB is actively enforced versus monitoring-only.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco ISE > Administration > Network Resources > Network Devices > Select switch > View assigned policy sets; or ClearPass > Configuration > Network > Devices > Select switch > Policy",
+        "expected_output": "Policy set showing dot1x or MAB enforcement rules in 'Enforce' mode, not 'Monitor' mode. Absence of a matching policy confirms 'none'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network engineering team or review the network access policy documentation to confirm the intended authentication method for common-area ports and whether any exceptions have been granted for conference room infrastructure (e.g., VoIP phones or AV systems using MAB).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented policy specifying the authentication method per port type/location. Undocumented exceptions or verbal confirmation of 'nothing configured' indicate 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "dot1x",
+      "mac_based",
+      "both"
+    ]
+  },
+  {
+    "option_name": "unauthenticated_ports_count",
+    "option_description": "Counts the number of currently active (enabled, link-up or administratively enabled) switch ports in common areas or conference rooms that have neither 802.1X nor MAC-based admission control configured, representing the total exposure surface for unauthorized physical network access.",
+    "security_impact": "The Rego policy fires 'unmonitored_physical_network_access_points' when this count is greater than zero AND nac_solution_deployed is false. Each unauthenticated port is an independent entry point into the workstation zone. Even a single uncontrolled port in a publicly accessible area such as a lobby or conference room is sufficient for an attacker to plug in a device, join the zone, and begin lateral movement without any authentication challenge.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS switches, enumerate all interfaces assigned to common-area VLANs that are administratively up and lack dot1x/mab configuration. Combine 'show interfaces status' output with 'show running-config' to cross-reference VLAN assignments against authentication settings.",
+        "command": "show interfaces status | include connected",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of active ports. Cross-reference each against 'show run int <id> | include dot1x|mab'. Ports with no matching authentication directive are unauthenticated. Count those assigned to common-area VLANs."
+      },
+      {
+        "type": "command",
+        "instruction": "Use a Python script with Netmiko or NAPALM to iterate over all switches and collect port authentication state, then filter for common-area VLAN IDs and active ports lacking authentication configuration.",
+        "command": "python3 -c \"from netmiko import ConnectHandler; net_connect = ConnectHandler(device_type='cisco_ios', host='<switch-ip>', username='<user>', password='<pass>'); print(net_connect.send_command('show dot1x all summary'))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table of ports with dot1x status. Entries marked 'No' or absent from the table that are in common-area VLANs and currently connected are unauthenticated candidates."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the NAC platform API (e.g., Cisco ISE ERS API) to retrieve the list of switch ports and their authentication posture. Filter results for common-area location tags and count those with no enforced policy.",
+        "command": "curl -k -u 'admin:password' -H 'Accept: application/json' 'https://<ise-pan>/ers/config/networkdevice' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response listing network devices and associated port policies. Ports without an assigned authentication policy set are unauthenticated. Count those matching common-area location metadata."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the switch management platform (e.g., Cisco DNA Center, SolarWinds NTA, or Aruba AirWave), navigate to the port inventory view, filter by VLAN IDs corresponding to common areas and conference rooms, filter by status 'Connected' or 'Active', and count entries where the security column shows no authentication method.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco DNA Center > Provision > Inventory > Network Devices > Select Switch > View Device Details > Interfaces tab > Filter VLAN = <common-area-vlan-id>, Status = Connected",
+        "expected_output": "A filtered list of connected ports in common-area VLANs. Each entry lacking a dot1x or MAB indicator in the security column increments the unauthenticated count."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "1",
+      "4",
+      "12",
+      "24"
+    ]
+  },
+  {
+    "option_name": "nac_solution_deployed",
+    "option_description": "Indicates whether a Network Access Control platform (such as Cisco ISE, Aruba ClearPass, or PacketFence) is integrated with workstation zone switches covering common areas and is actively enforcing admission policies in enforcement mode, not merely monitoring.",
+    "security_impact": "The Rego policy fires 'unmonitored_physical_network_access_points' when nac_solution_deployed is false AND unauthenticated_ports_count is greater than zero. Without an enforcing NAC solution, there is no central mechanism to challenge, quarantine, or block unauthorized devices that connect to zone ports, making all physical access points viable entry vectors regardless of switch-level configuration intent.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the candidate NAC platform administrative console (Cisco ISE, Aruba ClearPass, PacketFence) and verify that the policy enforcement mode for the relevant switch group is set to 'Enforce' rather than 'Monitor' or 'Audit'. Check that the switches covering common-area ports are listed as managed network devices.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco ISE > Policy > Policy Sets > Review active policy sets; Policy > Policy Elements > Results > Authorization > Confirm 'Active' enforcement status. Also: Administration > Network Resources > Network Devices > Verify switches are registered.",
+        "expected_output": "Policy sets active in enforcement mode with associated network devices listing all switches in the common-area scope. 'Monitor Mode' or empty device list indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Cisco IOS switch, verify that the RADIUS server group referencing the NAC platform is configured and that dot1x system-auth-control is globally enabled, confirming the switch is actively communicating with the NAC solution for enforcement.",
+        "command": "show aaa servers | include RADIUS; show dot1x system-auth-control",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'RADIUS server <NAC-IP> ... Requests: <non-zero>' confirms active communication. 'dot1x system-auth-control' showing 'Enabled' confirms enforcement is globally active."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Cisco ISE ERS API or ClearPass REST API to confirm the platform is reachable and returning active session data for workstation zone switches, validating that enforcement is operational rather than configured but non-functional.",
+        "command": "curl -k -u 'admin:password' -H 'Accept: application/json' 'https://<ise-pan>/ers/config/activesession' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response with active session entries for endpoints authenticated through switches in the common-area scope. An empty session list despite connected ports indicates NAC is not enforcing."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request from the network operations team the current NAC deployment scope documentation and confirm whether common-area and conference-room switch ports are explicitly included in the enforcement scope, as NAC deployments are frequently phased and common areas may be excluded.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented scope listing specific switch hostnames or port ranges included in NAC enforcement. Exclusion of common-area VLANs or a 'monitor-only' note for those segments indicates false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "oob_management_vlan_isolated",
+    "option_description": "Indicates whether network device management interfaces (switch SSH/SNMP/web management, router management ports, firewall management interfaces) are assigned to a dedicated management VLAN with an ID that does not overlap with any workstation or user VLAN, ensuring physical and logical separation of the management plane.",
+    "security_impact": "The Rego policy fires 'management_plane_cohabitation' directly when this attribute is false, and also in combination when management_acl_restricts_workstation_subnets is also false. If management interfaces share a workstation VLAN, any compromised workstation can directly attempt authentication against switch SSH, SNMP, or web management interfaces without traversing any additional boundary, enabling network device takeover from a single endpoint compromise.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS switches, display the VLAN database and compare the management interface VLAN assignment against the VLANs used for workstation subnets. The management VLAN ID must not appear in any workstation subnet VLAN list.",
+        "command": "show vlan brief; show interfaces vlan <mgmt-vlan-id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'VLAN <mgmt-id> Management' shown in the VLAN table with an IP address in a dedicated management subnet. If the same VLAN ID appears in workstation DHCP scope documentation, isolation is absent."
+      },
+      {
+        "type": "command",
+        "instruction": "On each managed switch, display the running configuration for the management interface and confirm the VLAN assignment, then compare against the list of workstation VLAN IDs obtained from the VLAN database.",
+        "command": "show running-config | include interface Vlan|ip address",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Separate 'interface Vlan<mgmt-id>' with a management-range IP address, distinct from any 'interface Vlan<workstation-id>' entries. Shared VLAN ID or IP address overlap indicates false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the network device baseline configuration files stored in the configuration management repository (e.g., Rancid, Oxidized, or vendor NCM). Search for management interface VLAN assignments and cross-reference against the IPAM or DHCP records for workstation VLANs.",
+        "command": "grep -E '(interface Vlan|ip address|management-vlan)' /var/lib/oxidized/configs/<switch-hostname>",
+        "file_path": "/var/lib/oxidized/configs/",
+        "navigation": null,
+        "expected_output": "Management interface assigned to a VLAN with a non-overlapping subnet prefix compared to all workstation VLAN entries. Matching VLAN ID or subnet indicates false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco DNA Center or SolarWinds NCM, navigate to the device configuration view for each switch and examine the VLAN-to-interface mapping. Confirm the management VLAN is tagged as isolated and does not appear in the workstation VLAN set.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco DNA Center > Provision > Inventory > Select Device > Configuration tab > Search 'interface Vlan' entries > Compare VLAN IDs against IPAM workstation VLAN list",
+        "expected_output": "A management VLAN entry with a dedicated IP range not present in workstation VLAN assignments. Presence of the management VLAN ID in workstation subnet records indicates false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "management_acl_restricts_workstation_subnets",
+    "option_description": "Controls whether ACLs or firewall rules on network device management interfaces explicitly deny traffic sourced from workstation subnet CIDR ranges to management ports such as SSH (22), SNMP (161), HTTPS management (443, 8080, 8443), ensuring workstations cannot directly reach the management plane even if VLAN isolation is incomplete.",
+    "security_impact": "The Rego policy fires 'management_plane_cohabitation' when both oob_management_vlan_isolated is false AND this attribute is false, creating a compounding exposure. ACL-based restrictions serve as a defense-in-depth control when VLAN isolation cannot be achieved or has gaps. Without these ACLs, a workstation that can route to the management VLAN (e.g., via flat routing) can directly authenticate to switch management interfaces and reconfigure network infrastructure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS devices, display the access list applied to the VTY lines and management interface. Confirm that it contains explicit deny entries for workstation subnet CIDR ranges before any permit statement for management-authorized hosts.",
+        "command": "show ip access-lists | include workstation-subnet-range; show line vty 0 4 | include access-class",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'deny tcp <workstation-cidr> any eq 22' or similar entries preceding permit entries for authorized management hosts. Absence of deny entries for workstation CIDRs indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "Review the management interface ACL on the switch or boundary device for all management-plane ports. Test reachability from a workstation IP to the management interface on port 22 using a network sweep tool to validate enforcement.",
+        "command": "nmap -p 22,161,443,8080 <mgmt-interface-ip> --source-ip <workstation-test-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All ports shown as 'filtered' or 'closed' when sourced from a workstation IP. Any port showing 'open' confirms the ACL is absent or misapplied."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect ACL definitions in archived switch configuration files for entries explicitly referencing workstation subnet prefixes as denied sources targeting management ports. Pay attention to ACL ordering, as a broad permit before the deny renders the deny ineffective.",
+        "command": "grep -A 20 'ip access-list extended MGMT-ACCESS' /var/lib/oxidized/configs/<switch-hostname>",
+        "file_path": "/var/lib/oxidized/configs/",
+        "navigation": null,
+        "expected_output": "ACL entries in order: 'deny tcp <workstation-cidr> any eq 22', 'deny udp <workstation-cidr> any eq 161', followed by 'permit tcp <mgmt-host-cidr> any'. Absence of workstation-deny lines or a broad permit preceding them indicates false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the firewall management console (Palo Alto Panorama, Cisco FMC, Fortinet FortiManager), filter security policies by destination matching the management interface IPs or management VLAN subnet and source matching workstation VLAN CIDRs. Verify that deny rules exist before any permit rules for management-port traffic.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto Panorama > Policies > Security > Filter Source Zone = workstation-zone, Destination Address = mgmt-subnet, Application = ssh/snmp/https > Verify Action = Deny appears before any Allow",
+        "expected_output": "A deny policy entry for workstation-sourced traffic to management destinations on relevant ports. If no deny rule exists or the first matching rule is 'Allow', the ACL does not restrict workstation subnets."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "management_traffic_path",
+    "option_description": "Describes the actual network path over which out-of-band management traffic for switches and boundary devices travels, categorized as a fully dedicated isolated OOB plane, the same VLAN as workstations (shared), a partially separated arrangement where some devices use dedicated paths and others do not, or unknown when the path cannot be determined.",
+    "security_impact": "The Rego policy fires 'management_plane_cohabitation' directly when this value is 'shared_workstation_vlan', representing the worst-case condition. Even 'partially_separated' may trigger the exposure if combined with false on oob_management_vlan_isolated. A shared management path means that east-west traffic from any compromised workstation can reach switch management interfaces at Layer 2 or Layer 3, enabling infrastructure-level compromise without traversing any enforced zone boundary.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Perform a traceroute from a test workstation to the management IP of a core switch. If the path resolves without leaving the workstation VLAN (same L2 domain or single L3 hop through the default gateway with no firewall traversal), the path is shared. If the trace hits a dedicated management router or firewall before reaching the device, the path is at minimum partially separated.",
+        "command": "traceroute -n <mgmt-switch-ip> -m 5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A single hop (default gateway) resolving directly to the management interface indicates 'shared_workstation_vlan'. Multiple hops traversing a dedicated management network device indicates 'dedicated_oob_plane' or 'partially_separated'."
+      },
+      {
+        "type": "command",
+        "instruction": "On core switches, inspect the routing table and VLAN interface assignments to determine how management traffic flows. Identify whether the management interface IP is reachable through the workstation default gateway or through a separate routing domain.",
+        "command": "show ip route <mgmt-subnet-cidr>; show interfaces vlan <mgmt-vlan-id> | include Internet address",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the route to the management subnet is via the same next-hop as workstation default routing, the path is 'shared_workstation_vlan'. A distinct next-hop or VRF route indicates separation. Mixed results across devices indicate 'partially_separated'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network architecture team and request the network diagram showing the out-of-band management plane topology. Confirm whether a dedicated management network (physical or VRF-separated) exists, which devices are connected to it, and whether common-area switches are included or excluded from the OOB plane scope.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A network diagram explicitly showing a dedicated management VLAN or physical OOB network with all switches connected indicates 'dedicated_oob_plane'. A diagram showing management traffic sharing workstation VLANs indicates 'shared_workstation_vlan'. Partial coverage indicates 'partially_separated'. No diagram or inability to confirm indicates 'unknown'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review VRF configurations or management network topology files in the network configuration repository. Look for VRF definitions dedicated to management (e.g., 'vrf management' or 'vrf Mgmt-vrf') and verify that all switch management interfaces are bound to the dedicated VRF rather than the global routing table shared with workstation VLANs.",
+        "command": "grep -E '(vrf|management)' /var/lib/oxidized/configs/<switch-hostname> | head -40",
+        "file_path": "/var/lib/oxidized/configs/",
+        "navigation": null,
+        "expected_output": "Presence of 'ip vrf management' with management interfaces bound to that VRF, and workstation SVIs in the global table indicates 'dedicated_oob_plane'. Absence of VRF separation with management interfaces in the global routing table indicates 'shared_workstation_vlan' or 'partially_separated'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "shared_workstation_vlan",
+      "partially_separated",
+      "dedicated_oob_plane",
+      "unknown"
+    ]
+  }
+]

@@ -1,0 +1,152 @@
+{
+  "exploitedBy": [],
+  "respondsWith": [
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-APA",
+      "name": "Access Policy Administration",
+      "relevance": "Directly addresses centralized enforcement of access policies across an organization."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-AMED",
+      "name": "Access Mediation",
+      "relevance": "Ensures all access requests are mediated through a central policy enforcement point."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "M1030",
+      "name": "Network Segmentation",
+      "relevance": "Supports centralized policy enforcement by segmenting network zones under unified control."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-MFA",
+      "name": "Multi-factor Authentication",
+      "relevance": "Directly maps to the integration of MFA as an authentication security control."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "M1032",
+      "name": "Multi-factor Authentication",
+      "relevance": "The primary ATT&CK mitigation for requiring MFA across authentication events."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-ANET",
+      "name": "Authentication Event Thresholding",
+      "relevance": "Complements MFA integration by monitoring and thresholding authentication attempts."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3F-UGPH",
+      "name": "User Group Permissions",
+      "relevance": "Directly relates to defining granular role-based permissions for user groups."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-AM",
+      "name": "Access Modeling",
+      "relevance": "Supports designing and validating granular RBAC models."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "M1018",
+      "name": "User Account Management",
+      "relevance": "Covers managing user accounts with appropriate role-based access restrictions."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-CRO",
+      "name": "Credential Rotation",
+      "relevance": "Directly addresses rotating credentials for service accounts throughout their lifecycle."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-CE",
+      "name": "Credential Eviction",
+      "relevance": "Supports removing or revoking service account credentials when accounts are decommissioned."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "M1026",
+      "name": "Privileged Account Management",
+      "relevance": "Service accounts often hold privileged access and require lifecycle governance to reduce risk."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "M1047",
+      "name": "Audit",
+      "relevance": "Directly addresses ensuring completeness of audit and logging for authentication events."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-AZET",
+      "name": "Authorization Event Thresholding",
+      "relevance": "Complements authentication logging by capturing and analyzing authorization events."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-UBA",
+      "name": "User Behavior Analysis",
+      "relevance": "Directly identifies anomalous access patterns through behavioral analytics."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-RAPA",
+      "name": "Resource Access Pattern Analysis",
+      "relevance": "Analyzes resource access patterns to detect deviations indicative of anomalous activity."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-JFAPA",
+      "name": "Job Function Access Pattern Analysis",
+      "relevance": "Detects when access patterns deviate from expected job function baselines."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-TBA",
+      "name": "Token-based Authentication",
+      "relevance": "Token-based authentication is fundamental to federated identity across security zones."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-CTS",
+      "name": "Credential Transmission Scoping",
+      "relevance": "Scopes credential transmission to prevent credential leakage across federated zones."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-CS",
+      "name": "Credential Scrubbing",
+      "relevance": "Automated scrubbing of stale or unauthorized credentials aligns with access recertification workflows."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-CR",
+      "name": "Credential Revocation",
+      "relevance": "Automated revocation of credentials is a core outcome of access review and recertification processes."
+    }
+  ]
+}

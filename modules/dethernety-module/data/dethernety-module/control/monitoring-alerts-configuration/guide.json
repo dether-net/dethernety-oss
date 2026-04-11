@@ -1,0 +1,1342 @@
+[
+  {
+    "option_name": "threshold_configuration_status",
+    "option_description": "Represents the operational state of alert threshold configuration and tuning: whether thresholds have been explicitly set, reviewed against baselines, and adjusted from defaults. Controls whether the alerting system operates on out-of-the-box defaults, custom-but-unreviewed values, or actively tuned thresholds validated against environmental baselines.",
+    "security_impact": "This attribute is the primary gate for both the detection_sensitivity_tuning and alert_fatigue_reduction Rego rules. A value of 'tuned' is required for detection_sensitivity_tuning to activate (combined with false_positive_rate_reviewed=true or a valid baseline_deviation_percentage). Systems left at 'not_configured' or 'configured_untuned' produce either excessive noise or critical blind spots, directly degrading MTTD and analyst effectiveness.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Splunk SIEM, navigate to Settings > Searches, Reports, and Alerts, then filter the alert list and inspect each rule's threshold fields to determine if values differ from Splunk defaults and whether a tuning annotation or description is present.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk Web > Settings > Searches, Reports, and Alerts > [Select Alert] > Edit > Alert Conditions",
+        "expected_output": "Alert conditions show non-default numeric thresholds with descriptive comments or linked runbook references indicating tuning history."
+      },
+      {
+        "type": "command",
+        "instruction": "For Elastic/Kibana-based SIEM, query the .kibana index to list all alert rules and their threshold values, then compare against known Elastic defaults to identify untuned rules.",
+        "command": "curl -s -u elastic:$ELASTIC_PASS 'https://<kibana-host>:5601/api/alerting/rules/_find?per_page=100' | jq '[.data[] | {name: .name, threshold: .params.threshold, updated_at: .updated_at}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON list of rules with non-null, non-default threshold values and recent updated_at timestamps indicating active tuning."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the alerting platform's audit or change log to find threshold modification events. In Splunk, search the _audit index; in Datadog, check the Audit Trail. The presence of tuning events with user attribution indicates 'tuned' status.",
+        "command": "index=_audit action=edit sourcetype=splunk_audit_logs | search object_category=savedsearch | table _time, user, object, action | sort -_time",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit entries showing named users modifying alert thresholds within the current review cycle."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the SOC lead or detection engineer to confirm whether threshold values have been formally reviewed against a documented baseline. Request evidence such as a tuning runbook, suppression list changelog, or documented review meeting minutes.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Runbook or change ticket demonstrating an explicit threshold tuning decision with rationale, baseline comparison, and sign-off."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "not_configured (common in newly deployed SIEM instances using vendor defaults)",
+      "configured_untuned (common after initial deployment where thresholds were set but never validated against real traffic)",
+      "tuned (mature SOC environments with documented tuning cycles, typically quarterly)"
+    ]
+  },
+  {
+    "option_name": "baseline_deviation_percentage",
+    "option_description": "The percentage deviation from an established operational baseline that must be exceeded before an alert is triggered. This value defines the sensitivity boundary of anomaly-based alerting rules — too low generates noise from normal variance; too high creates blind spots for genuine attacks.",
+    "security_impact": "Directly referenced in the detection_sensitivity_tuning Rego rule, which activates only when this value falls between 5 and 50 (inclusive), paired with threshold_configuration_status='tuned'. Values outside this range — particularly above 50% — indicate thresholds so permissive they would miss moderate anomalies. Values below 5% typically cause alert fatigue by triggering on routine fluctuations, undermining analyst trust in the alerting system.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In Prometheus/Alertmanager, inspect alert rules to extract the threshold expression and calculate the deviation percentage relative to the recorded baseline value using PromQL.",
+        "command": "curl -s http://<prometheus-host>:9090/api/v1/rules | jq '[.data.groups[].rules[] | select(.type==\"alerting\") | {name: .name, query: .query, labels: .labels}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Alert rule expressions showing percentage-based or ratio thresholds (e.g., 'rate(http_errors[5m]) > baseline * 1.20' indicates a 20% deviation trigger)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Prometheus-based stacks, inspect the alert rules YAML files to read the threshold expressions and derive the configured deviation percentage.",
+        "command": "grep -E '(threshold|deviation|baseline|percent)' /etc/prometheus/rules/*.yml /etc/prometheus/rules/*.yaml 2>/dev/null",
+        "file_path": "/etc/prometheus/rules/",
+        "navigation": null,
+        "expected_output": "Rule expressions containing numeric multipliers or percentage offsets relative to baseline queries (e.g., '> avg_over_time(...)[1h] * 1.25' = 25% deviation)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Datadog, navigate to Monitors > Manage Monitors, select a monitor, and view the threshold configuration panel. The 'Alert threshold' and 'Warning threshold' values expressed as percentages of baseline or change thresholds directly represent the deviation percentage.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Datadog > Monitors > Manage Monitors > [Monitor Name] > Edit > Set alert conditions > Threshold",
+        "expected_output": "Numeric percentage fields populated with environment-specific values (e.g., 15%, 25%) rather than Datadog default values."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Datadog Monitors API to retrieve all monitor configurations and extract deviation threshold values programmatically for bulk review.",
+        "command": "curl -s -X GET 'https://api.datadoghq.com/api/v1/monitor' -H 'DD-API-KEY: $DD_API_KEY' -H 'DD-APPLICATION-KEY: $DD_APP_KEY' | jq '[.[] | {name: .name, type: .type, threshold: .options.thresholds}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array with monitor names and threshold objects showing critical/warning percentage values for each configured monitor."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "10-15% (common for high-sensitivity production environments monitoring latency or error rates)",
+      "20-25% (typical balanced configuration for CPU, memory, or request rate monitors)",
+      "30-50% (common for coarse-grained infrastructure metrics with high natural variance)",
+      "null/0 (indicates static fixed thresholds with no baseline-relative deviation logic)"
+    ]
+  },
+  {
+    "option_name": "false_positive_rate_reviewed",
+    "option_description": "A boolean indicating whether the operations or security team has formally reviewed and documented the false positive rate of active alert thresholds within the last defined review cycle. This reflects whether tuning decisions are evidence-based rather than assumed.",
+    "security_impact": "This attribute is a required condition in the detection_sensitivity_tuning Rego rule: when combined with threshold_configuration_status='tuned', a true value activates the countermeasure. An unreviewed false positive rate (false) means thresholds may be generating excessive noise that causes analysts to ignore or suppress alerts indiscriminately, which directly increases MTTD and can mask genuine intrusion indicators. Evidence-based FP review is the operational proof that tuning is active rather than nominal.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Search the SIEM or ticketing system for alert triage records that document false positive dispositions. High volumes of 'closed - not an issue' or 'suppressed' dispositions within a review period indicate an unreviewed FP rate.",
+        "command": "# For Splunk: search closed alert incidents dispositioned as false positive\nindex=itsi_notable_events status=closed resolution=false_positive | stats count by alert_name | sort -count",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A table of alerts with false positive counts per rule, which can be compared against documented FP rate thresholds from the last review cycle."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the most recent alert tuning review document, suppression list changelog, or meeting minutes that explicitly states the reviewed false positive rate per alert rule and the actions taken.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dated document listing FP percentages per rule with engineer sign-off and any resulting threshold adjustments or suppression additions."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the runbook or alert policy repository for a false positive rate tracking file. Teams using GitOps-managed detection-as-code may maintain an FP tracking YAML alongside rule definitions.",
+        "command": "find /opt/detection-rules /etc/siem-rules -name 'fp_review*' -o -name '*false_positive*' -o -name '*tuning_log*' 2>/dev/null | xargs ls -lt 2>/dev/null | head -20",
+        "file_path": "/opt/detection-rules/",
+        "navigation": null,
+        "expected_output": "A recently modified file (within the review cycle) documenting FP rates and tuning decisions per alert rule."
+      },
+      {
+        "type": "gui",
+        "instruction": "In PagerDuty or Opsgenie, navigate to the Analytics or Postmortems section and review alert noise reports. Confirm whether a formal noise/FP review session has been logged as a scheduled event or postmortem within the review period.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PagerDuty > Analytics > Alert Noise > [Review date range matching last cycle]",
+        "expected_output": "An analytics report showing FP-classified alert volumes with a documented review session timestamp confirming the review occurred."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default; common in organizations without a formal detection engineering review cycle)",
+      "true (organizations with quarterly or monthly alert tuning reviews documented in runbooks or ticketing systems)"
+    ]
+  },
+  {
+    "option_name": "suppression_rules_count",
+    "option_description": "The count of active suppression, muting, deduplication, or exclusion rules configured within the alerting platform to reduce redundant, low-signal, or known-benign alert noise. This metric reflects the organization's investment in alert hygiene and noise reduction.",
+    "security_impact": "Referenced in the alert_fatigue_reduction Rego rule, this attribute captures whether noise suppression is actively managed. A count of 0 indicates no suppression is configured, meaning every threshold breach — including known-benign events like scheduled maintenance jobs or approved vulnerability scans — generates analyst-visible alerts. Conversely, very high counts (e.g., >50 without documentation) risk over-suppression that masks genuine threats, which is why assessment guidance flags high values for manual review. The Rego policy activates alert_fatigue_reduction for both zero and non-zero counts when threshold_configuration_status is tuned, acknowledging both are valid operational states.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In Splunk, query the saved searches index to count all alert suppression or throttle configurations currently active in the environment.",
+        "command": "curl -s -u admin:$SPLUNK_PASS 'https://<splunk-host>:8089/servicesNS/-/-/saved/searches?search=alert.suppress%3D1&output_mode=json&count=0' | jq '.entry | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer count of saved searches with suppression enabled (alert.suppress=1). Cross-reference with total alert count to gauge suppression ratio."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Datadog Monitors API to count monitors in a muted state or with downtime schedules, which represent active suppression configurations.",
+        "command": "curl -s 'https://api.datadoghq.com/api/v1/monitor?monitor_tags=*' -H 'DD-API-KEY: $DD_API_KEY' -H 'DD-APPLICATION-KEY: $DD_APP_KEY' | jq '[.[] | select(.options.silenced != null or .options.silenced_timeout_ts != null)] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer count of monitors with active silencing or muting configurations applied."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Elastic SIEM (Security), navigate to Rules > Exception Lists and count the total number of active exception entries across all detection rules. Each entry represents a suppression configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kibana > Security > Rules > Exception Lists > [Review all lists and count active entries]",
+        "expected_output": "A paginated list of exception entries; total count visible in the list header (e.g., '47 exceptions'). Flag if count exceeds 50 for manual review."
+      },
+      {
+        "type": "command",
+        "instruction": "For Alertmanager (Prometheus ecosystem), query the silences API to retrieve all currently active silence configurations representing suppression rules.",
+        "command": "curl -s http://<alertmanager-host>:9093/api/v2/silences | jq '[.[] | select(.status.state==\"active\")] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer count of active silences. A value of 0 means no suppression; values between 1-30 are typical for managed environments; >50 warrants documentation review."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (newly deployed or unmanaged alerting systems with no noise reduction configured)",
+      "5-20 (typical mature environment suppressing known-benign jobs, maintenance windows, and approved scanners)",
+      "20-50 (large environments with many service teams contributing suppression rules)",
+      ">50 (warrants review for over-suppression; common in environments that suppress rather than fix noisy rules)"
+    ]
+  },
+  {
+    "option_name": "baseline_calculation_method",
+    "option_description": "The statistical or algorithmic method used to derive alert thresholds from historical operational data. Determines how the system mathematically models 'normal' behavior and what constitutes a meaningful deviation worthy of an alert.",
+    "security_impact": "This attribute is the primary discriminator in the baseline_deviation_coverage Rego rule. Methods of 'standard_deviation', 'percentile_based', or 'machine_learning' qualify for the stricter rule (14-day lookback minimum), while 'rolling_average' requires a longer 30-day lookback. A value of 'static_fixed' or 'none' means no statistical baseline is used, preventing baseline_deviation_coverage from activating entirely. More sophisticated methods (ML, percentile) adapt to seasonal and trend-based patterns that fixed or rolling-average methods miss, making them significantly more resilient against slow-and-low attacks that stay under fixed thresholds.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Datadog, open a monitor in edit mode and inspect the 'Detection method' field. Options such as 'Threshold', 'Change', 'Anomaly', 'Outlier', or 'Forecast' map respectively to static_fixed, rolling_average/standard_deviation, machine_learning, and percentile_based methods.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Datadog > Monitors > Manage Monitors > [Monitor] > Edit > Detection Method dropdown",
+        "expected_output": "Detection method is set to 'Anomaly' (maps to machine_learning/standard_deviation) or 'Threshold' (maps to static_fixed). Record the selected method."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Datadog or Grafana APIs to retrieve the type field of all monitors/alert rules and map the type to the corresponding baseline calculation method.",
+        "command": "curl -s 'https://api.datadoghq.com/api/v1/monitor' -H 'DD-API-KEY: $DD_API_KEY' -H 'DD-APPLICATION-KEY: $DD_APP_KEY' | jq '[.[] | {name: .name, type: .type, query: .query}] | group_by(.type)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Grouped list of monitors by type (metric alert = static_fixed, query alert with anomaly() = machine_learning, etc.)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Prometheus-based alerting, inspect PromQL expressions in rule files for the presence of statistical functions that indicate baseline method: predict_linear (rolling_average), stddev_over_time (standard_deviation), quantile_over_time (percentile_based), or static numeric thresholds (static_fixed).",
+        "command": "grep -E '(predict_linear|stddev_over_time|quantile_over_time|avg_over_time|histogram_quantile)' /etc/prometheus/rules/*.yml 2>/dev/null | head -30",
+        "file_path": "/etc/prometheus/rules/",
+        "navigation": null,
+        "expected_output": "Rule expressions containing statistical PromQL functions indicate the baseline method in use. Absence of these functions with only numeric comparisons confirms static_fixed."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the detection engineering or monitoring team lead to confirm the baseline methodology selection decision, including whether ML-based anomaly detection (e.g., Elastic ML jobs, Datadog Watchdog, AWS DevOps Guru) has been licensed and deployed.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verbal or documented confirmation of the chosen method with rationale, and evidence of the feature being enabled (e.g., Elastic ML license check, active ML jobs)."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "static_fixed (most common default; simple but blind to behavioral change over time)",
+      "rolling_average (common in APM tools like New Relic and Datadog basic monitors)",
+      "standard_deviation (common in mature SIEM deployments using statistical alerting)",
+      "percentile_based (common in SLO/SLA-driven monitoring using P95/P99 thresholds)",
+      "machine_learning (found in premium-tier monitoring platforms; less common due to licensing cost)",
+      "none (found in legacy or unconfigured monitoring systems with no threshold logic)"
+    ]
+  },
+  {
+    "option_name": "baseline_lookback_days",
+    "option_description": "The number of historical calendar days used to compute the statistical baseline from which alert thresholds are derived. A longer lookback period captures more behavioral variation (including weekly cycles and seasonal patterns) but may incorporate outdated data if the environment has changed significantly.",
+    "security_impact": "Directly gated in the baseline_deviation_coverage Rego rule: standard_deviation, percentile_based, and machine_learning methods require a minimum of 14 days lookback; rolling_average requires 30 days. Lookback periods shorter than these minimums produce baselines that are statistically unstable and easily skewed by transient events, causing threshold drift. A 14-day minimum ensures the baseline captures at least two full weekly business cycles. A 30-day requirement for rolling_average accounts for the method's slower convergence. Periods exceeding 365 days risk incorporating pre-incident 'poisoned' baseline data if a long-running compromise went undetected.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Elasticsearch ML jobs (Elastic Stack anomaly detection), query the ML job configuration to retrieve the datafeed query delay and bucket span, which together define the effective lookback period.",
+        "command": "curl -s -u elastic:$ELASTIC_PASS 'https://<es-host>:9200/_ml/anomaly_detectors?pretty' | jq '[.jobs[] | {job_id: .job_id, bucket_span: .analysis_config.bucket_span, model_snapshot_retention_days: .model_snapshot_retention_days}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ML job configurations showing bucket_span (e.g., '15m') and snapshot retention days. The product of training data ingestion period determines effective lookback in days."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Datadog anomaly monitors, view the monitor's advanced settings to find the 'Training window' or 'Seasonality' configuration, which defines the effective baseline lookback period in hours or days.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Datadog > Monitors > [Anomaly Monitor] > Edit > Advanced > Training window",
+        "expected_output": "A numeric training window value (e.g., '4 weeks' = 28 days, '1 month' = 30 days). Document this value and compare against the 14/30-day minimums required by the Rego policy."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Prometheus alert rules using time-series functions, inspect the range vector selectors in PromQL expressions to determine the effective lookback window in the rule definition files.",
+        "command": "grep -oP '\\[\\d+[dhwm]\\]' /etc/prometheus/rules/*.yml 2>/dev/null | sort | uniq -c | sort -rn",
+        "file_path": "/etc/prometheus/rules/",
+        "navigation": null,
+        "expected_output": "Range vector durations extracted from rule expressions (e.g., [14d] = 14 days, [4w] = 28 days). Values less than [14d] for standard_deviation methods fail the Rego policy minimum."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Grafana's API to retrieve all alert rule expressions and parse the lookback duration from the query expressions across all datasource types.",
+        "command": "curl -s -H 'Authorization: Bearer $GRAFANA_TOKEN' 'http://<grafana-host>:3000/api/ruler/grafana/api/v1/rules' | jq '[.. | .expr? // empty] | map(select(. != null))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of PromQL/LogQL expressions from which range vector lookback durations can be extracted and compared against the required minimums."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "7 (one week; insufficient for Rego policy requirements, common in newly configured systems)",
+      "14 (two weeks; minimum for standard_deviation/percentile_based/ML methods per Rego policy)",
+      "30 (one month; required minimum for rolling_average; captures monthly billing/batch cycles)",
+      "90 (three months; common in mature environments capturing quarterly patterns)",
+      "365 (one year; captures seasonal patterns but risks stale baseline data)"
+    ]
+  },
+  {
+    "option_name": "threshold_auto_update_enabled",
+    "option_description": "Indicates whether the alerting platform automatically recalculates and updates alert thresholds as new baseline data accumulates over time. When enabled, thresholds continuously adapt to gradual operational changes without requiring manual re-tuning, preventing threshold drift where initially valid thresholds become outdated as system behavior evolves.",
+    "security_impact": "Required as a true value for the baseline_deviation_coverage Rego rule to activate under any baseline_calculation_method branch. Without auto-update, thresholds calculated from historical data become increasingly inaccurate as traffic patterns, user behavior, or infrastructure capacity changes — a form of configuration drift that silently degrades detection quality. For example, a threshold calibrated during low-traffic periods will generate excessive false positives after organic growth, leading teams to suppress or raise thresholds reactively rather than adaptively. Auto-update prevents the scenario where security teams are unaware their thresholds no longer reflect current operational reality.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Datadog, open an anomaly detection monitor and verify the 'Use rollup' or continuous training setting is enabled, which causes Datadog to continuously retrain the anomaly model as new data arrives.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Datadog > Monitors > [Anomaly Monitor] > Edit > Advanced Settings > Seasonality and Training options",
+        "expected_output": "Seasonality set to 'Auto' or 'Weekly' with no fixed training cutoff date, indicating continuous model updating is active."
+      },
+      {
+        "type": "command",
+        "instruction": "For Elastic Stack ML jobs, verify the job is in 'opened' state and has a scheduled datafeed running, which enables continuous baseline model updates as new data is indexed.",
+        "command": "curl -s -u elastic:$ELASTIC_PASS 'https://<es-host>:9200/_ml/anomaly_detectors/_stats?pretty' | jq '[.jobs[] | {job_id: .job_id, state: .state, datafeed_state: .datafeed_state}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Jobs showing state: 'opened' and datafeed_state: 'started' confirm continuous auto-updating is active. 'closed' or 'stopped' indicates static/manual thresholds."
+      },
+      {
+        "type": "api",
+        "instruction": "Check AWS CloudWatch Anomaly Detection configurations to confirm that anomaly detection bands (which auto-update) are attached to alarms rather than static threshold values.",
+        "command": "aws cloudwatch describe-alarms --query 'MetricAlarms[*].{Name:AlarmName, ComparisonOp:ComparisonOperator, Threshold:Threshold, AnomalyDetect:Metrics[*].MetricStat}' --output json 2>/dev/null | jq '[.[] | select(.AnomalyDetect != null)]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Alarms referencing anomaly detection math expressions (ANOMALY_DETECTION_BAND) rather than static Threshold values confirm auto-update is enabled."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the monitoring platform owner to determine if there is a scheduled job, cron task, or platform-native feature that periodically recomputes baseline thresholds. Request evidence such as a cron schedule, Terraform configuration enabling the feature, or vendor documentation confirming the auto-update capability is licensed and active.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A scheduled process (e.g., weekly cron job running threshold recalculation scripts, or enabled platform toggle) with documented evidence of last execution."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default for most static threshold configurations and manually managed SIEM rules)",
+      "true (enabled in APM platforms with anomaly detection features: Datadog Anomaly, Elastic ML, AWS CloudWatch Anomaly Detection, Dynatrace Davis AI)"
+    ]
+  },
+  {
+    "option_name": "severity_tiers_configured",
+    "option_description": "Controls whether the alerting system has defined one or more distinct severity bands (e.g., warning, critical, emergency) that classify alerts by impact level, enabling differentiated handling workflows.",
+    "security_impact": "The Rego policy activates the 'tiered_severity_classification' countermeasure only when this attribute equals 'multi'. A value of 'none' or 'single' means all alerts surface at the same priority, causing high-severity incidents to be treated identically to low-impact noise and delaying escalation of genuine threats.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In PagerDuty, navigate to Services > Service Directory > select the target service > Integrations tab > Alert Grouping and review the severity routing rules. In Prometheus Alertmanager, open the Status page (http://<alertmanager-host>:9093/#/status) and inspect the Config section for distinct severity labels in alert rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PagerDuty: Services > Service Directory > [Service Name] > Integrations; Alertmanager: Status > Config",
+        "expected_output": "At least two distinct severity label values (e.g., severity: warning and severity: critical) present in separate alert rule definitions."
+      },
+      {
+        "type": "command",
+        "instruction": "On a host running Prometheus, query the loaded alert rules to count distinct severity label values across all rule groups.",
+        "command": "curl -s http://localhost:9090/api/v1/rules | jq '[.data.groups[].rules[].labels.severity] | map(select(. != null)) | unique | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer >= 2 indicates 'multi'; integer == 1 indicates 'single'; 0 indicates 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Prometheus alerting rules YAML files or Alertmanager configuration for distinct severity label assignments.",
+        "command": "grep -rh 'severity:' /etc/prometheus/rules/ | sort -u",
+        "file_path": "/etc/prometheus/rules/*.yml",
+        "navigation": null,
+        "expected_output": "Multiple unique severity values such as 'warning', 'critical', 'emergency' printed on separate lines."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the AWS CloudWatch Alarms API to enumerate distinct alarm states and check for multi-tier configurations using alarm name prefixes or dimensions.",
+        "command": "aws cloudwatch describe-alarms --query 'MetricAlarms[*].AlarmName' --output json | jq 'map(select(test(\"warning|critical|emergency\"; \"i\"))) | group_by(if test(\"warning\";\"i\") then \"warning\" elif test(\"critical\";\"i\") then \"critical\" else \"emergency\" end) | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Count of 2 or more severity-tier groups confirms 'multi' configuration."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "single",
+      "multi"
+    ]
+  },
+  {
+    "option_name": "tier_thresholds_defined",
+    "option_description": "Captures the explicit list of severity tier names that have been assigned distinct, non-default numeric threshold values in the alerting platform, confirming that each severity level is independently tunable and not sharing boundary values.",
+    "security_impact": "The Rego policy requires this array to contain at least 2 elements (or all three of 'warning', 'critical', 'emergency') for the 'tiered_severity_classification' countermeasure to activate. An empty or single-element array means tier boundaries are undefined, making escalation decisions arbitrary and undermining graduated response workflows.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Extract all severity label values from Prometheus alert rule files and list only those tiers that have an associated 'expr' threshold condition distinct from others.",
+        "command": "grep -A5 'severity:' /etc/prometheus/rules/*.yml | awk '/severity:/{tier=$2} /expr:/{print tier, $0}' | sort -u",
+        "file_path": "/etc/prometheus/rules/*.yml",
+        "navigation": null,
+        "expected_output": "Lines pairing tier names (warning, critical, emergency) with their threshold expressions, confirming each has a unique numeric boundary."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve Grafana alert rules via the API and extract severity labels with their threshold conditions to build the defined tier list.",
+        "command": "curl -s -H 'Authorization: Bearer <API_TOKEN>' http://localhost:3000/api/v1/provisioning/alert-rules | jq '[.[] | {severity: .labels.severity, condition: .condition}] | group_by(.severity) | map({tier: .[0].severity, count: length}) | .[]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON objects listing each severity tier name paired with at least one condition definition."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Datadog, navigate to Monitors > Manage Monitors, filter by type, and open individual monitor definitions to verify that Warning Threshold and Alert Threshold fields contain distinct non-empty numeric values.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Datadog: Monitors > Manage Monitors > [Select Monitor] > Edit > Set alert conditions",
+        "expected_output": "Separate numeric values populated in Warning Threshold (e.g., 70) and Alert Threshold (e.g., 90) fields."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Parse Alertmanager or PagerDuty-as-code configuration files to enumerate all severity tier names with explicitly assigned threshold values.",
+        "command": "python3 -c \"import yaml,glob,sys; files=glob.glob('/etc/prometheus/rules/*.yml'); tiers=set(); [tiers.add(r.get('labels',{}).get('severity')) for f in files for g in yaml.safe_load(open(f)).get('groups',[]) for r in g.get('rules',[])]; print([t for t in tiers if t])\"",
+        "file_path": "/etc/prometheus/rules/*.yml",
+        "navigation": null,
+        "expected_output": "Python list output such as ['warning', 'critical', 'emergency'] confirming all defined tiers."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['warning', 'critical']",
+      "['warning', 'critical', 'emergency']",
+      "['low', 'medium', 'high', 'critical']"
+    ]
+  },
+  {
+    "option_name": "escalation_paths_configured",
+    "option_description": "Determines whether each severity tier routes alerts to a different recipient group, communication channel, or workflow automation (e.g., warning → Slack channel, critical → on-call page, emergency → incident bridge call), ensuring response effort scales with alert severity.",
+    "security_impact": "The Rego policy includes this attribute as a condition in the primary 'tiered_severity_classification' rule: without differentiated escalation paths, even a well-defined tier structure becomes operationally ineffective because all severity levels notify the same audience through the same channel, negating prioritized response. Setting this to true alongside 'multi' severity tiers enables the countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Alertmanager routing tree configuration to verify that different severity matchers route to distinct receivers.",
+        "command": "cat /etc/alertmanager/alertmanager.yml | python3 -c \"import yaml,sys; cfg=yaml.safe_load(sys.stdin); routes=cfg.get('route',{}).get('routes',[]); [print(r.get('match',{}).get('severity','?'), '->', r.get('receiver','?')) for r in routes]\"",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "Multiple lines mapping severity values (warning, critical, emergency) to different receiver names confirming distinct routing."
+      },
+      {
+        "type": "gui",
+        "instruction": "In PagerDuty, navigate to Services > Service Directory > [Service] > Response Play and verify that different urgency levels (low vs. high) map to different escalation policies or on-call schedules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PagerDuty: Services > Service Directory > [Service Name] > Settings > Assign and notify",
+        "expected_output": "At least two severity/urgency levels mapped to different escalation policies or notification rules."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Alertmanager API to retrieve the active routing configuration and check receiver assignments per severity level.",
+        "command": "curl -s http://localhost:9093/api/v2/status | jq '.config.original' | python3 -c \"import yaml,sys; cfg=yaml.safe_load(sys.stdin()); routes=cfg.get('route',{}).get('routes',[]); receivers=set(r.get('receiver') for r in routes); print('distinct_receivers:', len(receivers), 'escalation_configured:', len(receivers)>=2)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'escalation_configured: True' with at least 2 distinct receiver names."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the monitoring/on-call team lead to confirm documented runbooks specify different response procedures for each severity tier, and verify incident management platform (e.g., OpsGenie, Splunk On-Call) shows separate escalation policies per tier.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented evidence of at least two severity tiers routing to different teams or channels, confirmed verbally and in configuration records."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "automated_response_enabled",
+    "option_description": "Controls whether the monitoring or alerting platform has automation hooks enabled that can execute remediation actions (such as restarting services, blocking traffic, or triggering SOAR playbooks) upon detecting a threshold breach, rather than relying solely on manual operator response.",
+    "security_impact": "This is a prerequisite condition in the Rego 'automated_response_triggering' rule — if false, the countermeasure cannot activate regardless of how many response actions or endpoints are configured. Disabled automation means all remediation depends on human intervention, directly increasing mean time to respond (MTTR) and allowing threats to persist longer.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In AWS CloudWatch, navigate to Alarms > select an alarm > Actions tab and verify that alarm actions (e.g., SNS notifications, EC2 actions, Auto Scaling actions) are listed as 'Enabled' and not in a disabled state.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console: CloudWatch > Alarms > [Alarm Name] > Actions tab",
+        "expected_output": "Action status shows 'Enabled' with at least one action ARN listed under ALARM state actions."
+      },
+      {
+        "type": "command",
+        "instruction": "Query AWS CloudWatch alarms to check whether actions are enabled across all configured alarms.",
+        "command": "aws cloudwatch describe-alarms --query 'MetricAlarms[*].{Name:AlarmName,ActionsEnabled:ActionsEnabled}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table showing 'True' in the ActionsEnabled column for alarms; any 'False' entries indicate automation is disabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "In Prometheus Alertmanager, verify the configuration contains active receiver definitions with non-empty webhook or integration URLs and that no global inhibit rules are suppressing all alerts.",
+        "command": "grep -E '(webhook_url|api_url|url)' /etc/alertmanager/alertmanager.yml | grep -v '#'",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "Non-commented, non-empty URL values present for receiver integrations confirming automation hooks are active."
+      },
+      {
+        "type": "api",
+        "instruction": "Check the SOAR platform (e.g., Splunk SOAR) API to confirm automation playbooks are set to active/production mode rather than simulation or disabled.",
+        "command": "curl -s -H 'ph-auth-token: <TOKEN>' 'https://<soar-host>/rest/playbook?_filter_active=true&_filter_automation_type=\"automation\"' | jq '.count'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Count greater than 0 confirming at least one active automation playbook is enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "configured_response_actions",
+    "option_description": "Enumerates the specific automated remediation action types that are wired to execute when alert thresholds are breached, such as restarting degraded services, blocking malicious traffic sources, creating incident tickets, scaling out compute resources, or isolating compromised hosts.",
+    "security_impact": "The Rego 'automated_response_triggering' rule requires count(configured_response_actions) >= 1 alongside other conditions. An empty array means no remediation actions are defined, rendering automated response meaningless even if enabled. The breadth of action types directly determines the platform's ability to contain threats autonomously across different incident categories.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all Alertmanager receiver definitions to enumerate distinct action types (webhook, email, pagerduty, slack) configured as response targets.",
+        "command": "cat /etc/alertmanager/alertmanager.yml | python3 -c \"import yaml,sys; cfg=yaml.safe_load(sys.stdin); receivers=cfg.get('receivers',[]); [print(r['name'], list(k for k in r.keys() if k != 'name')) for r in receivers]\"",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "List of receiver names paired with action type keys (e.g., webhook_configs, pagerduty_configs, slack_configs)."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the AWS CloudWatch Alarms API to list all configured alarm actions (SNS topic ARNs, Auto Scaling ARNs, EC2 action ARNs) across alarms in ALARM state.",
+        "command": "aws cloudwatch describe-alarms --query 'MetricAlarms[?ActionsEnabled==`true`].{Name:AlarmName,Actions:AlarmActions}' --output json | jq '.[] | select(.Actions | length > 0)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON objects listing alarm names with populated Actions arrays containing SNS, Lambda, or Auto Scaling ARNs."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Splunk SOAR, navigate to Playbooks > Active Playbooks and review each playbook's action blocks to catalog the action types (e.g., 'block ip', 'create ticket', 'restart service', 'isolate device') configured for alert-triggered execution.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk SOAR: Playbooks > [Playbook Name] > Visual Editor > Action blocks",
+        "expected_output": "Visual editor shows named action blocks with specific action types from installed apps (e.g., 'block ip' from firewall app, 'create ticket' from JIRA app)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Parse SOAR playbook YAML exports or Terraform/CloudFormation IaC definitions to extract all remediation action type identifiers.",
+        "command": "find /opt/soar/playbooks/ -name '*.json' -exec jq -r '.blocks[].type' {} \\; | sort -u",
+        "file_path": "/opt/soar/playbooks/*.json",
+        "navigation": null,
+        "expected_output": "Unique list of action type strings such as 'block_ip', 'create_ticket', 'restart_service', 'isolate_host'."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['ticket_creation']",
+      "['service_restart', 'ticket_creation']",
+      "['traffic_block', 'isolate_host', 'ticket_creation', 'scale_out']",
+      "[]"
+    ]
+  },
+  {
+    "option_name": "response_action_test_status",
+    "option_description": "Tracks whether the configured automated response actions have been validated through fire drills, integration tests, or chaos engineering exercises to confirm they execute correctly when triggered by a real threshold breach event.",
+    "security_impact": "The Rego 'automated_response_triggering' rule requires this value to be 'partially_tested' or 'fully_tested' — a value of 'not_tested' prevents the countermeasure from activating even when all other conditions are met. Untested automation poses operational risk: misconfigured actions may fail silently during actual incidents or execute incorrectly, potentially causing additional harm (e.g., blocking legitimate traffic).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Review CI/CD pipeline execution logs or test framework outputs for evidence of automated response integration test runs, looking for test case names related to alert action validation.",
+        "command": "grep -rn 'response_action\\|alert_action\\|remediation_test\\|fire_drill' /var/log/ci-pipeline/ --include='*.log' | tail -50",
+        "file_path": "/var/log/ci-pipeline/*.log",
+        "navigation": null,
+        "expected_output": "Log entries showing PASS/FAIL status for named response action test cases with recent timestamps."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the runbook validation records or fire drill schedule documentation from the incident response team, looking for dated test execution records for each configured automated action.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Dated records showing which actions were tested (partially_tested = subset tested; fully_tested = all actions validated with pass results)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In PagerDuty, navigate to Integrations > Developer Tools > Response Plays and check the 'Last tested' timestamp on each response play. In Splunk SOAR, review Playbooks > [Playbook] > Run History for test execution records.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk SOAR: Playbooks > [Playbook Name] > Run History; PagerDuty: Integrations > Response Plays",
+        "expected_output": "Run history entries with status 'Success' for test/drill run types, with timestamps confirming recent validation."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SOAR platform's run history API to retrieve playbook test executions and determine coverage percentage of tested actions.",
+        "command": "curl -s -H 'ph-auth-token: <TOKEN>' 'https://<soar-host>/rest/action_run?_filter_status=\"success\"&_filter_test_run=true' | jq '{total_test_runs: .count, actions: [.data[].action]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON showing count of successful test runs and the action names covered; compare against total configured actions to determine partial vs. full test status."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "not_tested",
+      "partially_tested",
+      "fully_tested"
+    ]
+  },
+  {
+    "option_name": "response_integration_endpoint_configured",
+    "option_description": "Verifies that a valid, reachable integration endpoint — such as a webhook URL, SNS topic ARN, SOAR API endpoint, or message queue ARN — is defined in the alerting platform to receive and route automated response triggers when threshold breaches occur.",
+    "security_impact": "This attribute is a hard dependency in the Rego 'automated_response_triggering' rule alongside automated_response_enabled and configured_response_actions. Even with automation enabled and actions defined, if no valid endpoint exists to receive the trigger signal, the automation chain is broken. A misconfigured or stale endpoint (e.g., a deleted Lambda ARN or expired webhook token) silently fails the entire remediation pipeline.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Perform an HTTP connectivity test to each configured webhook endpoint URL to verify it returns a valid response code, confirming the endpoint is reachable.",
+        "command": "curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{\"test\":true}' <WEBHOOK_URL>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 200 or 202 response code confirming the endpoint is reachable and accepting requests."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS SNS-based endpoints, verify the SNS topic ARN exists and has active subscriptions with confirmed status.",
+        "command": "aws sns list-subscriptions-by-topic --topic-arn <SNS_TOPIC_ARN> --query 'Subscriptions[*].{Protocol:Protocol,Endpoint:Endpoint,Status:SubscriptionArn}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table showing subscriptions with confirmed ARN values (not 'PendingConfirmation'), indicating the endpoint is active."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Alertmanager configuration file to verify webhook_url fields contain non-empty, properly formatted URLs in active receiver definitions.",
+        "command": "python3 -c \"import yaml; cfg=yaml.safe_load(open('/etc/alertmanager/alertmanager.yml')); [print(r['name'], wh.get('url','MISSING')) for r in cfg.get('receivers',[]) for wh in r.get('webhook_configs',[])]\" ",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "Each receiver name printed alongside a valid URL string; 'MISSING' or empty values indicate unconfigured endpoints."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Alertmanager API to retrieve current receiver configurations and validate endpoint fields are populated.",
+        "command": "curl -s http://localhost:9093/api/v2/status | jq '.config.original | @base64d' | python3 -c \"import yaml,sys,json; raw=json.loads(sys.stdin.read()); cfg=yaml.safe_load(raw); print({r['name']: [w.get('url','EMPTY') for w in r.get('webhook_configs',[])] for r in cfg.get('receivers',[])})\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Dictionary mapping receiver names to URL values; any 'EMPTY' entry indicates the endpoint is not configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "audit_logging_enabled",
+    "option_description": "Controls whether the monitoring or alerting platform captures and retains log records of all changes made to alert threshold configurations, including who made the change, what was changed, and when — creating a tamper-evident audit trail for compliance and threat detection purposes.",
+    "security_impact": "The Rego 'threshold_audit_and_change_tracking' countermeasure requires this as its primary condition — without it, neither compliance verification nor unauthorized change detection is achievable. Disabled audit logging allows adversaries to silently raise thresholds to suppress detection of their activity, a technique directly countered by the referenced MITRE M1047 (Audit) mitigation and D3-FIM (File Integrity Monitoring) defense.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In AWS CloudWatch, navigate to Settings > and verify that CloudTrail is capturing 'PutMetricAlarm' and 'DeleteAlarms' API calls. In the CloudTrail console, filter event history by event name 'PutMetricAlarm' to confirm logging is active.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console: CloudTrail > Event History > Filter by Event name: PutMetricAlarm",
+        "expected_output": "Recent events listed for PutMetricAlarm with user identity, timestamp, and source IP, confirming audit capture is active."
+      },
+      {
+        "type": "command",
+        "instruction": "Query AWS CloudTrail to verify that threshold-modification events are being captured for CloudWatch alarm changes.",
+        "command": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=PutMetricAlarm --max-results 5 --query 'Events[*].{Time:EventTime,User:Username,Event:EventName}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table listing recent PutMetricAlarm events with timestamps and user identities; empty results suggest CloudTrail is not capturing these events."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check the SIEM or centralized log platform for ingestion of alerting system audit events by searching for configuration change event types from your monitoring tool (e.g., Grafana audit logs, Prometheus config reload events).",
+        "command": "journalctl -u prometheus --since '7 days ago' | grep -iE 'config.*reload|threshold.*change|rule.*update' | wc -l",
+        "file_path": "/var/log/prometheus/prometheus.log",
+        "navigation": null,
+        "expected_output": "Non-zero count of configuration change events captured in logs; zero count requires investigation of audit log configuration."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Grafana deployments, verify that audit logging is enabled in the Grafana configuration file by checking the [auditing] section.",
+        "command": "grep -A10 '\\[auditing\\]' /etc/grafana/grafana.ini | grep -E 'enabled|log_dashboard_content'",
+        "file_path": "/etc/grafana/grafana.ini",
+        "navigation": null,
+        "expected_output": "'enabled = true' present under the [auditing] section; 'enabled = false' or missing section indicates audit logging is disabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "change_record_completeness",
+    "option_description": "Controls whether audit records for threshold configuration changes capture all four required forensic fields: actor identity (who made the change), timestamp (when it occurred), previous threshold value (before state), and new threshold value (after state). This attribute reflects the structural integrity of the audit trail for threshold modifications.",
+    "security_impact": "The Rego policy rule `threshold_audit_and_change_tracking` requires `change_record_completeness == 'full'` as a mandatory condition in both of its firing branches. Without full record completeness, the countermeasure cannot activate regardless of retention duration or alerting configuration. Incomplete records undermine forensic investigation of unauthorized threshold manipulation and compliance verification, directly blocking the 'Threshold Audit And Change Tracking' countermeasure (score: 5).",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Pull a sample of recent threshold change events from your SIEM (e.g., Splunk, Elastic, QRadar) and inspect the field schema. Check whether each event contains actor/user identity, event timestamp, old_value/previous_threshold, and new_value/current_threshold fields.",
+        "command": "index=monitoring_config sourcetype=threshold_changes | table _time, actor, old_value, new_value, reason | head 20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All four columns (actor, _time, old_value, new_value) populated with non-null values across sampled events indicates 'full' completeness."
+      },
+      {
+        "type": "api",
+        "instruction": "Query your monitoring platform's audit API to retrieve recent threshold change events and inspect the response payload for required fields. Example shown for Datadog audit trail API.",
+        "command": "curl -X GET 'https://api.datadoghq.com/api/v2/audit/events?filter[query]=action:modified%20resource:monitor&page[limit]=10' -H 'DD-API-KEY: ${DD_API_KEY}' -H 'DD-APPLICATION-KEY: ${DD_APP_KEY}' | jq '.data[].attributes | {actor: .usr.email, timestamp: .timestamp, old_value: .attributes.old_value, new_value: .attributes.new_value}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON objects containing populated actor, timestamp, old_value, and new_value keys for each change event."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the audit log viewer in your monitoring platform and filter for threshold or alert rule modification events. Open individual records and verify all required fields are displayed.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana: Administration > Audit Logs > filter by 'alerting' action type | Prometheus AlertManager: Check integrated audit sidecar logs | Datadog: Organization Settings > Audit Trail > filter by 'Monitor' resource type",
+        "expected_output": "Each change record shows user email/ID, UTC timestamp, previous threshold expression, and updated threshold expression."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the monitoring platform administrator or review the logging configuration documentation to confirm whether the audit logging pipeline is configured to capture all four required fields, or whether some fields are explicitly excluded or masked.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written confirmation or configuration evidence that actor identity, timestamp, old value, and new value are all captured and stored in the audit log schema."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "partial",
+      "full"
+    ]
+  },
+  {
+    "option_name": "audit_log_retention_days",
+    "option_description": "Specifies the number of days that threshold change audit logs remain queryable and retained in the logging infrastructure (SIEM, log management platform, or monitoring system). This governs how far back investigators and compliance reviewers can trace threshold modification history.",
+    "security_impact": "The Rego policy `threshold_audit_and_change_tracking` rule has two branches with different retention requirements: the first branch requires `audit_log_retention_days >= 90` (for environments with full record completeness alone), while the second branch allows `audit_log_retention_days >= 30` when unauthorized change alerting is also enabled. Retention below these thresholds prevents the countermeasure from activating, leaving no forensic trail for detecting historical threshold tampering. Regulatory frameworks such as PCI-DSS and SOC 2 typically mandate 90–365 days minimum.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Check the log retention policy configured in your SIEM or log management platform for the index or data stream containing threshold audit events.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk: Settings > Indexes > select monitoring/audit index > view 'Frozen path age' or retention policy | Elastic: Stack Management > Index Lifecycle Policies > find policy applied to audit-* index | QRadar: Admin > Log Sources > Data Retention",
+        "expected_output": "A numeric retention value in days (e.g., '90 days', '1 year') displayed for the audit log index or policy."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Elasticsearch ILM policy API to retrieve the delete phase minimum age for the audit log index, then convert to days.",
+        "command": "curl -X GET 'https://localhost:9200/_ilm/policy/audit-log-policy' -H 'Content-Type: application/json' | jq '.\"audit-log-policy\".policy.phases.delete.min_age'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A duration string such as '90d' or '365d' representing the configured retention period."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the log retention configuration file for your log shipper or storage backend to find the defined retention period for audit log data.",
+        "command": "grep -E 'retention|max_age|expire|ttl' /etc/logstash/conf.d/audit-pipeline.conf /etc/filebeat/filebeat.yml 2>/dev/null; grep -E 'retention_days|log_rotation' /etc/monitoring/audit.conf 2>/dev/null",
+        "file_path": "/etc/logstash/conf.d/audit-pipeline.conf",
+        "navigation": null,
+        "expected_output": "A retention duration parameter such as 'retention_days: 90' or 'max_age: 365d'."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "30",
+      "90",
+      "180",
+      "365"
+    ]
+  },
+  {
+    "option_name": "unauthorized_change_alerting_enabled",
+    "option_description": "Indicates whether the monitoring system or SIEM has an active detection rule that fires when threshold configurations are modified outside of approved change windows or by accounts not in the authorized change management group. This provides real-time detection of covert threshold manipulation attempts.",
+    "security_impact": "In the Rego policy, `unauthorized_change_alerting_enabled == true` is used in the second branch of `threshold_audit_and_change_tracking` as a compensating control that allows a lower 30-day retention requirement to still satisfy the countermeasure. More critically, without this alerting in place, an adversary who gains access to the monitoring platform can silently raise detection thresholds to blind the security team — a manipulation that would only be discovered during a retrospective audit rather than in real time.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Browse the active alert rules in your SIEM or monitoring platform and search for rules specifically targeting threshold or alert configuration change events by non-approved accounts or outside change windows.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk: Alerts > search for 'threshold change' or 'monitor modified' correlation searches | Datadog: Monitors > search tag:'threshold-change-detection' | Elastic SIEM: Security > Rules > filter by 'configuration change' rule category",
+        "expected_output": "At least one enabled alert rule with logic checking for threshold modifications by unexpected users or outside maintenance windows."
+      },
+      {
+        "type": "api",
+        "instruction": "Query your alerting platform's API to list active rules and filter for those referencing threshold configuration change event sources.",
+        "command": "curl -X GET 'https://api.datadoghq.com/api/v1/monitor' -H 'DD-API-KEY: ${DD_API_KEY}' -H 'DD-APPLICATION-KEY: ${DD_APP_KEY}' | jq '[.[] | select(.name | test(\"threshold.*change|config.*modif\"; \"i\")) | {id: .id, name: .name, status: .overall_state}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more monitor objects with names related to threshold change detection and status 'OK' or 'Alert' (indicating the rule is active)."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the SOC or monitoring team to confirm whether a SIEM correlation rule or SOAR playbook exists that triggers when threshold values are changed by accounts outside the approved list or during non-maintenance hours. Request the rule name and last-triggered date.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation of a named, active detection rule with documented approval and evidence of test execution or recent trigger history."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search audit logs for threshold modification events and correlate against the approved change management schedule and authorized user list to determine whether any alert was generated for out-of-band changes.",
+        "command": "grep -E 'threshold|alert_rule|monitor' /var/log/siem/audit.log | awk -F'|' '$3 !~ /approved_user_pattern/ {print}' | head 20",
+        "file_path": "/var/log/siem/audit.log",
+        "navigation": null,
+        "expected_output": "Evidence of alert events generated for unexpected threshold changes, or confirmation that such a correlation rule exists and has been tested."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "composite_alerting_enabled",
+    "option_description": "Indicates whether the alerting platform has been configured with composite (multi-metric) threshold rules that combine two or more distinct metric conditions using logical operators (AND/OR) within a single alert definition. This enables detection of complex system states that no single metric would capture alone.",
+    "security_impact": "The Rego policy `cross_metric_correlation_coverage` rule requires `composite_alerting_enabled == true` as its first mandatory condition. Without this capability enabled, the platform cannot perform cross-metric correlation — meaning attacks or failures that manifest across multiple dimensions simultaneously (e.g., elevated error rate combined with unusual authentication volume) will generate either false negatives or require manual analyst correlation. This countermeasure targets MITRE D3-PMAD and D3-ANET techniques.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Open the alert rule editor in your monitoring platform and check whether the rule creation interface supports multi-condition expressions with AND/OR operators across different metric queries.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Prometheus AlertManager + Grafana: Alerting > Alert Rules > New Rule > check for 'Add condition' with multiple query references | Datadog: Monitors > New Monitor > Composite > verify composite monitor type is available | Grafana: Alerting > Alert Rules > check for multi-query condition builder",
+        "expected_output": "UI displays a composite rule type or multi-condition expression builder, and at least one active rule using this capability exists."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Prometheus rules API to check for alert rules containing expressions with multiple metric names joined by operators, indicating composite conditions.",
+        "command": "curl -s http://localhost:9090/api/v1/rules | jq '[.data.groups[].rules[] | select(.type==\"alerting\") | select(.query | test(\"and|or|unless\"; \"i\")) | {name: .name, expr: .query}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An array of alert rules whose expressions contain logical operators joining multiple metric series, confirming composite alerting is configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Prometheus alerting rules files to identify rules using multiple metric expressions with logical operators.",
+        "command": "grep -l 'and\\|unless\\|or' /etc/prometheus/rules/*.yml 2>/dev/null | xargs grep -E '^  expr:' | grep -E '(and|unless)' | head 10",
+        "file_path": "/etc/prometheus/rules/",
+        "navigation": null,
+        "expected_output": "One or more alert rule expressions containing 'and', 'unless', or 'or' operators between distinct metric queries."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "composite_alert_rule_count",
+    "option_description": "The total count of currently active alert rules that define threshold conditions spanning two or more metrics simultaneously. This quantifies the breadth of cross-metric correlation coverage deployed in the alerting system and provides a measurable indicator of detection sophistication.",
+    "security_impact": "The Rego policy `cross_metric_correlation_coverage` requires `composite_alert_rule_count >= 1` alongside composite alerting being enabled and at least two metric dimensions covered. A count of zero means no composite rules are deployed, and the countermeasure cannot fire. Higher counts indicate broader correlation coverage — environments with zero composite rules rely entirely on single-metric detection, significantly increasing the risk of missed complex attack patterns such as low-and-slow lateral movement paired with gradually elevated resource usage.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the Prometheus rules API and count rules whose expressions reference multiple metric names with logical operators.",
+        "command": "curl -s http://localhost:9090/api/v1/rules | jq '[.data.groups[].rules[] | select(.type==\"alerting\") | select(.query | test(\" and | unless | or \"))] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing the count of composite alert rules (e.g., 0, 5, 23)."
+      },
+      {
+        "type": "api",
+        "instruction": "For Datadog environments, query the monitors API filtering for composite monitor type and count active results.",
+        "command": "curl -X GET 'https://api.datadoghq.com/api/v1/monitor?type=composite&with_downtimes=false' -H 'DD-API-KEY: ${DD_API_KEY}' -H 'DD-APPLICATION-KEY: ${DD_APP_KEY}' | jq '[.[] | select(.overall_state != \"No Data\")] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer count of active composite monitors in the Datadog account."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Count composite alert rule definitions directly from the Prometheus or Grafana rules configuration files on disk.",
+        "command": "grep -h 'expr:' /etc/prometheus/rules/*.yml 2>/dev/null | grep -cE '(and|unless| or )'",
+        "file_path": "/etc/prometheus/rules/",
+        "navigation": null,
+        "expected_output": "An integer line count representing the number of alert rule expressions containing multi-metric logical operators."
+      },
+      {
+        "type": "gui",
+        "instruction": "Filter the alert rules list in your monitoring platform to show only composite or multi-condition rules, then note the total count displayed.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Datadog: Monitors > Manage Monitors > filter by Type='Composite' > note count in results header | Grafana: Alerting > Alert Rules > filter by multi-condition rules > count results | Prometheus UI: Alerts > manually count rules with compound expressions",
+        "expected_output": "A displayed count of composite alert rules (e.g., '12 monitors' in filtered results)."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "3",
+      "10",
+      "25",
+      "50"
+    ]
+  },
+  {
+    "option_name": "metrics_covered_by_composite_rules",
+    "option_description": "An array listing the distinct metric dimensions or categories (such as 'cpu', 'memory', 'error_rate', 'latency', 'disk_io', 'auth_failures') that appear in at least one active composite alert rule. This reveals which operational domains have cross-metric correlation coverage and identifies gaps where single-metric detection remains the only protection.",
+    "security_impact": "The Rego policy `cross_metric_correlation_coverage` requires `count(metrics_covered_by_composite_rules) >= 2` — meaning at least two distinct metric categories must be represented in composite rules for the countermeasure to activate. An empty array or single-item array prevents the countermeasure from scoring. From a security perspective, the breadth of this list determines whether the monitoring system can detect multi-dimensional attack signatures: for example, simultaneous CPU spike + authentication failure burst indicating brute-force combined with lateral movement.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query all composite alert rule expressions from Prometheus and extract unique metric names used in multi-metric rules.",
+        "command": "curl -s http://localhost:9090/api/v1/rules | jq -r '[.data.groups[].rules[] | select(.type==\"alerting\") | select(.query | test(\" and | unless \")) | .query | scan(\"[a-z_][a-z0-9_]*(?=\\\\{|[^a-z0-9_(])\") ] | flatten | unique | sort'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON array of unique metric names such as ['container_cpu_usage_seconds_total', 'http_requests_errors_total', 'node_memory_MemAvailable_bytes']."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Parse Prometheus rules files to extract and deduplicate metric series names referenced in composite (AND/unless) alert expressions.",
+        "command": "grep -h 'expr:' /etc/prometheus/rules/*.yml | grep -E '(and|unless)' | grep -oE '[a-z_][a-z0-9_]*\\{' | sed 's/{//' | sort -u",
+        "file_path": "/etc/prometheus/rules/",
+        "navigation": null,
+        "expected_output": "A sorted list of unique metric names such as: cpu_usage_percent, error_rate_5m, latency_p99_ms, auth_failure_count."
+      },
+      {
+        "type": "gui",
+        "instruction": "Open each composite alert rule in the monitoring platform UI and document the metric query references. Categorize each metric into dimensions (cpu, memory, network, auth, error_rate) and compile the unique category list.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana: Alerting > Alert Rules > open each multi-condition rule > expand Query sections > note metric names | Datadog: Monitors > open each composite monitor > view component monitor names and their metric sources",
+        "expected_output": "A hand-compiled list of unique metric categories covered, e.g., ['cpu', 'memory', 'error_rate', 'latency', 'auth_failures']."
+      },
+      {
+        "type": "api",
+        "instruction": "For Datadog composite monitors, retrieve each composite monitor's component monitor IDs, then query each component to extract the underlying metric query and categorize.",
+        "command": "curl -X GET 'https://api.datadoghq.com/api/v1/monitor?type=composite' -H 'DD-API-KEY: ${DD_API_KEY}' -H 'DD-APPLICATION-KEY: ${DD_APP_KEY}' | jq '[.[] | .query | scan(\"[0-9]+\") | tonumber] | unique' ",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Component monitor IDs that can be individually queried to extract their underlying metric names and build the complete coverage array."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[]",
+      "['cpu', 'memory']",
+      "['cpu', 'memory', 'error_rate', 'latency']",
+      "['cpu', 'memory', 'error_rate', 'latency', 'disk_io', 'auth_failures', 'network_bytes']"
+    ]
+  },
+  {
+    "option_name": "time_window_defined",
+    "option_description": "A boolean indicating whether the alert threshold rule has an explicit evaluation time window configured — such as a 'period', 'duration', 'window', or 'rate_interval' field with a non-zero, non-null value. Time-windowed thresholds evaluate metric values over an aggregated period rather than at a single instantaneous point, enabling rate-based and sustained-anomaly detection.",
+    "security_impact": "The Rego policy `time_window_scoping` requires `time_window_defined == true` as its first condition, alongside a non-zero `window_duration_seconds` and a valid `evaluation_type`. Without a defined time window, threshold rules evaluate instantaneous point-in-time values, making them highly susceptible to transient spikes generating false positives and unable to detect low-and-slow attack patterns (e.g., a brute-force attack generating one failed auth per minute over an hour). This countermeasure directly supports D3-ANET Authentication Event Thresholding and D3-AZET Authorization Event Thresholding.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect alert rule configuration files for the presence of time window parameters such as 'for', 'window', 'period', 'interval', or 'duration' with non-zero values.",
+        "command": "grep -h -A5 'alert:' /etc/prometheus/rules/*.yml | grep -E '^\\s+for:\\s+[1-9]' | head 20",
+        "file_path": "/etc/prometheus/rules/",
+        "navigation": null,
+        "expected_output": "Lines showing 'for: 5m' or 'for: 15m' beneath alert rule definitions, confirming a time window is explicitly set."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Prometheus rules API and check for the 'duration' or 'for' field presence and non-zero value in alert rule definitions.",
+        "command": "curl -s http://localhost:9090/api/v1/rules | jq '[.data.groups[].rules[] | select(.type==\"alerting\") | {name: .name, duration: .duration, has_window: (.duration > 0)}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON objects with 'has_window: true' for rules that have a non-zero duration field configured."
+      },
+      {
+        "type": "gui",
+        "instruction": "Open individual alert rule definitions in the monitoring UI and check for a 'Pending period', 'For', 'Window', or 'Evaluation interval' field with a populated non-zero value.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana: Alerting > Alert Rules > open rule > check 'Pending period' field under Evaluation section | Datadog: Monitors > open monitor > check 'Alert if...' condition for time window like 'over the last X minutes' | Prometheus UI: Alerts > view rule detail > check 'for' clause",
+        "expected_output": "A visible time window parameter (e.g., 'Pending period: 5 min' or 'over the last 10 minutes') showing the window is explicitly defined."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "window_duration_seconds",
+    "option_description": "The numeric length of the alert evaluation time window expressed in seconds. This value quantifies how long a threshold condition must persist — or over what aggregation period a rate is computed — before the alert fires. It directly controls the balance between detection latency (smaller windows detect faster) and noise suppression (larger windows filter transient spikes).",
+    "security_impact": "The Rego policy `time_window_scoping` requires `window_duration_seconds > 0` alongside `time_window_defined == true` and a valid evaluation type. A value of 0 disables window-based evaluation entirely. From a security standpoint, undersized windows (e.g., under 60 seconds) produce high false-positive rates from normal load spikes, causing alert fatigue; oversized windows (e.g., over 3600 seconds) introduce detection latency that increases MTTD. The practical security-optimal range is 300–900 seconds (5–15 minutes) for most infrastructure metrics, with shorter windows for authentication event thresholds.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the Prometheus rules API and extract the duration field (in seconds) for each alerting rule, filtering for those with defined windows.",
+        "command": "curl -s http://localhost:9090/api/v1/rules | jq '[.data.groups[].rules[] | select(.type==\"alerting\" and .duration > 0) | {name: .name, window_seconds: .duration}] | sort_by(.window_seconds)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An array of alert rules with their duration values in seconds, e.g., [{\"name\": \"HighCPU\", \"window_seconds\": 300}]."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Parse Prometheus rules YAML files to extract 'for' clause values and convert them to seconds for comparison against the required minimum.",
+        "command": "grep -h 'for:' /etc/prometheus/rules/*.yml | sed 's/.*for: //' | awk '{if(/m$/) {sub(/m/,\"\"); print $0*60} else if(/h$/) {sub(/h/,\"\"); print $0*3600} else if(/s$/) {sub(/s/,\"\"); print $0} else print $0}' | sort -n",
+        "file_path": "/etc/prometheus/rules/",
+        "navigation": null,
+        "expected_output": "A sorted list of numeric second values representing each alert rule's evaluation window, e.g.: 60, 300, 300, 600, 900."
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect individual alert rules in the monitoring platform UI and read the configured evaluation window duration, then convert to seconds if displayed in minutes or hours.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana: Alerting > Alert Rules > open rule > read 'Pending period' value (convert: 5m = 300s, 15m = 900s) | Datadog: Monitors > open monitor > read time window in 'Alert if' clause (e.g., 'over the last 10 minutes' = 600s) | Prometheus UI: Alerts > view 'for' clause duration on each rule",
+        "expected_output": "A numeric duration that can be converted to seconds, e.g., 'Pending period: 5 min' → 300 seconds."
+      },
+      {
+        "type": "command",
+        "instruction": "For Grafana-managed alert rules stored in provisioning files or exported via API, extract the evaluation interval and pending period to calculate total window duration in seconds.",
+        "command": "curl -s -u admin:${GRAFANA_PASS} http://localhost:3000/api/v1/provisioning/alert-rules | jq '[.[] | {uid: .uid, title: .title, for: .for, interval_seconds: .intervalSeconds, window_seconds: (if .for then (.for | gsub(\"m\";\"*60\") | gsub(\"s\";\"*1\") | gsub(\"h\";\"*3600\") | @sh | \"echo $((\"+.+\"))\") else 0 end)}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of alert rules with their pending period durations expressed in seconds for direct comparison against the minimum threshold of 1 second."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "60",
+      "300",
+      "600",
+      "900",
+      "1800",
+      "3600"
+    ]
+  },
+  {
+    "option_name": "evaluation_type",
+    "option_description": "Controls the method used to evaluate alert thresholds — whether alerts fire based on a static absolute value, a rate of events per time window, a rolling average, or a sliding window calculation. This determines how the alerting engine interprets metric data when deciding whether a threshold has been breached.",
+    "security_impact": "The Rego policy for 'time_window_scoping' requires evaluation_type to be one of 'rate', 'rolling_window', or 'sliding_window' (combined with time_window_defined == true and window_duration_seconds > 0) to satisfy the countermeasure. A static evaluation type will fail to satisfy time_window_scoping, meaning transient spikes cannot be distinguished from sustained anomalies, reducing detection accuracy for slow-and-low attacks and burst-pattern threats like brute force or DDoS.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query Prometheus alerting rules to inspect the evaluation method — look for 'rate()' or 'avg_over_time()' functions indicating rate or rolling window evaluation.",
+        "command": "promtool check rules /etc/prometheus/rules/*.yml | grep -E 'rate|avg_over_time|increase|sliding' && cat /etc/prometheus/rules/*.yml | grep -A5 'expr:'",
+        "file_path": "/etc/prometheus/rules/",
+        "navigation": null,
+        "expected_output": "Alert rule expressions using rate(), avg_over_time(), or sliding_window functions indicate non-static evaluation; a bare numeric comparison (e.g., metric > 100) indicates static."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Datadog, navigate to Monitors > All Monitors, open an alert monitor, and inspect the 'Alert Conditions' section for the evaluation window type selector (Last X minutes, rolling, etc.).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Datadog UI > Monitors > All Monitors > [Select Monitor] > Edit > Alert Conditions > Evaluation Window",
+        "expected_output": "The evaluation window field displays one of: 'on average', 'at all times', 'in total', 'in rate' — mapping to rolling_window, sliding_window, or rate types."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Datadog Monitors API to retrieve monitor definitions and inspect the 'type' and 'options.evaluation_delay' fields, or for Prometheus use the HTTP API to fetch alerting rules.",
+        "command": "curl -s -H 'DD-API-KEY: $DD_API_KEY' -H 'DD-APP-KEY: $DD_APP_KEY' 'https://api.datadoghq.com/api/v1/monitor' | jq '.[].type' | sort | uniq -c",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Monitor types such as 'metric alert' with evaluation options will reveal whether rate-based or static thresholds are in use across all configured monitors."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect PagerDuty or Grafana alerting rule YAML/JSON files for window-based evaluation keywords such as 'for:', 'period:', or 'window:' which indicate non-static evaluation.",
+        "command": "grep -rE '(for:|window:|period:|evaluation_interval:)' /etc/grafana/provisioning/alerting/ /etc/prometheus/rules/",
+        "file_path": "/etc/grafana/provisioning/alerting/",
+        "navigation": null,
+        "expected_output": "Presence of 'for: 5m' or 'window: 300s' confirms time-window-scoped evaluation; absence suggests static threshold evaluation."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "static (common in legacy or quickly deployed monitoring setups)",
+      "rate (common in Prometheus-based stacks for event-per-second thresholds)",
+      "rolling_window (common in Datadog and cloud-native monitoring for averaged metrics)",
+      "sliding_window (common in stream processing platforms like Apache Flink or Splunk ES)"
+    ]
+  },
+  {
+    "option_name": "notification_channels_configured",
+    "option_description": "An enumerated list of all downstream alerting channels that have been configured to receive threshold-triggered alert notifications. Examples include SIEM platforms (Splunk, QRadar), email relays, SMS gateways, PagerDuty, Slack, OpsGenie, and ticketing systems (ServiceNow, Jira).",
+    "security_impact": "The Rego policy for 'notification_channel_integration' requires count(notification_channels_configured) >= 1, alert_routing_enabled == true, and channel_test_status == 'passed' together. An empty or null channel list means no alerts reach responders regardless of how well thresholds are tuned, eliminating operational visibility entirely and maximizing MTTD. Redundant channels also provide resilience if a primary channel is compromised or unavailable.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In PagerDuty, navigate to Services > Service Directory, select each service, and review the Integrations tab to enumerate all active inbound integrations and escalation policy notification targets.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PagerDuty > Services > Service Directory > [Service Name] > Integrations tab",
+        "expected_output": "A list of integration types (email, API, Slack, etc.) and escalation policies showing SMS, phone, and push notification targets configured per service."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Alertmanager API to retrieve the current active configuration and extract all receiver definitions, which represent the configured notification channels.",
+        "command": "curl -s http://localhost:9093/api/v2/alerts | jq '.' && curl -s http://localhost:9093/api/v1/status | jq '.data.config.original' | python3 -c \"import sys,yaml,json; cfg=yaml.safe_load(json.loads(sys.stdin.read())); [print(r['name'], list(r.keys())) for r in cfg.get('receivers',[])]\" 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output listing receiver names with their configured integrations (slack_configs, email_configs, pagerduty_configs, webhook_configs, etc.)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Alertmanager configuration file directly to enumerate all defined receivers and their channel types.",
+        "command": "cat /etc/alertmanager/alertmanager.yml | grep -A3 'receivers:' && grep -E '(email_configs|slack_configs|pagerduty_configs|webhook_configs|sns_configs|victorops_configs|opsgenie_configs)' /etc/alertmanager/alertmanager.yml",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "A structured list of receiver definitions with channel-specific stanzas confirming which downstream systems are configured."
+      },
+      {
+        "type": "command",
+        "instruction": "For Splunk ES, query the configured alert actions to list all notification channels attached to correlation searches.",
+        "command": "splunk search '| rest /servicesNS/-/-/saved/searches splunk_server=local | search is_scheduled=1 | table title, actions, action.email.to, action.pagerduty.*, action.slack.*' -auth admin:$SPLUNK_PASS",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A table of scheduled searches with their associated action types, confirming which notification channels each alert rule is wired to."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['email'] (minimal deployments)",
+      "['email', 'pagerduty'] (common SMB configuration)",
+      "['siem', 'email', 'pagerduty', 'slack'] (mature SOC configuration)",
+      "['siem', 'email', 'sms', 'pagerduty', 'servicenow'] (enterprise configuration with ticketing)",
+      "[] (misconfigured or newly deployed — high risk)"
+    ]
+  },
+  {
+    "option_name": "alert_routing_enabled",
+    "option_description": "A boolean flag that controls whether the alerting platform's automated dispatch engine is active and routing threshold-triggered alerts to the configured notification channels. When false or disabled, alerts may be generated internally but will not propagate to any downstream receiver, silently breaking the notification pipeline.",
+    "security_impact": "The Rego policy for 'notification_channel_integration' requires alert_routing_enabled == true as a mandatory condition alongside configured channels and a passing channel test. If routing is disabled — even with channels configured and tested — the countermeasure fails entirely. This is a critical single-point-of-failure for operational visibility; disabled routing is functionally equivalent to having no alerting, as no responder is notified of threshold breaches.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether the Alertmanager service is running and not in an inhibit or silence-all state, which would indicate routing is effectively disabled.",
+        "command": "systemctl is-active alertmanager && curl -s http://localhost:9093/api/v2/status | jq '.uptime, .cluster.status' && curl -s http://localhost:9093/api/v2/silences | jq '[.[] | select(.status.state==\"active\")] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'active' for service status, cluster status 'ready', and 0 or low silence count. A large number of active silences covering all matchers may indicate effective routing suppression."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Datadog, verify that notification routing is active by checking the Monitors summary page for any global mute settings, and review individual monitor notification settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Datadog > Monitors > Manage Downtime — check for active global downtime schedules; also Monitors > Settings > Notification routing rules",
+        "expected_output": "No active global downtime schedules covering production monitors, and notification routing rules present and enabled with non-muted status."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the PagerDuty API to verify that services are not in maintenance mode (which disables routing) and that notification rules are active.",
+        "command": "curl -s -H 'Authorization: Token token=$PD_API_KEY' -H 'Accept: application/vnd.pagerduty+json;version=2' 'https://api.pagerduty.com/services?limit=100' | jq '.services[] | {name: .name, status: .status}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All services showing 'status: active' — any service in 'maintenance' or 'disabled' state indicates routing is not enabled for that service."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the Alertmanager configuration for 'inhibit_rules' or 'route.continue: false' settings that could silently suppress all alert routing.",
+        "command": "cat /etc/alertmanager/alertmanager.yml | python3 -c \"import sys,yaml; cfg=yaml.safe_load(sys.stdin); print('inhibit_rules:', len(cfg.get('inhibit_rules',[]))); print('root_receiver:', cfg.get('route',{}).get('receiver','NONE')); print('continue:', cfg.get('route',{}).get('continue', False))\"",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "Root receiver is defined and not 'null' or 'blackhole'; inhibit_rules count is low and scoped; 'continue' is appropriately set for the routing topology."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (expected in production environments)",
+      "false (common finding in newly provisioned or recently migrated systems)",
+      "false (frequently found after maintenance windows where routing was temporarily disabled and never re-enabled)"
+    ]
+  },
+  {
+    "option_name": "channel_test_status",
+    "option_description": "Records the outcome of the most recent end-to-end connectivity and delivery test performed across all configured notification channels. Valid states are 'passed' (all channels confirmed delivery), 'failed' (one or more channels did not deliver), or 'not_tested' (no test has been executed, leaving channel health unknown).",
+    "security_impact": "The Rego policy for 'notification_channel_integration' strictly requires channel_test_status == 'passed' — 'failed' or 'not_tested' both cause the countermeasure to fail. Untested or broken channels create a silent gap where alerts appear to be configured but never reach responders. This is a common audit finding: organizations believe their alerting pipeline is functional until an actual incident reveals that a webhook expired, an API key rotated, or an email relay was blocked.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Send a test alert through Alertmanager using amtool to verify end-to-end delivery to all configured receivers and check for delivery errors in logs.",
+        "command": "amtool alert add alertname=TestConnectivity severity=test --alertmanager.url=http://localhost:9093 && sleep 10 && journalctl -u alertmanager --since '1 minute ago' | grep -E '(Notifying|failed|error|success|dispatch)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log entries showing 'Notifying receiver' for each configured receiver without error messages. Error entries indicate failed channel delivery."
+      },
+      {
+        "type": "gui",
+        "instruction": "In PagerDuty, use the Service's 'Test Integration' button on each integration to trigger a test event and confirm a new incident is created with the expected notification.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PagerDuty > Services > [Service Name] > Integrations > [Integration Name] > 'Send Test Event' button",
+        "expected_output": "A new test incident appears in the Incidents list, and configured responders receive notification via their configured contact methods (email/SMS/push) within the expected delivery SLA."
+      },
+      {
+        "type": "api",
+        "instruction": "Trigger a test notification via the Datadog API and verify the response indicates successful dispatch to all channels.",
+        "command": "curl -s -X POST 'https://api.datadoghq.com/api/v1/events' -H 'DD-API-KEY: $DD_API_KEY' -H 'Content-Type: application/json' -d '{\"title\":\"ChannelTest\",\"text\":\"Connectivity test from assessment\",\"alert_type\":\"info\",\"tags\":[\"env:test\"]}' | jq '.status'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'ok' response from the API, and delivery confirmation visible in integration logs or the target channel (e.g., message appears in Slack channel, email received)."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review alerting platform logs for the most recent test event execution timestamp and result, looking for delivery acknowledgements or error codes from downstream channel APIs.",
+        "command": "grep -E '(TestAlert|test_notification|channel.*test|webhook.*200|smtp.*sent|pagerduty.*201|slack.*ok)' /var/log/alertmanager/alertmanager.log | tail -20",
+        "file_path": "/var/log/alertmanager/alertmanager.log",
+        "navigation": null,
+        "expected_output": "Recent log entries (within the last 30 days) showing HTTP 200/201 responses from webhook endpoints or SMTP delivery confirmations, with no timeout or authentication errors."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "passed (expected in well-maintained environments with regular testing)",
+      "not_tested (extremely common finding — most organizations configure channels but never formally test them)",
+      "failed (common after credential rotation, webhook URL changes, or firewall rule modifications)"
+    ]
+  },
+  {
+    "option_name": "threshold_templates_defined",
+    "option_description": "A boolean flag indicating whether standardized, reusable alert threshold templates have been formally created and catalogued within the alerting platform or IaC repository. Templates allow consistent threshold configurations to be applied across multiple systems rather than requiring each system to be individually configured.",
+    "security_impact": "The Rego policy for 'operational_maintainability_through_templating' requires threshold_templates_defined == true as the foundational condition for both rule paths — either paired with template_adoption_percentage >= 80 or template_coverage_scope in ['full', 'category']. Without templates, every system has individually hand-crafted thresholds, leading to configuration drift where some systems have weaker detection boundaries than others. This creates inconsistent security coverage and makes audit and maintenance operationally prohibitive at scale.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search IaC repositories (Terraform, Ansible, Helm) for reusable alerting template definitions that are parameterized for multi-system application.",
+        "command": "find /opt/iac /home/*/infra /srv/terraform -name '*.tf' -o -name '*.yml' -o -name '*.yaml' 2>/dev/null | xargs grep -l 'alert.*template\\|monitoring.*template\\|threshold.*module\\|alert_rule.*variable' 2>/dev/null | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more files containing parameterized alert rule definitions with variable placeholders (e.g., '${threshold_value}', '{{ alert_threshold }}') indicating reusable templates exist."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Grafana, navigate to Alerting > Alert Rules and check for rule folders prefixed with 'Template' or 'Standard', or inspect the Contact Points and Notification Policies for template-based routing.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana UI > Alerting > Alert Rules > Check rule group names and folder structure for template/standard naming conventions",
+        "expected_output": "Named rule groups with consistent naming like 'standard-cpu-alerts', 'template-latency-rules', or similar conventions indicating deliberate reuse across service instances."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Datadog API for monitor definitions to identify monitors created from shared templates by looking for consistent naming patterns or template metadata tags.",
+        "command": "curl -s -H 'DD-API-KEY: $DD_API_KEY' -H 'DD-APP-KEY: $DD_APP_KEY' 'https://api.datadoghq.com/api/v1/monitor?with_downtime=false' | jq '[.[] | select(.tags[] | test(\"template:|standard-threshold:\"))] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-zero count of monitors tagged with template identifiers confirms that standardized templates exist and are being applied."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the Prometheus alerting rules directory for rule files that use YAML anchors or are structured as reusable templates applied via Helm values or Jsonnet.",
+        "command": "find /etc/prometheus/rules/ -name '*.yml' | xargs grep -l 'x-anchor\\|<<:\\|_template\\|TEMPLATE' 2>/dev/null; ls -la /etc/prometheus/rules/ | grep -iE 'template|standard|base'",
+        "file_path": "/etc/prometheus/rules/",
+        "navigation": null,
+        "expected_output": "Files named with 'template' or 'standard' prefix, or rule files using YAML anchors (&anchor_name) that are referenced elsewhere (<<: *anchor_name) confirm template-based definitions."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in organizations that grew monitoring organically without standardization)",
+      "true (common in organizations using Terraform modules, Helm charts, or Ansible roles for monitoring deployment)",
+      "true (common in enterprises with a dedicated platform engineering or SRE team)"
+    ]
+  },
+  {
+    "option_name": "template_coverage_scope",
+    "option_description": "Classifies the breadth of systems and service categories covered by the defined threshold templates. 'none' means no templates exist or none are applied; 'partial' means only a subset of a single system type uses templates; 'category' means all systems of one or more specific types (e.g., all web servers, all databases) use templates; 'full' means all monitored systems across all categories use template-based configurations.",
+    "security_impact": "The Rego policy for 'operational_maintainability_through_templating' accepts template_coverage_scope in ['full', 'category'] as a sufficient condition (when threshold_templates_defined == true) to satisfy the countermeasure. 'none' or 'partial' scope means significant portions of the environment have individually configured thresholds prone to misconfiguration and drift. Incomplete template coverage creates blind spots where certain system classes may have overly permissive or miscalibrated thresholds, enabling threats to go undetected in uncovered system categories.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform engineering or SRE team to determine which system categories have standardized monitoring templates and map them against the full inventory of monitored system types.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A mapping of system categories (web tier, database tier, message brokers, containers, network devices) against template availability — confirming whether coverage is partial, category-level, or full."
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate all monitored system types by querying Prometheus targets and cross-reference against the set of alert rule files to determine coverage breadth.",
+        "command": "curl -s http://localhost:9090/api/v1/targets | jq '[.data.activeTargets[].labels.job] | unique | sort' > /tmp/all_jobs.json && grep -h 'job=' /etc/prometheus/rules/*.yml | sed 's/.*job=\"\\([^\"]*\\)\".*/\\1/' | sort -u > /tmp/covered_jobs.txt && echo '=== ALL JOBS ===' && cat /tmp/all_jobs.json && echo '=== COVERED IN RULES ===' && cat /tmp/covered_jobs.txt",
+        "file_path": "/etc/prometheus/rules/",
+        "navigation": null,
+        "expected_output": "Comparison showing which job labels (system types) have corresponding alert rules. Full overlap indicates 'full' coverage; subset overlap indicates 'category' or 'partial'."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Datadog API to group monitors by service tags and determine which service categories have template-tagged monitors versus individually configured ones.",
+        "command": "curl -s -H 'DD-API-KEY: $DD_API_KEY' -H 'DD-APP-KEY: $DD_APP_KEY' 'https://api.datadoghq.com/api/v1/monitor' | jq 'group_by(.tags[] | select(startswith(\"service:\"))) | map({service: .[0].tags[] | select(startswith(\"service:\")), total: length, templated: [.[] | select(.tags[] | test(\"template:\"))] | length}) | .[]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Per-service breakdown showing total monitors vs. template-tagged monitors, revealing which service categories are fully covered, partially covered, or not covered by templates."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Audit the Helm chart or Terraform module directory structure to determine which infrastructure components have monitoring modules defined versus those relying on manual configuration.",
+        "command": "find /srv/helm /opt/terraform -type f -name '*.tf' -o -name 'values.yaml' 2>/dev/null | xargs grep -l 'alerting\\|monitoring\\|alert_rule' 2>/dev/null | xargs -I{} dirname {} | sort -u | sed 's|.*/||' | sort",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of infrastructure component directories (e.g., 'web-server', 'postgres', 'kafka') that contain alerting configuration, revealing the scope of template coverage by component category."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (initial deployment state or environments with no formal alerting standards)",
+      "partial (common in transitional states where templating was recently adopted for new systems only)",
+      "category (common in mature teams that have standardized on specific tech stacks like 'all Kubernetes workloads')",
+      "full (found in organizations with IaC-enforced monitoring baselines and platform teams)"
+    ]
+  },
+  {
+    "option_name": "template_adoption_percentage",
+    "option_description": "A quantitative metric (0-100) representing the percentage of currently monitored systems that use template-derived alert threshold configurations rather than individually hand-crafted settings. Calculated by dividing the count of template-configured systems by total monitored systems and multiplying by 100.",
+    "security_impact": "The Rego policy for 'operational_maintainability_through_templating' requires template_adoption_percentage >= 80 (combined with threshold_templates_defined == true) as one of two paths to satisfy the countermeasure. Below 80%, a significant minority of systems operate with unvetted, potentially miscalibrated thresholds. Each individually configured system represents a potential misconfiguration that could produce either excessive false positives (causing alert fatigue) or overly permissive thresholds (missing genuine attacks). The 80% threshold acknowledges that some bespoke systems require custom configuration while ensuring the majority benefit from standardized, reviewed settings.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Calculate adoption percentage by counting total Prometheus alert rules and those generated from templates (identifiable by Helm release labels or consistent annotation patterns), then compute the ratio.",
+        "command": "TOTAL=$(curl -s http://localhost:9090/api/v1/rules | jq '[.data.groups[].rules[] | select(.type==\"alerting\")] | length'); TEMPLATED=$(curl -s http://localhost:9090/api/v1/rules | jq '[.data.groups[].rules[] | select(.type==\"alerting\") | select(.labels.managed_by == \"helm\" or .labels.template == \"true\" or .labels.source == \"iac\")] | length'); echo \"Total: $TOTAL, Templated: $TEMPLATED, Adoption: $(echo \"scale=1; $TEMPLATED * 100 / $TOTAL\" | bc)%\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Numeric output showing total alert rules, templated alert rules, and the computed adoption percentage. Values >= 80% satisfy the Rego policy threshold."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Datadog Monitors API to count all monitors and those tagged with a template identifier, then compute the adoption percentage.",
+        "command": "TOTAL=$(curl -s -H 'DD-API-KEY: $DD_API_KEY' -H 'DD-APP-KEY: $DD_APP_KEY' 'https://api.datadoghq.com/api/v1/monitor?page_size=1000' | jq 'length'); TEMPLATED=$(curl -s -H 'DD-API-KEY: $DD_API_KEY' -H 'DD-APP-KEY: $DD_APP_KEY' 'https://api.datadoghq.com/api/v1/monitor?page_size=1000' | jq '[.[] | select(.tags[] | test(\"template:|managed-by:terraform|source:helm\"))] | length'); echo \"Total: $TOTAL, Templated: $TEMPLATED, Percentage: $(echo \"scale=1; $TEMPLATED * 100 / $TOTAL\" | bc)%\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Percentage value between 0-100 indicating what fraction of Datadog monitors were deployed via standardized templates."
+      },
+      {
+        "type": "command",
+        "instruction": "For Terraform-managed infrastructure, use the Terraform state to count monitored resources and identify those provisioned through alerting modules versus inline resource definitions.",
+        "command": "terraform state list 2>/dev/null | grep -E '(monitor|alert|alarm)' | wc -l > /tmp/total_alerts.txt && terraform state list 2>/dev/null | grep -E 'module\\..*(monitor|alert|alarm)' | wc -l > /tmp/module_alerts.txt && echo \"Template-based: $(cat /tmp/module_alerts.txt) / Total: $(cat /tmp/total_alerts.txt) = $(echo \"scale=1; $(cat /tmp/module_alerts.txt) * 100 / $(cat /tmp/total_alerts.txt)\" | bc)%\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Resources prefixed with 'module.' in Terraform state indicate module-deployed (template-based) alerts; direct resource declarations without module prefix indicate individually configured alerts."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the alerting platform's configuration inventory or CMDB to obtain a count of systems using templated versus custom alert configurations, then manually compute or request the adoption percentage from the platform team.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented ratio from the platform team or CMDB showing template-managed vs. total monitored systems. Confirm the methodology used to classify a system as 'template-managed' (e.g., deployed via IaC module, tagged with 'managed-by:template')."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (no template adoption — all systems individually configured)",
+      "25-50 (partial adoption — templates introduced for new systems but legacy systems not yet migrated)",
+      "60-79 (approaching threshold — templates broadly adopted but some legacy or bespoke systems remain)",
+      "80-95 (policy-satisfying range — most systems standardized with small exception set for unique workloads)",
+      "100 (full adoption — typically found in greenfield environments or organizations with strict IaC enforcement)"
+    ]
+  }
+]

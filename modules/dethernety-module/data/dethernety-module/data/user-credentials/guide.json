@@ -1,0 +1,749 @@
+[
+  {
+    "option_name": "credential_data_classification_label",
+    "option_description": "The formal sensitivity classification label assigned to VPN authentication credential data (usernames, passwords, pre-shared keys, certificates, tokens) within the organization's data classification policy. This label drives which protective controls apply to the data throughout its lifecycle.",
+    "security_impact": "The Rego policy triggers the 'unclassified_or_misclassified_credential_data' exposure whenever this value is 'unclassified' or 'not_assigned', or when it is set to 'public' or 'internal' (insufficient tiers for credential data). Even a correct label of 'restricted' or 'confidential' is insufficient alone — if classification is not enforced in downstream policies, the exposure still fires. Without an appropriate label, storage systems and log aggregators default to less protective tiers, leaving credential data exposed to unauthorized access.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's data classification policy document and locate the section enumerating data types. Confirm that VPN authentication credentials (usernames, passwords, PSKs, certificates, tokens) are explicitly listed with an assigned sensitivity tier (e.g., Restricted or Confidential).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Data Governance portal or SharePoint/Confluence knowledge base → Data Classification Policy → Data Type Inventory section",
+        "expected_output": "A named sensitivity tier (e.g., 'Restricted', 'Confidential') explicitly mapped to VPN credential data types in the policy document."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the DLP policy export or data inventory register for labels applied to VPN-related data sources. Many DLP tools export policies in XML or JSON format that can be searched for VPN credential entries.",
+        "command": "grep -i -E '(vpn|credential|password|preshared|certificate|token)' /etc/dlp/policies/*.xml",
+        "file_path": "/etc/dlp/policies/",
+        "navigation": null,
+        "expected_output": "Policy entries showing a sensitivity tier tag (e.g., <classification>Restricted</classification>) associated with VPN authentication data types."
+      },
+      {
+        "type": "gui",
+        "instruction": "Log into the DLP management console and navigate to the data classification inventory. Search for 'VPN' or 'authentication credential' entries and inspect the assigned classification tier.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DLP Console → Data Classification → Data Inventory → Search: 'VPN credentials'",
+        "expected_output": "An inventory record showing VPN credential data assigned to 'Restricted' or 'Confidential' tier."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the data governance platform's API to retrieve classification labels for VPN-related data assets.",
+        "command": "curl -s -H 'Authorization: Bearer $GOV_API_TOKEN' 'https://governance.internal/api/v1/assets?category=authentication&system=vpn' | jq '.[].classification_label'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output containing classification_label fields set to 'restricted' or 'confidential' for VPN authentication assets."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "restricted",
+      "confidential",
+      "not_assigned"
+    ]
+  },
+  {
+    "option_name": "classification_enforced_in_handling_policies",
+    "option_description": "Indicates whether the assigned classification label is actively referenced and enforced by downstream handling policies, including encryption requirements, retention limits, access controls, and log aggregator configurations for VPN credential data. A label that exists on paper but is not wired into technical controls provides no real protection.",
+    "security_impact": "The Rego policy fires the 'unclassified_or_misclassified_credential_data' exposure even when the label is 'restricted' or 'confidential' if this boolean is false. This reflects the real-world risk that a correct label with no downstream enforcement is operationally equivalent to having no label — credential data may still be stored in unencrypted tiers, retained indefinitely, or accessible without appropriate access controls.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect SIEM or log aggregator configuration files for ingestion rules referencing the credential data classification label. Verify that rules apply elevated retention controls, encryption-at-rest requirements, and access restrictions when the label matches 'restricted' or 'confidential'.",
+        "command": "grep -rn 'restricted\\|confidential\\|classification' /etc/siem/ingestion-rules/ /etc/logstash/conf.d/",
+        "file_path": "/etc/siem/ingestion-rules/ or /etc/logstash/conf.d/",
+        "navigation": null,
+        "expected_output": "Configuration blocks showing conditional logic that applies stricter controls (encryption, access ACLs, shorter retention) when the data classification label is 'restricted' or 'confidential'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the DLP management console, navigate to policy enforcement rules and verify that VPN credential data classification labels are referenced in active enforcement policies covering encryption, retention, and access control.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DLP Console → Policy Enforcement → Active Policies → Filter: 'VPN' or 'Restricted' → Review enforcement actions",
+        "expected_output": "Active policies that reference the 'Restricted' or 'Confidential' label and trigger encryption, access restriction, and retention limit enforcement for VPN credential data."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the data governance team and storage administrators to confirm whether the classification label for VPN credentials is referenced in storage provisioning procedures, SIEM onboarding checklists, and access control group assignments.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented evidence (checklists, provisioning tickets, or access control group definitions) showing the label drives technical controls rather than existing only as a policy annotation."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the access control system to verify that ACL groups or IAM policies for VPN credential storage reference the classification label as a condition.",
+        "command": "curl -s -H 'Authorization: Bearer $IAM_TOKEN' 'https://iam.internal/api/v1/policies?resource=vpn-credentials' | jq '.[] | select(.conditions[].label == \"restricted\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IAM policy definitions containing conditions that reference the 'restricted' classification label, confirming technical enforcement of the classification."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "log_aggregator_sensitivity_tier",
+    "option_description": "The sensitivity tier under which VPN authentication events (which may contain credential artifacts) are ingested and stored by the log aggregator or SIEM. This tier determines which retention policies, encryption-at-rest controls, and access restrictions are applied to these log streams.",
+    "security_impact": "The Rego policy fires the 'unclassified_or_misclassified_credential_data' exposure when this value is 'low_sensitivity', 'unclassified', or 'not_configured'. A mismatch between the credential data's true sensitivity (Restricted/Confidential) and the log aggregator's tier means credential artifacts captured in logs receive inadequate protection — weaker encryption, broader access, and longer or undefined retention windows — regardless of what the classification policy states.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the SIEM or log aggregator's data source configuration files for the VPN authentication log source definition. Look for tags, sensitivity tiers, or data classification fields applied to the VPN syslog or auth log input.",
+        "command": "grep -A 10 -i 'vpn\\|authentication\\|auth' /etc/logstash/conf.d/inputs.conf /etc/splunk/inputs.conf 2>/dev/null || find /opt/siem/config -name '*.yml' -exec grep -l 'vpn' {} \\;",
+        "file_path": "/etc/logstash/conf.d/inputs.conf or /opt/siem/config/",
+        "navigation": null,
+        "expected_output": "Log source configuration block showing a sensitivity tier tag set to 'high_sensitivity' for the VPN authentication log source."
+      },
+      {
+        "type": "gui",
+        "instruction": "Log into the SIEM console and navigate to the data source or log source management interface. Locate the VPN authentication event source and inspect its assigned data classification or sensitivity tier.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM Console → Settings → Data Sources → Search: 'VPN' or 'auth' → Select source → Data Classification field",
+        "expected_output": "The VPN authentication log source shows sensitivity tier set to 'high_sensitivity' with corresponding encryption-at-rest and access control policies applied."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SIEM API to retrieve the data classification tier assigned to the VPN authentication log source.",
+        "command": "curl -s -H 'Authorization: Bearer $SIEM_API_TOKEN' 'https://siem.internal/api/v1/datasources?name=vpn-auth' | jq '.[].sensitivity_tier'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response showing sensitivity_tier value for VPN auth data source, expected to be 'high_sensitivity'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the SIEM administrator and review the SIEM onboarding documentation for the VPN authentication log source to determine how it was classified at ingestion time and whether that classification has been reviewed since initial setup.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirming that VPN auth log sources were classified at 'high_sensitivity' tier during onboarding, with a periodic review record."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "not_configured",
+      "low_sensitivity",
+      "high_sensitivity"
+    ]
+  },
+  {
+    "option_name": "credential_fields_in_logs",
+    "option_description": "Indicates whether VPN authentication credential fields (usernames, passwords, pre-shared keys, tokens) have been observed written in plaintext to system logs, SIEM feeds, or diagnostic traces. This is a detection-oriented attribute reflecting observed state rather than configuration intent.",
+    "security_impact": "The Rego policy fires the 'plaintext_credential_logging' exposure when this is true AND either masking is not enabled or log storage is not encrypted at rest. Plaintext credentials in logs represent a persistent, often overlooked attack surface — logs are frequently copied, forwarded to third parties, retained long-term, and accessed by a broader audience than production credential stores. MITRE ATT&CK T1552.001 (Credentials In Files) and T1654 (Log Enumeration) directly map to this condition.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Search VPN daemon logs, syslog outputs, and SIEM ingestion pipelines for patterns matching credential field names or values. Use pattern matching for common credential field keywords and base64-encoded strings.",
+        "command": "grep -rE '(password=|passwd=|psk=|pre.shared.key=|token=|secret=|credential=)[^*]' /var/log/vpn/ /var/log/auth.log /var/log/syslog 2>/dev/null | head -50",
+        "file_path": "/var/log/vpn/ /var/log/auth.log /var/log/syslog",
+        "navigation": null,
+        "expected_output": "No matches indicates credentials are not in plaintext logs. Any matches confirm credential_fields_in_logs = true and require immediate remediation."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM for VPN authentication events containing credential field patterns. Use a time-bounded search across the last 30 days to detect historical occurrences.",
+        "command": "curl -s -X POST -H 'Authorization: Bearer $SIEM_TOKEN' -H 'Content-Type: application/json' 'https://siem.internal/api/v1/search' -d '{\"query\": \"source=vpn AND (password=* OR psk=* OR token=*)\", \"time_range\": \"-30d\"}' | jq '.hits.total'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero hits indicates no plaintext credential logging. Any positive hit count confirms the attribute is true."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review VPN daemon configuration files for debug or verbose logging flags that would cause credential fields to be written to logs. Common flags include 'log-level debug', 'verb 9' (OpenVPN), or 'debug' mode in strongSwan/IKEv2.",
+        "command": "grep -E '(log.level|verb|debug|loglevel)' /etc/openvpn/*.conf /etc/strongswan/strongswan.conf /etc/ipsec.conf 2>/dev/null",
+        "file_path": "/etc/openvpn/ /etc/strongswan/ /etc/ipsec.conf",
+        "navigation": null,
+        "expected_output": "Log level set to info or lower (e.g., 'verb 3' in OpenVPN, 'charondebug = none' in strongSwan). Debug-level settings are high-risk indicators."
+      },
+      {
+        "type": "command",
+        "instruction": "Capture a sample authentication event in real-time and inspect the log output for credential field content, using a test account with known credentials.",
+        "command": "tail -f /var/log/auth.log /var/log/vpn/vpn.log | grep -E '(password|psk|token|secret)' & sleep 30; kill %1",
+        "file_path": "/var/log/auth.log /var/log/vpn/vpn.log",
+        "navigation": null,
+        "expected_output": "No credential field values appear in the captured log stream. If values appear, the attribute is true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "log_credential_masking_enabled",
+    "option_description": "Indicates whether the VPN system or logging pipeline has credential masking, redaction, or sanitization controls enabled that prevent plaintext credential values from being written to logs or audit records. This covers both VPN server/client-side masking and log shipper or SIEM pipeline redaction rules.",
+    "security_impact": "The Rego policy references this attribute in two separate exposure rules. For 'plaintext_credential_logging', it fires when credential_fields_in_logs is true and masking is NOT enabled. For 'missing_masking_of_credential_fields_in_audit_records', it fires when masking is NOT enabled and either unmasked fields are present or audit logs are shared externally. Masking is the primary technical control preventing credential exposure across both operational logs and compliance audit records.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect VPN server and client configuration files for masking or sanitization options. Also review log shipper configurations (Logstash, Fluentd, Filebeat) for mutate/redact filters targeting credential fields.",
+        "command": "grep -rE '(mask|redact|sanitize|filter.*password|mutate.*password|anonymize)' /etc/logstash/conf.d/ /etc/fluentd/ /etc/filebeat/ /etc/openvpn/ 2>/dev/null",
+        "file_path": "/etc/logstash/conf.d/ /etc/fluentd/ /etc/filebeat/",
+        "navigation": null,
+        "expected_output": "Filter or mutate configuration blocks that replace password, psk, token, and similar fields with masked values (e.g., '****' or '[REDACTED]') before log storage."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review RADIUS accounting server configuration (FreeRADIUS or similar) and syslog templates for credential field masking in VPN authentication accounting records.",
+        "command": "grep -rE '(password|User-Password|MS-CHAP|EAP)' /etc/freeradius/3.0/mods-enabled/ /etc/freeradius/3.0/sites-enabled/ | grep -i 'mask\\|strip\\|log = no\\|!= log'",
+        "file_path": "/etc/freeradius/3.0/",
+        "navigation": null,
+        "expected_output": "Configuration lines showing password fields are not logged or are masked, e.g., 'auth = no' in FreeRADIUS log configuration."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review a sample of captured VPN authentication log entries to verify that credential fields appear as masked values rather than plaintext, confirming that masking controls are functioning.",
+        "command": "grep -E '(password|psk|token|secret)' /var/log/vpn/vpn.log /var/log/auth.log 2>/dev/null | tail -20",
+        "file_path": "/var/log/vpn/vpn.log /var/log/auth.log",
+        "navigation": null,
+        "expected_output": "Credential field references appear as '****', '[REDACTED]', or are entirely absent. Any plaintext values indicate masking is not enabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the SIEM console, navigate to data transformation or pipeline rules and verify that field redaction rules are active for VPN authentication log sources, targeting password, PSK, token, and OTP fields.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM Console → Data Pipeline → Field Transformations → Filter: 'vpn' → Verify redaction rules for credential fields",
+        "expected_output": "Active redaction rules configured for fields matching 'password', 'psk', 'token', 'otp' in VPN authentication log sources."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_storage_encryption_at_rest",
+    "option_description": "Indicates whether the log storage tier where VPN authentication logs are persisted enforces encryption at rest, protecting any inadvertently captured credential material from being read by unauthorized parties who gain access to storage media or underlying infrastructure.",
+    "security_impact": "The Rego policy fires the 'plaintext_credential_logging' exposure when credential_fields_in_logs is true AND log storage is NOT encrypted at rest. Encryption at rest serves as a critical compensating control — even if credential data is inadvertently written to logs, encrypted storage limits the blast radius of a storage-layer breach. Without it, plaintext credential artifacts in logs are directly accessible to anyone with storage system access, including cloud provider personnel, backup administrators, and attackers who compromise the logging infrastructure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Linux-based log hosts, verify filesystem-level encryption on log storage directories using cryptsetup or checking for LUKS volumes. For cloud storage, use provider CLI tools to verify bucket or volume encryption.",
+        "command": "cryptsetup status /dev/mapper/log-volume 2>/dev/null || lsblk -o NAME,TYPE,MOUNTPOINT,FSTYPE | grep -i 'log\\|siem'; aws s3api get-bucket-encryption --bucket $LOG_BUCKET_NAME 2>/dev/null || az storage account show --name $STORAGE_ACCOUNT --query 'encryption' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "LUKS device showing 'active' status, or cloud CLI output confirming SSE-S3/SSE-KMS encryption is enabled on the log storage bucket or volume."
+      },
+      {
+        "type": "gui",
+        "instruction": "For cloud-hosted log storage (S3, Azure Blob, GCS), navigate to the storage configuration console and verify that server-side encryption is enforced with a managed or customer-managed key.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → S3 → Select log bucket → Properties → Default encryption (verify AES-256 or AWS-KMS enabled) | Azure Portal → Storage Account → Encryption → Verify Microsoft-managed or customer-managed keys",
+        "expected_output": "Encryption status showing 'Enabled' with a specific encryption algorithm (AES-256) and key type (SSE-S3, SSE-KMS, or CMK)."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SIEM vendor's API or cloud provider API to programmatically verify encryption-at-rest status for the VPN log storage tier.",
+        "command": "aws s3api get-bucket-encryption --bucket $VPN_LOG_BUCKET | jq '.ServerSideEncryptionConfiguration.Rules[].ApplyServerSideEncryptionByDefault.SSEAlgorithm'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output of 'aws:kms' or 'AES256', confirming encryption at rest is enforced. An error or empty response indicates encryption is not configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For on-premises SIEM storage, review the storage system configuration for encryption-at-rest settings, including ZFS native encryption, dm-crypt, or storage array encryption policies.",
+        "command": "zfs get encryption /var/log/siem 2>/dev/null || dmsetup status 2>/dev/null | grep -i crypt | grep log",
+        "file_path": "/etc/fstab /etc/crypttab",
+        "navigation": null,
+        "expected_output": "ZFS showing encryption=aes-256-gcm or equivalent, or dmsetup showing active crypt device for log storage. /etc/crypttab entries for log volumes confirm encryption at mount."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "audit_log_sharing_scope",
+    "option_description": "Describes how broadly VPN authentication audit records are shared or transmitted — whether kept internal with strict access controls, forwarded to an internal SIEM, sent to an external vendor's platform, or distributed without restriction. This scope determination drives the risk level of any unmasked credential fields that may exist in those records.",
+    "security_impact": "The Rego policy fires the 'missing_masking_of_credential_fields_in_audit_records' exposure when log_credential_masking_enabled is false AND audit_log_sharing_scope is 'external_vendor' or 'unrestricted'. Wider sharing scope dramatically amplifies the impact of any credential exposure in audit records — data forwarded to external vendors exits organizational control, may cross jurisdictions, and is subject to the vendor's security posture rather than the organization's. Unrestricted sharing represents the highest risk scenario where credential artifacts could reach arbitrary parties.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review SIEM log forwarding and integration configurations to identify all destinations receiving VPN authentication audit records. Check for external syslog forwarders, cloud SIEM connectors, and compliance export configurations.",
+        "command": "grep -rE '(forward|output|destination|remote_host|endpoint)' /etc/rsyslog.d/ /etc/syslog-ng/ /etc/logstash/conf.d/outputs.conf 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/rsyslog.d/ /etc/syslog-ng/ /etc/logstash/conf.d/",
+        "navigation": null,
+        "expected_output": "Output configuration showing only internal IP addresses or SIEM hostnames for VPN auth log destinations. External hostnames or SaaS vendor URLs indicate external_vendor or unrestricted scope."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the SIEM console, navigate to integration or forwarding settings and identify all active data forwarding rules for VPN authentication event sources. Check for third-party SIEM connector configurations and compliance report delivery settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM Console → Settings → Integrations → Data Forwarding → Filter by VPN auth source → Review all active destinations",
+        "expected_output": "Forwarding rules listing only internal destinations (e.g., internal-siem.company.com). External vendor URLs (e.g., *.splunkcloud.com, *.elastic.co) indicate external_vendor scope."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the SIEM administrator and compliance team to identify all consumers of VPN authentication audit records, including automated exports for compliance frameworks, third-party SOC providers, and regulatory reporting workflows.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented list of all audit log consumers with their access method, confirming whether records leave the internal environment and under what data processing agreements."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SIEM or log management platform's API to list all configured output destinations for VPN authentication data sources.",
+        "command": "curl -s -H 'Authorization: Bearer $SIEM_TOKEN' 'https://siem.internal/api/v1/forwarding-rules?source=vpn-auth' | jq '.[].destination_type, .[].destination_host'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output showing destination types. Values of 'internal' or 'internal_siem' are acceptable. 'external_vendor', 'saas', or public hostnames require masked credential verification before forwarding."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "internal_siem",
+      "external_vendor",
+      "internal_restricted"
+    ]
+  },
+  {
+    "option_name": "unmasked_credential_fields_present",
+    "option_description": "A list of credential field types observed in plaintext within audit or accounting records, such as 'password', 'otp_value', 'pre_shared_key', or 'certificate_serial'. This is an evidence-based attribute populated by directly sampling audit records and identifying which credential field types appear without masking or tokenization.",
+    "security_impact": "The Rego policy fires the 'missing_masking_of_credential_fields_in_audit_records' exposure when log_credential_masking_enabled is false AND count(unmasked_credential_fields_present) > 0. Each field type in this list represents a distinct credential artifact type exposed in audit records that may be shared with compliance reviewers, external SIEM vendors, or archived without appropriate access controls. MITRE ATT&CK T1552.001 (Credentials In Files) and T1003 (OS Credential Dumping) map directly to the risk of audit records containing harvested credential fields.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Sample recent VPN authentication audit records from the logging system or SIEM and search for specific credential field patterns. Check for password fields, OTP values, PSK values, and certificate serials appearing as plaintext rather than masked representations.",
+        "command": "grep -rE '(password=(?!\\*)|psk=(?!\\*)|token=(?!\\*)|otp=(?!\\*)|pre.shared.key=(?!\\*)|certificate.serial=)' /var/log/vpn/ /var/log/radius/ 2>/dev/null | grep -v '\\*\\{3,\\}' | head -30",
+        "file_path": "/var/log/vpn/ /var/log/radius/",
+        "navigation": null,
+        "expected_output": "No output indicates no unmasked fields. Any matches identify specific field types to include in the array (e.g., ['password', 'psk'])."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM for VPN authentication and RADIUS accounting events, extracting unique field names that contain non-masked credential values. Focus on the last 7 days of audit records.",
+        "command": "curl -s -X POST -H 'Authorization: Bearer $SIEM_TOKEN' -H 'Content-Type: application/json' 'https://siem.internal/api/v1/search' -d '{\"query\": \"index=vpn_auth (password=* OR psk=* OR otp=* OR token=* OR pre_shared_key=*) NOT (password=\\\"****\\\" OR password=\\\"[REDACTED]\\\")\", \"time_range\": \"-7d\", \"fields\": [\"field_name\", \"field_value\"]}' | jq '[.[].field_name] | unique'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An empty array [] indicates no unmasked credential fields. A list such as ['password', 'otp_value'] identifies the specific field types present in plaintext."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect FreeRADIUS or TACACS+ accounting log files for credential fields written during VPN authentication accounting. These systems commonly log more credential context than intended.",
+        "command": "grep -E '(User-Password|MS-CHAP-Response|EAP-Message|CHAP-Password)' /var/log/freeradius/radacct/*/*.log 2>/dev/null | grep -v '= \\*\\{3,\\}' | awk -F'=' '{print $1}' | sort -u",
+        "file_path": "/var/log/freeradius/radacct/",
+        "navigation": null,
+        "expected_output": "No output or only masked field references. Any plaintext RADIUS attribute names with values confirm specific field types for the array."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the SIEM console, open a recent VPN authentication event in the raw event viewer and manually inspect all fields for credential data appearing without masking. Pay attention to fields named password, secret, psk, token, otp, or certificate-related fields.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM Console → Search → index=vpn_auth → Select recent event → Raw Event View → Inspect all fields for unmasked credential values",
+        "expected_output": "All credential-related fields show '****', '[REDACTED]', or are absent. Any field displaying actual credential values (non-masked strings, numeric OTP codes, base64 PSK values) should be added to the unmasked_credential_fields_present array."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[]",
+      "['password', 'otp_value']",
+      "['pre_shared_key']",
+      "['password', 'pre_shared_key', 'certificate_serial']"
+    ]
+  },
+  {
+    "option_name": "artifact_retention_policy_defined",
+    "option_description": "Controls whether a formal, documented retention policy exists that explicitly specifies maximum persistence windows for VPN session tokens, IKE-negotiated keys, and hashed credential material after session termination. This is a governance-level attribute confirming policy existence, not technical enforcement.",
+    "security_impact": "The Rego rule `excessive_retention_of_authentication_artifacts` fires immediately when `artifact_retention_policy_defined` is false, regardless of any other configuration. Without a documented policy, there is no authoritative baseline to enforce or audit against, meaning credential artifacts may persist indefinitely and become exploitable for session replay or offline cracking attacks (MITRE T1550, T1649).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the organization's data retention policy, information security policy, or key management policy documents. Search for sections explicitly referencing VPN session tokens, IKE SA lifetimes, credential caches, or authentication artifact expiry. A policy that only covers general data retention without VPN-specific language does not satisfy this control.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented policy section naming maximum retention windows for VPN session tokens, negotiated keys, and credential hashes with specific time limits."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check whether the VPN gateway's security baseline document or runbook references credential artifact retention limits. Look in configuration management repositories (e.g., Git, Confluence, SharePoint) for VPN-specific policy artifacts.",
+        "command": null,
+        "file_path": "/etc/ipsec.conf, /etc/openvpn/*.conf, or equivalent VPN configuration baseline document",
+        "navigation": null,
+        "expected_output": "A policy document or inline configuration comment specifying retention windows; absence of any such document sets this attribute to false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the VPN administrator or security operations team lead. Ask specifically: 'Is there a written policy that states how long session tokens, IKE keys, and cached credentials must be deleted after a VPN session ends?' If the answer references only a generic data retention schedule without VPN artifact specifics, set to false.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation of a named, retrievable policy document with VPN artifact-specific retention limits."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "artifact_max_retention_hours",
+    "option_description": "Specifies the configured or empirically observed maximum number of hours that authentication artifacts — including session tokens, IKE-negotiated session keys, and hashed credential material — are retained after a VPN session terminates. A value of 0 indicates no post-session retention; 8760 indicates indefinite or unknown retention (one year sentinel).",
+    "security_impact": "The Rego rule `excessive_retention_of_authentication_artifacts` triggers when `artifact_max_retention_hours` exceeds 24 hours, even when a retention policy exists. Long-lived authentication artifacts expand the replay attack window (MITRE T1550, T1550.004) and increase exposure to offline credential cracking. The 24-hour threshold aligns with common security baseline requirements for session key material.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the IPsec/IKE configuration file for SA lifetime settings. The `ikelifetime` and `keylife` directives in strongSwan/Libreswan define how long IKE and ESP SAs are maintained. Convert the unit (seconds/minutes/hours) to hours for comparison.",
+        "command": "grep -E 'ikelifetime|keylife|lifetime|rekeymargin' /etc/ipsec.conf /etc/ipsec.d/*.conf 2>/dev/null",
+        "file_path": "/etc/ipsec.conf",
+        "navigation": null,
+        "expected_output": "Lines such as 'ikelifetime=8h' or 'keylife=1h'; if absent, the daemon default applies (often 3h for IKE, 1h for child SA)."
+      },
+      {
+        "type": "command",
+        "instruction": "For OpenVPN deployments, check the session timeout and reneg-sec directive, which controls how often session keys are renegotiated. Divide reneg-sec value by 3600 to convert to hours. Also check for auth-nocache absence indicating credential caching.",
+        "command": "grep -E 'reneg-sec|reneg-bytes|session-timeout|inactive' /etc/openvpn/server.conf /etc/openvpn/client.conf 2>/dev/null",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "A 'reneg-sec' value (default 3600 seconds = 1 hour); if missing, the OpenVPN default of 3600s applies."
+      },
+      {
+        "type": "command",
+        "instruction": "Check active IKE SA lifetimes on a running strongSwan or Libreswan gateway to determine the currently enforced retention window rather than relying on configuration files alone.",
+        "command": "ipsec statusall 2>/dev/null | grep -E 'IKE|ESTABLISHED|expires' || swanctl --list-sas 2>/dev/null | grep -E 'expires|rekey'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing SA creation time and expiry, e.g., 'IKE proposal: AES_CBC_256/HMAC_SHA2_256_128/... expires in 7h59m'; calculate remaining lifetime from these values."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Windows-based VPN servers (RRAS/SSTP/L2TP), check the registry for session timeout and credential cache expiry settings. If artifacts are stored in Windows Credential Manager without expiry, use the 8760 sentinel value.",
+        "command": "reg query 'HKLM\\SYSTEM\\CurrentControlSet\\Services\\RemoteAccess\\Parameters' /s 2>nul | findstr /i 'timeout session lifetime'",
+        "file_path": null,
+        "navigation": "Server Manager > Routing and Remote Access > Properties > Security tab > Session timeout",
+        "expected_output": "Registry values or GUI settings showing session timeout in minutes; divide by 60 for hours. Absence of an explicit timeout with credential caching enabled should be recorded as 8760."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1",
+      "8",
+      "24",
+      "168",
+      "8760"
+    ]
+  },
+  {
+    "option_name": "credential_artifacts_persist_to_disk",
+    "option_description": "Indicates whether VPN authentication artifacts — including session tokens, derived cryptographic keys, password hashes, or cached credentials — are written to persistent disk storage (non-volatile media) rather than being held exclusively in volatile RAM during and after the session lifetime.",
+    "security_impact": "The Rego rule `excessive_retention_of_authentication_artifacts` fires unconditionally when `credential_artifacts_persist_to_disk` is true, treating any disk persistence as a retention violation regardless of policy or duration settings. Disk-persisted credential artifacts survive reboots and can be recovered through forensic techniques or direct file system access, enabling credential theft (MITRE T1552.001) and credential store attacks (MITRE T1555).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check OpenVPN configuration for auth-user-pass and auth-user-pass-verify directives that write credentials to disk. Also inspect for 'persist-key' and 'persist-tun' which retain key material across restarts. The absence of 'auth-nocache' means credentials may be cached in memory but check for associated file writes.",
+        "command": "grep -E 'auth-user-pass|persist-key|persist-tun|auth-nocache|tmp-dir|writepid' /etc/openvpn/*.conf 2>/dev/null",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "'auth-nocache' present and no 'auth-user-pass <filename>' with a file path indicates no disk credential persistence. Presence of a file argument to auth-user-pass or persist-key without auth-nocache indicates disk persistence."
+      },
+      {
+        "type": "command",
+        "instruction": "Search for credential-related files written by VPN daemons to disk, including RADIUS reply caches, session resumption tokens, and IKE NONCE/key files in common VPN working directories.",
+        "command": "find /var/lib/ipsec /var/lib/openvpn /etc/openvpn /tmp /var/tmp -name '*.token' -o -name '*.key' -o -name '*.cache' -o -name '*credential*' -o -name '*session*' 2>/dev/null | head -30",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No results or only public certificate files; presence of token, key, or cache files with recent modification timestamps indicates disk persistence."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows VPN clients, check whether credentials are stored in Windows Credential Manager or in DPAPI-encrypted files on disk, which constitute persistent storage.",
+        "command": "cmdkey /list 2>nul && dir \"%LOCALAPPDATA%\\Microsoft\\Credentials\" /a 2>nul && dir \"%APPDATA%\\Microsoft\\Credentials\" /a 2>nul",
+        "file_path": null,
+        "navigation": "Control Panel > Credential Manager > Windows Credentials to view cached VPN credentials",
+        "expected_output": "No VPN-related entries in Credential Manager and empty credential directories indicate no disk persistence; presence of VPN gateway entries confirms disk persistence."
+      },
+      {
+        "type": "command",
+        "instruction": "Check macOS Keychain for VPN credential entries that persist to disk, and inspect strongSwan or Cisco AnyConnect credential storage paths on macOS.",
+        "command": "security find-internet-password -a '' 2>/dev/null | grep -i vpn; ls -la ~/Library/Application\\ Support/Cisco/Cisco\\ AnyConnect\\ Secure\\ Mobility\\ Client/ 2>/dev/null",
+        "file_path": null,
+        "navigation": "Keychain Access > login keychain > filter by VPN or gateway hostname",
+        "expected_output": "No VPN-labeled entries in Keychain and absence of credential files in application support directories indicates memory-only storage."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "vpn_auth_data_logged_to_external_siem",
+    "option_description": "Determines whether VPN authentication event logs — including records containing usernames, session token identifiers, certificate subjects, or other credential-linked fields — are forwarded or replicated to a log aggregation platform or SIEM system hosted outside the organization's primary legal jurisdiction.",
+    "security_impact": "The Rego rule `cross_border_transfer_of_authentication_data_without_adequacy_controls` uses this as a prerequisite condition: the cross-border transfer exposure only fires when this is true and legal mechanisms are absent or inadequate. Exporting credential-linked authentication records to foreign jurisdictions without controls creates regulatory exposure under GDPR, PDPA, and similar frameworks (MITRE T1537, T1119) and increases the attack surface for credential harvesting at the destination.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the VPN gateway's syslog forwarding configuration and log shipper agent configuration (e.g., Filebeat, Splunk Universal Forwarder, Fluentd) to identify destination IP addresses or hostnames. Cross-reference destinations against known SIEM provider IP ranges or hosting regions.",
+        "command": "grep -E 'destination|server|host|forward|siem|splunk|elastic|datadog' /etc/rsyslog.conf /etc/rsyslog.d/*.conf /etc/syslog-ng/syslog-ng.conf 2>/dev/null | grep -v '^#'",
+        "file_path": "/etc/rsyslog.conf",
+        "navigation": null,
+        "expected_output": "Lines showing remote syslog destinations (e.g., '@@10.20.30.40:514' or '@@logs.eu-west.siem-vendor.com:6514'); resolve hostnames to determine hosting jurisdiction."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Filebeat, Splunk UF, or other log shipper configuration files for output destinations to cloud-hosted SIEM services. Identify whether destination endpoints resolve to infrastructure outside the organization's primary country.",
+        "command": "grep -rE 'output|hosts|endpoint|cloud_id|api_key|token' /etc/filebeat/filebeat.yml /etc/splunkforwarder/etc/system/local/outputs.conf /etc/fluentd/fluent.conf 2>/dev/null | grep -v '^#'",
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "Output sections showing cloud SIEM endpoints (e.g., 'https://my-deployment.us-east-1.aws.elastic.cloud' or 'https://inputs.splunkcloud.com'); determine whether the region is outside primary jurisdiction."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the VPN gateway management console, navigate to logging/monitoring settings to identify configured log export destinations. For Palo Alto, Cisco FTD, or Fortinet, check the syslog server profiles and determine whether destination servers are external to the organization's jurisdiction.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto: Device > Server Profiles > Syslog | Cisco FTD: Platform Settings > Syslog | Fortinet: Log & Report > Log Settings > Remote Logging",
+        "expected_output": "Syslog server entries showing IP addresses or FQDNs that resolve to hosting infrastructure in foreign jurisdictions, confirming external SIEM forwarding."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Capture outbound network traffic from the VPN gateway during an authentication event to identify log forwarding destinations. Use tcpdump on the management interface and filter for common SIEM ports (514/UDP, 6514/TCP, 9997/TCP, 443/TCP to known cloud SIEM ranges).",
+        "command": "tcpdump -i any -n 'port 514 or port 6514 or port 9997 or port 8088' -c 100 2>/dev/null | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Packets destined for external IP addresses during authentication events confirm external log forwarding; geolocate destination IPs to determine jurisdiction."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null"
+    ]
+  },
+  {
+    "option_name": "data_transfer_legal_mechanism",
+    "option_description": "Identifies the specific legal basis or compliance framework instrument that authorizes the cross-border transfer of personal authentication data to the external SIEM or log aggregation platform. Acceptable values include adequacy decisions issued by regulatory authorities, Standard Contractual Clauses, Binding Corporate Rules, derogations under Article 49 GDPR, or 'none' when no mechanism exists.",
+    "security_impact": "The Rego rule `cross_border_transfer_of_authentication_data_without_adequacy_controls` triggers when this value is 'none' or 'derogation' combined with external SIEM logging and no anonymization, creating a compliance exposure under GDPR Article 46, PDPA, or equivalent frameworks (MITRE T1589.001, T1537). A 'derogation' basis alone is insufficient for systematic transfers; only adequacy decisions, SCCs, or BCRs provide adequate ongoing protection.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the organization's data transfer impact assessment (TIA/DTIA), privacy impact assessment (PIA/DPIA), or vendor data processing agreements (DPAs) related to the SIEM provider. Identify which legal mechanism is cited for cross-border transfer of personal data including authentication logs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A signed DPA or TIA document citing the specific legal basis (e.g., 'Standard Contractual Clauses per Commission Decision 2021/914' or 'Adequacy Decision for Country X'); absence of any such document maps to 'none'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the DPO (Data Protection Officer) or Legal/Compliance team. Ask specifically: 'What legal mechanism authorizes the transfer of VPN authentication logs containing usernames and session identifiers to our SIEM vendor's infrastructure in [destination country]?' Obtain the document reference.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A named mechanism (adequacy_decision, standard_contractual_clauses, binding_corporate_rules, or derogation) with a supporting document reference; if the team is unaware of any mechanism, record as 'none'."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the SIEM vendor's compliance documentation portal or trust center to identify whether an adequacy decision applies to the destination country and whether the vendor's DPA includes SCCs or BCRs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk: trust.splunk.com > Data Processing Agreements | Elastic: elastic.co/legal/gdpr | Datadog: datadoghq.com/legal/gdpr — review applicable DPA and SCC annexes for your subscription region.",
+        "expected_output": "A downloadable DPA with an SCC or BCR annex signed by the organization; or confirmation that the destination country has an EU adequacy decision."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Cross-reference the SIEM hosting region (identified from the vpn_auth_data_logged_to_external_siem assessment) against the European Commission's list of countries with adequacy decisions. If the region lacks an adequacy decision, the mechanism must be SCCs or BCRs supported by documentation.",
+        "command": null,
+        "file_path": null,
+        "navigation": "European Commission adequacy decisions list: https://commission.europa.eu/law/law-topic/data-protection/international-dimension-data-protection/adequacy-decisions_en",
+        "expected_output": "If the destination country appears on the adequacy list and the transfer relies solely on that decision, set to 'adequacy_decision'. If no documentation exists and the country lacks adequacy, set to 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "standard_contractual_clauses",
+      "adequacy_decision",
+      "binding_corporate_rules",
+      "derogation"
+    ]
+  },
+  {
+    "option_name": "auth_data_anonymization_before_export",
+    "option_description": "Indicates whether credential-linked fields in VPN authentication log records — such as usernames, certificate subject distinguished names, session token identifiers, and certificate serial numbers — are irreversibly anonymized or pseudonymized in the log pipeline before being forwarded to the external SIEM platform. Effective anonymization must be irreversible at the destination.",
+    "security_impact": "The Rego rule `cross_border_transfer_of_authentication_data_without_adequacy_controls` uses this as a mitigating condition: even when the legal mechanism is 'none' or 'derogation', a finding is still raised unless this is true. Proper anonymization before export reduces the regulatory classification of transferred data and limits exposure under GDPR Recital 26 (rendering data not personal data). Without anonymization, credential-linked records transferred abroad are directly exploitable for credential harvesting (MITRE T1589.001).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the log shipper or forwarder pipeline configuration for field transformation, masking, or hashing rules applied to authentication-related fields before transmission. Check Logstash filters, Filebeat processors, Fluentd filters, or Splunk Heavy Forwarder transforms.",
+        "command": "grep -rE 'mutate|anonymize|hash|mask|remove_field|username|user|certificate|token|subject' /etc/logstash/conf.d/*.conf /etc/filebeat/filebeat.yml /etc/fluentd/fluent.conf 2>/dev/null | grep -v '^#'",
+        "file_path": "/etc/logstash/conf.d/",
+        "navigation": null,
+        "expected_output": "Filter rules showing username/token fields being hashed with a non-reversible function (e.g., SHA-256 without key) or removed entirely before output; presence of 'remove_field' or 'anonymize' targeting auth fields indicates anonymization."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Retrieve a sample of authentication log records as they appear at the external SIEM destination and compare them against raw logs at the VPN gateway. Check whether username, certificate subject, or session token fields are absent, hashed, or replaced with opaque identifiers in the forwarded records.",
+        "command": "grep -E 'auth|login|vpn|ike|phase1' /var/log/auth.log /var/log/syslog 2>/dev/null | tail -20",
+        "file_path": "/var/log/auth.log",
+        "navigation": "SIEM platform: run a query for VPN authentication events and inspect the user/username/certificate fields in the raw event data; compare field values to source system logs.",
+        "expected_output": "Source logs contain plaintext usernames (e.g., 'user=john.doe@corp.com'); if forwarded SIEM records show hashed values (e.g., 'user=a3f8c2...') or omit the field entirely, anonymization is confirmed. Matching plaintext values indicate no anonymization."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Splunk Universal Forwarder transforms.conf for field masking rules, or review the Splunk Heavy Forwarder's props.conf and transforms.conf for SEDCMD or FIELDALIAS transformations targeting credential fields.",
+        "command": "grep -E 'SEDCMD|TRANSFORMS|anonymize|mask|username|password|token' /opt/splunkforwarder/etc/system/local/transforms.conf /opt/splunkforwarder/etc/system/local/props.conf 2>/dev/null",
+        "file_path": "/opt/splunkforwarder/etc/system/local/transforms.conf",
+        "navigation": "Splunk: Settings > Fields > Field Transformations to review masking configurations",
+        "expected_output": "SEDCMD entries replacing username or credential patterns with hashed or masked values before forwarding; absence of any such rules indicates no anonymization."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true",
+      "null"
+    ]
+  },
+  {
+    "option_name": "secure_credential_disposal_enforced",
+    "option_description": "Controls whether a formal, technically enforced procedure exists to cryptographically erase or securely overwrite cached authentication material — including session keys, pre-shared keys, and credential caches — upon VPN session termination or system shutdown. Also encompasses whether swap space and hibernation files are encrypted or disabled on hosts running VPN software to prevent credential artifact recovery from non-volatile storage.",
+    "security_impact": "The Rego rule `inadequate_disposal_of_cached_authentication_material` fires unconditionally when `secure_credential_disposal_enforced` is false regardless of other conditions, making this a standalone trigger. Without secure disposal, standard OS file deletion leaves credential artifacts recoverable through forensic tools (MITRE T1552), and swap/hibernation files may contain in-memory key material readable after system restart (MITRE T1555.004, T1552.001).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check VPN session teardown scripts and service unit files for invocation of secure deletion utilities (shred, srm, secure-delete) or cryptographic erasure operations targeting credential cache directories upon session or service termination.",
+        "command": "grep -rE 'shred|srm|secure-delete|wipe|crypterase|ExecStop|pre-down|down' /etc/openvpn/*.conf /etc/ipsec.d/*.conf /lib/systemd/system/openvpn*.service /lib/systemd/system/strongswan*.service 2>/dev/null",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "ExecStop or down-script entries invoking 'shred -u /var/cache/vpn/credentials' or equivalent; absence of any secure deletion commands indicates disposal is not enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify swap encryption status on Linux VPN hosts. Unencrypted swap can expose in-memory credential material that was paged out. Check for encrypted swap or swap disabled entirely.",
+        "command": "cat /proc/swaps; swapon --show; grep -E 'swap|crypt' /etc/fstab; dmsetup status 2>/dev/null | grep swap; systemctl status systemd-swaponline 2>/dev/null | head -5",
+        "file_path": "/etc/fstab",
+        "navigation": null,
+        "expected_output": "No swap entries in /proc/swaps (swap disabled), or swap device appearing as a dm-crypt device in dmsetup status; plain /dev/sdXY swap without encryption indicates credential recovery risk."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows VPN hosts, verify BitLocker is enabled on the system drive (covering pagefile and hibernation artifacts) and confirm hibernation file encryption or that hibernation is disabled on VPN servers.",
+        "command": "manage-bde -status C: 2>nul && powercfg /a 2>nul && reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Power\" /v HibernateEnabled 2>nul",
+        "file_path": null,
+        "navigation": "Control Panel > BitLocker Drive Encryption > verify C: drive is encrypted | Settings > Power > Sleep > Hibernate — confirm disabled on server VPN hosts",
+        "expected_output": "BitLocker status showing 'Protection On' for C: drive and HibernateEnabled = 0x0 on VPN server hosts; unprotected drives or enabled hibernation without BitLocker indicates inadequate disposal controls."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the VPN platform's end-of-session security procedure documentation. Ask the VPN administrator to demonstrate or provide evidence of the session teardown process that includes credential material disposal. Review change management records for disposal procedure implementation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A written procedure or automated script with documented evidence of execution (e.g., audit log entries showing secure deletion) at session termination; verbal assurance without documentation or technical evidence should be recorded as false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "credential_cache_persistence_scope",
+    "option_description": "Categorizes where authentication material is cached during and after VPN session negotiation across three tiers: 'memory_only' (volatile RAM only, lost on process termination), 'disk_transient' (written to disk temporarily during session but deleted on session end), or 'disk_persistent' (retained in non-volatile storage beyond session termination). This is the default state observed without explicit controls.",
+    "security_impact": "The Rego rule `inadequate_disposal_of_cached_authentication_material` triggers in two conditions involving this attribute: when disposal is not enforced and the scope is 'disk_transient' or 'disk_persistent', and when scope is 'disk_persistent' without verified wipe on session termination. Disk-persistent caching is the highest-risk state, enabling recovery of PSKs, session keys, and credential hashes through file system forensics (MITRE T1552, T1555.004). The attribute defaults to 'disk_persistent' reflecting the worst-case assumption when the scope cannot be determined.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For OpenVPN, check whether 'auth-nocache' is present (indicates memory_only for password credentials). Check 'persist-key' (retains key in memory across restarts, not disk). Look for 'tmp-dir' configurations directing key material to disk paths. For strongSwan, check secrets file handling and any credential_helper configurations.",
+        "command": "grep -E 'auth-nocache|persist-key|persist-tun|tmp-dir|credential|cache|store' /etc/openvpn/*.conf 2>/dev/null; grep -E 'cache|store|secrets|eap' /etc/ipsec.conf /etc/ipsec.secrets /etc/swanctl/swanctl.conf 2>/dev/null | grep -v '^#'",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "'auth-nocache' present with no tmp-dir file path indicates memory_only for OpenVPN. 'persist-key' without disk write directives indicates memory_only key persistence. IKE configurations referencing file-based secret stores without cleanup indicate disk_persistent."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect active VPN processes for open file descriptors pointing to credential-related files on disk. This reveals whether the running daemon has credential material written to persistent storage during an active session.",
+        "command": "lsof -p $(pgrep -d',' -x 'openvpn|charon|pluto|vpnagentd|vpnd') 2>/dev/null | grep -E 'REG|key|token|cache|cred|secret|session' | grep -v 'mem\\|txt\\|cwd\\|rtd'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No open file descriptors to key, token, or credential files indicates memory_only; REG (regular file) entries for key or credential paths indicate disk_transient or disk_persistent depending on whether files persist post-session."
+      },
+      {
+        "type": "command",
+        "instruction": "After a VPN session terminates normally, check whether credential-related files remain on disk. A transient state shows files created during the session then deleted; persistent state shows files surviving session termination.",
+        "command": "find /var/lib /var/cache /var/run /tmp /etc/openvpn /etc/ipsec.d -newer /var/log/auth.log -name '*.key' -o -name '*.token' -o -name '*.cache' -o -name '*session*' -o -name '*credential*' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No files found after session termination indicates disk_transient (if files existed during session) or memory_only. Files with modification timestamps after session end that persist confirm disk_persistent state."
+      },
+      {
+        "type": "gui",
+        "instruction": "For Cisco AnyConnect or Palo Alto GlobalProtect, inspect the client profile XML for credential caching settings and check application data directories for persisted credential files after disconnection.",
+        "command": "ls -la '%APPDATA%\\Cisco\\Cisco AnyConnect Secure Mobility Client\\' 2>nul; ls -la '/Library/Application Support/Palo Alto Networks/GlobalProtect/' 2>/dev/null; find ~/.config/paloaltonetworks /var/lib/paloaltonetworks -name '*.dat' -o -name '*.cache' 2>/dev/null",
+        "file_path": null,
+        "navigation": "Cisco AnyConnect: VPN Profile Editor > Preferences > Disable 'Remember User' and 'Remember Password' | GlobalProtect: Gateway Configuration > Authentication > Disable Save User Credentials",
+        "expected_output": "Absence of credential or session data files in application directories post-disconnect with 'Remember' options disabled indicates memory_only; presence of dat/cache files containing user identifiers indicates disk_persistent."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "disk_persistent",
+      "disk_transient",
+      "memory_only"
+    ]
+  },
+  {
+    "option_name": "session_termination_wipe_verified",
+    "option_description": "Controls whether there is independent, documented verification that cached credential material (session keys, pre-shared key copies, token data, password hashes written to disk or memory during VPN handshake) is securely overwritten upon session termination. Verification must come from forensic testing, formal audit findings, or automated post-termination checks — not simply from vendor documentation or policy statements.",
+    "security_impact": "The Rego policy flags `inadequate_disposal_of_cached_authentication_material` when `input.credential_cache_persistence_scope == 'disk_persistent'` and `not input.session_termination_wipe_verified`. Without verified wipe procedures, credential artifacts recoverable by tools such as Autopsy or Volatility remain on disk after session close, directly enabling MITRE ATT&CK T1552 (Unsecured Credentials), T1555.004 (Windows Credential Manager extraction), and T1552.001 (Credentials in Files). An unverified wipe claim provides no actual assurance — only forensic or audit evidence that artifacts are absent post-termination satisfies this control, preventing replay attacks and offline cracking of persisted session key material.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run Volatility against a memory image captured immediately after VPN session termination to check for residual credential strings. Acquire a memory dump post-termination, then scan for known credential patterns (PSK fragments, token values, username strings).",
+        "command": "volatility -f /path/to/post-termination.mem --profile=Win10x64 strings | grep -iE '(password|psk|token|vpn_user|authkey)' && volatility -f /path/to/post-termination.mem --profile=Win10x64 dumpfiles -D /tmp/dump_out/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero matches for credential-pattern strings in the post-termination memory image; no credential-bearing files recoverable from the dump. A clean result confirms wipe effectiveness."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Autopsy or bulk_extractor on disk sectors written during the VPN session to verify credential artifacts are not recoverable after session close. Capture a disk image before and after session termination, then diff recoverable strings.",
+        "command": "bulk_extractor -o /tmp/be_output /path/to/post-termination-disk.img && grep -iE '(password|psk|authkey|vpn_token)' /tmp/be_output/wordlist.txt /tmp/be_output/domain.txt /tmp/be_output/email.txt",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No credential-pattern hits in bulk_extractor output for the post-termination image. Compare against a pre-session baseline to confirm artifact absence rather than pre-existing noise."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the most recent security audit report or penetration test findings for a test case explicitly covering post-session credential artifact recovery. Request the tester's methodology notes and tool output confirming negative results. Ask the VPN security team for the date, scope, and findings of the last formal verification exercise.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dated audit or pentest report section explicitly stating 'no recoverable credential artifacts detected post-session-termination' with supporting forensic tool output attached. Absence of such documentation means the attribute should be set to false."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check automated post-termination verification scripts or endpoint security platform logs (e.g., CrowdStrike, Carbon Black, or a custom script executed by the VPN client disconnect hook) that confirm cache wipe completion events are recorded per session.",
+        "command": "grep -iE '(wipe|secure.delete|credential.clear|cache.purge|session.termination)' /var/log/vpnclient/session_lifecycle.log | tail -100",
+        "file_path": "/var/log/vpnclient/session_lifecycle.log",
+        "navigation": null,
+        "expected_output": "Log entries timestamped at session termination containing a 'wipe complete' or 'credential cache cleared' confirmation message for each closed session. Absence of such entries or presence only at startup (not termination) indicates unverified disposal."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false — most common in real deployments; organizations rely on OS-level file deletion or VPN client defaults without independent forensic verification, leaving wipe effectiveness unconfirmed",
+      "false — environments where vendor documentation is cited as evidence rather than actual forensic testing or third-party audit",
+      "true — organizations with mature security programs that include periodic forensic testing of endpoint VPN clients (typically annually or after client version upgrades) and documented audit evidence on file"
+    ]
+  }
+]

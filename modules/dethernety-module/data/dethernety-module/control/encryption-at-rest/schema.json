@@ -1,0 +1,435 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "encryption_at_rest_enabled": {
+        "type": "boolean",
+        "title": "Encryption at Rest Enabled",
+        "description": "Whether full-volume or full-disk encryption is actively enabled on the storage medium containing sensitive data",
+        "default": false
+      },
+      "encryption_algorithm": {
+        "type": "string",
+        "enum": [
+          "AES-256-XTS",
+          "AES-256-GCM",
+          "AES-256-CBC",
+          "AES-256-CTR",
+          "AES-128-XTS",
+          "AES-128-GCM",
+          "AES-128-CBC",
+          "AES-128-CTR",
+          "ChaCha20-256",
+          "3DES",
+          "DES",
+          "RC4",
+          "none",
+          "other"
+        ],
+        "title": "Encryption Algorithm",
+        "description": "The symmetric encryption algorithm and mode configured for data at rest encryption on the volume or storage system."
+      },
+      "key_length_bits": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1024,
+        "title": "Encryption Key Length (bits)",
+        "description": "The length of the symmetric encryption key in bits used for data at rest encryption."
+      },
+      "encryption_coverage_scope": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Encryption Coverage Scope",
+        "description": "Indicates which portions of the storage volume are covered by encryption (full volume vs. partial/files-only vs. none), including OS partitions, swap, and temp files."
+      },
+      "swap_space_encrypted": {
+        "type": "boolean",
+        "title": "Swap Space Encrypted",
+        "description": "Whether swap partitions or swap files are included within the encrypted volume or separately encrypted, preventing sensitive in-memory data from persisting unencrypted.",
+        "default": false
+      },
+      "hibernation_file_encrypted": {
+        "type": "boolean",
+        "title": "Hibernation File Encrypted",
+        "description": "Whether the hibernation file (hiberfil.sys on Windows, /var/vm/sleepimage on macOS) is protected by full-volume encryption, preventing memory contents from being extracted after hibernation.",
+        "default": false
+      },
+      "unencrypted_remnant_partitions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Unencrypted Remnant Partitions",
+        "description": "List of partition labels or mount points that exist on the volume but are NOT covered by encryption (e.g., unencrypted /boot, recovery partitions with sensitive data).",
+        "default": []
+      },
+      "key_management_system_type": {
+        "type": "string",
+        "enum": [
+          "hsm",
+          "cloud_kms",
+          "dedicated_kms",
+          "software_only",
+          "manual",
+          "none"
+        ],
+        "title": "Key Management System Type",
+        "description": "The type of key management system used to store and manage encryption keys, which determines separation of keys from data and overall key governance quality."
+      },
+      "keys_colocated_with_data": {
+        "type": "boolean",
+        "title": "Keys Co-located with Encrypted Data",
+        "description": "Whether encryption key material is stored on the same system or volume as the data it protects.",
+        "default": false
+      },
+      "key_rotation_enabled": {
+        "type": "boolean",
+        "title": "Automatic Key Rotation Enabled",
+        "description": "Whether automatic periodic rotation of encryption keys is enabled and configured.",
+        "default": false
+      },
+      "key_revocation_capability": {
+        "type": "boolean",
+        "title": "Key Revocation Capability Present",
+        "description": "Whether the key management system supports immediate key revocation or disabling to prevent further decryption.",
+        "default": false
+      },
+      "cryptographic_erasure_supported": {
+        "type": "boolean",
+        "title": "Cryptographic Erasure Capability Supported",
+        "description": "Whether the encryption implementation supports cryptographic erasure (crypto-erase) by allowing destruction or deletion of the encryption key to render data unrecoverable.",
+        "default": false
+      },
+      "key_management_policy": {
+        "type": "string",
+        "enum": [
+          "centralized_kms",
+          "local",
+          "none"
+        ],
+        "title": "Encryption Key Management Policy",
+        "description": "Describes how encryption keys are managed, which affects whether cryptographic erasure is reliably achievable during decommissioning.",
+        "default": "none"
+      },
+      "encryption_audit_tooling_enabled": {
+        "type": "boolean",
+        "title": "Encryption Audit Tooling Enabled",
+        "description": "Indicates whether automated tooling (e.g., cloud provider compliance checks, disk encryption scanners, CSPM tools) is actively configured to detect and report on encryption status of volumes, disks, or file systems.",
+        "default": false
+      },
+      "encryption_coverage_visibility_scope": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Encryption Coverage Visibility Scope",
+        "description": "The scope of encryption status visibility — whether all storage resources (volumes, disks, file systems) are inventoried and their encryption state is known and reportable.",
+        "default": "none"
+      },
+      "unencrypted_volumes_detected": {
+        "type": "boolean",
+        "title": "Unencrypted Volumes Detected",
+        "description": "Indicates whether the audit tooling has detected any volumes, disks, or file systems that are confirmed to be unencrypted at rest.",
+        "default": false
+      },
+      "hsm_tpm_binding_enabled": {
+        "type": "boolean",
+        "title": "HSM/TPM Key Binding Enabled",
+        "description": "Whether encryption keys are bound to a hardware security module (HSM) or trusted platform module (TPM), preventing software-level key extraction.",
+        "default": false
+      },
+      "hardware_binding_type": {
+        "type": "string",
+        "enum": [
+          "tpm",
+          "dedicated_hsm",
+          "cloud_hsm",
+          "managed_kms_hsm",
+          "none"
+        ],
+        "title": "Hardware Binding Type",
+        "description": "The type of hardware root of trust used for key binding.",
+        "default": "none"
+      },
+      "key_extraction_protection_verified": {
+        "type": "boolean",
+        "title": "Key Extraction Protection Verified",
+        "description": "Whether it has been confirmed that raw key material cannot be exported from the hardware boundary, even by privileged software actors (e.g., non-exportable key policy enforced).",
+        "default": false
+      },
+      "encryption_policy_enabled": {
+        "type": "boolean",
+        "title": "Encryption Policy Enabled",
+        "description": "Whether a centralized encryption policy is actively enforced across managed endpoints or storage systems.",
+        "default": false
+      },
+      "policy_compliance_status": {
+        "type": "string",
+        "enum": [
+          "compliant",
+          "non_compliant",
+          "pending",
+          "unknown",
+          "excluded"
+        ],
+        "title": "Policy Compliance Status",
+        "description": "The current compliance state of the endpoint or storage system against the encryption policy.",
+        "default": "unknown"
+      },
+      "enforcement_scope": {
+        "type": "string",
+        "enum": [
+          "all_volumes",
+          "system_volume_only",
+          "partial",
+          "none"
+        ],
+        "title": "Enforcement Scope",
+        "description": "The coverage level of the encryption policy — whether it applies to all volumes, only system volumes, or is limited in scope.",
+        "default": "none"
+      },
+      "rotation_period_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Key Rotation Period (Days)",
+        "description": "The configured interval in days between automatic key rotations; 0 or null indicates no rotation schedule is set.",
+        "default": 0
+      }
+    },
+    "required": [
+      "encryption_at_rest_enabled",
+      "encryption_algorithm",
+      "key_length_bits",
+      "encryption_coverage_scope",
+      "swap_space_encrypted",
+      "hibernation_file_encrypted",
+      "unencrypted_remnant_partitions",
+      "key_management_system_type",
+      "keys_colocated_with_data",
+      "key_rotation_enabled",
+      "key_revocation_capability",
+      "cryptographic_erasure_supported",
+      "key_management_policy",
+      "encryption_audit_tooling_enabled",
+      "encryption_coverage_visibility_scope",
+      "unencrypted_volumes_detected",
+      "hsm_tpm_binding_enabled",
+      "hardware_binding_type",
+      "key_extraction_protection_verified",
+      "encryption_policy_enabled",
+      "policy_compliance_status",
+      "enforcement_scope"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_algorithm"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_at_rest_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_coverage_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hibernation_file_encrypted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/key_length_bits"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/swap_space_encrypted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unencrypted_volumes_detected"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_coverage_visibility_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/fips_140_validated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unencrypted_remnant_partitions"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cryptographic_erasure_supported"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_policy_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/policy_compliance_status"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/decommissioning_procedure_documented"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_audit_tooling_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/enforcement_scope"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/hsm_tpm_binding_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/key_extraction_protection_verified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/key_management_policy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/key_management_system_type"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/key_revocation_capability"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/key_rotation_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/keys_colocated_with_data"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hardware_binding_type"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rotation_period_days"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/key_access_audit_logging"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

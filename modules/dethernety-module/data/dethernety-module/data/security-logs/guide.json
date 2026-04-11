@@ -1,0 +1,790 @@
+[
+  {
+    "option_name": "log_classification_label",
+    "option_description": "The formal sensitivity classification label assigned to the operational metadata log dataset as a whole, selecting from public, internal, confidential, or restricted tiers.",
+    "security_impact": "The Rego policy fires the insufficient_sensitivity_classification exposure when this value is 'public' or 'internal' and two or more sensitive field types are present. Logs containing user identifiers, IP addresses, session tokens, or timestamps in combination enable behavioral profiling and re-identification; assigning them a low classification tier means weaker access controls, audit requirements, and handling procedures are applied than the aggregate risk warrants.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's data classification register or information asset inventory for the entry corresponding to the operational metadata log collection. Look for a column labeled 'classification', 'sensitivity tier', or 'data class'.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented entry showing one of: public, internal, confidential, or restricted assigned to the log dataset."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the SIEM or log management platform configuration file for classification metadata tags applied to the log source or index. In Elasticsearch, check the index template or ILM policy for custom metadata fields.",
+        "command": "curl -s -u elastic:changeme http://localhost:9200/_index_template/logs-template | jq '.index_templates[].index_template.template.mappings._meta'",
+        "file_path": "/etc/elasticsearch/index-templates/logs-template.json",
+        "navigation": null,
+        "expected_output": "A _meta block or custom field showing a classification tag such as 'classification: confidential'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Splunk, navigate to Settings > Data > Indexes, select the relevant metadata log index, and check the Description or custom metadata fields for a classification label. In Microsoft Sentinel, review the workspace tags in Azure Portal under Log Analytics Workspace > Tags.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk: Settings > Data > Indexes > [log index] > Description | Azure Portal: Log Analytics Workspace > Tags",
+        "expected_output": "A tag or description field containing the assigned classification level."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the data governance platform API (e.g., Microsoft Purview, Collibra, or Alation) for the classification attribute of the log dataset asset.",
+        "command": "curl -s -H 'Authorization: Bearer $TOKEN' 'https://<purview-account>.purview.azure.com/catalog/api/atlas/v2/entity/uniqueAttribute/type/DataSet?attr:qualifiedName=logs-metadata-collection' | jq '.entity.attributes.classification'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response containing a classification field with value public, internal, confidential, or restricted."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "internal",
+      "confidential"
+    ]
+  },
+  {
+    "option_name": "aggregate_reclassification_policy_exists",
+    "option_description": "Indicates whether a formal policy exists requiring log datasets to be reclassified upward based on the aggregate sensitivity of combined fields, rather than evaluating each field's sensitivity in isolation.",
+    "security_impact": "The Rego policy triggers insufficient_sensitivity_classification independently when this boolean is false and two or more sensitive field types are present, regardless of the current classification label. Without an aggregate reclassification policy, individually low-sensitivity fields such as timestamps or IP addresses are never evaluated for their combined re-identification potential, leaving the dataset under-classified and under-protected.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the organization's data classification policy, data governance framework, or information security policy documentation. Search for explicit provisions addressing aggregate sensitivity, mosaic effect, or dataset-level reclassification obligations.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A policy document section explicitly stating that datasets combining individually low-sensitivity fields must be evaluated and reclassified based on their aggregate re-identification potential."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review data governance tooling rule configurations (e.g., Collibra Data Governance Center policy rules, or Apache Atlas classification propagation rules) for rules that trigger upward reclassification when multiple sensitive field types co-exist in a dataset.",
+        "command": null,
+        "file_path": "/etc/data-governance/classification-rules.yaml",
+        "navigation": null,
+        "expected_output": "A rule definition that evaluates field combination thresholds and triggers reclassification to confidential or restricted."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Purview, navigate to Data Map > Classifications > Classification Rules and check for custom rules that aggregate multiple sensitive information types before applying a classification label to the asset.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview: Data Map > Classifications > Classification Rules > Custom Rules",
+        "expected_output": "At least one rule configured to assess combinations of sensitive field types and apply an elevated classification."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "sensitive_field_types_present",
+    "option_description": "An array listing the categories of sensitive fields present in the log dataset that, in combination, enable behavioral profiling or re-identification, such as user identifiers, IP addresses, timestamps, session tokens, or geolocation data.",
+    "security_impact": "This array drives two Rego rules simultaneously. For insufficient_sensitivity_classification, a count of two or more entries triggers the exposure when either the classification label is public/internal or no aggregate reclassification policy exists. For missing_encryption_at_rest_for_sensitive_log_fields, any non-empty array triggers the exposure when field-level encryption and PII anonymization are both absent. The array therefore determines the blast radius of classification and encryption deficiencies.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the log schema definition or data dictionary for the metadata log collection. In Elasticsearch, retrieve the index mapping to enumerate all field names and types, then identify those matching sensitive categories.",
+        "command": "curl -s -u elastic:changeme http://localhost:9200/logs-metadata/_mapping | jq '[.[] | .mappings.properties | keys[]]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of field names from which you can identify sensitive categories such as user.name, source.ip, event.start, session.id, geo.coordinates."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Sample 50-100 recent log records from the metadata store and inspect field contents to identify which sensitive field categories are populated with real values rather than null or redacted placeholders.",
+        "command": "curl -s -u elastic:changeme -H 'Content-Type: application/json' -X GET 'http://localhost:9200/logs-metadata/_search?size=10' | jq '.hits.hits[]._source | keys'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Field names present in live records confirming which sensitive categories are actively populated."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Splunk, run a search over the metadata index and use the fields sidebar or fieldsummary command to enumerate all captured fields and their prevalence, then classify each against sensitive field categories.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk Search: index=metadata_logs | fieldsummary | table field count",
+        "expected_output": "A table of all captured field names with record counts, allowing identification of sensitive field categories."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the data catalog API for the schema of the log dataset asset to retrieve the field inventory with any applied sensitivity tags.",
+        "command": "curl -s -H 'Authorization: Bearer $TOKEN' 'https://<purview-account>.purview.azure.com/catalog/api/atlas/v2/entity/uniqueAttribute/type/DataSet?attr:qualifiedName=logs-metadata-collection' | jq '.entity.relationshipAttributes.columns[].attributes | {name: .name, dataType: .dataType, classifications: .classifications}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON field inventory showing field names, types, and any applied sensitivity classifications."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"user_identifiers\", \"ip_addresses\", \"timestamps\"]",
+      "[\"user_identifiers\", \"ip_addresses\", \"session_tokens\", \"timestamps\", \"geolocation\"]",
+      "[]"
+    ]
+  },
+  {
+    "option_name": "retention_schedule_defined",
+    "option_description": "Whether a formal, documented retention schedule exists that explicitly specifies minimum and maximum retention periods for operational metadata logs before disposal, aligned with legal and operational requirements.",
+    "security_impact": "The Rego policy flags undefined_or_unenforced_retention_schedule as soon as this boolean is false. Without a defined schedule, logs may persist indefinitely beyond operational necessity, widening the window of exposure for behavioral data, or may be deleted prematurely in violation of compliance mandates. This is the foundational prerequisite for the enforcement and maximum-period checks that follow.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the information management policy, data retention schedule, or records management policy from the data governance or compliance team. Verify it explicitly names the operational metadata log collection and specifies both minimum and maximum retention periods.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A written retention schedule document listing the log dataset by name with defined retention periods in days or months."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the log management platform's retention policy configuration file for a defined maximum age or TTL applied to the metadata log index or bucket.",
+        "command": "cat /etc/logstash/conf.d/retention-policy.conf | grep -E 'retention|max_age|ttl|delete_after'",
+        "file_path": "/etc/logstash/conf.d/retention-policy.conf",
+        "navigation": null,
+        "expected_output": "A retention directive specifying a numeric period for the metadata log collection."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Sentinel or Log Analytics, navigate to the workspace Settings > Tables, select the metadata log table, and check the Retention period field under the Data retention tab.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal: Log Analytics Workspace > Settings > Tables > [metadata log table] > Manage table > Data retention",
+        "expected_output": "A numeric retention value in days displayed for the table, confirming a schedule has been configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "retention_schedule_enforced",
+    "option_description": "Whether the defined retention schedule is enforced by automated technical controls such as log lifecycle policies, automated deletion jobs, or SIEM retention rules, rather than relying solely on manual processes.",
+    "security_impact": "Even with a defined schedule, the Rego policy continues to flag undefined_or_unenforced_retention_schedule when this boolean is false. Manual-only retention processes are unreliable and audit-challenged; they fail silently, leaving logs persisting beyond policy limits. Automated enforcement is required to guarantee consistent deletion and to satisfy data minimization obligations under GDPR, CCPA, and similar frameworks.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Index Lifecycle Management (ILM) policy in Elasticsearch or the storage lifecycle policy in S3/Azure Blob for automated delete or expire actions applied to the metadata log index or bucket.",
+        "command": "curl -s -u elastic:changeme http://localhost:9200/_ilm/policy/logs-metadata-policy | jq '.logs-metadata-policy.policy.phases.delete'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A delete phase with a min_age value confirming automated deletion is configured in the ILM policy."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for scheduled cron jobs or systemd timers that execute log deletion or archival scripts on the log storage host.",
+        "command": "crontab -l 2>/dev/null; systemctl list-timers | grep -i 'log\\|retention\\|delete\\|purge'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Scheduled jobs referencing log deletion or archival tasks with defined frequencies."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS S3, navigate to the bucket holding metadata logs, select Management > Lifecycle rules, and verify an expiration rule with a defined day count is active for the relevant prefix. In Azure, check Storage Account > Data management > Lifecycle management.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console: S3 > [log bucket] > Management > Lifecycle rules | Azure Portal: Storage Account > Data management > Lifecycle management",
+        "expected_output": "An active lifecycle rule with an Expiration action set to a specific number of days."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the S3 bucket lifecycle configuration via AWS CLI to confirm automated expiration rules are set for metadata log prefixes.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket metadata-logs-bucket | jq '.Rules[] | {ID: .ID, Status: .Status, Filter: .Filter, Expiration: .Expiration}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A rule with Status: Enabled and an Expiration block containing Days greater than zero."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "log_maximum_retention_days",
+    "option_description": "The configured maximum number of days operational metadata logs are retained before automated deletion or archival. A value of 0 indicates no maximum retention period is configured.",
+    "security_impact": "The Rego policy triggers undefined_or_unenforced_retention_schedule specifically when both retention_schedule_defined and retention_schedule_enforced are true but this value equals 0, catching configurations that have policy and tooling in place but omit an actual upper bound. A value of 0 means logs persist indefinitely, violating data minimization principles and extending the exposure window for behavioral metadata indefinitely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the Elasticsearch ILM policy for the metadata log index to retrieve the configured delete phase minimum age in days.",
+        "command": "curl -s -u elastic:changeme http://localhost:9200/_ilm/policy/logs-metadata-policy | jq '.logs-metadata-policy.policy.phases.delete.min_age' | sed 's/[^0-9]//g'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A numeric value in days, e.g., 365, representing the maximum retention period before deletion."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the Log Analytics workspace table retention setting via the Azure Monitor REST API to obtain the configured retention period in days.",
+        "command": "az monitor log-analytics workspace table show --resource-group <rg> --workspace-name <workspace> --name <table-name> --query 'retentionInDays'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer value representing the retention period in days, e.g., 90 or 365."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Splunk indexes.conf for the metadata log index to find the frozenTimePeriodInSecs setting, then convert to days.",
+        "command": "grep -A 20 '\\[metadata_logs\\]' /opt/splunk/etc/system/local/indexes.conf | grep frozenTimePeriodInSecs | awk '{print $3/86400}'",
+        "file_path": "/opt/splunk/etc/system/local/indexes.conf",
+        "navigation": null,
+        "expected_output": "A numeric value in days derived from frozenTimePeriodInSecs, e.g., 365."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Splunk Web, navigate to Settings > Indexes, locate the metadata log index, and read the Max Data Age column which displays the maximum retention period.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk Web: Settings > Indexes > [metadata log index] > Max Data Age",
+        "expected_output": "A human-readable retention period such as '1 year' or '90 days' displayed in the Max Data Age column."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "90",
+      "365",
+      "730"
+    ]
+  },
+  {
+    "option_name": "pii_anonymization_policy_applied",
+    "option_description": "Indicates whether a documented anonymization or pseudonymization policy is actively enforced at log ingestion or storage, covering quasi-identifier fields such as usernames, IP addresses, device IDs, and session tokens.",
+    "security_impact": "This attribute is evaluated by two Rego rules. For absence_of_pii_and_quasi_identifier_masking, the exposure fires regardless of whether this is true or false as long as unmasked quasi-identifier fields are detected in stored records, meaning policy alone is insufficient without verified enforcement. For missing_encryption_at_rest_for_sensitive_log_fields, a true value acts as a compensating control substituting for field-level encryption, preventing that exposure when sensitive fields are present but encrypted via masking rather than cryptographic means.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the logging pipeline documentation, data privacy policy, or ingestion processor configuration. Confirm a written anonymization or pseudonymization procedure names the specific quasi-identifier fields covered and the masking method applied (e.g., SHA-256 hashing of IPs, tokenization of usernames).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented policy or procedure explicitly listing covered quasi-identifier fields and their masking or pseudonymization methods."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Logstash pipeline configuration or Fluentd filter configuration for masking, hashing, or anonymization filters applied to quasi-identifier fields before events are written to the output store.",
+        "command": "grep -E 'mutate|fingerprint|anonymize|hash|mask|pseudonymize' /etc/logstash/conf.d/*.conf",
+        "file_path": "/etc/logstash/conf.d/metadata-pipeline.conf",
+        "navigation": null,
+        "expected_output": "Filter directives such as fingerprint with SHA256 on source.ip or mutate > gsub patterns replacing username values."
+      },
+      {
+        "type": "command",
+        "instruction": "In a Vector log pipeline, inspect the configured transforms for redact or remap components that apply anonymization to sensitive fields before the sink writes to storage.",
+        "command": "cat /etc/vector/vector.toml | grep -A 10 '\\[transforms\\]'",
+        "file_path": "/etc/vector/vector.toml",
+        "navigation": null,
+        "expected_output": "Transform blocks using the redact type or remap with masking functions applied to quasi-identifier field paths."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Sentinel, navigate to Settings > Workspace Settings > Advanced Features and review Data Masking rules. In Elastic Security, check Stack Management > Ingest Pipelines for processors applying anonymization to the metadata log pipeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Elastic: Stack Management > Ingest Pipelines > [metadata-logs-pipeline] > Processors | Sentinel: Settings > Workspace Settings > Advanced Features > Data Masking",
+        "expected_output": "Active masking or fingerprint processors targeting quasi-identifier fields in the ingestion pipeline."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "unmasked_quasi_identifier_fields",
+    "option_description": "A list of specific field names confirmed through inspection of stored log records to contain unmasked quasi-identifiers such as plaintext usernames, raw IP addresses, unhashed device identifiers, or unobfuscated session tokens.",
+    "security_impact": "The Rego rule absence_of_pii_and_quasi_identifier_masking fires whenever this array is non-empty, regardless of whether pii_anonymization_policy_applied is true or false. This means even a claimed anonymization policy does not suppress the exposure if real log records still contain plaintext quasi-identifiers, making this attribute the ground-truth verification check. Any non-empty result directly evidences re-identification risk and privacy regulation exposure under GDPR and CCPA.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Sample stored log records directly from the metadata log index or table and inspect field values for plaintext quasi-identifiers. Check fields commonly named username, user.name, source.ip, src_ip, device_id, session_token, or auth_token.",
+        "command": "curl -s -u elastic:changeme -H 'Content-Type: application/json' -X GET 'http://localhost:9200/logs-metadata/_search?size=20' | jq '.hits.hits[]._source | {username: .user.name, source_ip: .source.ip, device_id: .device.id, session_token: .session.id}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output showing field values; plaintext usernames, dotted-quad IP addresses, or readable token strings confirm unmasked quasi-identifiers."
+      },
+      {
+        "type": "command",
+        "instruction": "In Splunk, run a targeted search to retrieve sample values for known quasi-identifier field names from the metadata log index and assess whether values are plaintext or hashed/tokenized.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk Search: index=metadata_logs earliest=-1h | table username source_ip device_id session_token | head 20",
+        "expected_output": "A results table where plaintext values such as 'jsmith', '192.168.1.45', or raw UUIDs confirm unmasked fields."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the log storage database directly using SQL (e.g., in AWS Athena over S3 log files or in BigQuery for GCP audit logs) to sample quasi-identifier field contents and identify any containing non-anonymized values.",
+        "command": "aws athena start-query-execution --query-string \"SELECT username, source_ip, device_id, session_token FROM metadata_logs LIMIT 20\" --result-configuration OutputLocation=s3://query-results/ --query-execution-context Database=logs_db",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Query results with readable field values; presence of real usernames, IP addresses, or session identifiers confirms unmasked quasi-identifier fields."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Sentinel, open Logs and run a KQL query against the metadata log table to retrieve a sample of records and inspect quasi-identifier field contents for plaintext values.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Sentinel: Logs > KQL editor: MetadataLogs | take 20 | project UserName, SourceIP, DeviceId, SessionToken",
+        "expected_output": "A table of results where readable, non-hashed values in UserName, SourceIP, DeviceId, or SessionToken columns confirm unmasked quasi-identifier fields."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[]",
+      "[\"username\", \"source_ip\"]",
+      "[\"username\", \"source_ip\", \"device_id\", \"session_token\"]"
+    ]
+  },
+  {
+    "option_name": "metadata_access_control_model",
+    "option_description": "Defines the granularity of access controls enforced on the metadata log aggregate store (e.g., SIEM, log aggregator, data warehouse). The three levels are: `none` (any authenticated user can access), `coarse` (broad group-based restrictions exist), and `fine_grained` (only specific roles with documented operational need are permitted with purpose enforcement).",
+    "security_impact": "Directly evaluated in the `overly_broad_read_access_to_metadata_aggregates` rule. A value of `none` triggers an immediate exposure finding. A value of `coarse` triggers an exposure if neither field-level access controls nor purpose-bound export controls are enabled. Even `fine_grained` triggers an exposure if those compensating controls are absent. This prevents insider threats and automated bulk collection (T1213, T1119) by ensuring only operationally justified roles can query log aggregates.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS-hosted log stores (e.g., S3 + Athena or CloudWatch Logs), inspect IAM policies and resource-based policies to determine whether access is open to any authenticated IAM principal, restricted to named groups, or scoped to specific roles with condition keys.",
+        "command": "aws iam get-role-policy --role-name <log-reader-role> --policy-name <policy-name> && aws s3api get-bucket-policy --bucket <log-bucket> | jq '.Policy | fromjson'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy JSON showing Principal scope; broad '*' or large group ARNs indicate 'none' or 'coarse'; specific role ARNs with conditions indicate 'fine_grained'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Splunk, navigate to Settings → Access Controls → Roles to review which roles have access to the log index. Check whether all authenticated users map to roles with index read access or only named operational roles.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk Web → Settings → Access Controls → Roles → Select each role → Inspect Indexes allowed",
+        "expected_output": "'none' if default role has index access; 'coarse' if a generic group is excluded but no field-level restriction exists; 'fine_grained' if only specific named roles are permitted."
+      },
+      {
+        "type": "command",
+        "instruction": "For Elasticsearch/OpenSearch-backed log stores, retrieve security role definitions to assess whether document- and index-level access is restricted by named roles with cluster or index privilege granularity.",
+        "command": "curl -s -u admin:<password> https://<es-host>:9200/_security/role | jq 'to_entries[] | select(.value.indices != null) | {role: .key, indices: .value.indices}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Role definitions showing index patterns and privileges; broad patterns like '*' mapped to general roles indicate 'coarse' or 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review RBAC configuration files for the log management platform (e.g., Graylog roles.json, Loki tenant config, or Grafana provisioned roles) to enumerate access model granularity.",
+        "command": "cat /etc/graylog/server/roles.json | jq '.[] | {name: .name, permissions: .permissions}'",
+        "file_path": "/etc/graylog/server/roles.json",
+        "navigation": null,
+        "expected_output": "Role definitions with permission scopes; overly permissive roles assigned to broad groups indicate 'coarse' or 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "coarse",
+      "fine_grained"
+    ]
+  },
+  {
+    "option_name": "field_level_access_control_enabled",
+    "option_description": "Indicates whether the metadata log store enforces per-field or per-column access restrictions, preventing roles without specific authorization from reading sensitive fields such as user identifiers, IP addresses, session tokens, or timing correlations, even when they have general read access to the log dataset.",
+    "security_impact": "Used as a compensating control in the `overly_broad_read_access_to_metadata_aggregates` rule. When the access control model is `coarse` or even `fine_grained`, absence of field-level access control still triggers the exposure finding. Without column-level security, any authorized reader gains full visibility into quasi-identifying fields, enabling behavioral profiling and re-identification (T1213, T1119, T1069.003).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For data warehouse backends (e.g., BigQuery, Snowflake, Redshift), inspect column-level security policies or column masking policies to determine if sensitive log fields are restricted to privileged roles.",
+        "command": "bq show --schema --format=prettyjson <project>:<dataset>.<log_table> && bq ls --transfer_config --project_id=<project> | grep -i 'column_policy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "For Snowflake: 'SHOW COLUMN POLICIES IN TABLE <log_table>' returns active masking policies on sensitive columns. For BigQuery: column-level IAM bindings are visible in the table's IAM policy."
+      },
+      {
+        "type": "command",
+        "instruction": "In Snowflake, list active column masking or row access policies on the log table to confirm field-level access control enforcement.",
+        "command": "snowsql -q \"SHOW MASKING POLICIES IN SCHEMA <db>.<schema>; SELECT * FROM information_schema.policy_references WHERE policy_kind='MASKING_POLICY';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rows showing masking policies applied to columns such as user_id, source_ip, session_token; empty result indicates field-level control is absent."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Splunk, navigate to Settings → Access Controls → Roles and inspect whether field-level search restrictions (field filter capabilities) are configured per role to exclude sensitive fields.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk Web → Settings → Access Controls → Roles → Select role → Field Filtering tab",
+        "expected_output": "Explicit field exclusions for sensitive fields (e.g., src_ip, user, session_id) indicate field-level control is enabled; absence of any field filters indicates it is not."
+      },
+      {
+        "type": "api",
+        "instruction": "For Elasticsearch with document/field-level security, query the role API to confirm field-level restrictions are applied to log indices.",
+        "command": "curl -s -u admin:<password> https://<es-host>:9200/_security/role/<role_name> | jq '.[] | .indices[] | {index: .names, field_security: .field_security}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "field_security object with 'grant' or 'except' lists for sensitive fields; null field_security indicates no field-level control."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null (not configured)"
+    ]
+  },
+  {
+    "option_name": "purpose_bound_export_controls_enforced",
+    "option_description": "Controls whether bulk export or large-scale query operations on the full metadata log aggregate require explicit purpose justification and approval before execution. This prevents any authorized reader from performing unrestricted bulk extraction of the entire log dataset, typically enforced through DLP policies, export approval gates, row/record count limits, or audit-gated download mechanisms.",
+    "security_impact": "Evaluated alongside `metadata_access_control_model` and `field_level_access_control_enabled` in the `overly_broad_read_access_to_metadata_aggregates` rule. Without purpose-bound controls, authorized users can exfiltrate the complete metadata aggregate in bulk (T1119), enabling pattern analysis and behavioral profiling even under a `fine_grained` access model. The rule fires when this control is absent alongside missing field-level controls, regardless of the nominal access model.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the SIEM or log platform administrators to determine whether any workflow, ticketing integration, or approval gate is required before a user can initiate a bulk export or full-dataset query. Request evidence of DLP policy configurations or export audit logs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented approval workflow, DLP policy rule referencing log exports, or export rate-limiting configuration; absence of any such controls indicates 'false'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In a SIEM platform such as Microsoft Sentinel or IBM QRadar, check whether Data Loss Prevention policies or export restrictions are configured to block or alert on large result set downloads from the log store.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Sentinel → Configuration → Data Export Rules → Review export targets and restrictions. Microsoft Purview DLP → Policies → Filter by scope: Sentinel Log Analytics Workspace.",
+        "expected_output": "Active DLP policies with conditions for bulk query result exports or download size thresholds; no such policies indicate 'false'."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS CloudWatch Logs or S3 log stores, check S3 Object Lock configurations, GetObject rate-limit policies, or SCP/SCPs restricting bulk s3:GetObject operations without tagging or approval conditions.",
+        "command": "aws s3api get-bucket-policy --bucket <log-bucket> | jq '.Policy | fromjson | .Statement[] | select(.Action | contains(\"s3:GetObject\")) | {Effect, Condition}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy statements with Condition keys (e.g., requiring specific tags or MFA) on GetObject actions; unconditional Allow for GetObject without conditions indicates absence of purpose-bound controls."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review log query platform configuration files (e.g., Grafana Loki query limits, Elasticsearch index.max_result_window, or Splunk limits.conf search result limits) for technical constraints on bulk data retrieval.",
+        "command": "grep -E 'max_result_window|resultset_size|maxresultrows' /opt/splunk/etc/system/local/limits.conf /etc/elasticsearch/elasticsearch.yml 2>/dev/null",
+        "file_path": "/opt/splunk/etc/system/local/limits.conf",
+        "navigation": null,
+        "expected_output": "Non-default restrictive result window values (e.g., max_result_window: 1000) indicate technical controls are in place; default or very high values indicate absent controls."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null (not configured)"
+    ]
+  },
+  {
+    "option_name": "field_level_encryption_enabled",
+    "option_description": "Indicates whether sensitive fields within the operational metadata log repository (e.g., user identifiers, session tokens, IP addresses, behavioral indicators) are encrypted at the column or field level, ensuring that even parties with storage-layer read access cannot obtain plaintext values without possessing the appropriate decryption keys.",
+    "security_impact": "Evaluated in the `missing_encryption_at_rest_for_sensitive_log_fields` rule. When sensitive fields are present and neither field-level encryption nor a PII anonymization policy is applied, an exposure is triggered (T1654, T1552.001, T1530). Whole-disk or volume encryption does not satisfy this control — field-level encryption specifically protects against scenarios where storage-layer access bypasses logical access controls, such as direct database file access or cloud storage bucket compromise.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Snowflake log tables, verify whether column encryption using Snowflake's Dynamic Data Masking or a third-party encryption UDF is applied to sensitive columns.",
+        "command": "snowsql -q \"SELECT column_name, data_type FROM information_schema.columns WHERE table_name='<LOG_TABLE>'; SHOW MASKING POLICIES IN SCHEMA <db>.<schema>;\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active masking policies on sensitive columns (user_id, src_ip, session_token) indicate field-level protection; absence indicates plaintext storage."
+      },
+      {
+        "type": "command",
+        "instruction": "For PostgreSQL-backed log stores, check whether the pgcrypto extension is used and whether encryption functions are applied in the table definition or insert triggers for sensitive columns.",
+        "command": "psql -h <host> -U <user> -d <logdb> -c \"\\d+ <log_table>\" && psql -h <host> -U <user> -d <logdb> -c \"SELECT prosrc FROM pg_proc WHERE proname LIKE '%encrypt%';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Column definitions using pgcrypto types or insert triggers calling encrypt() functions indicate field-level encryption; standard text/varchar types without encryption triggers indicate absence."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the log ingestion pipeline configuration (e.g., Logstash filter plugins, Fluentd record_transformer, or Apache NiFi processor configs) for field-level encryption transforms applied before writing to the log store.",
+        "command": "grep -rE 'encrypt|cipher|aes|kms' /etc/logstash/conf.d/ /etc/fluent/ /opt/nifi/conf/ 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/logstash/conf.d/",
+        "navigation": null,
+        "expected_output": "Configuration entries invoking encryption filters on named sensitive fields (e.g., user_id, client_ip) confirm field-level encryption at ingestion; no such transforms indicate 'false'."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS-hosted log repositories (e.g., DynamoDB or RDS), query for attribute-level encryption configurations or check for KMS-encrypted column configurations in application-layer encryption settings.",
+        "command": "aws dynamodb describe-table --table-name <log-table> --query 'Table.SSEDescription' && aws rds describe-db-instances --query 'DBInstances[*].{DB:DBInstanceIdentifier,Encrypted:StorageEncrypted,KMSKey:KmsKeyId}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Note: AWS volume-level encryption differs from field-level. Look for application-layer KMS calls per field in CloudTrail; absence of per-field KMS Decrypt calls indicates no field-level encryption."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "cross_border_transfer_enabled",
+    "option_description": "Indicates whether operational metadata logs are actively replicated, streamed, or exported to systems, storage buckets, or processing infrastructure located in jurisdictions outside the originating country or data sovereignty zone. This includes cloud region replication, log shipping to foreign SIEM instances, and backup mirroring to offshore storage.",
+    "security_impact": "The primary trigger in the `non_compliant_cross_border_transfer_of_operational_metadata` rule. When set to `true` in combination with `metadata_contains_individual_identifiers: true` and `transfer_legal_basis: none`, an exposure is raised (T1565.002, T1591.001). Even where transfers are intentional, the absence of this flag being recognized as `true` prevents compliance validation checks from executing, allowing unlawful transfers to go undetected under applicable regulations such as GDPR Chapter V.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS environments, enumerate S3 Cross-Region Replication rules and CloudWatch Logs subscription filter destinations to identify whether log data is shipped to buckets or endpoints in foreign AWS regions.",
+        "command": "aws s3api get-bucket-replication --bucket <log-bucket> --query 'ReplicationConfiguration.Rules[*].{Status:Status,Destination:Destination.Bucket}' && aws logs describe-subscription-filters --log-group-name <log-group> --query 'subscriptionFilters[*].{Dest:destinationArn}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Replication rules with destination bucket ARNs in foreign regions (e.g., eu-west-1 source → us-east-1 destination) confirm cross-border transfer is enabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review log shipper configuration files (e.g., Filebeat, Fluentd, Logstash outputs) for output destinations specifying endpoints in foreign regions or countries.",
+        "command": "grep -rE 'hosts|endpoint|url|server' /etc/filebeat/ /etc/logstash/conf.d/ /etc/fluent/ 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "Output endpoints with hostnames or IP addresses resolving to foreign jurisdictions, or explicit region tags in cloud endpoint URLs."
+      },
+      {
+        "type": "api",
+        "instruction": "For Azure Monitor or Microsoft Sentinel, query the Log Analytics workspace data export rules and check the target storage account region.",
+        "command": "az monitor log-analytics workspace data-export list --resource-group <rg> --workspace-name <workspace> --query '[*].{Name:name, Destination:destination, Enabled:enable}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Export rules with destinations in regions outside the originating country confirm cross-border transfer is enabled."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use network traffic analysis or DNS resolution to trace where log data is ultimately delivered. Resolve the FQDN of log ingestion endpoints and cross-reference with IP geolocation to identify foreign jurisdictions.",
+        "command": "dig +short <log-ingest-endpoint> | xargs -I{} curl -s https://ipapi.co/{}/json/ | jq '{ip: .ip, country: .country_name, region: .region}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Country field showing a jurisdiction different from the originating data location confirms cross-border transfer is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "transfer_legal_basis",
+    "option_description": "Specifies the legal mechanism that formally authorizes the cross-border export or replication of operational metadata logs to foreign jurisdictions. Valid mechanisms include adequacy decisions (destination country recognized as providing equivalent protection), standard contractual clauses (SCCs), binding corporate rules (BCRs), explicit consent, or none when no legal basis has been established.",
+    "security_impact": "Evaluated in the `non_compliant_cross_border_transfer_of_operational_metadata` rule. When cross-border transfer is enabled and metadata contains individual identifiers, a value of `none` causes the rule to fire, representing a direct GDPR Chapter V or equivalent regulatory violation. The absence of a documented legal basis means the organization cannot demonstrate lawful transfer grounds, exposing it to regulatory enforcement action and expanding the attack surface for state-level interception (T1565.002, T1591.001).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request and review Data Transfer Impact Assessments (DTIAs), Standard Contractual Clauses agreements, or Binding Corporate Rules documentation from the legal or privacy team. Confirm whether a specific transfer mechanism document exists for the operational metadata log pipeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Executed SCC agreement, BCR policy document, or adequacy decision reference tied to the log data transfer; absence of any document indicates 'none'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the Records of Processing Activities (RoPA) required under GDPR Article 30 to identify the stated legal basis for each cross-border data transfer involving operational log data.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GRC Platform → Records of Processing Activities → Filter by Data Category: Operational Logs → View Transfer Mechanism column",
+        "expected_output": "RoPA entry specifying transfer basis (e.g., 'Article 46(2)(c) - Standard Contractual Clauses'); blank or 'N/A' entries indicate no legal basis documented."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check DPA agreement files and vendor contracts stored in the contract management system or shared document repository for clauses specifying the transfer mechanism for log data sent to foreign processors.",
+        "command": "find /mnt/contracts /opt/legal -name '*.pdf' -o -name '*.docx' 2>/dev/null | xargs grep -li 'standard contractual clauses\\|adequacy\\|binding corporate rules\\|SCCs' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Contract files containing SCC, adequacy, or BCR references; absence of matching files for the specific log transfer destination indicates 'none'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In OneTrust or a similar privacy management platform, navigate to the Data Inventory section and locate the operational log asset's cross-border transfer record to review the documented transfer mechanism.",
+        "command": null,
+        "file_path": null,
+        "navigation": "OneTrust → Data Inventory → Assets → Search: Operational Logs → Select Asset → Cross-Border Transfers Tab → Transfer Mechanism",
+        "expected_output": "Transfer mechanism field populated with 'Standard Contractual Clauses', 'Adequacy Decision', etc.; empty or 'None' confirms 'none' status."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "standard_contractual_clauses",
+      "adequacy_decision",
+      "binding_corporate_rules",
+      "explicit_consent"
+    ]
+  },
+  {
+    "option_name": "metadata_contains_individual_identifiers",
+    "option_description": "Indicates whether the operational metadata log dataset includes fields that can be linked to specific individuals or regulated systems, such as user IDs, usernames, IP addresses, device IDs, session tokens, or hostname-based identifiers. This designation is critical for determining whether the dataset is subject to personal data regulations and data localization obligations in the destination jurisdiction.",
+    "security_impact": "Acts as a necessary precondition in the `non_compliant_cross_border_transfer_of_operational_metadata` rule. The exposure fires only when this is `true`, cross-border transfer is enabled, and no legal basis exists. A default of `false` is dangerous — organizations that incorrectly assume operational logs contain no individual identifiers will suppress the compliance check entirely. Unrecognized identifiers in transit are also exposed to adversarial interception and physical location inference (T1565.002, T1591.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect log schema definitions and sample log records from the log store to identify fields containing user identifiers, IP addresses, hostnames, or session tokens. Use a data classification scan tool or manual schema review.",
+        "command": "aws s3 cp s3://<log-bucket>/sample_logs/$(date +%Y/%m/%d)/sample.json.gz - | gunzip | jq 'keys' | head -50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON keys showing fields such as 'user_id', 'source_ip', 'session_token', 'device_id', 'hostname' confirm individual identifiers are present."
+      },
+      {
+        "type": "command",
+        "instruction": "Run a data classification scan using an open-source tool such as Presidio or a commercial DLP scanner against a sample of log records to detect PII and quasi-identifier field types.",
+        "command": "python3 -m presidio_analyzer analyze --text \"$(cat /var/log/app/sample.log | head -100)\" --language en --entities PERSON,EMAIL_ADDRESS,IP_ADDRESS,USERNAME 2>/dev/null | jq '.[] | {entity_type, score, start, end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presidio output identifying entity types (IP_ADDRESS, USERNAME) with confidence scores above 0.8 confirms presence of individual identifiers in log fields."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the log pipeline schema or configuration files (e.g., Logstash grok patterns, Fluentd parser definitions) to identify which fields are parsed and stored from raw log events, then cross-reference with known identifier field names.",
+        "command": "grep -rE 'user_?id|src_?ip|client_?ip|session|device_?id|hostname|username|email' /etc/logstash/conf.d/ /etc/fluent/ /etc/filebeat/ 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/logstash/conf.d/",
+        "navigation": null,
+        "expected_output": "Filter or parser definitions extracting fields matching identifier patterns confirm that individual identifiers are captured in the metadata log pipeline."
+      },
+      {
+        "type": "gui",
+        "instruction": "In a data catalog tool (e.g., Collibra, Alation, or AWS Glue Data Catalog), navigate to the log dataset's data profile and review automated sensitivity classifications or data type annotations for identifier fields.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Glue → Data Catalog → Tables → <log_table> → View Data Quality / Sensitive Data Detection Results → Check for PII column classifications",
+        "expected_output": "Column sensitivity labels or PII flags on fields such as 'user_id', 'client_ip', or 'session_id' confirm individual identifiers are present in the dataset."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "formal_disposal_procedure_documented",
+    "option_description": "Controls whether a formally documented and approved procedure exists for the secure disposal of expired or superseded log data, specifying defined triggers (e.g., retention expiry, system decommission), approved destruction methods, and named responsible parties or roles accountable for execution.",
+    "security_impact": "The Rego policy fires the 'inadequate_secure_disposal_procedures' exposure whenever 'formal_disposal_procedure_documented' is false or absent. Without a documented procedure, disposal actions are ad hoc, unverifiable, and inconsistent — meaning sensitive behavioral metadata such as access histories, user activity trails, and network topology data may persist well beyond its authorized retention window. This creates insider threat risk, forensic re-identification exposure, and audit gaps under frameworks such as ISO 27001, NIST SP 800-53 (MP-6), and GDPR Article 5(1)(e) storage limitation. Even if deletion technically occurs, the absence of a documented procedure means no accountability chain exists and no auditor can confirm compliant disposal.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the organization's Information Security Management System (ISMS) documentation index or data governance policy register and search for a log data disposal or media sanitization procedure. Confirm the document has an approval date, owner, version number, and references defined triggers and responsible roles.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SharePoint / Confluence / GRC platform → Policy Library → search 'log disposal', 'media sanitization', or 'data destruction procedure'",
+        "expected_output": "A versioned, approved procedure document explicitly covering log data lifecycle end-of-life, with named roles, trigger conditions, and approved methods listed."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the data governance lead, CISO, or DPO and ask: 'Does a formally approved document define how expired security logs are disposed of, who is responsible, and what methods are permitted?' Cross-reference the response against any ISMS control registers or data classification policy appendices.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Interviewee can name a specific document, its location, and its approval chain; or confirms no such document exists."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect retention and lifecycle policy configuration files for log management platforms (e.g., Elasticsearch ILM policies, Splunk index configuration, or CloudWatch log group retention settings) and check whether referenced disposal runbooks or procedure documents are linked or cited.",
+        "command": "grep -r 'disposal\\|destruction\\|sanitiz\\|procedure' /etc/logstash/ /etc/elasticsearch/ /opt/splunk/etc/system/local/ 2>/dev/null",
+        "file_path": "/etc/logstash/conf.d/, /etc/elasticsearch/elasticsearch.yml, /opt/splunk/etc/system/local/indexes.conf",
+        "navigation": null,
+        "expected_output": "References to a disposal procedure document name or policy identifier within configuration comments or linked runbook fields; absence indicates undocumented disposal."
+      },
+      {
+        "type": "api",
+        "instruction": "Query a GRC or compliance platform API (e.g., ServiceNow GRC, Archer) for policy records tagged to log management or media sanitization control domains to confirm a disposal procedure document exists and is in 'approved' status.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://<grc-instance>/api/now/table/sn_compliance_policy?sysparm_query=category=log_management^status=approved' | jq '.result[] | {name, status, owner, last_reviewed}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response containing at least one approved policy record with a name matching log disposal or media sanitization, with a valid last-reviewed date."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "disposal_method",
+    "option_description": "Specifies the technical method used to destroy or delete expired log data at end-of-retention. Options range from no deletion ('none'), filesystem or database record removal that leaves data recoverable ('logical_deletion'), key destruction rendering encrypted data permanently inaccessible ('cryptographic_erasure'), to physical media shredding, degaussing, or incineration ('physical_destruction'). The chosen method determines the actual recoverability of sensitive log content after disposal.",
+    "security_impact": "The Rego policy explicitly triggers 'inadequate_secure_disposal_procedures' when 'disposal_method' is either 'none' or 'logical_deletion'. Logical deletion — standard file system deletes, SQL DELETE statements, or Elasticsearch index removal — leaves underlying data blocks intact and recoverable via forensic tools or storage snapshots. For log data containing user identifiers, session tokens, IP addresses, and behavioral patterns, this residual recoverability directly enables T1485 (Data Destruction bypass) and T1565.001 (Stored Data Manipulation). Only 'cryptographic_erasure' (destroying the encryption key rendering ciphertext useless) or 'physical_destruction' (shredding/degaussing storage media) provides strong guarantees of irreversibility. Cryptographic erasure is the dominant compliant method for cloud-hosted or SSD-based log storage where physical destruction is impractical.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Elasticsearch-based log stores, inspect the Index Lifecycle Management (ILM) delete phase configuration to determine whether deletion is logical (index deletion) or whether a snapshot-then-delete with key rotation pattern is employed.",
+        "command": "curl -s -u elastic:<password> 'https://<es-host>:9200/_ilm/policy/<policy-name>' | jq '.[] | .policy.phases.delete'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'delete' action type; absence of key rotation or cryptographic steps confirms logical deletion only."
+      },
+      {
+        "type": "gui",
+        "instruction": "For AWS CloudWatch Logs, review log group retention settings and check whether logs are stored on KMS-encrypted volumes and whether key deletion is configured to accompany log group deletion (cryptographic erasure pattern).",
+        "command": "aws logs describe-log-groups --query 'logGroups[*].{name:logGroupName,retentionDays:retentionInDays,kmsKeyId:kmsKeyId}' --output table",
+        "file_path": null,
+        "navigation": "AWS Console → CloudWatch → Log Groups → select group → Actions → Edit retention policy; also check KMS → Customer Managed Keys for scheduled key deletion policies",
+        "expected_output": "KMS key ID present per log group indicates encrypted storage; confirmation that key deletion is scheduled on log group deletion indicates cryptographic erasure; absence of KMS key means logical deletion only."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review backup and archive lifecycle scripts or cron jobs that handle log deletion to determine whether they call secure-erase utilities (e.g., 'shred', 'wipe', 'blkdiscard') or simply use 'rm', 'DELETE', or archive expiry — distinguishing logical from cryptographic/physical disposal.",
+        "command": "grep -rEn 'rm |DELETE|drop index|shred|wipe|blkdiscard|crypto.*erase|key.*delet' /etc/cron*/  /opt/log-lifecycle/ /var/scripts/ 2>/dev/null | head -40",
+        "file_path": "/etc/cron.d/, /etc/cron.daily/, /opt/log-lifecycle/",
+        "navigation": null,
+        "expected_output": "Presence of 'shred -uz', 'blkdiscard', or KMS key deletion API calls indicates cryptographic or physical disposal; bare 'rm' or SQL DELETE confirms logical deletion."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the storage or platform engineering team responsible for log infrastructure and ask: 'When logs reach end of retention, what exact operation removes them — a file/record delete, an encrypted key destruction, or physical media handling?' Request a demonstration or screenshot of the deletion workflow in the log management platform.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Engineer can describe a specific technical mechanism; 'we just delete the index/bucket/folder' confirms logical deletion; 'we rotate and delete the KMS key' confirms cryptographic erasure."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "logical_deletion",
+      "none",
+      "cryptographic_erasure",
+      "physical_destruction"
+    ]
+  },
+  {
+    "option_name": "disposal_attestation_records_maintained",
+    "option_description": "Controls whether verifiable attestation records — such as certificates of destruction, signed audit log entries, or ticketing system records — are generated and retained for each individual log disposal event. These records must capture who performed the disposal, what data was destroyed, when it occurred, and which method was used, providing an evidence chain for compliance audits and regulatory inquiries.",
+    "security_impact": "The Rego policy triggers 'inadequate_secure_disposal_procedures' whenever 'disposal_attestation_records_maintained' is false, independently of whether a disposal procedure exists or an adequate method is used. Without attestation records, there is no verifiable evidence that disposal actually occurred as required — an auditor, regulator, or incident responder cannot confirm that expired logs were destroyed rather than retained or exfiltrated. This creates direct exposure under GDPR Article 5(2) accountability obligations, NIST SP 800-53 AU-11 audit record retention requirements, and PCI-DSS Requirement 10.7. It also enables insider threat scenarios where an actor retains logs beyond authorized retention with no audit trail of the non-disposal. Attestation records also serve as evidence against T1485 (Data Destruction) claims where an adversary attempts to deny that sensitive data was present at disposal time.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Search the SIEM or audit log management platform for disposal or deletion events associated with log storage systems. Look for audit trail entries recording index deletions, bucket purges, or scheduled retention expirations with actor identity and timestamp.",
+        "command": "grep -E 'disposal|destroy|purge|log.*delet|index.*delet|retention.*expir' /var/log/audit/audit.log | tail -50",
+        "file_path": "/var/log/audit/audit.log",
+        "navigation": "Splunk: search 'index=_audit action=delete sourcetype=log_management | table _time, user, action, object, method' | Elasticsearch: GET /_cat/indices?v filtered on deleted indices with audit plugin enabled",
+        "expected_output": "Audit entries containing actor (user/service account), timestamp, object identifier (index name, bucket path, log group ARN), and disposal method for each deletion event; absence of such entries confirms false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query a ticketing or ITSM system (e.g., ServiceNow, Jira) for closed disposal or media sanitization tickets associated with log infrastructure components to verify whether attestation records are created as part of a managed disposal workflow.",
+        "command": "curl -s -u admin:<password> 'https://<servicenow-instance>/api/now/table/incident?sysparm_query=category=log_disposal^state=6&sysparm_fields=number,closed_at,closed_by,work_notes,cmdb_ci' | jq '.result[] | {ticket: .number, closed: .closed_at, by: .closed_by.display_value, asset: .cmdb_ci.display_value}'",
+        "file_path": null,
+        "navigation": "ServiceNow → Incidents or Change Requests → filter by Category = 'Log Disposal' or 'Media Sanitization' → check closure notes for destruction method and responsible party",
+        "expected_output": "Closed tickets per disposal event containing work notes documenting who performed disposal, method used, and asset/data identifier; no such tickets confirms false."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the log management platform's built-in audit or compliance reporting module for disposal event records. In AWS CloudWatch, check CloudTrail for 'DeleteLogGroup' events. In Splunk, check the audit index for 'delete' actions on indexes.",
+        "command": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=DeleteLogGroup --start-time $(date -d '90 days ago' --iso-8601=seconds) --query 'Events[*].{Time:EventTime,User:Username,LogGroup:Resources[0].ResourceName}' --output table",
+        "file_path": null,
+        "navigation": "AWS CloudTrail → Event History → filter EventName = DeleteLogGroup, DeleteRetentionPolicy; Splunk → Search → index=_audit action=delete | Elasticsearch → Audit log index filtered on 'delete_index' events",
+        "expected_output": "List of logged deletion events with actor identity, timestamp, and resource name for each disposal; empty results or absence of actor attribution confirms attestation records are not maintained."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request from the compliance or data governance team any certificates of destruction, disposal registers, or signed records produced during the last log disposal cycle. Ask specifically: 'Can you show me a record proving that logs scheduled for deletion on [date] were actually destroyed, by whom, and how?' If no such record exists for a known disposal event, the attribute is false.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Reviewable document or system record per disposal batch containing: data asset identifier, disposal date, actor name/role, method used, and approver signature or system-generated confirmation hash."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  }
+]

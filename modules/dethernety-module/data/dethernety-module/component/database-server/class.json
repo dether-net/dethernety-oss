@@ -1,0 +1,8 @@
+{
+  "name": "Database Server",
+  "classType": "component",
+  "type": "STORE",
+  "description": "A structured data store handling PII and financial information presents a high-value target requiring strict access controls, encryption at rest and in transit, robust authentication, minimal network exposure, and comprehensive audit logging. Misconfigurations in any of these areas can lead to mass data exfiltration, unauthorized modification, or regulatory non-compliance.",
+  "category": "Data Storage",
+  "status": "reviewed"
+}

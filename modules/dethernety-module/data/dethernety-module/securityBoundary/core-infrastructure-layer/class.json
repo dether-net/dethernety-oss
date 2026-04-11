@@ -1,0 +1,8 @@
+{
+  "name": "Core Infrastructure Layer",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "Foundational infrastructure layer hosting isolated DNS and email services presents significant boundary enforcement risks. DNS and email are protocol-level trust anchors that, if improperly zone-separated, enable trust propagation attacks, lateral movement via recursive query abuse, and cross-zone credential harvesting. Boundary weaknesses arise from insufficient ingress/egress filtering on service-specific ports, incomplete segmentation between resolver tiers, and inadequate monitoring of inter-zone communication channels.",
+  "category": "Infrastructure",
+  "status": "reviewed"
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Endpoint Security Software",
+  "classType": "control",
+  "type": "Endpoint Security Software",
+  "description": "Endpoint protection control delivering malware blocking and configuration hardening on user workstations. Effectiveness depends on detection engine quality, policy enforcement depth, and integration with broader security infrastructure.",
+  "category": "Endpoint Protection",
+  "status": "reviewed"
+}

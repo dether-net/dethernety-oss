@@ -1,0 +1,282 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "token_store_classification_label": {
+        "type": "string",
+        "enum": [
+          "public",
+          "internal",
+          "confidential",
+          "restricted",
+          "secret"
+        ],
+        "title": "Token Store Data Classification Label",
+        "description": "The data classification label applied to the session token store (database, cache, file system) as documented in the data inventory or system configuration."
+      },
+      "encryption_at_rest_enabled": {
+        "type": "boolean",
+        "title": "Encryption at Rest Enabled on Token Store",
+        "description": "Whether the token store has encryption at rest enabled, consistent with the protection level required for authentication credentials. Covers both primary store and backups; false if either is unencrypted.",
+        "default": false
+      },
+      "access_logging_enabled_on_token_store": {
+        "type": "boolean",
+        "title": "Access Logging Enabled on Token Store",
+        "description": "Whether read and write access to the session token store is logged, providing an audit trail consistent with the sensitivity of authentication credentials.",
+        "default": false
+      },
+      "token_retention_policy_days": {
+        "type": "integer",
+        "minimum": -1,
+        "maximum": 36500,
+        "title": "Token Retention Policy (Days)",
+        "description": "The number of days session tokens (or their records) are retained in the token store or backups before being purged. -1 indicates no defined retention limit.",
+        "default": -1
+      },
+      "token_retention_policy_enforced": {
+        "type": "boolean",
+        "title": "Token Retention Policy Enforced",
+        "description": "Whether the system enforces automatic purging or expiration of stored tokens (in databases, caches, audit logs) after their validity window closes.",
+        "default": false
+      },
+      "revoked_token_store_cleanup_enabled": {
+        "type": "boolean",
+        "title": "Revoked Token Store Cleanup Enabled",
+        "description": "Whether revoked tokens are actively removed from token blacklists or revocation stores after the token's original expiry time has passed.",
+        "default": false
+      },
+      "max_token_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 36500,
+        "title": "Maximum Token Retention Days Beyond Expiry",
+        "description": "The maximum number of days session tokens are retained in persistent stores beyond their expiry or revocation. A value greater than 0 indicates tokens survive past their intended validity window."
+      },
+      "tokens_logged_in_plaintext": {
+        "type": "boolean",
+        "title": "Tokens Logged in Plaintext",
+        "description": "Whether raw session token values (signed JWTs, opaque tokens) are written to log files, audit trails, or monitoring systems in cleartext, as detected by log pattern analysis, code review, or SAST tooling.",
+        "default": false
+      },
+      "token_storage_encryption": {
+        "type": "string",
+        "enum": [
+          "none",
+          "hashed",
+          "field_encrypted",
+          "volume_encrypted",
+          "field_and_volume_encrypted"
+        ],
+        "title": "Token Storage Encryption Method",
+        "description": "The encryption method applied to session tokens at rest in the primary token store (database, cache, session store).",
+        "default": "none"
+      },
+      "log_token_masking_enabled": {
+        "type": "boolean",
+        "title": "Token Masking/Redaction Enabled in Logging Pipeline",
+        "description": "Whether the logging configuration or pipeline actively masks, redacts, or suppresses session token values before they are written to log storage or forwarded to aggregators.",
+        "default": false
+      },
+      "log_access_control_scope": {
+        "type": "string",
+        "enum": [
+          "restricted_to_session_store_principals",
+          "broader_than_session_store",
+          "unrestricted"
+        ],
+        "title": "Log Store Access Control Scope",
+        "description": "The breadth of principals permitted to read log and audit data containing potential token values, relative to the session store access controls.",
+        "default": "broader_than_session_store"
+      },
+      "token_store_roles_with_read_access": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Roles/Service Accounts with Token Store Read Access",
+        "description": "List of database roles, IAM roles, or service accounts that have SELECT/READ permissions on session token stores (session tables, Redis key namespaces, JWT blacklist stores)."
+      },
+      "non_auth_roles_require_token_access": {
+        "type": "boolean",
+        "title": "Non-Auth Roles Require Direct Token Data Access",
+        "description": "True means all roles with token store read access have a documented, function-necessary requirement for direct token data. False means at least one role can read token data without a justified functional need.",
+        "default": false
+      },
+      "token_store_bulk_read_alerting_enabled": {
+        "type": "boolean",
+        "title": "Bulk Token Read Alerting Enabled",
+        "description": "True means monitoring/SIEM rules are configured to alert on bulk enumeration or mass extraction of token store records (e.g., full-table scans, KEYS * on Redis, high-volume GET patterns)."
+      },
+      "secure_deletion_procedure_defined": {
+        "type": "boolean",
+        "title": "Secure Deletion Procedure Defined and Verified",
+        "description": "Whether a documented and enforced procedure exists for cryptographic erasure or secure deletion of session token data from decommissioned storage volumes, backups, and archival datasets, with evidence of actual execution.",
+        "default": false
+      },
+      "token_revocation_state_persisted_separately": {
+        "type": "boolean",
+        "title": "Token Revocation State Persisted Separately",
+        "description": "Whether token revocation state (e.g., a denylist or revocation log) is maintained in a separate, authoritative store that is consulted at validation time, ensuring tokens recovered from improperly disposed media cannot be replayed.",
+        "default": false
+      }
+    },
+    "required": [
+      "token_store_classification_label",
+      "encryption_at_rest_enabled",
+      "access_logging_enabled_on_token_store",
+      "token_retention_policy_days",
+      "token_retention_policy_enforced",
+      "revoked_token_store_cleanup_enabled",
+      "max_token_retention_days",
+      "tokens_logged_in_plaintext",
+      "token_storage_encryption",
+      "log_token_masking_enabled",
+      "log_access_control_scope",
+      "token_store_roles_with_read_access",
+      "non_auth_roles_require_token_access",
+      "token_store_bulk_read_alerting_enabled",
+      "secure_deletion_procedure_defined",
+      "token_revocation_state_persisted_separately"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/non_auth_roles_require_token_access"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/revoked_token_store_cleanup_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/token_revocation_state_persisted_separately"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/token_store_roles_with_read_access"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_at_rest_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/token_storage_encryption"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/token_store_classification_label"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/max_token_retention_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secure_deletion_procedure_defined"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/token_retention_policy_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/token_retention_policy_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_logging_enabled_on_token_store"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_token_masking_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tokens_logged_in_plaintext"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_access_control_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/token_store_bulk_read_alerting_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

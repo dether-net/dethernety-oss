@@ -1,0 +1,1451 @@
+[
+  {
+    "option_name": "integrity_checks_enabled",
+    "option_description": "Controls whether scheduled integrity verification jobs are actively configured and running against backup copies, ensuring that backup data is periodically validated for completeness and recoverability without requiring manual intervention.",
+    "security_impact": "The Rego policy awards the backup_integrity_validation countermeasure only when integrity_checks_enabled is true alongside checksum_validation_enabled and a check frequency of 1–30 days. Without this enabled, silent backup corruption may go undetected until an actual recovery attempt fails, leaving organizations with no viable restore point during an incident.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux systems, inspect cron jobs for scheduled backup verification tasks across system and user crontabs.",
+        "command": "grep -rE '(verify|check|validate|integrity)' /etc/cron* /var/spool/cron/crontabs/ 2>/dev/null; systemctl list-timers | grep -i backup",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Cron entries or systemd timer units referencing backup verification scripts or backup software verify commands."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Veeam Backup & Replication, navigate to Home > Jobs, right-click a backup job, and select Properties. Under Storage, confirm 'Perform backup files health check' is enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Veeam Console > Home > Jobs > [Backup Job] > Edit > Storage > Health Check",
+        "expected_output": "The 'Perform backup files health check' checkbox is checked and a schedule is defined."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Bacula or Bareos, review the Director configuration for Verify Job definitions that are scheduled and active.",
+        "command": "grep -A 10 'Job {' /etc/bacula/bacula-dir.conf | grep -E '(Name|Type|Schedule|Verify)'",
+        "file_path": "/etc/bacula/bacula-dir.conf",
+        "navigation": null,
+        "expected_output": "Job entries with Type = Verify associated with an active Schedule resource."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Veeam REST API to retrieve backup job configurations and confirm health check settings are enabled.",
+        "command": "curl -sk -X GET 'https://<veeam-server>:9419/api/v1/jobs' -H 'Authorization: Bearer <token>' | jq '.[] | {name: .name, healthCheck: .storage.healthCheckEnabled}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output showing healthCheckEnabled: true for each critical backup job."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "checksum_validation_enabled",
+    "option_description": "Controls whether cryptographic checksums (such as MD5 or SHA-256) are generated at backup creation time and subsequently compared during integrity verification runs, providing a mathematical guarantee that backup data has not been silently corrupted or tampered with.",
+    "security_impact": "The Rego backup_integrity_validation rule requires both integrity_checks_enabled and checksum_validation_enabled to be true before granting the countermeasure credit. Checksum validation is the mechanism that makes integrity checks meaningful — without it, scheduled jobs may confirm file presence but cannot detect bit-level corruption, partial writes, or ransomware-induced content alteration in backup files.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For Duplicati, inspect the backup job configuration file to confirm checksum verification is enabled.",
+        "command": "grep -i 'checksum\\|hash\\|verify' ~/.config/Duplicati/*.sqlite 2>/dev/null || grep -ri 'verify-remote-volume' /etc/duplicati/",
+        "file_path": "~/.config/Duplicati/",
+        "navigation": null,
+        "expected_output": "Configuration entries confirming hash verification or verify-remote-volume is set to true."
+      },
+      {
+        "type": "command",
+        "instruction": "For restic backups, check whether the 'restic check' command is scheduled and review logs to confirm it performs pack data verification with --read-data or --read-data-subset.",
+        "command": "grep -r 'restic check' /etc/cron* /var/spool/cron/ /etc/systemd/system/ 2>/dev/null | grep -E 'read-data|read-data-subset'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Cron or systemd unit entries showing 'restic check --read-data' or '--read-data-subset' arguments."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review backup verification logs for checksum-related entries confirming that hash comparisons are performed and logged during each verification run.",
+        "command": "grep -iE '(checksum|sha|md5|hash|digest|mismatch|verified)' /var/log/backup*.log /var/log/veeam/*.log 2>/dev/null | tail -50",
+        "file_path": "/var/log/backup*.log",
+        "navigation": null,
+        "expected_output": "Log lines referencing hash computation, checksum comparison, or verification success/failure per backup file or block."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Backup, navigate to Backup vaults, select a vault, choose a recovery point, and confirm that the integrity check status field shows a completed verification with SHA-256 checksums.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > AWS Backup > Backup vaults > [vault name] > Recovery points > [point] > Restore test or integrity check status",
+        "expected_output": "Recovery point details show integrity check status as 'PASSED' with checksum algorithm listed."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "integrity_check_frequency_days",
+    "option_description": "Defines the interval in days between automated backup integrity verification runs, ranging from 0 (no scheduled checks) to 365 days. This numeric value governs how current the integrity assurance is for any given backup set at any point in time.",
+    "security_impact": "The Rego backup_integrity_validation countermeasure requires this value to be between 1 and 30 (inclusive) when combined with integrity_checks_enabled and checksum_validation_enabled. A frequency greater than 30 days means backup integrity is validated infrequently, leaving extended windows where silent corruption could exist undetected. A value of 0 disables scheduled checks entirely, voiding integrity assurance.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the cron schedule interval for backup integrity check jobs and calculate the day frequency from the cron expression.",
+        "command": "crontab -l 2>/dev/null; cat /etc/cron.d/* 2>/dev/null | grep -iE '(verify|integrity|check)' | awk '{print $1,$2,$3,$4,$5,$6}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Cron expressions such as '0 2 */7 * *' indicating the check runs every 7 days."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Veeam, inspect the SureBackup job configuration XML or PowerShell export to extract the health check schedule interval.",
+        "command": "Get-VBRJob | Where-Object {$_.JobType -eq 'Backup'} | ForEach-Object { $_.GetStorageOptions() } | Select-Object HealthCheckEnabled, HealthCheckPeriod | Format-List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HealthCheckEnabled: True, HealthCheckPeriod: [number] representing days between checks."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Commvault Command Center, navigate to Protect > Backup Sets, select a backup set, click Edit, and find the Data Verification schedule to read the configured frequency.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Commvault Command Center > Protect > Backup Sets > [name] > Edit > Data Verification > Schedule",
+        "expected_output": "A numeric interval displayed (e.g., 'Every 7 days') showing the verification cadence."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the backup administrator or review the backup operations runbook to confirm what frequency is defined for integrity checks and whether the schedule matches the documented policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented or verbally confirmed day interval (ideally 7–30 days) that aligns with scheduled job configuration."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "7",
+      "14",
+      "30",
+      "0",
+      "90"
+    ]
+  },
+  {
+    "option_name": "restore_test_performed",
+    "option_description": "Captures the operational cadence at which restore tests — actual data restorations from backup to a test environment — are conducted to validate that backup data is genuinely recoverable. Accepted values are 'regularly', 'occasionally', 'never', or 'unknown'.",
+    "security_impact": "The Rego backup_integrity_validation rule grants the countermeasure when restore_test_performed equals 'regularly' combined with integrity_checks_enabled and checksum_validation_enabled being true. This alternate path acknowledges that active restore testing provides strong empirical evidence of recoverability. Values of 'occasionally', 'never', or 'unknown' prevent this policy path from satisfying the rule and indicate gaps in validated recovery capability.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the backup operations team or IT manager to determine how often restore tests are conducted, and cross-reference with any formal restore test schedule in the DR or backup policy documentation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A clear statement of frequency such as 'monthly', 'quarterly', or an admission that restore tests have not been performed recently."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review backup software logs or ITSM records for restore job entries that were executed as tests rather than production recoveries, noting frequency over the past 12 months.",
+        "command": "grep -iE '(restore|recovery|test restore|drill)' /var/log/backup*.log 2>/dev/null | grep -i 'success\\|complete\\|finished' | awk '{print $1, $2}' | sort | uniq -c",
+        "file_path": "/var/log/backup*.log",
+        "navigation": null,
+        "expected_output": "Timestamped restore completion entries appearing at regular intervals (e.g., monthly) over the review period."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Veeam, navigate to History > Restore to review restore job history. Count entries tagged as test restores and assess frequency.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Veeam Console > History > Restore > Filter by last 12 months",
+        "expected_output": "A list of completed restore jobs indicating periodic testing activity with job names referencing 'test' or 'drill'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check SureBackup or automated restore test job configurations to confirm scheduled test restore automation is defined.",
+        "command": "Get-VBRSureBackupJob | Select-Object Name, IsScheduleEnabled, NextRunTime, LastResult | Format-Table -AutoSize",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SureBackup jobs listed with IsScheduleEnabled: True and a NextRunTime confirming regular scheduling."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "regularly",
+      "occasionally",
+      "never",
+      "unknown"
+    ]
+  },
+  {
+    "option_name": "rto_rpo_objectives_documented",
+    "option_description": "Controls whether formally documented Recovery Time Objective (RTO) and Recovery Point Objective (RPO) thresholds exist in business continuity, disaster recovery, or data recovery policy artifacts, with specific numeric values assigned to critical systems or data tiers.",
+    "security_impact": "The Rego recovery_time_objective_enforcement rule requires rto_rpo_objectives_documented to be true as a prerequisite condition alongside recent testing and met targets. Without documented objectives, organizations lack measurable recovery benchmarks, cannot determine whether a recovery test succeeded or failed against defined thresholds, and have no enforceable standard for vendors or internal teams — effectively making the entire recovery testing program unverifiable.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request and review the organization's Business Continuity Plan (BCP), Disaster Recovery Plan (DRP), or Data Recovery Policy. Confirm that specific numeric RTO (e.g., 4 hours) and RPO (e.g., 1 hour) values are explicitly listed for each critical system tier.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A policy document containing a table or section with system names mapped to defined RTO and RPO numeric values."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Search documentation repositories or shared drives for recovery policy documents containing RTO/RPO terminology with numeric values.",
+        "command": "find /mnt/shares /opt/docs /home -iname '*.pdf' -o -iname '*.docx' -o -iname '*.md' 2>/dev/null | xargs grep -l -iE '(rto|rpo|recovery time objective|recovery point objective)' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "File paths to documents containing RTO/RPO references; review these files to confirm numeric values are present."
+      },
+      {
+        "type": "gui",
+        "instruction": "In ServiceNow or Archer GRC, navigate to the Business Continuity Management module and locate the BIA (Business Impact Analysis) records, confirming RTO and RPO fields contain non-null numeric values for critical CIs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ServiceNow > Business Continuity Management > Business Impact Analysis > [Application/Service] > Recovery Objectives",
+        "expected_output": "RTO and RPO fields populated with specific hour/minute values for each critical service."
+      },
+      {
+        "type": "api",
+        "instruction": "Query a GRC platform API to retrieve business impact analysis records and check for populated RTO/RPO fields.",
+        "command": "curl -sk -X GET 'https://<grc-platform>/api/bia_records?filter=critical' -H 'Authorization: Bearer <token>' | jq '.[] | {system: .name, rto_hours: .rto, rpo_hours: .rpo}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON records showing non-null numeric rto and rpo values for critical systems."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "recovery_procedures_tested_within_months",
+    "option_description": "Represents the number of months elapsed since the most recent documented and formally validated recovery procedure test, such as a full restore drill or tabletop exercise where RTO and RPO outcomes were measured and recorded. A value of 0 means a test occurred this month; higher values indicate aging test records.",
+    "security_impact": "The Rego recovery_time_objective_enforcement rule requires this value to be 12 or less (tested within the past year). Recovery procedures that have not been tested within 12 months provide no verified assurance that staff can execute them correctly, that tooling still functions, or that RTO/RPO targets remain achievable — particularly after infrastructure changes such as cloud migrations, storage upgrades, or software version changes.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the most recent DR test report, restore drill sign-off document, or tabletop exercise summary, and calculate the number of months between its date and today.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dated document (e.g., 'DR Test Report – March 2024') that can be used to calculate elapsed months."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search backup and DR logs for the most recent restore test completion event and calculate months elapsed since that date.",
+        "command": "grep -iE '(restore complete|recovery test|drill complete|rto met|rpo met)' /var/log/backup*.log /var/log/dr*.log 2>/dev/null | sort | tail -5",
+        "file_path": "/var/log/backup*.log",
+        "navigation": null,
+        "expected_output": "A timestamped log line indicating a completed recovery test; compare the date to the current date."
+      },
+      {
+        "type": "gui",
+        "instruction": "In a GRC or ITSM platform such as Jira, ServiceNow, or Archer, search for DR test tickets or change records tagged with 'recovery test' or 'disaster recovery drill' and identify the most recently closed record.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ServiceNow > Change Management > Search: 'DR Test' or 'Recovery Drill' > Sort by Closed Date > Top Result",
+        "expected_output": "A closed ticket with a resolution date; calculate months since that date to derive the attribute value."
+      },
+      {
+        "type": "command",
+        "instruction": "On systems using automated DR orchestration (e.g., AWS DRS or Zerto), query the last test failover event timestamp and compute months elapsed.",
+        "command": "aws drs describe-jobs --filters name=jobType,values=LAUNCH --query 'items[?launchStatus==`SUCCEEDED`] | sort_by(@, &creationDateTime) | [-1].{date: creationDateTime, status: launchStatus}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The most recent successful launch job date from AWS Elastic Disaster Recovery, representing the last tested recovery event."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "6",
+      "12",
+      "18",
+      "24",
+      "0"
+    ]
+  },
+  {
+    "option_name": "last_test_met_rto_rpo",
+    "option_description": "Records whether the most recent recovery test demonstrated that the restoration completed within the defined Recovery Time Objective and that data loss was within the defined Recovery Point Objective, as measured and documented in formal post-exercise reporting.",
+    "security_impact": "The Rego recovery_time_objective_enforcement rule requires last_test_met_rto_rpo to be true alongside documented objectives and recent testing. A false value means either the test failed to meet defined thresholds — indicating the recovery capability is insufficient — or that the test was not measured against objectives at all, leaving the organization without evidence that recovery targets are achievable when a real failure occurs.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Obtain the most recent DR test or restore drill report and review the results section to confirm that measured recovery time and data loss values were explicitly compared against documented RTO and RPO thresholds, with a pass/fail conclusion recorded.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A test report with a section stating measured RTO (e.g., '2.5 hours vs. 4-hour target: PASS') and measured RPO (e.g., '45 minutes data loss vs. 1-hour target: PASS')."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review DR orchestration tool logs or restore job completion reports for time-to-recovery measurements and data currency timestamps that can be compared against RTO/RPO targets.",
+        "command": "grep -iE '(recovery time|restore duration|data loss|rto|rpo|objective met|target achieved)' /var/log/dr*.log /opt/dr/reports/*.log 2>/dev/null | tail -30",
+        "file_path": "/var/log/dr*.log",
+        "navigation": null,
+        "expected_output": "Log entries recording recovery duration in hours/minutes and data loss in hours/minutes compared to defined objectives."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Zerto, navigate to Reports > Recovery Reports and select the most recent test failover report. Review the RPO graph and recovery time metrics to confirm they were within policy thresholds.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Zerto UI > Reports > Recovery Reports > [most recent test] > RPO and RTO metrics",
+        "expected_output": "RPO values consistently below the defined threshold and RTO within the target window for the test period."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS DRS job history for the most recent test launch and retrieve timing metrics to compare against defined RTO/RPO values.",
+        "command": "aws drs describe-jobs --filters name=jobType,values=LAUNCH --query 'items | sort_by(@, &creationDateTime) | [-1].{createdAt: creationDateTime, endedAt: endDateTime, status: status}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output with creation and end timestamps; compute duration to compare against the documented RTO threshold."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "recovery_runbook_exists",
+    "option_description": "Indicates whether a formal, dedicated, step-by-step recovery runbook document exists that provides explicit restoration instructions for data recovery procedures, distinguishing formal operational artifacts from informal notes or ad hoc tribal knowledge.",
+    "security_impact": "The Rego recovery_procedure_documentation_completeness rule uses recovery_runbook_exists as the foundational prerequisite — neither policy path fires without it being true. During high-stress recovery events, the absence of a formal runbook increases the risk of human error, missed steps, and extended recovery times. It also prevents consistent execution across different personnel and makes compliance attestation impossible.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the formal data recovery runbook from the IT operations or DR team and verify it is a dedicated, named document (not embedded in meeting notes or email threads) with numbered step-by-step instructions.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A standalone document titled something like 'Data Recovery Runbook v2.1' with explicit numbered restoration steps, owner, and review date."
+      },
+      {
+        "type": "gui",
+        "instruction": "Search the organization's documentation platform (Confluence, SharePoint, or internal wiki) for recovery runbook artifacts using keywords 'recovery runbook', 'restore procedure', or 'DR runbook'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Confluence > Search: 'recovery runbook' OR 'data restoration procedure' > Filter: Space = IT Operations or DR",
+        "expected_output": "At least one published page or document with a title matching 'runbook' or 'recovery procedure' containing structured step-by-step instructions."
+      },
+      {
+        "type": "command",
+        "instruction": "Search documentation repositories mounted locally or accessible via filesystem for runbook documents related to data recovery.",
+        "command": "find /mnt/shares /opt/docs /srv/wiki /home -type f \\( -iname '*runbook*' -o -iname '*recovery*procedure*' -o -iname '*restore*guide*' \\) 2>/dev/null | grep -iv 'temp\\|draft\\|old'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "File paths to non-draft runbook documents; open and verify they contain step-by-step restoration instructions rather than placeholder content."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check IT service management tools for a knowledge base article or standard operating procedure (SOP) record tagged as the official recovery runbook, confirming it is in an approved/published state.",
+        "command": "curl -sk -X GET 'https://<servicenow-instance>/api/now/table/kb_knowledge?sysparm_query=short_descriptionLIKErecovery+runbook^workflow_state=published' -H 'Authorization: Basic <b64creds>' | jq '.result[] | {title: .short_description, state: .workflow_state, updated: .sys_updated_on}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more published ServiceNow knowledge base articles with 'recovery runbook' in the title and workflow_state set to 'published'."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "runbook_completeness_level",
+    "option_description": "Measures the degree to which the recovery runbook covers all five required procedural elements: defined roles/responsibilities, numbered sequential steps, verification/validation checkpoints, escalation paths, and rollback procedures. This enum attribute drives scoring from 'none' (no runbook exists) through 'partial' (missing 2+ elements), 'substantial' (missing 1 element), and 'complete' (all elements present).",
+    "security_impact": "The Rego policy for recovery_procedure_documentation_completeness requires runbook_completeness_level to be either 'substantial' or 'complete' before the countermeasure activates. A runbook graded 'complete' can satisfy the policy with only a 180-day review window, whereas 'substantial' requires both a 365-day review and drill validation. Incomplete runbooks increase human error risk during high-stress recovery events, potentially extending downtime or causing data loss beyond RTO/RPO thresholds.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Retrieve the current recovery runbook document from the team's knowledge base (Confluence, SharePoint, or equivalent). Score it against the five required elements: (1) named roles and responsibilities section, (2) numbered sequential steps, (3) explicit verification/validation checkpoints after critical steps, (4) escalation paths with contact details, (5) rollback procedures. Assign 'none' if no runbook exists, 'partial' if 2 or more elements are absent, 'substantial' if exactly 1 element is absent, and 'complete' if all five are present.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Confluence: Space > DR/BCP > Recovery Runbooks; SharePoint: DR Documentation Library > Runbooks",
+        "expected_output": "A scored assessment matching one of: none, partial, substantial, complete"
+      },
+      {
+        "type": "config_file",
+        "instruction": "If runbooks are stored as Markdown or text files in a Git repository, inspect the file structure for presence of the five required sections using grep.",
+        "command": "grep -iE '(role|responsible|owner|escalat|rollback|verify|checkpoint|step [0-9])' /path/to/runbook.md | head -40",
+        "file_path": "/path/to/runbook.md",
+        "navigation": null,
+        "expected_output": "Matching lines indicate which procedural elements are present; absence of matches for any element informs the completeness grade"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the DR lead or IT operations manager to confirm whether a formal runbook review checklist is used and request the most recent completed checklist showing all five elements were verified.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A completed review checklist signed off by the DR lead with all five elements marked present"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "partial",
+      "substantial",
+      "complete"
+    ]
+  },
+  {
+    "option_name": "runbook_last_reviewed_days_ago",
+    "option_description": "Records the number of calendar days elapsed since the recovery runbook was last formally reviewed and validated against current infrastructure, personnel, and processes. This integer value is used to determine whether the runbook remains current and actionable.",
+    "security_impact": "The Rego policy enforces two time-based thresholds: a runbook graded 'substantial' or 'complete' with drill validation must have been reviewed within 365 days, while a 'complete' runbook without drill validation requires review within 180 days. Stale runbooks may reference decommissioned systems, outdated credentials, or personnel who have left the organization, rendering them ineffective during an actual recovery event.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the document metadata or version control history of the runbook file to identify the most recent formal review date, then calculate elapsed days.",
+        "command": "git log --follow --format='%ad' --date=short -- /path/to/runbook.md | head -1",
+        "file_path": "/path/to/runbook.md",
+        "navigation": null,
+        "expected_output": "A date string such as '2024-03-15'; subtract from today's date to obtain days elapsed"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Confluence, open the recovery runbook page and navigate to Page History or check the 'Last Modified' metadata in the page footer. In SharePoint, open the document properties to view the 'Modified' date field.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Confluence: Recovery Runbook page > '...' menu > Page History > most recent entry labeled 'Annual Review'; SharePoint: Document library > right-click file > Properties > Modified date",
+        "expected_output": "A visible last-modified or last-reviewed date; subtract from current date to calculate days elapsed"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Confluence REST API to retrieve the last modified date of the runbook page, then compute the difference from today.",
+        "command": "curl -s -u user:token 'https://your-confluence.example.com/rest/api/content/<PAGE_ID>?expand=version' | python3 -c \"import sys,json,datetime; d=json.load(sys.stdin); dt=datetime.datetime.fromisoformat(d['version']['when'].replace('Z','+00:00')); print((datetime.datetime.now(datetime.timezone.utc)-dt).days)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing days since last modification, e.g., '47'"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the change log or review log maintained by the DR team. This is typically a spreadsheet or ITSM ticket that records the date of each formal review cycle and the reviewer's name.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ITSM (ServiceNow/Jira): filter tickets by type 'DR Runbook Review' and check resolution date of the most recent closed ticket",
+        "expected_output": "A documented review date from which elapsed days can be calculated"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30",
+      "90",
+      "180",
+      "365",
+      "400",
+      "730"
+    ]
+  },
+  {
+    "option_name": "runbook_tested_in_drill",
+    "option_description": "A boolean flag indicating whether the recovery runbook has been exercised through at least one formal recovery drill or tabletop exercise within the past 12 months. The drill must have specifically walked through the runbook steps rather than a generic exercise.",
+    "security_impact": "The primary Rego policy path for recovery_procedure_documentation_completeness requires runbook_tested_in_drill to be true when the completeness level is 'substantial' or 'complete' and review recency is within 365 days. An untested runbook may contain undiscovered procedural gaps, incorrect command sequences, or missing dependencies that only surface under drill conditions, leaving teams unprepared for real recovery scenarios.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request DR or BCP test records from the past 12 months. Confirm that at least one drill or tabletop exercise explicitly references this runbook by name or document ID in the exercise scope or after-action report.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DR/BCP documentation repository: look for after-action reports, drill summaries, or tabletop exercise agendas from the past 12 months",
+        "expected_output": "A drill report dated within the last 365 days that names the recovery runbook as part of the exercise scope"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search the incident management or change management system for tickets tagged with 'DR drill', 'tabletop exercise', or 'recovery test' closed within the last 365 days.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ServiceNow: Navigate to Incident > All Incidents > filter by Category='DR Test' and Resolved date > (today minus 365 days); Jira: project:DR AND labels=drill AND resolved >= -365d",
+        "expected_output": "One or more closed tickets or issues confirming a drill was conducted and the runbook was exercised"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the DR coordinator or business continuity manager to confirm whether a runbook-specific drill has been conducted in the last 12 months and request evidence such as attendance records or sign-off sheets.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verbal confirmation backed by documentary evidence (attendance list, sign-off sheet, or exercise report) confirming true/false status"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "recovery_drill_conducted",
+    "option_description": "A boolean flag indicating whether at least one full recovery drill or tabletop exercise has been completed within the organization's defined review period. Unlike runbook_tested_in_drill, this attribute focuses on whether any qualifying exercise has occurred at all, independent of which specific runbook was used.",
+    "security_impact": "The Rego policy for recovery_testing_and_drill_coverage requires recovery_drill_conducted to be true as a mandatory gate condition alongside months_since_last_drill and drill_outcome_documented. If false, the countermeasure cannot activate regardless of other attribute values. Organizations without documented drills have no validated evidence that their recovery capability works, making RTO/RPO commitments unsubstantiated claims.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request all DR/BCP exercise records from the past review period (typically 12 months). Confirm at least one record exists for a full recovery drill (live failover test) or tabletop exercise. A tabletop that only discussed scenarios without executing runbook steps does not qualify as a full drill.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DR documentation repository > Exercises and Tests folder > sort by date descending",
+        "expected_output": "At least one exercise report dated within the review period; value is true if found, false if no records exist"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search the ITSM platform for change requests or problem records of type 'DR Exercise' or 'Recovery Test' that were completed within the review period.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ServiceNow: Change Management > All Changes > filter Type='DR Test' AND State='Closed' AND Closed date within review period; Jira: project=DR AND issuetype=Exercise AND status=Done AND resolved>=-12months",
+        "expected_output": "One or more completed change/exercise records confirming a drill was formally conducted"
+      },
+      {
+        "type": "api",
+        "instruction": "If using a GRC platform (e.g., ServiceNow GRC, Archer), query the assessment or test record API for evidence items tagged to the Data Recovery control with a completion date within the review period.",
+        "command": "curl -s -u user:token 'https://your-grc.example.com/api/now/table/sn_risk_test_evidence?sysparm_query=control.name=Data+Recovery^completion_date>=javascript:gs.beginningOfLast12Months()' -H 'Accept:application/json'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response containing one or more evidence records; empty result set indicates false"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "months_since_last_drill",
+    "option_description": "An integer representing the number of full calendar months elapsed since the most recently completed recovery drill or tabletop exercise. This metric quantifies the freshness of the organization's recovery testing evidence.",
+    "security_impact": "The Rego policy for recovery_testing_and_drill_coverage requires months_since_last_drill to be 12 or fewer (i.e., within the last year) in conjunction with recovery_drill_conducted being true and drill_outcome_documented being true. Values exceeding 12 months prevent the countermeasure from activating, indicating that recovery capability has not been recently validated and may have drifted from current infrastructure state.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Locate the after-action report, exercise summary, or test completion record for the most recent recovery drill. Identify the completion date and calculate the number of full months between that date and today.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DR/BCP documentation repository > most recent exercise report > check header for 'Exercise Date' or 'Completion Date'",
+        "expected_output": "A specific completion date from which months elapsed can be computed, e.g., 'Exercise completed 2024-01-10' yields ~6 months if evaluated in July 2024"
+      },
+      {
+        "type": "command",
+        "instruction": "If drill completion dates are tracked in a structured log file or CSV, extract the most recent date and compute months elapsed using a shell command.",
+        "command": "python3 -c \"import datetime; last_drill=datetime.date(2024,1,10); today=datetime.date.today(); diff=(today.year - last_drill.year)*12 + today.month - last_drill.month; print(diff)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer such as '6' representing months since the drill date"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the ITSM system for the most recently closed DR exercise ticket and extract the resolution or completion timestamp.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ServiceNow: Change Management > filter Type='DR Exercise', State='Closed' > sort by Closed date descending > record the date of the top result; calculate months from that date to today",
+        "expected_output": "A completion date enabling calculation of months elapsed"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the GRC or project management API for the most recently completed DR exercise record and parse the completion date.",
+        "command": "curl -s -u user:token 'https://your-grc.example.com/api/now/table/sn_risk_test?sysparm_query=short_description=DR+Exercise^state=3^ORDERBYDESCsys_updated_on&sysparm_limit=1' -H 'Accept:application/json' | python3 -c \"import sys,json,datetime; r=json.load(sys.stdin)['result'][0]; dt=datetime.datetime.fromisoformat(r['sys_updated_on'].replace(' ','T')); today=datetime.datetime.now(); print((today.year-dt.year)*12+today.month-dt.month)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing months since the last drill, e.g., '4'"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1",
+      "3",
+      "6",
+      "12",
+      "18",
+      "24"
+    ]
+  },
+  {
+    "option_name": "drill_outcome_documented",
+    "option_description": "A boolean flag indicating whether the results, identified gaps, lessons learned, and remediation action items from the most recent recovery drill have been formally documented and stored in an accessible repository. Documentation must be a written record, not merely verbal agreement.",
+    "security_impact": "The Rego policy for recovery_testing_and_drill_coverage requires drill_outcome_documented to be true alongside a conducted drill within 12 months. Without documented outcomes, identified gaps cannot be systematically tracked and remediated, effectively making each drill a standalone event with no organizational learning or improvement loop. Auditors and compliance frameworks (e.g., ISO 22301, NIST SP 800-34) require written after-action reports as evidence of a mature DR program.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the after-action report (AAR) or drill debrief document for the most recent recovery exercise. Confirm the document contains: a summary of what was tested, issues or gaps observed, and a list of follow-up actions with owners and due dates. Verify the document is stored in the official DR repository and accessible to relevant stakeholders.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DR documentation repository > Exercise Reports > most recent folder; confirm file exists and is not empty/template-only",
+        "expected_output": "A completed after-action report with populated gap findings and action items sections; value is true if document exists and contains substantive content"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search the issue or project tracker for open or closed tickets that were created as follow-up actions from the most recent drill, which would indicate that outcomes were captured and assigned.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Jira: project=DR AND labels=drill-followup AND created>=(date of last drill); ServiceNow: Problem records tagged with 'DR Drill Finding' created after the last drill date",
+        "expected_output": "One or more follow-up tickets or action items created after the drill date, indicating outcomes were documented and tracked"
+      },
+      {
+        "type": "gui",
+        "instruction": "Check the GRC platform's control evidence library for an after-action report artifact linked to the Data Recovery Procedures control with an upload date matching or following the most recent drill date.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GRC Platform (e.g., ServiceNow GRC, Archer) > Controls > Data Recovery Procedures > Evidence > filter by Type='Test Results' and Date >= last drill date",
+        "expected_output": "An evidence attachment with a title such as 'DR Drill After-Action Report' and a non-empty document"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "backup_retention_tiers_configured",
+    "option_description": "An enum value describing how many distinct backup retention windows are actively configured in the backup policy. Values progress from 'none' (no retention policy), through 'single_tier' (one retention window, e.g., daily only), 'two_tiers' (e.g., daily and weekly), to 'three_or_more_tiers' (e.g., daily, weekly, and monthly or longer). Each tier must have at least one valid backup generation stored to count.",
+    "security_impact": "The Rego policy for multi_tier_backup_retention_coverage requires either 'three_or_more_tiers' with at least 2 generations per tier, or 'two_tiers' with at least 3 generations per tier, plus a documented backup policy. Organizations with only single-tier retention cannot recover to historical data states beyond the single window, making them vulnerable to delayed-discovery data corruption or ransomware that encrypts data before the single backup is overwritten.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the backup management console (e.g., Veeam Backup & Replication, Commvault, AWS Backup, Azure Backup) and navigate to the backup policy or schedule configuration. Count the number of distinct retention schedules defined (daily, weekly, monthly, yearly). Each schedule with a different retention window counts as one tier.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Backup: Console > Backup plans > select plan > Backup rules (count rules with different retention periods); Veeam: Backup & Replication console > Backup Jobs > right-click job > Edit > Storage tab > Retention Policy; Azure Backup: Recovery Services vault > Backup policies > select policy > Retention range",
+        "expected_output": "A visible list of retention rules; 0 rules = 'none', 1 rule = 'single_tier', 2 rules = 'two_tiers', 3+ rules = 'three_or_more_tiers'"
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS Backup, query the backup plan rules via AWS CLI to enumerate distinct retention periods.",
+        "command": "aws backup get-backup-plan --backup-plan-id <PLAN_ID> --query 'BackupPlan.Rules[*].{Name:RuleName,RetentionDays:Lifecycle.DeleteAfterDays}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A table listing each rule name and its retention period in days; count distinct retention durations to determine tier count"
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure Backup, use the Azure CLI to list backup policies and inspect their retention schedule configuration.",
+        "command": "az backup policy list --resource-group <RG_NAME> --vault-name <VAULT_NAME> --query '[].{Name:name, RetentionPolicy:properties.retentionPolicy}' -o json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output showing daily/weekly/monthly/yearly retention settings per policy; presence of multiple populated retention sections indicates multiple tiers"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For on-premises backup tools that store configuration in files (e.g., Bacula, Amanda), inspect the configuration file for FULL, DIFFERENTIAL, and INCREMENTAL schedule blocks or distinct Retention directives.",
+        "command": "grep -iE '(retention|full.*schedule|differential|monthly|weekly|daily)' /etc/bacula/bacula-dir.conf | grep -v '^#'",
+        "file_path": "/etc/bacula/bacula-dir.conf",
+        "navigation": null,
+        "expected_output": "Multiple distinct retention or schedule directives indicating different tier windows"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "single_tier",
+      "two_tiers",
+      "three_or_more_tiers"
+    ]
+  },
+  {
+    "option_name": "minimum_backup_generations_per_tier",
+    "option_description": "An integer representing the lowest count of versioned backup copies (generations) retained within any single configured retention tier. For example, if the daily tier retains 7 copies, the weekly tier retains 4 copies, and the monthly tier retains 3 copies, this value would be 3 (the minimum across all tiers). This metric identifies the weakest link in the backup generational chain.",
+    "security_impact": "The Rego policy for multi_tier_backup_retention_coverage requires a minimum of 2 generations per tier when three or more tiers are configured, and a minimum of 3 generations per tier when exactly two tiers are configured. Insufficient generations within any tier create a recovery gap: if the most recent backup in that tier is corrupted or encrypted by ransomware, having only one generation means no fallback exists within that tier's time window. This could force reliance on a longer-term (and thus older) backup, increasing data loss exposure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS Backup, list recovery points per backup vault and count the number of recovery points grouped by resource and backup rule to find the tier with the fewest retained copies.",
+        "command": "aws backup list-recovery-points-by-backup-vault --backup-vault-name <VAULT_NAME> --query 'RecoveryPoints[*].{Resource:ResourceArn,CreationDate:CreationDate,Status:Status}' --output table | sort",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of recovery points per resource; group by retention tier (daily/weekly/monthly) and count; identify the tier with the fewest entries"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Veeam Backup & Replication, open each backup job and navigate to the restore points view to count the number of restore points per schedule type (daily, weekly, monthly). Record the minimum count across all tiers.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Veeam console > Home > Backups > Disk (or Tape) > expand job > right-click > Properties > inspect restore point count per schedule tier; or Home > Last 24 Hours/Last 7 days views to count generations",
+        "expected_output": "A count of restore points per tier; the lowest count across all tiers is the minimum_backup_generations_per_tier value"
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure Backup, query recovery points for a protected item and count them grouped by the backup type (daily, weekly, monthly) to find the tier with the fewest retained versions.",
+        "command": "az backup recoverypoint list --resource-group <RG_NAME> --vault-name <VAULT_NAME> --container-name <CONTAINER> --item-name <ITEM_NAME> --workload-type <TYPE> --query '[].{Date:properties.recoveryPointTime,Type:properties.recoveryPointType}' -o table | sort",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A sorted table of recovery points with type labels; count entries per type and identify the minimum count"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For backup tools with file-based configuration (e.g., Bacula, Amanda, restic), examine the configuration or repository metadata to count stored snapshots per retention tier.",
+        "command": "restic -r /path/to/repo snapshots --json | python3 -c \"import sys,json,collections; snaps=json.load(sys.stdin); tags=collections.Counter(t for s in snaps for t in s.get('tags',['untagged'])); print(dict(tags))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dictionary showing counts per tag/tier such as {'daily': 7, 'weekly': 4, 'monthly': 2}; the minimum value across all tiers is the attribute value"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "5",
+      "7",
+      "10",
+      "30"
+    ]
+  },
+  {
+    "option_name": "backup_policy_documented",
+    "option_description": "Controls whether a formal, written multi-tier backup retention policy exists with explicitly defined retention periods for each tier (e.g., daily backups retained 7 days, weekly backups retained 4 weeks, monthly backups retained 12 months).",
+    "security_impact": "The Rego policy for multi_tier_backup_retention_coverage requires backup_policy_documented == true alongside configured tiers and minimum generations per tier. Without formal documentation, there is no enforceable baseline for backup coverage, making it impossible to audit compliance, train personnel consistently, or demonstrate due diligence during an incident. A missing policy document means the countermeasure cannot fire regardless of underlying backup configuration.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the official backup retention policy document from IT governance, DR team, or the ISMS document repository. Verify it contains at least three named tiers with defined retention durations and approval signatures.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dated, approved policy document listing daily, weekly, and monthly (or equivalent) retention tiers with specific day counts for each."
+      },
+      {
+        "type": "gui",
+        "instruction": "Check the enterprise backup platform (Veeam, Commvault, Veritas NetBackup) console for an attached or linked policy document under Settings > Policies or Administration > Documentation.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Veeam Backup & Replication Console > Backup Infrastructure > Backup Repositories > [right-click] > Properties > Description or linked SOP field",
+        "expected_output": "A reference to or attachment of a retention policy document with tiered definitions visible."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Locate the backup policy document in the organisation's document management system (e.g., Confluence, SharePoint) by searching for 'backup retention policy' and verify the document version and review date.",
+        "command": null,
+        "file_path": "/shared/policies/backup_retention_policy.pdf or equivalent SharePoint/Confluence URL",
+        "navigation": null,
+        "expected_output": "A versioned document with at least three retention tier definitions, last reviewed within the past 12 months."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the backup administrator or IT manager to confirm whether a formal policy document exists separate from tool configuration, and whether it has been reviewed and approved by management within the past year.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verbal confirmation and physical or digital production of a signed policy document."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "offsite_backup_configured",
+    "option_description": "Controls whether backup copies are replicated to or stored at a physically and geographically separate location from the primary production site, such as a secondary datacenter, a cloud region in a different geography, or a co-location facility.",
+    "security_impact": "The Rego policy for offsite_and_offline_backup_availability activates the countermeasure when offsite_backup_configured is true combined with either air-gapped backups or a successful restoration test. Offsite backup is the primary defense against site-level failures (fire, flood, power loss) destroying all copies. Without it, ransomware or a physical disaster that compromises the primary site simultaneously eliminates production data and all backup copies, making recovery impossible.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Veeam Backup & Replication, navigate to Backup Jobs > [job name] > Edit > Storage and verify the target repository is mapped to a remote or cloud repository. In AWS Backup, confirm cross-region copy rules are enabled under Backup Plans > Rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Veeam Console > Home > Jobs > [backup job] > Edit > Storage tab; or AWS Console > AWS Backup > Backup plans > [plan] > Backup rules > Copy to destination",
+        "expected_output": "A secondary repository or copy destination in a different physical location or cloud region is listed."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the Veeam Backup & Replication REST API to list backup job copy targets and confirm at least one target has a location tag indicating a remote site.",
+        "command": "curl -s -X GET 'https://<veeam-server>:9419/api/v1/backupInfrastructure/repositories' -H 'Authorization: Bearer <token>' | jq '.data[] | {name, location, type}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output listing at least one repository with a location field indicating a different datacenter, region, or cloud provider."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the AWS CLI to list backup vaults and verify cross-region copy rules exist in backup plans.",
+        "command": "aws backup list-backup-plans --query 'BackupPlansList[*].{PlanId:BackupPlanId,Name:BackupPlanName}' --output table && aws backup get-backup-plan --backup-plan-id <plan-id> --query 'BackupPlan.Rules[*].CopyActions'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CopyActions array containing at least one DestinationBackupVaultArn referencing a vault in a different AWS region."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review DR infrastructure diagrams and interview the backup administrator to confirm the secondary backup destination's physical address or cloud region is in a different geographic location than the primary datacenter.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation or verbal confirmation of a distinct physical address or cloud region for backup storage."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "air_gapped_or_offline_backup_exists",
+    "option_description": "Controls whether at least one backup copy is maintained on media or in a storage environment that is completely disconnected from the production network—either physically air-gapped (tape, removable drives stored offline) or on an isolated network segment with no persistent connection to production systems.",
+    "security_impact": "The Rego policy for offsite_and_offline_backup_availability grants the countermeasure when air_gapped_or_offline_backup_exists is true with backup_restoration_tested == true, even if offsite backup is absent. Air-gapped backups are the last line of defense against ransomware that traverses network connections to corrupt or encrypt online backups before triggering. Without an offline copy, network-accessible backups can be encrypted alongside production data, eliminating all recovery options.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request runbooks or tape rotation schedules from the backup team to confirm whether tape libraries, LTO drives, or removable disk systems are in use and whether media is physically ejected and stored offline after backup completion.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented tape rotation or removable media procedure showing periodic physical disconnection from production network."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Linux backup server, check for tape device presence and recent tape job execution logs to confirm offline media usage.",
+        "command": "ls -la /dev/st* /dev/nst* 2>/dev/null && cat /var/log/backup/tape_jobs.log | tail -50",
+        "file_path": "/var/log/backup/tape_jobs.log",
+        "navigation": null,
+        "expected_output": "Tape device nodes present (e.g., /dev/st0, /dev/nst0) and recent successful tape write entries in the log."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Commvault Command Center, navigate to Storage > Libraries and check for tape library entries. In Veeam, check for 'Tape Jobs' under Home > Jobs to confirm tape backup jobs are configured.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Commvault Command Center > Storage > Libraries > [select tape library]; Veeam Console > Home > Jobs > Tape Jobs",
+        "expected_output": "At least one tape library or offline media target is listed with recent successful job completions."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the backup configuration file or job definition to verify a media type or destination designated as offline or air-gapped.",
+        "command": "grep -iE 'tape|offline|air.?gap|removable' /etc/bacula/bacula-dir.conf 2>/dev/null || grep -iE 'tape|offline' /opt/veeam/backup/jobs/*.xml 2>/dev/null",
+        "file_path": "/etc/bacula/bacula-dir.conf",
+        "navigation": null,
+        "expected_output": "Configuration entries referencing tape storage, offline media pools, or isolated storage targets."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "backup_restoration_tested",
+    "option_description": "Controls whether offsite or offline backups have been subjected to a documented, successful restore exercise within the defined review period (typically 12 months), confirming that backup data is not only stored but is actually recoverable.",
+    "security_impact": "The Rego policy for offsite_and_offline_backup_availability requires backup_restoration_tested == true in all three activation paths—it is the mandatory condition regardless of whether offsite or air-gapped backup is present. Untested backups frequently fail during actual recovery due to corruption, media degradation, or procedural gaps. A backup that has never been tested provides false assurance and will likely fail precisely when the organization needs it most.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request DR drill records, restore test logs, or audit reports from the past 12 months. Look for documented evidence of a successful file or system restoration from the offsite or offline backup source, including the date, scope of data restored, and responsible personnel.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A signed test report or ticket showing a successful restore from offsite/offline backup, dated within the past 12 months."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Veeam Backup & Replication, review the restore history under History > Restore to confirm recent restore operations executed against offsite or tape backup jobs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Veeam Console > History > Restore > [filter by last 12 months] > verify source backup job type",
+        "expected_output": "One or more successful restore operations listed with source pointing to an offsite repository or tape job within the past year."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search backup software logs for restore events originating from remote or offline repositories within the past 12 months.",
+        "command": "grep -i 'restore' /var/log/veeam/Veeam.Backup.log 2>/dev/null | grep -i 'success\\|completed' | grep -v 'failed' | tail -20",
+        "file_path": "/var/log/veeam/Veeam.Backup.log",
+        "navigation": null,
+        "expected_output": "Log lines showing successful restore completions referencing offsite or tape backup sources within the last 12 months."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the backup platform API for restore job history filtered by date range and repository type to confirm successful offsite or offline restore tests.",
+        "command": "curl -s -X GET 'https://<veeam-server>:9419/api/v1/restorePoints?createdAfter=<ISO8601_date_12mo_ago>' -H 'Authorization: Bearer <token>' | jq '.data[] | select(.result==\"Success\") | {name, created, repository}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON entries showing successful restore points created within the past year from offsite or offline repositories."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "recovery_actions_logged",
+    "option_description": "Controls whether every data recovery operation—including what data was restored, from which backup source, and at what time—is automatically recorded in an audit log, creating a complete and immutable record of all restoration activity.",
+    "security_impact": "The Rego policy for recovery_logging_and_audit_trail activates the countermeasure under four conditions including when recovery_actions_logged is false (no logging at all), indicating the policy flags even partial logging gaps. Without action logging, it is impossible to determine what data was recovered, from which point in time, or whether unauthorized recoveries occurred. This creates a forensic blind spot and makes compliance attestation for frameworks like PCI-DSS, HIPAA, and ISO 27001 impossible.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the backup platform console (Veeam, Commvault, or AWS Backup), navigate to the audit log or activity log section and verify that restore operations generate log entries including the data restored, source backup, and timestamp.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Veeam Console > History > All Tasks > [filter by 'Restore'] to view logged restore events; AWS Console > CloudTrail > Event history > filter by EventName 'StartRestoreJob'",
+        "expected_output": "Individual log entries for each restore operation showing backup source, data scope, timestamp, and outcome."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check the backup application log file for restore event records and confirm each entry includes at minimum the backup source, data restored, and timestamp.",
+        "command": "grep -iE 'restore|recovery' /var/log/veeam/Veeam.Backup.log | grep -iE 'started|completed|success|failed' | tail -30",
+        "file_path": "/var/log/veeam/Veeam.Backup.log",
+        "navigation": null,
+        "expected_output": "Log lines for each restore event containing source backup name, data target, and completion status."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS CloudTrail for backup restore events to confirm they are being logged to CloudTrail.",
+        "command": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=StartRestoreJob --start-time $(date -d '30 days ago' +%s) --query 'Events[*].{Time:EventTime,User:Username,Event:EventName}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A table of StartRestoreJob events with timestamps and usernames, confirming CloudTrail is capturing recovery actions."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the backup runbook to confirm it includes a mandatory step for logging or ticketing every recovery operation, and verify that the logging is automated rather than relying on manual operator notes.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Runbook step confirming automated logging is configured and that log entries are generated without manual operator intervention."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "operator_identity_captured",
+    "option_description": "Controls whether the username or unique identifier of the person who initiated or performed each recovery action is recorded in the audit trail, enabling attribution of every restoration operation to a specific authenticated individual.",
+    "security_impact": "The Rego policy for recovery_logging_and_audit_trail activates the countermeasure when operator_identity_captured is false regardless of whether actions are logged—indicating that partial logging without identity capture is treated as a gap. Without operator attribution, it is impossible to investigate unauthorized or accidental data restorations, enforce separation of duties, or demonstrate non-repudiation. Identity capture is a baseline requirement for forensic investigations and insider threat detection.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Examine sample recovery log entries from the backup platform to verify that each entry contains a username or user ID field identifying who performed the restore.",
+        "command": "grep -iE 'restore|recovery' /var/log/veeam/Veeam.Backup.log | grep -oE 'user[=: ][a-zA-Z0-9._@-]+|operator[=: ][a-zA-Z0-9._@-]+' | sort | uniq | head -20",
+        "file_path": "/var/log/veeam/Veeam.Backup.log",
+        "navigation": null,
+        "expected_output": "Username or user identifier strings present in restore log entries (e.g., 'user=jsmith', 'operator=svc-backup')."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS CloudTrail for StartRestoreJob events and confirm the userIdentity field is populated with the initiating user's ARN or username.",
+        "command": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=StartRestoreJob --query 'Events[*].{User:Username,Identity:CloudTrailEvent}' | python3 -c \"import sys,json; [print(json.loads(e['Identity'])['userIdentity']) for e in json.load(sys.stdin)]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "userIdentity objects containing principalId, arn, or userName fields identifying the operator for each restore event."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Veeam Backup & Replication, navigate to History > All Tasks, open a restore job entry, and verify the Details panel shows the username of the operator who initiated the job.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Veeam Console > History > All Tasks > [double-click restore job entry] > Details pane > check 'Initiated by' or 'User' field",
+        "expected_output": "A specific username (not 'SYSTEM' or blank) listed as the initiating user for the restore operation."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the backup platform's authentication and authorization settings to confirm that shared or service accounts are not used for recovery operations, and that individual named accounts with MFA are required.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy or configuration documentation confirming individual named accounts are required for recovery operations and that shared accounts are prohibited."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Controls the number of days that recovery audit logs are retained in the log management system, defining the window of time over which recovery events can be investigated, audited, or used as forensic evidence.",
+    "security_impact": "The Rego policy for recovery_logging_and_audit_trail triggers the countermeasure when log_retention_days is less than 90 days (even with full logging and identity capture), indicating 90 days as the minimum viable retention threshold. Insufficient retention periods destroy forensic evidence before investigations can begin—many breaches are not discovered for weeks or months. Regulatory frameworks including PCI-DSS (12 months), HIPAA (6 years), and SOC 2 typically require retention well beyond 90 days.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the SIEM or log management platform (Splunk, Elastic, Graylog, Azure Monitor), navigate to index or data stream retention settings and record the configured retention period for the backup/recovery log index.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk Web > Settings > Indexes > [recovery-logs index] > Retention column; Azure Monitor > Log Analytics Workspace > Usage and estimated costs > Data Retention slider",
+        "expected_output": "A retention value in days displayed for the recovery log index or workspace (e.g., '365 days')."
+      },
+      {
+        "type": "command",
+        "instruction": "Query Splunk's REST API to retrieve the retention setting for the recovery audit log index.",
+        "command": "curl -s -k -u admin:<password> 'https://<splunk-server>:8089/services/data/indexes/recovery_audit_logs?output_mode=json' | python3 -c \"import sys,json; d=json.load(sys.stdin); print('Frozen (days):', d['entry'][0]['content']['frozenTimePeriodInSecs']//86400)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A numeric value representing retention in days (e.g., 'Frozen (days): 365')."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the log management configuration file for retention settings applied to the backup or recovery audit log pipeline.",
+        "command": "grep -iE 'retention|max_age|expire|frozenTime|rollover' /opt/splunk/etc/system/local/indexes.conf /etc/logstash/conf.d/recovery_audit.conf /etc/elasticsearch/elasticsearch.yml 2>/dev/null",
+        "file_path": "/opt/splunk/etc/system/local/indexes.conf",
+        "navigation": null,
+        "expected_output": "Configuration lines specifying retention duration in days, seconds, or size for the recovery log data store."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Elastic API to check the Index Lifecycle Management (ILM) policy applied to recovery audit logs and identify the delete phase timing.",
+        "command": "curl -s -X GET 'http://<elasticsearch>:9200/_ilm/policy/recovery-audit-policy' | python3 -c \"import sys,json; p=json.load(sys.stdin); print(json.dumps(p.get('recovery-audit-policy',{}).get('policy',{}).get('phases',{}), indent=2))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ILM policy phases showing the 'delete' phase min_age value (e.g., '365d'), representing the retention period."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90",
+      "180",
+      "365",
+      "730",
+      "1095"
+    ]
+  },
+  {
+    "option_name": "log_integrity_protection",
+    "option_description": "Controls the mechanism used to protect recovery audit logs from unauthorized modification or tampering, with valid options being write_once_storage (WORM media), cryptographic_signing (hash/signature of log entries), immutable_siem (forwarding to a tamper-evident SIEM), or none (no protection).",
+    "security_impact": "The Rego policy for recovery_logging_and_audit_trail activates the countermeasure when log_integrity_protection is 'none' even when all other logging conditions are satisfied (actions logged, identity captured, 90+ day retention)—meaning the policy treats absence of integrity protection as an explicit gap. Unprotected logs can be modified by an attacker or malicious insider to conceal unauthorized recovery operations, remove evidence of data exfiltration, or fabricate a clean audit trail. Integrity protection is essential for logs to be admissible as forensic evidence.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In AWS S3, check if the recovery log bucket has Object Lock enabled (WORM protection). Navigate to S3 > [bucket name] > Properties > Object Lock and verify it is enabled with Governance or Compliance mode.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > S3 > [recovery-logs-bucket] > Properties tab > Object Lock section; Azure Portal > Storage Account > [name] > Data management > Blob versioning + Immutable blob storage",
+        "expected_output": "Object Lock enabled with Compliance or Governance mode and a retention period configured, or Immutable blob storage enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether the recovery log S3 bucket has Object Lock (write-once) configured using the AWS CLI.",
+        "command": "aws s3api get-object-lock-configuration --bucket <recovery-logs-bucket-name> --query 'ObjectLockConfiguration' && aws s3api get-bucket-policy --bucket <recovery-logs-bucket-name> | python3 -c \"import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ObjectLockEnabled: Enabled with Rule specifying DefaultRetention mode (COMPLIANCE or GOVERNANCE) and days/years value."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check whether the SIEM platform receiving recovery logs is configured as an immutable destination by reviewing its storage backend configuration or the forwarding pipeline definition.",
+        "command": "grep -iE 'immutable|worm|write.once|sign|hmac|sha256' /etc/logstash/conf.d/*.conf /etc/filebeat/filebeat.yml /opt/splunk/etc/system/local/outputs.conf 2>/dev/null",
+        "file_path": "/etc/logstash/conf.d/",
+        "navigation": null,
+        "expected_output": "Configuration directives indicating cryptographic signing of log events, forwarding to an immutable SIEM endpoint, or WORM storage backend references."
+      },
+      {
+        "type": "api",
+        "instruction": "Verify whether cryptographic signing is enabled for CloudTrail logs (which capture AWS Backup recovery events) using the AWS CLI.",
+        "command": "aws cloudtrail get-trail --name <trail-name> --query 'Trail.{LogFileValidationEnabled:LogFileValidationEnabled,S3BucketName:S3BucketName,KMSKeyId:KMSKeyId}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "LogFileValidationEnabled: True (indicating SHA-256 digest files are generated for log integrity verification) and optionally a KMSKeyId for encryption."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "write_once_storage",
+      "cryptographic_signing",
+      "immutable_siem",
+      "none"
+    ]
+  },
+  {
+    "option_name": "recovery_workflow_automation_enabled",
+    "option_description": "Controls whether automated orchestration workflows are actively configured and enabled for data recovery operations, covering snapshot mounting, data rehydration, and service restoration sequences across platforms such as AWS Systems Manager Automation, Azure Automation, HashiCorp Terraform, or Ansible.",
+    "security_impact": "The Rego policy for automated_recovery_workflow_execution requires this attribute to be true as a prerequisite condition. Without automation enabled, recovery operations rely entirely on manual steps, increasing mean time to recovery and introducing human error risk. If false, the countermeasure cannot activate regardless of other settings, leaving organizations exposed during outage events.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query AWS Systems Manager Automation to list active recovery runbooks and confirm their enabled state.",
+        "command": "aws ssm list-documents --filters 'Key=DocumentType,Values=Automation' --query 'DocumentIdentifiers[*].[Name,DocumentType]' --output table && aws ssm describe-automation-executions --filters 'Key=ExecutionStatus,Values=Success' --max-results 5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of Automation documents with their names; recent successful executions confirm workflows are active and not in draft state."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Azure Automation for active runbooks configured for recovery workflows.",
+        "command": "az automation runbook list --resource-group <rg-name> --automation-account-name <account-name> --query '[*].{Name:name,State:state,RunbookType:runbookType}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Runbooks listed with state 'Published' indicate active automation; 'Draft' or absent entries indicate automation is not enabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Management Console, navigate to Systems Manager > Automation > Execute Automation and verify recovery runbooks exist and are in a Published/Active state.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > Systems Manager > Automation > Owned by me / Shared with me > filter by recovery-related document names",
+        "expected_output": "Recovery runbooks appear with Document Version status 'Active' and have recent execution history visible under Execution History."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review DR runbook documentation and interview the operations team to confirm whether an orchestration platform is designated and workflows are live versus planned.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written confirmation that automation platform is operational, with workflow IDs or job names referenced in DR plans."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "workflow_coverage_scope",
+    "option_description": "Defines which phases of the recovery process are covered by the automated workflow: 'full' means all recovery phases (snapshot mounting, data rehydration, service restoration sequencing) are automated end-to-end; 'partial' means only a subset of phases are automated; 'none' means no automation exists.",
+    "security_impact": "The Rego policy evaluates workflow_coverage_scope directly in automated_recovery_workflow_execution conditions. Full coverage with validation within 180 days activates the countermeasure; partial coverage requires a tighter 90-day validation window. 'none' prevents the countermeasure from activating entirely. Partial automation still leaves manual gaps that can delay recovery and introduce errors during high-stress incidents.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect Ansible playbooks or Terraform modules used for DR to identify which recovery steps are defined as automated tasks.",
+        "command": "grep -rn 'snapshot\\|rehydrat\\|restore\\|service_start\\|mount' /opt/dr-runbooks/ --include='*.yml' --include='*.yaml' --include='*.tf' | grep -v '#'",
+        "file_path": "/opt/dr-runbooks/",
+        "navigation": null,
+        "expected_output": "Tasks covering snapshot mounting, data rehydration, AND service restart steps all present indicates 'full'; only one or two phases present indicates 'partial'."
+      },
+      {
+        "type": "command",
+        "instruction": "Review AWS Systems Manager Automation document content to enumerate all steps and map them to recovery phases.",
+        "command": "aws ssm get-document --name <recovery-runbook-name> --query 'Content' --output text | python3 -c \"import sys,json; doc=json.load(sys.stdin); [print(s.get('name',''),s.get('action','')) for s in doc.get('mainSteps',[])]\" ",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Steps include aws:executeScript or aws:runCommand entries for snapshot mount, rehydration, and service sequencing — all three indicates 'full', fewer indicates 'partial'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Walk through the DR runbook with the recovery team and identify steps that remain manual (e.g., operator must manually mount volume before automation kicks in).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation shows zero manual handoffs between phases for 'full'; identified manual steps map to 'partial'; no automation steps maps to 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "partial",
+      "full"
+    ]
+  },
+  {
+    "option_name": "workflow_last_validated_days",
+    "option_description": "Records the number of days elapsed since the automated recovery workflow was last successfully tested or validated through a drill, tabletop exercise, or actual incident recovery with a documented successful outcome.",
+    "security_impact": "The Rego policy enforces time-bounded validation thresholds: full-coverage workflows must be validated within 180 days, and partial-coverage workflows within 90 days, to activate the automated_recovery_workflow_execution countermeasure. Stale workflows may have configuration drift, untested dependencies, or permission changes that cause failure during an actual recovery event.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Query AWS Systems Manager Automation execution history to find the last successful execution of the recovery runbook and calculate elapsed days.",
+        "command": "aws ssm describe-automation-executions --filters 'Key=DocumentName,Values=<recovery-runbook-name>' 'Key=ExecutionStatus,Values=Success' --query 'AutomationExecutionMetadataList[0].ExecutionEndTime' --output text | xargs -I{} python3 -c \"from datetime import datetime,timezone; t=datetime.fromisoformat('{}'); print((datetime.now(timezone.utc)-t).days, 'days ago')\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing days since last successful execution; values ≤90 or ≤180 satisfy Rego thresholds depending on workflow_coverage_scope."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Azure Automation job history for the most recent successful run of the recovery runbook.",
+        "command": "az automation job list --resource-group <rg-name> --automation-account-name <account-name> --runbook-name <runbook-name> --query '[?status==`Completed`] | [0].{EndTime:endTime,Status:status}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EndTime of the most recent completed job; calculate days from today to determine workflow_last_validated_days."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the ITSM or change management system to locate the most recent DR drill ticket and note the completion date.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ServiceNow / Jira > Projects > DR Testing > filter by label 'recovery-drill' or 'DR-validation' > sort by resolved date descending",
+        "expected_output": "A closed ticket with resolution date and 'Recovery workflow validated successfully' in the resolution notes."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the DR test calendar and last drill report from the operations or business continuity team to identify the validated date.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A signed-off DR test report with date, scope, and pass/fail outcome; calculate days elapsed from report date to today."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30",
+      "90",
+      "180",
+      "365",
+      "9999"
+    ]
+  },
+  {
+    "option_name": "automated_hash_verification_enabled",
+    "option_description": "Controls whether cryptographic hash comparisons are automatically executed after each recovery operation to verify that restored data matches the original backup checksum, detecting corruption or tampering introduced during the recovery process.",
+    "security_impact": "The Rego policy for post_recovery_data_integrity_verification requires this attribute to be true alongside application_consistency_checks_enabled and meaningful sanity test coverage. Without automated hash verification, corrupted or manipulated data could be accepted as valid after restoration, creating a false sense of recovery success and potentially propagating integrity failures into production systems.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect backup software configuration files (e.g., Veeam, Commvault, AWS Backup) for hash or checksum verification settings post-restore.",
+        "command": "grep -rni 'hash\\|checksum\\|sha256\\|md5\\|verify\\|integrity' /etc/veeam/ /opt/commvault/Base/ /etc/bareos/ 2>/dev/null | grep -i 'enable\\|true\\|post.restore\\|after.recovery'",
+        "file_path": "/etc/veeam/ or /opt/commvault/Base/",
+        "navigation": null,
+        "expected_output": "Configuration entries showing checksum or hash verification enabled with post-restore trigger; absence or 'false' values indicate the control is not active."
+      },
+      {
+        "type": "command",
+        "instruction": "Check post-recovery automation scripts for hash comparison logic that runs after a restore job completes.",
+        "command": "find /opt/dr-scripts/ /usr/local/bin/ ~/recovery-runbooks/ -name '*.sh' -o -name '*.py' 2>/dev/null | xargs grep -l 'sha256sum\\|md5sum\\|hashlib\\|Get-FileHash' 2>/dev/null",
+        "file_path": "/opt/dr-scripts/",
+        "navigation": null,
+        "expected_output": "Script files containing sha256sum, md5sum, or Get-FileHash calls in post-restore sections confirm automated hash verification is implemented."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS Backup to check if restore job validation settings include integrity checking options, or review Lambda post-restore hook configurations.",
+        "command": "aws backup list-backup-plans --query 'BackupPlansList[*].{PlanId:BackupPlanId,PlanName:BackupPlanName}' --output table && aws lambda list-functions --query 'Functions[?starts_with(FunctionName, `recovery`) || starts_with(FunctionName, `restore`)].FunctionName' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lambda functions triggered post-restore that contain hash verification logic; review function code for hash comparison implementation."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the backup administration team and review recovery runbook documentation to confirm whether hash verification steps are explicitly included and automated.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Runbook step explicitly states 'Verify SHA-256 hash of restored data against backup manifest' with an automated trigger mechanism documented."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "application_consistency_checks_enabled",
+    "option_description": "Controls whether application-layer consistency validations, such as database integrity tests (DBCC CHECKDB, pg_dump verify), file system checks (fsck), or record count comparisons, are automatically executed after recovery operations complete to confirm the restored application state is coherent.",
+    "security_impact": "The Rego policy for post_recovery_data_integrity_verification requires this attribute to be true alongside automated_hash_verification_enabled. Hash verification confirms bit-level integrity but cannot detect logical inconsistencies such as truncated transactions, orphaned foreign keys, or incomplete file sets. Without application-layer checks, recovered environments may appear healthy at the storage layer while being functionally broken at the application layer.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect recovery runbook scripts or automation playbooks for database integrity checks, fsck calls, or record count validation steps.",
+        "command": "grep -rni 'DBCC CHECKDB\\|pg_dump\\|mysqlcheck\\|fsck\\|record.count\\|row.count\\|integrity.check\\|consistency' /opt/dr-scripts/ /etc/ansible/roles/recovery/ 2>/dev/null",
+        "file_path": "/opt/dr-scripts/",
+        "navigation": null,
+        "expected_output": "Script lines invoking database integrity or filesystem consistency commands following restore operations confirm this control is active."
+      },
+      {
+        "type": "command",
+        "instruction": "For PostgreSQL environments, verify whether pg_dump or pg_restore verification hooks are configured in the recovery automation.",
+        "command": "psql -U postgres -c \"SELECT schemaname, tablename FROM pg_tables LIMIT 5;\" && find /opt/recovery/ -name '*.sh' | xargs grep -l 'pg_dump\\|psql.*check\\|pgbouncer\\|vacuumdb' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Recovery scripts include psql or pgbouncer health check calls after restore; database responds confirms application-layer validation is occurring."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the backup/recovery platform UI (e.g., Veeam ONE, Zerto, Cohesity), navigate to recovery job settings and check for post-recovery verification or application-aware recovery options.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Veeam Backup & Replication > Jobs > Recovery Job > Edit > Guest Processing > Application-Aware Processing (enabled) > SureBackup verification settings",
+        "expected_output": "Application-aware processing is toggled ON; SureBackup or equivalent application verification steps are listed and enabled for the recovery job."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the post-recovery checklist in the DR runbook and confirm application-layer consistency checks are listed as automated steps, not manual tasks.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Runbook section titled 'Post-Recovery Validation' lists automated consistency checks with tool names and expected pass/fail criteria defined."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "post_recovery_sanity_test_coverage",
+    "option_description": "Defines the scope of automated sanity tests executed after a recovery operation completes: 'none' means no sanity tests run; 'partial' means a sample or subset of recovered data is tested; 'full' means the complete recovered dataset is validated through automated tests.",
+    "security_impact": "The Rego policy for post_recovery_data_integrity_verification requires this attribute to be 'partial' or 'full' (via the 'in' operator check) to activate the countermeasure alongside both hash verification and consistency checks. A value of 'none' disables the countermeasure entirely even if hash and consistency checks are enabled. 'Partial' coverage provides probabilistic confidence while 'full' coverage provides deterministic assurance across all restored data.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review recovery automation scripts and runbooks to identify the scope of post-restore test execution, looking for sample-based versus comprehensive validation logic.",
+        "command": "grep -rni 'sample\\|subset\\|random\\|all.records\\|full.scan\\|test.coverage\\|sanity' /opt/dr-scripts/ /opt/recovery-runbooks/ 2>/dev/null | grep -v '#'",
+        "file_path": "/opt/dr-scripts/",
+        "navigation": null,
+        "expected_output": "Scripts using LIMIT/SAMPLE clauses or random row selection indicate 'partial'; scripts iterating all tables or datasets indicate 'full'; absent sanity test logic indicates 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect test harness or CI/CD pipeline definitions used post-recovery to determine test scope configuration.",
+        "command": "cat /opt/recovery/post-restore-tests/config.yaml 2>/dev/null || cat /etc/dr-tests/test-suite.json 2>/dev/null | python3 -m json.tool | grep -i 'coverage\\|scope\\|sample\\|full'",
+        "file_path": "/opt/recovery/post-restore-tests/config.yaml",
+        "navigation": null,
+        "expected_output": "Configuration key 'coverage: full' or 'scope: all_tables' indicates full coverage; 'sample_percentage: 10' or similar indicates partial; absent file or empty coverage setting indicates none."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review recovery job execution logs to determine how many records, tables, or objects were validated versus total restored, inferring coverage scope.",
+        "command": "grep -i 'validated\\|checked\\|tested\\|passed\\|failed' /var/log/recovery/last-restore.log 2>/dev/null | tail -50 | awk '{print NR, $0}'",
+        "file_path": "/var/log/recovery/last-restore.log",
+        "navigation": null,
+        "expected_output": "Log lines showing 'Validated 100% of tables' or 'Checked all 50,000 records' indicate full; 'Sampled 500 of 50,000 records' indicates partial; no validation log lines indicate none."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the recovery team to understand whether post-recovery testing is scripted, its scope, and whether it covers all restored data or a representative sample.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team confirms testing scope with reference to specific scripts or test plans; documented test scope clearly maps to 'none', 'partial', or 'full' coverage categories."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "partial",
+      "full"
+    ]
+  },
+  {
+    "option_name": "recovery_roles_defined",
+    "option_description": "Controls whether formal named roles such as Recovery Operator and Recovery Approver are documented in RBAC policies or IAM configurations and explicitly assigned to personnel for initiating and approving data recovery operations.",
+    "security_impact": "The Rego policy for role_based_recovery_authorization_control requires this attribute to be true alongside recovery_approval_workflow_enforced and a defined access control type. Without defined roles, any user with storage or admin access may initiate recovery operations, bypassing governance controls and creating risk of accidental data overwrites, unauthorized rollbacks, or social engineering attacks targeting recovery capabilities.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query IAM or RBAC system for roles containing recovery-related permissions to confirm named recovery roles are defined.",
+        "command": "aws iam list-roles --query 'Roles[?contains(RoleName, `recovery`) || contains(RoleName, `Recovery`) || contains(RoleName, `restore`) || contains(RoleName, `Restore`)].{RoleName:RoleName,Arn:Arn}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Named roles such as 'RecoveryOperator', 'RecoveryApprover', or 'BackupRestoreRole' appear in the output with valid ARNs."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Azure RBAC for custom role definitions that cover recovery operations.",
+        "command": "az role definition list --custom-role-only true --query '[?contains(roleName, `Recovery`) || contains(roleName, `Restore`) || contains(roleName, `Backup`)].{Name:roleName,Type:roleType,Description:description}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Custom role definitions with names including 'Recovery' or 'Restore' with assigned permissions for backup/restore actions confirm roles are defined."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the RBAC policy documentation or role matrix spreadsheet maintained by the IAM or security team for recovery-specific role definitions.",
+        "command": "find /etc/iam-policies/ /opt/security-docs/ -name '*.json' -o -name '*.yaml' 2>/dev/null | xargs grep -l 'RecoveryOperator\\|RecoveryApprover\\|recovery_role\\|restore_role' 2>/dev/null",
+        "file_path": "/etc/iam-policies/",
+        "navigation": null,
+        "expected_output": "Policy files containing recovery operator and approver role definitions with associated permissions and assigned principals."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the RACI matrix or role assignment documentation from the IT governance team and verify recovery-specific roles with named assignees exist.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RACI or role matrix document shows 'Recovery Operator' and 'Recovery Approver' rows with specific named individuals or team groups assigned."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "recovery_approval_workflow_enforced",
+    "option_description": "Controls whether a technically enforced approval workflow requiring sign-off from an authorized approver role is implemented in recovery tooling or ITSM ticketing systems before any recovery operation can be initiated, preventing unauthorized or unapproved data restoration.",
+    "security_impact": "The Rego policy for role_based_recovery_authorization_control requires both recovery_roles_defined and this attribute to be true to activate the countermeasure. Technical enforcement is critical — if approval is only procedurally documented but not enforced in tooling, operators can bypass the control. Without enforced approval workflows, recovery operations can proceed without oversight, enabling accidental overwrites of current data with stale backups or unauthorized recovery to exfiltrate data.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Attempt to initiate a recovery job in the backup tooling (e.g., Veeam, Commvault, AWS Backup) without prior approval to verify the system technically blocks unauthorized execution.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Backup Console > Restore > select recovery point > Restore backup — verify whether an approval gate or IAM condition blocks execution without a ticket number or approver confirmation",
+        "expected_output": "System displays an error, requires approval token, or routes to an approval queue rather than immediately executing the recovery job."
+      },
+      {
+        "type": "command",
+        "instruction": "Check AWS Systems Manager Automation for approval step actions within recovery runbooks that enforce human sign-off before critical steps.",
+        "command": "aws ssm get-document --name <recovery-runbook-name> --query 'Content' --output text | python3 -c \"import sys,json; doc=json.load(sys.stdin); steps=[s for s in doc.get('mainSteps',[]) if 'Approve' in s.get('action','')]; print(f'Approval steps found: {len(steps)}'); [print(s) for s in steps]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more steps with action 'aws:approve' in the runbook confirm technical enforcement; zero approval steps indicates the workflow is not enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the ITSM API to verify recovery request ticket templates include mandatory approval stages that cannot be bypassed.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://<servicenow-instance>.service-now.com/api/now/table/sys_approval_approver?sysparm_query=source_table=sc_request^GLIDEapproval_set.name=Recovery+Request&sysparm_fields=state,approver,source_table' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "API response shows approval records associated with recovery request templates with approver role defined; absence indicates approval is not enforced in the ITSM workflow."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review recovery tooling access control configuration and test whether a user with only 'Recovery Operator' permissions can execute a restore without a separate approver sign-off.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Test execution blocked with error 'Approval required from Recovery Approver role'; or documented evidence in change control log that all recovery jobs have a corresponding approval record with approver identity and timestamp."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "recovery_access_control_type",
+    "option_description": "Defines the mechanism used to restrict who can initiate, approve, or execute data recovery operations and interact with recovery tooling. Valid options are role-based access control (rbac), attribute-based access control (abac), manual approval only (manual_approval_only), or no formal control in place (none).",
+    "security_impact": "The Rego policy rule 'role_based_recovery_authorization_control' only activates its countermeasure when recovery_access_control_type is set to 'rbac' or 'abac', combined with recovery_roles_defined == true and recovery_approval_workflow_enforced == true. Without rbac or abac, the countermeasure score of 2 is not applied, leaving recovery tooling exposed to unauthorized or accidental restoration operations. This matters because uncontrolled access to recovery tooling can allow threat actors or misconfigured automation to overwrite live data with stale backups, exfiltrate backup contents, or deny recovery capability entirely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect IAM policies attached to backup and recovery tooling (e.g., AWS Backup, Azure Recovery Services, or GCP Backup) to determine whether role-based or attribute-based conditions govern access.",
+        "command": "aws iam list-policies --scope Local --query 'Policies[?contains(PolicyName, `Backup`) || contains(PolicyName, `Recovery`)].{Name:PolicyName,Arn:Arn}' --output table && aws iam list-roles --query 'Roles[?contains(RoleName, `Backup`) || contains(RoleName, `Recovery`)].{Role:RoleName,Arn:Arn}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of IAM policies and roles scoped to backup/recovery operations. If roles are present with condition keys (e.g., aws:PrincipalTag or aws:RequestedRegion), abac is in use. If roles are present without condition-based policies, rbac is in use. If neither is present, control type is likely none."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the cloud provider's backup service console to verify whether access is governed by defined roles or attribute conditions. For AWS Backup: open the AWS Console, go to AWS Backup > Settings > Access Policies. For Azure: open Recovery Services Vault > Access Control (IAM) and review role assignments.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > AWS Backup > Settings > Access Policies | Azure Portal > Recovery Services Vault > Access Control (IAM) > Role Assignments | GCP Console > Backup and DR > IAM > Roles",
+        "expected_output": "Presence of named roles (e.g., BackupOperator, RecoveryApprover) assigned to specific principals indicates rbac. Conditional role bindings based on tags or attributes indicate abac. Absence of structured assignments indicates none or manual_approval_only."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the backup/recovery operations team and review any documented access control procedures or change management records to determine whether recovery initiation requires role-based authorization or goes through a manual approval workflow (e.g., ticketing system, change advisory board).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If recovery requires ticket approval or a CAB review without any technical enforcement in tooling, classify as manual_approval_only. If no formal process exists, classify as none. If tooling enforces role or attribute restrictions programmatically, classify as rbac or abac accordingly."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Terraform, CloudFormation, or Pulumi IaC files defining backup and recovery infrastructure to identify whether IAM role bindings or ABAC condition blocks are present in the resource definitions.",
+        "command": "grep -rE '(BackupRole|RecoveryRole|aws:PrincipalTag|Condition|role_assignment|iam_binding)' ./infrastructure/ --include='*.tf' --include='*.yaml' --include='*.json' -l",
+        "file_path": "./infrastructure/",
+        "navigation": null,
+        "expected_output": "Files containing role definitions with Condition blocks referencing tag-based attributes indicate abac. Files with role assignments to named groups or service accounts without conditions indicate rbac. No relevant files or empty results suggest none or manual_approval_only."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "rbac",
+      "manual_approval_only",
+      "none"
+    ]
+  }
+]

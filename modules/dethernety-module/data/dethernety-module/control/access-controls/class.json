@@ -1,0 +1,8 @@
+{
+  "name": "Access Controls",
+  "classType": "control",
+  "type": "control",
+  "description": "Role-Based Access Control (RBAC) manages application-level permissions by assigning users to roles that define allowable actions. When properly configured, it enforces least privilege, provides auditable access boundaries, and enables systematic permission governance across application functions.",
+  "category": "Application Security",
+  "status": "reviewed"
+}

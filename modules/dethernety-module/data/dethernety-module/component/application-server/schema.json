@@ -1,0 +1,659 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "management_endpoints_require_authentication": {
+        "type": "boolean",
+        "title": "Management Endpoints Require Authentication",
+        "description": "Whether administrative/diagnostic endpoints (health, metrics, actuator, debug routes) are protected by authentication before allowing access.",
+        "default": false
+      },
+      "management_interface_network_exposure": {
+        "type": "string",
+        "enum": [
+          "localhost_only",
+          "internal_network",
+          "public"
+        ],
+        "title": "Management Interface Network Exposure",
+        "description": "The network scope on which management/diagnostic endpoints are bound and reachable."
+      },
+      "http_plaintext_port_enabled": {
+        "type": "boolean",
+        "title": "HTTP Plaintext Port Enabled",
+        "description": "Whether the server is configured to listen on a plaintext HTTP port for inbound API/application traffic.",
+        "default": false
+      },
+      "https_redirect_enforced": {
+        "type": "boolean",
+        "title": "HTTPS Redirect Enforced",
+        "description": "Whether all plaintext HTTP requests are automatically and unconditionally redirected to HTTPS, preventing any API data from being transmitted in cleartext.",
+        "default": false
+      },
+      "minimum_tls_version": {
+        "type": "string",
+        "enum": [
+          "SSL3.0",
+          "TLS1.0",
+          "TLS1.1",
+          "TLS1.2",
+          "TLS1.3"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "The minimum TLS protocol version accepted by the server for incoming connections.",
+        "default": "TLS1.2"
+      },
+      "weak_cipher_suites_enabled": {
+        "type": "boolean",
+        "title": "Weak Cipher Suites Enabled",
+        "description": "Indicates whether the server's TLS configuration permits weak or deprecated cipher suites (e.g., RC4, DES, 3DES, NULL, EXPORT, MD5-based, or anonymous DH ciphers).",
+        "default": false
+      },
+      "process_run_account": {
+        "type": "string",
+        "title": "Process Run Account",
+        "description": "The OS user account under which the application server process runs (e.g., 'root', 'www-data', 'appservice')"
+      },
+      "process_uid": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 65535,
+        "title": "Process UID",
+        "description": "The numeric UID of the OS user account running the application server process. UID 0 indicates root."
+      },
+      "dedicated_service_account_configured": {
+        "type": "boolean",
+        "title": "Dedicated Service Account Configured",
+        "description": "Whether the application server is configured to run under a dedicated, purpose-created low-privilege service account rather than a shared or system account.",
+        "default": false
+      },
+      "plaintext_secrets_on_filesystem": {
+        "type": "boolean",
+        "title": "Plaintext Secrets Present on Filesystem",
+        "description": "Indicates whether API keys, database credentials, or service tokens are stored in plaintext configuration files or unencrypted properties files on the host filesystem (e.g., .env files, application.properties, config.yaml with raw credentials).",
+        "default": false
+      },
+      "plaintext_secrets_in_environment_variables": {
+        "type": "boolean",
+        "title": "Plaintext Secrets in Environment Variables",
+        "description": "Indicates whether API keys, database credentials, or service tokens are stored in shell environment variables accessible to the process or inspectable via /proc/PID/environ, process listings, or container inspection commands.",
+        "default": false
+      },
+      "secrets_manager_integrated": {
+        "type": "boolean",
+        "title": "Secrets Manager Integration Active",
+        "description": "Indicates whether the application retrieves secrets at runtime from a dedicated secrets management solution rather than reading them from static files or environment variables at startup.",
+        "default": false
+      },
+      "auth_event_logging_enabled": {
+        "type": "boolean",
+        "title": "Authentication Event Logging Enabled",
+        "description": "Whether the server is configured to log authentication successes and failures to a persistent logging destination.",
+        "default": false
+      },
+      "authorization_failure_logging_enabled": {
+        "type": "boolean",
+        "title": "Authorization Failure Logging Enabled",
+        "description": "Whether access-denied and permission-violation events are logged, including failed role/policy checks on API endpoints.",
+        "default": false
+      },
+      "centralized_log_destination_configured": {
+        "type": "boolean",
+        "title": "Centralized Log Destination Configured",
+        "description": "Whether application logs are shipped to a centralized, tamper-evident system (e.g., SIEM, log aggregator such as Splunk, ELK, CloudWatch, Datadog) rather than only stored locally on the host.",
+        "default": false
+      },
+      "api_error_logging_enabled": {
+        "type": "boolean",
+        "title": "API Error Logging Enabled",
+        "description": "Whether server-side API errors (5xx responses, unhandled exceptions, validation failures) are logged with sufficient detail for forensic analysis."
+      },
+      "log_request_body_enabled": {
+        "type": "boolean",
+        "title": "Full Request Body Logging Enabled",
+        "description": "Whether the logging configuration captures full HTTP request bodies, which may contain credentials, PII, or session tokens.",
+        "default": false
+      },
+      "log_sensitive_headers_enabled": {
+        "type": "boolean",
+        "title": "Sensitive Header Logging Enabled",
+        "description": "Whether HTTP headers including Authorization, Cookie, or X-API-Key are written to log output without redaction.",
+        "default": false
+      },
+      "log_level": {
+        "type": "string",
+        "enum": [
+          "TRACE",
+          "DEBUG",
+          "INFO",
+          "WARN",
+          "ERROR",
+          "OFF"
+        ],
+        "title": "Application Log Level",
+        "description": "The verbosity level at which the application is logging. DEBUG or TRACE levels frequently capture stack traces and intermediate data containing secrets.",
+        "default": "INFO"
+      },
+      "log_sensitive_field_redaction_enabled": {
+        "type": "boolean",
+        "title": "Sensitive Field Redaction Enabled",
+        "description": "Whether a log sanitization or masking mechanism is in place that redacts known sensitive fields (e.g., password, token, ssn) before they are written to logs.",
+        "default": false
+      },
+      "runtime_version_has_known_cve": {
+        "type": "boolean",
+        "title": "Runtime Version Has Known CVE",
+        "description": "Indicates whether the currently deployed runtime or interpreter version has one or more publicly disclosed CVEs that have not been remediated by a patch or upgrade.",
+        "default": false
+      },
+      "framework_version_has_known_cve": {
+        "type": "boolean",
+        "title": "Server Framework Version Has Known CVE",
+        "description": "Indicates whether the deployed server framework version has one or more publicly disclosed CVEs that have not been remediated.",
+        "default": false
+      },
+      "days_since_last_patch_applied": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Days Since Last Security Patch Applied",
+        "description": "The number of calendar days elapsed since the most recent security patch or version update was applied to the runtime or framework in this environment."
+      },
+      "bound_addresses": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Bound Network Addresses",
+        "description": "List of IP addresses or interface addresses the server is configured to listen on (e.g., '0.0.0.0', '::', '127.0.0.1', '10.0.0.1')."
+      },
+      "network_policy_restricts_inbound": {
+        "type": "boolean",
+        "title": "Network Policy Restricts Inbound Access",
+        "description": "Whether a compensating network-layer control (firewall rule, security group, or network policy) restricts inbound access to the bound port(s) from untrusted network segments.",
+        "default": false
+      },
+      "connection_limit_configured": {
+        "type": "boolean",
+        "title": "Connection Limit Configured",
+        "description": "Whether the server enforces a maximum number of simultaneous inbound connections at the host or process level (e.g., MaxKeepAliveRequests, LimitRequestBody, net.core.somaxconn, or equivalent).",
+        "default": false
+      },
+      "request_timeout_seconds": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3600,
+        "title": "Request Timeout (Seconds)",
+        "description": "The configured timeout in seconds for inbound requests at the host/server level. A value of 0 means no timeout is enforced.",
+        "default": 0
+      },
+      "request_queue_depth_limit": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000,
+        "title": "Request Queue Depth Limit",
+        "description": "The maximum number of requests allowed to queue before the server begins rejecting new connections. A value of 0 means no limit is enforced.",
+        "default": 0
+      },
+      "mutual_tls_enforced": {
+        "type": "boolean",
+        "title": "Mutual TLS Enforced for Downstream Connections",
+        "description": "Whether the application server requires mutual TLS (client certificates) when connecting to downstream services such as databases, internal APIs, and message queues.",
+        "default": false
+      },
+      "downstream_connection_tls_mode": {
+        "type": "string",
+        "enum": [
+          "none",
+          "one_way",
+          "mutual"
+        ],
+        "title": "Downstream Connection TLS Mode",
+        "description": "The TLS mode used for connections from the application server to downstream services: 'none' (plaintext), 'one_way' (server cert only), or 'mutual' (both client and server certs).",
+        "default": "none"
+      },
+      "downstream_ca_validation_enforced": {
+        "type": "boolean",
+        "title": "Downstream Server CA Validation Enforced",
+        "description": "Whether the application server validates the certificate authority (CA) of downstream service certificates, preventing acceptance of self-signed or unauthorized certificates.",
+        "default": false
+      },
+      "allowed_jwt_algorithms": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Allowed JWT Signing Algorithms",
+        "description": "List of JWT signing algorithms the server accepts during token validation (e.g., HS256, RS256, none)."
+      },
+      "signature_verification_enforced": {
+        "type": "boolean",
+        "title": "JWT Signature Verification Enforced",
+        "description": "Whether the server enforces cryptographic signature verification on all incoming JWTs before accepting them.",
+        "default": false
+      },
+      "token_expiry_max_seconds": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 2147483647,
+        "title": "Maximum Token Expiry Window (Seconds)",
+        "description": "The maximum allowed lifetime of an issued token in seconds. Overly long windows increase replay attack exposure."
+      },
+      "connection_draining_enabled": {
+        "type": "boolean",
+        "title": "Connection Draining Enabled",
+        "description": "Whether the application server or load balancer is configured to drain existing connections gracefully before shutdown, allowing in-flight requests to complete.",
+        "default": false
+      },
+      "downstream_timeout_configured": {
+        "type": "boolean",
+        "title": "Downstream Call Timeout Configured",
+        "description": "Whether explicit timeout limits are set for all outbound/downstream HTTP or RPC calls made by the application, preventing indefinite blocking on slow or unresponsive dependencies.",
+        "default": false
+      },
+      "circuit_breaker_configured": {
+        "type": "boolean",
+        "title": "Circuit Breaker Configured",
+        "description": "Whether a circuit breaker pattern is configured for downstream service calls, with defined failure thresholds, open/half-open state transitions, and reset timeouts to prevent cascading failures.",
+        "default": false
+      },
+      "debug_mode_enabled": {
+        "type": "boolean",
+        "title": "Debug Mode Enabled",
+        "description": "Indicates whether the application server's debug or development mode flag is active (e.g., DEBUG=True, NODE_ENV=development, RAILS_ENV=development, Flask debug=True)",
+        "default": false
+      },
+      "environment_classification": {
+        "type": "string",
+        "enum": [
+          "production",
+          "staging",
+          "development",
+          "test",
+          "unknown"
+        ],
+        "title": "Environment Classification",
+        "description": "The declared operational environment of the server (production, staging, development, test)"
+      },
+      "debug_port_exposed": {
+        "type": "boolean",
+        "title": "Remote Debug Port Exposed",
+        "description": "Indicates whether a remote debugging port (e.g., Node.js --inspect port 9229, Java JDWP port 5005, Python debugpy port 5678) is bound and reachable",
+        "default": false
+      }
+    },
+    "required": [
+      "management_endpoints_require_authentication",
+      "management_interface_network_exposure",
+      "http_plaintext_port_enabled",
+      "https_redirect_enforced",
+      "minimum_tls_version",
+      "weak_cipher_suites_enabled",
+      "process_run_account",
+      "process_uid",
+      "dedicated_service_account_configured",
+      "plaintext_secrets_on_filesystem",
+      "plaintext_secrets_in_environment_variables",
+      "secrets_manager_integrated",
+      "auth_event_logging_enabled",
+      "authorization_failure_logging_enabled",
+      "centralized_log_destination_configured",
+      "api_error_logging_enabled",
+      "log_request_body_enabled",
+      "log_sensitive_headers_enabled",
+      "log_level",
+      "log_sensitive_field_redaction_enabled",
+      "runtime_version_has_known_cve",
+      "framework_version_has_known_cve",
+      "days_since_last_patch_applied",
+      "bound_addresses",
+      "network_policy_restricts_inbound",
+      "connection_limit_configured",
+      "request_timeout_seconds",
+      "request_queue_depth_limit",
+      "mutual_tls_enforced",
+      "downstream_connection_tls_mode",
+      "downstream_ca_validation_enforced",
+      "allowed_jwt_algorithms",
+      "signature_verification_enforced",
+      "token_expiry_max_seconds",
+      "debug_mode_enabled",
+      "environment_classification",
+      "debug_port_exposed"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/allowed_jwt_algorithms"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dedicated_service_account_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_endpoints_require_authentication"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/process_run_account"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/process_uid"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/signature_verification_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/token_expiry_max_seconds"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/downstream_connection_tls_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/http_plaintext_port_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/https_redirect_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/minimum_tls_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mutual_tls_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/plaintext_secrets_in_environment_variables"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/plaintext_secrets_on_filesystem"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_manager_integrated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_cipher_suites_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/downstream_ca_validation_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/forward_secrecy_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_termination_point"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bound_addresses"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/debug_port_exposed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_interface_network_exposure"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/network_policy_restricts_inbound"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_data_in_exposed_endpoints"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/connection_limit_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/request_queue_depth_limit"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/request_timeout_seconds"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/debug_mode_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/environment_classification"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/framework_version_has_known_cve"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/runtime_version_has_known_cve"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/days_since_last_patch_applied"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/verbose_error_output_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/auth_event_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/authorization_failure_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_log_destination_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_request_body_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_sensitive_field_redaction_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_sensitive_headers_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/api_error_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_level"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/circuit_breaker_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/connection_draining_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/downstream_timeout_configured"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

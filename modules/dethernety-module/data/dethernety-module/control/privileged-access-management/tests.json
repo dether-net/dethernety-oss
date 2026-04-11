@@ -1,0 +1,180 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "jit_access_enabled": false,
+      "session_recording_enabled": false,
+      "vault_enabled": false,
+      "behavioral_baselining_enabled": false,
+      "mfa_enforcement_scope": "none",
+      "audit_logging_enabled": true,
+      "log_immutability_mechanism": "write_once_storage",
+      "log_retention_days": 90,
+      "logged_event_types": [
+        "authentication",
+        "authorization"
+      ],
+      "minimum_approvers_required": 0,
+      "automated_session_termination_enabled": false,
+      "operator_termination_capability": false,
+      "rbac_enabled": false,
+      "siem_integration_enabled": false,
+      "max_session_duration_minutes": 1,
+      "standing_privileged_accounts_exist": false,
+      "recording_scope": "none",
+      "tamper_evident_storage": false,
+      "rotation_policy": "none",
+      "max_rotation_interval_days": 0,
+      "credential_types_covered": [],
+      "alert_triggers_configured": [
+        "default"
+      ],
+      "mfa_bypass_exceptions_exist": false,
+      "mfa_method_strength": "none",
+      "approval_workflow_enabled": false,
+      "approval_audit_logging_enabled": false,
+      "access_expiry_enforcement": "none",
+      "session_termination_triggers": [
+        "default"
+      ],
+      "termination_audit_logging_enabled": true,
+      "overprivileged_role_count": 0,
+      "privilege_review_frequency": "continuous",
+      "event_forwarding_method": "none",
+      "forwarded_event_types": [
+        "default"
+      ],
+      "log_review_frequency": "real_time"
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "jit_access_enabled": true,
+      "max_session_duration_minutes": 60,
+      "standing_privileged_accounts_exist": false,
+      "session_recording_enabled": true,
+      "recording_scope": "all",
+      "tamper_evident_storage": true,
+      "vault_enabled": true,
+      "rotation_policy": "post_use",
+      "credential_types_covered": [
+        "password"
+      ],
+      "behavioral_baselining_enabled": true,
+      "alert_triggers_configured": [
+        "item_0",
+        "item_1"
+      ],
+      "alert_notification_destination": "present",
+      "mfa_enforcement_scope": "all_privileged",
+      "mfa_bypass_exceptions_exist": false,
+      "mfa_method_strength": "authenticator_app",
+      "audit_logging_enabled": false,
+      "approval_workflow_enabled": true,
+      "minimum_approvers_required": 1,
+      "approval_audit_logging_enabled": true,
+      "access_expiry_enforcement": "automatic",
+      "automated_session_termination_enabled": true,
+      "session_termination_triggers": [
+        "item_0"
+      ],
+      "termination_audit_logging_enabled": true,
+      "rbac_enabled": true,
+      "overprivileged_role_count": 0,
+      "privilege_review_frequency": "continuous",
+      "siem_integration_enabled": true,
+      "event_forwarding_method": "native_connector",
+      "forwarded_event_types": [
+        "session_start",
+        "credential_checkout"
+      ],
+      "max_rotation_interval_days": 0,
+      "log_immutability_mechanism": "write_once_storage",
+      "log_retention_days": 0,
+      "logged_event_types": [
+        "default"
+      ],
+      "operator_termination_capability": true,
+      "log_review_frequency": "real_time"
+    },
+    "expectedCountermeasures": [
+      "Credential Vaulting And Rotation",
+      "Least Privilege Role Enforcement",
+      "Privileged Access Audit Trail Completeness",
+      "Privileged Session Recording",
+      "Multi Factor Authentication Enforcement",
+      "Just In Time Access Provisioning",
+      "Integration With Siem And Soc Tooling",
+      "Real Time Behavioral Analytics",
+      "Session Termination And Automated Response",
+      "Access Request Workflow And Approval"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "jit_access_enabled": true,
+      "max_session_duration_minutes": 0,
+      "standing_privileged_accounts_exist": false,
+      "session_recording_enabled": true,
+      "recording_scope": "none",
+      "tamper_evident_storage": true,
+      "vault_enabled": true,
+      "rotation_policy": "none",
+      "max_rotation_interval_days": 0,
+      "credential_types_covered": [
+        "partial"
+      ],
+      "behavioral_baselining_enabled": true,
+      "alert_triggers_configured": [
+        "partial"
+      ],
+      "alert_notification_destination": "present",
+      "mfa_enforcement_scope": "none",
+      "mfa_bypass_exceptions_exist": false,
+      "mfa_method_strength": "none",
+      "audit_logging_enabled": false,
+      "log_immutability_mechanism": "write_once_storage",
+      "log_retention_days": 0,
+      "logged_event_types": [
+        "partial"
+      ],
+      "approval_workflow_enabled": true,
+      "minimum_approvers_required": 0,
+      "approval_audit_logging_enabled": true,
+      "access_expiry_enforcement": "none",
+      "automated_session_termination_enabled": true,
+      "session_termination_triggers": [
+        "partial"
+      ],
+      "operator_termination_capability": true,
+      "termination_audit_logging_enabled": true,
+      "rbac_enabled": true,
+      "overprivileged_role_count": 0,
+      "privilege_review_frequency": "continuous",
+      "siem_integration_enabled": true,
+      "event_forwarding_method": "none",
+      "forwarded_event_types": [
+        "partial"
+      ],
+      "log_review_frequency": "real_time"
+    },
+    "expectedCountermeasures": [
+      "Least Privilege Role Enforcement",
+      "Privileged Access Audit Trail Completeness",
+      "Just In Time Access Provisioning",
+      "Session Termination And Automated Response"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "name": "Container Orchestration Platform",
+  "classType": "securityBoundary",
+  "type": "Container Orchestration Platform",
+  "description": "The Kubernetes orchestration control plane represents a critical trust boundary where compromise yields administrative control over all cluster workloads. Key enforcement surfaces include the API server (authn/authz gateway), etcd (authoritative state store), admission webhook chain (policy enforcement), and the RBAC model governing lateral privilege propagation. Weaknesses in zone separation at this boundary allow attackers to escape workload-level trust constraints, manipulate scheduling, intercept secrets, and pivot across tenant boundaries without crossing host-level controls.",
+  "category": "Container Infrastructure",
+  "status": "reviewed"
+}

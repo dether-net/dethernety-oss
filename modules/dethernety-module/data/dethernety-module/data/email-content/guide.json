@@ -1,0 +1,676 @@
+[
+  {
+    "option_name": "email_body_classification_enforced",
+    "option_description": "Controls whether the email system mandates that every inbound and outbound message body carries a formal sensitivity classification label (e.g., Confidential, PII, Restricted) at send or ingestion time, rejecting or quarantining messages that lack a valid label.",
+    "security_impact": "The Rego policy fires the 'unclassified_pii_in_email_bodies' exposure whenever email_body_classification_enforced is false in combination with either disabled PII scanning or a non-blocking unclassified retention policy. Without enforced labeling, downstream controls (retention schedules, access restrictions, encryption triggers) have no sensitivity signal to act on, leaving PII in email bodies permanently unprotected and exposing the organization to MITRE T1114 Email Collection and T1589.002 Email Addresses reconnaissance techniques.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft 365 Defender / Purview Compliance Portal, navigate to Information Protection > Label policies. Verify that at least one label policy has 'Require users to apply a label to their email' enabled and is scoped to all users or the relevant mail-enabled groups.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Information Protection > Label policies > [policy name] > Settings",
+        "expected_output": "Policy shows 'Users must apply a label' toggle set to On with no exceptions for email."
+      },
+      {
+        "type": "command",
+        "instruction": "Query Exchange Online or on-premises Exchange transport rules to identify any rules that enforce label headers before delivery. Use PowerShell to list transport rules checking for X-Sensitivity or MIP label conditions.",
+        "command": "Get-TransportRule | Where-Object { $_.HeaderContainsMessageHeader -like '*sensitivity*' -or $_.Description -like '*label*' } | Select-Object Name, Priority, State, Description",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more enabled transport rules appear that quarantine or reject messages lacking a recognized sensitivity label header."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Microsoft Graph API to retrieve label policies and check enforcement settings programmatically, confirming mandatory labeling is active for the email workload.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/security/informationProtection/labelPolicies' | jq '.value[] | {name, labelPolicySetting}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response includes label policy entries where 'isMandatory' is true for email workloads."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Proofpoint or Mimecast email gateways, review the DLP or content-policy configuration export to confirm that a classification-enforcement rule exists with action 'reject' or 'quarantine' for messages missing a sensitivity header.",
+        "command": null,
+        "file_path": "/etc/proofpoint/pps/policy/dlp_rules.xml",
+        "navigation": null,
+        "expected_output": "Rule entry exists with condition 'missing_header: X-Sensitivity' and action 'quarantine' or 'reject', with status 'enabled'."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most on-premises deployments)",
+      "true (Microsoft 365 environments with Purview MIP mandatory labeling policy)",
+      "false (Google Workspace without Assured Controls add-on)"
+    ]
+  },
+  {
+    "option_name": "pii_scanning_enabled",
+    "option_description": "Controls whether a DLP engine or content inspection service actively scans email message bodies for PII patterns—such as Social Security Numbers, credit card numbers, health record identifiers, and passport numbers—at the point of ingestion or transmission, flagging or blocking messages that contain sensitive data.",
+    "security_impact": "The Rego policy triggers 'unclassified_pii_in_email_bodies' when both email_body_classification_enforced and pii_scanning_enabled are false, meaning neither manual labeling nor automated detection is in place. With scanning disabled, PII flows through the mail pipeline invisibly, making it impossible to apply retention limits, encrypt content, or alert on data exfiltration. This directly enables MITRE T1114 Email Collection by leaving PII-laden messages undetected and unprotected.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft 365 Purview, navigate to Data Loss Prevention > Policies and review each policy scoped to Exchange email. Confirm that at least one active policy uses sensitive information type detectors (e.g., 'U.S. Social Security Number', 'Credit Card Number') applied to message body content with a blocking or alerting action.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Data Loss Prevention > Policies > [policy] > Policy settings > Locations (Exchange email must be On)",
+        "expected_output": "Policy status is On, Exchange email location is enabled, and sensitive information types covering PII are listed with a non-audit action."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Exchange Online PowerShell to enumerate active DLP policies and verify at least one policy targets Exchange with PII-related sensitive information types.",
+        "command": "Get-DlpCompliancePolicy | Where-Object {$_.Enabled -eq $true -and $_.ExchangeLocation -ne $null} | Select-Object Name, Mode, ExchangeLocation; Get-DlpComplianceRule | Where-Object {$_.ParentPolicyName -in (Get-DlpCompliancePolicy | Where-Object {$_.ExchangeLocation -ne $null}).Name} | Select-Object Name, ContentContainsSensitiveInformation",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one policy returned with Mode 'Enforce' or 'TestWithNotifications', and rules listing PII-related SIT names under ContentContainsSensitiveInformation."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Purview DLP API to retrieve policy configurations and confirm PII-specific sensitive information types are applied to email workloads.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/security/dataSecurityAndGovernance/policies/dlp' | jq '.value[] | select(.locations[].service == \"exchange\") | {name, status, sensitiveInfoTypes}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response includes policies with 'exchange' in locations and at least one sensitiveInfoType entry referencing PII identifiers."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the email security team or review the DLP runbook to confirm whether Proofpoint TAP, Forcepoint DLP, or a third-party CASB is configured as a scanning relay for inbound and outbound email bodies, and validate that its PII detection dictionaries are up to date.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team confirms an active DLP or content inspection tool is processing email body content (not just attachments) with PII pattern rules enabled and an enforcement (not just monitoring) action configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (organizations relying only on attachment scanning)",
+      "true (organizations with Microsoft Purview DLP or Proofpoint DLP in enforce mode)",
+      "false (legacy Exchange deployments without third-party DLP integration)"
+    ]
+  },
+  {
+    "option_name": "unclassified_email_retention_policy",
+    "option_description": "Specifies the retention behavior applied to email messages that carry no sensitivity classification label, with three possible values: 'indefinite' (no deletion trigger, messages persist forever), 'default_period' (a generic time-bound retention window is applied regardless of content sensitivity), or 'blocked' (unclassified messages are rejected at the gateway and never stored).",
+    "security_impact": "The Rego policy fires 'unclassified_pii_in_email_bodies' when email_body_classification_enforced is false and this attribute is either 'indefinite' or 'default_period'. Both values allow PII to accumulate in the mail store—'indefinite' with no deletion horizon, and 'default_period' with a retention window that may still violate GDPR Article 5(1)(e) storage limitation principles if the period is longer than justified. Only 'blocked' prevents unclassified PII from entering the store. Indefinite retention directly expands the blast radius for MITRE T1114 Email Collection attacks.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the Microsoft Purview Compliance Portal, navigate to Data lifecycle management > Microsoft 365 > Retention policies. Identify any policy applied to Exchange email that does not filter by sensitivity label. Check the retention duration and deletion settings to determine whether unclassified messages are subject to a defined period or retained indefinitely.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Data lifecycle management > Microsoft 365 > Retention policies > [policy] > Policy settings",
+        "expected_output": "Policy either shows a defined deletion period (default_period), has a 'reject if no label' transport rule upstream (blocked), or shows 'Keep forever' with no deletion action (indefinite)."
+      },
+      {
+        "type": "command",
+        "instruction": "Use PowerShell to list Exchange Online retention tags and policies, checking for tags applied to messages without a sensitivity label and their configured AgeLimitForRetention.",
+        "command": "Get-RetentionPolicy | Select-Object Name, RetentionPolicyTagLinks; Get-RetentionPolicyTag | Where-Object {$_.Type -eq 'All' -or $_.Type -eq 'Personal'} | Select-Object Name, AgeLimitForRetention, RetentionAction, MessageClass",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Tags with AgeLimitForRetention set to a value (default_period) or showing no limit / null (indefinite). Transport rules blocking unclassified mail confirm 'blocked' state."
+      },
+      {
+        "type": "command",
+        "instruction": "For Google Workspace, use the Vault API or Admin SDK to check whether retention rules covering all mail without a DLP classifier applied have a defined retention period or default to indefinite.",
+        "command": "gcloud vault matters list --filter='state=OPEN' --format=json; curl -s -H 'Authorization: Bearer <token>' 'https://vault.googleapis.com/v1/matters/-/holds' | jq '.holds[] | {name, corpus, query}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Holds or retention rules referencing all mail without a label filter indicate default_period or indefinite behavior."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For on-premises Exchange, inspect the retention policy XML export or EAC configuration to determine AgeLimitForRetention values on default retention tags that catch unlabeled messages.",
+        "command": "Get-RetentionPolicyTag -IncludeSystemTags | Where-Object {$_.MessageClass -eq '*'} | Select-Object Name, AgeLimitForRetention, RetentionAction | Export-Csv -Path C:\\retention_tags_audit.csv -NoTypeInformation",
+        "file_path": "C:\\retention_tags_audit.csv",
+        "navigation": null,
+        "expected_output": "CSV shows either a numeric AgeLimitForRetention (default_period), null/empty (indefinite), or upstream block rule confirming the 'blocked' state."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "indefinite (most on-premises Exchange environments with no explicit retention tags)",
+      "default_period (Microsoft 365 tenants with generic 7-year compliance retention policies)",
+      "blocked (high-security environments with gateway enforcement of mandatory labeling)"
+    ]
+  },
+  {
+    "option_name": "retention_policy_enforced",
+    "option_description": "Indicates whether a technically implemented, automated retention schedule exists for email server data that includes defined deletion or anonymization triggers specifically for PII-bearing messages—as opposed to a policy document that exists on paper only but is not enforced by the platform.",
+    "security_impact": "The Rego policy fires the 'indefinite_retention_of_pii_bearing_messages' exposure when retention_policy_enforced is false (no technical enforcement). Without automated deletion triggers, PII accumulates indefinitely in mailboxes and archives, violating GDPR Article 5(1)(e) storage limitation and expanding the data surface available for MITRE T1114 Email Collection. Even organizations with written retention policies receive no credit unless the enforcement is technically implemented with automated deletion actions.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In Exchange Online, verify that retention policies with deletion actions are assigned to all mailboxes. Check that at least one retention policy containing a DeletionAndAllowRecovery or PermanentlyDelete action is applied organization-wide.",
+        "command": "Get-Mailbox -ResultSize Unlimited | Select-Object Name, RetentionPolicy | Group-Object RetentionPolicy; Get-RetentionPolicyTag | Where-Object {$_.RetentionAction -in ('DeleteAndAllowRecovery','PermanentlyDelete')} | Select-Object Name, AgeLimitForRetention, RetentionAction",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All mailboxes show a RetentionPolicy value, and at least one tag with a deletion action and a numeric AgeLimitForRetention is present."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Google Workspace Admin Console, navigate to Apps > Google Workspace > Gmail > Compliance > Manage Vault retention rules. Confirm at least one rule is set to 'Delete messages older than' with a defined period and the rule is Active.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Workspace Admin Console > Apps > Google Workspace > Gmail > Compliance > Vault retention",
+        "expected_output": "Active retention rule exists with a defined deletion period and coverage of all users or the relevant OU."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Microsoft Graph Security API to retrieve compliance retention policies and confirm at least one policy includes an Exchange email location with a deletion action and is in Enforce mode.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/compliance/ediscovery/cases' | jq; curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/security/retentionLabels' | jq '.value[] | select(.retentionAction == \"delete\") | {displayName, retentionDuration, retentionAction}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one retention label with retentionAction 'delete' and a defined retentionDuration is returned, confirming technical enforcement."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request evidence from the email platform administrators that retention policies are technically applied (not just documented). Ask for a screenshot or export of the active retention schedule, and verify that automated deletion has run by checking audit logs for 'MoveToDeletedItems' or 'HardDelete' actions triggered by policy.",
+        "command": "Search-UnifiedAuditLog -StartDate (Get-Date).AddDays(-30) -EndDate (Get-Date) -Operations 'HardDelete','MoveToDeletedItems' -ResultSize 100 | Where-Object {$_.AuditData -like '*RetentionPolicy*'} | Select-Object CreationDate, UserIds, Operations, AuditData",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit log entries show automated policy-triggered deletions within the past 30 days, confirming technical enforcement is operational."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (small to mid-size organizations with policy documents but no technical enforcement)",
+      "true (Microsoft 365 tenants with Purview retention policies in Enforce mode)",
+      "false (on-premises Exchange deployments relying on manual mailbox management)"
+    ]
+  },
+  {
+    "option_name": "maximum_retention_days",
+    "option_description": "Specifies the maximum number of calendar days that PII-bearing emails are retained in the mail store before an automated deletion or anonymization action is triggered. A value of 0 means no upper retention limit is configured, equivalent to indefinite retention. Valid values range from 1 to 36500 days.",
+    "security_impact": "The Rego policy fires 'indefinite_retention_of_pii_bearing_messages' when retention_policy_enforced is true but maximum_retention_days equals 0. This catches the common misconfiguration where a retention policy exists but specifies no deletion horizon—technically enforced but effectively indefinite. Even non-zero values that exceed regulatory requirements (e.g., retaining PII-bearing emails for 10 years under GDPR without a legal basis) create compliance exposure and enlarge the data surface vulnerable to MITRE T1114 Email Collection attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query Exchange Online retention policy tags to find the maximum AgeLimitForRetention value in days across all tags that include a deletion action, identifying the longest configured retention window.",
+        "command": "Get-RetentionPolicyTag | Where-Object {$_.RetentionAction -in ('DeleteAndAllowRecovery','PermanentlyDelete') -and $_.AgeLimitForRetention -ne $null} | Select-Object Name, @{N='RetentionDays';E={$_.AgeLimitForRetention.Days}}, RetentionAction | Sort-Object RetentionDays -Descending",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table sorted descending by RetentionDays; the top value is the maximum configured retention period. A null or missing entry indicates 0 (no limit)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Microsoft Purview Compliance Portal, review all active retention labels and policies under Data lifecycle management. For each label applied to email, note the 'Retain items for a specific period' value in days or years and identify the maximum.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Data lifecycle management > Microsoft 365 > Retention labels > [label] > Define label settings > Retention period",
+        "expected_output": "Each label shows an explicit retention period. The maximum value across all email-applicable labels is the value to record. If any label shows 'Keep forever', record 0."
+      },
+      {
+        "type": "command",
+        "instruction": "For Google Workspace Vault, retrieve retention rule durations via the Vault API and identify the maximum retention period configured for Gmail data.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://vault.googleapis.com/v1/matters/-/holds?corpus=MAIL' | jq '[.holds[] | .query.duration] | max'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Maximum duration value in seconds returned; convert to days (divide by 86400). An empty or null result indicates no configured limit (record 0)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On-premises Exchange: export all retention policy tag configurations and parse AgeLimitForRetention to identify the longest configured deletion trigger in days.",
+        "command": "Get-RetentionPolicyTag -IncludeSystemTags | Select-Object Name, RetentionAction, @{N='Days';E={if($_.AgeLimitForRetention){$_.AgeLimitForRetention.Days}else{0}}} | Sort-Object Days -Descending | Export-Csv -Path C:\\max_retention_audit.csv -NoTypeInformation; Import-Csv C:\\max_retention_audit.csv | Select-Object -First 1",
+        "file_path": "C:\\max_retention_audit.csv",
+        "navigation": null,
+        "expected_output": "Top row shows the longest configured retention period in days. A value of 0 in the Days column confirms no retention limit is set."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (no configured limit, most on-premises environments)",
+      "2557 (7 years, common for financial services compliance)",
+      "365 (1 year, GDPR-aligned short-retention configurations)",
+      "2555 (approximately 7 years, Microsoft 365 default compliance retention)"
+    ]
+  },
+  {
+    "option_name": "pii_classification_labels_applied",
+    "option_description": "Indicates whether sensitivity or PII classification labels are systematically and comprehensively applied to all emails and their attachments—either through automated tools such as Microsoft Purview auto-labeling, Google DLP classifiers, or mandatory manual labeling with verified coverage—enabling policy engines to identify PII-bearing messages for retention enforcement, access control, and encryption decisions.",
+    "security_impact": "This attribute is referenced by three Rego rules: 'indefinite_retention_of_pii_bearing_messages' fires when retention_policy_enforced is true but pii_classification_labels_applied is false, because the retention engine cannot distinguish PII-bearing messages from others. 'excessive_mailbox_access_grants_to_pii_data' fires when pii_classification_labels_applied is false alongside broad shared mailbox access. 'plaintext_pii_in_email_attachments' is also conditionally linked. Without labels, all downstream controls—retention, access restriction, and encryption—are blind to content sensitivity, enabling MITRE T1114 Email Collection, T1098.002 Additional Email Delegate Permissions, and T1114.001/T1114.002 local and remote email collection.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use Exchange Online PowerShell to sample recently sent and received messages and check whether Microsoft Information Protection (MIP) sensitivity label headers are present. A high rate of missing labels indicates the attribute should be set to false.",
+        "command": "Get-MessageTrace -StartDate (Get-Date).AddDays(-7) -EndDate (Get-Date) -PageSize 100 | ForEach-Object { Get-MessageTraceDetail -MessageTraceId $_.MessageTraceId -RecipientAddress $_.RecipientAddress } | Where-Object {$_.Event -eq 'RECEIVE'} | Select-Object -First 20 | ForEach-Object { $_.Data } | Select-String 'msip_labels|sensitivity'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Majority of sampled messages contain msip_labels or X-Sensitivity header values. If most messages lack these headers, set to false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Microsoft Purview Compliance Portal, navigate to Information Protection > Activity explorer. Filter by label activity type 'Label applied' for Exchange workload over the past 30 days. Compare the count of labeled messages to the total email volume to assess coverage comprehensiveness.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Information Protection > Activity explorer > Filter: Workload = Exchange, Activity = Label applied",
+        "expected_output": "High volume of 'Label applied' events relative to email volume. If activity is sparse or absent, systematic labeling is not in place."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Graph API for auto-labeling policy configurations to confirm at least one policy targeting Exchange email with PII sensitive information types is active and set to auto-apply labels.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/security/informationProtection/labelPolicies' | jq '.value[] | select(.assignedToSensitivityLabels != null) | {name, autoLabeling: .autoLabeling, locations: .locations}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one policy shows autoLabeling enabled with Exchange in the locations list, confirming systematic auto-labeling is configured."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview email platform administrators to determine whether labeling coverage has been audited. Request a report or dashboard export showing the percentage of mailbox messages that carry a sensitivity label, and confirm whether manual labeling alone or automated labeling is in use.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Administrator provides a coverage report showing >95% of messages carry a label, or confirms an automated labeling policy is active. Manual-only labeling without a coverage audit does not qualify."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (organizations with optional manual labeling and no auto-labeling policy)",
+      "true (Microsoft 365 tenants with Purview auto-labeling policies in enforce mode targeting PII SITs)",
+      "false (Google Workspace deployments without Assured Controls or third-party DLP labeling integration)"
+    ]
+  },
+  {
+    "option_name": "mailbox_store_encryption_enabled",
+    "option_description": "Indicates whether the email server's mailbox database and attachment storage are encrypted at rest using database-level or filesystem-level encryption (e.g., Exchange mailbox database encryption, BitLocker on the mail store volume, LUKS on Linux mail servers, or cloud provider managed encryption for hosted platforms), preventing direct readability of stored messages and attachments if storage media is accessed without proper authorization.",
+    "security_impact": "The Rego policy triggers 'plaintext_pii_in_email_attachments' when mailbox_store_encryption_enabled is false and either attachment_document_protection_enforced is false or sensitivity_labeling_enforced_on_attachments is absent. Without at-rest encryption on the mailbox store, any unauthorized physical or logical access to the storage layer—disk theft, snapshot access, backup exfiltration—exposes PII in attachments immediately with no decryption barrier. This directly enables MITRE T1114.001 Local Email Collection and T1114.002 Remote Email Collection attacks targeting the mail store.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Exchange on-premises, verify mailbox database encryption status. Check whether BitLocker is enabled on the drive hosting the mail store database files, and whether any database-level encryption feature is active.",
+        "command": "manage-bde -status C: | Select-String 'Protection Status|Encryption Method'; Get-MailboxDatabase -Status | Select-Object Name, EdbFilePath, @{N='DBPath';E={Split-Path $_.EdbFilePath}} | ForEach-Object { manage-bde -status $_.DBPath }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'Protection Status: Protection On' and an encryption method (e.g., XTS-AES 256) for the volume hosting the EDB file."
+      },
+      {
+        "type": "command",
+        "instruction": "For Microsoft 365 Exchange Online, confirm that service encryption with Customer Key or Microsoft-managed keys is active for the Exchange Online mailbox store using the compliance PowerShell module.",
+        "command": "Get-MailboxDataEncryptionPolicy | Select-Object Name, DataEncryptionPolicyId, IsDefault, Enabled; Get-Mailbox -ResultSize 5 | ForEach-Object { Get-MailboxDataEncryptionPolicy -Identity $_.DataEncryptionPolicyId 2>$null } | Select-Object Name, Enabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy entries show Enabled = True, confirming service encryption is active on the Exchange Online mailbox store."
+      },
+      {
+        "type": "gui",
+        "instruction": "For cloud-hosted email (Exchange Online, Google Workspace), verify at-rest encryption in the provider's admin console or trust center documentation. For Exchange Online, navigate to the Microsoft 365 Admin Center > Settings > Org settings > Services > Customer Lockbox/encryption settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft 365 Admin Center > Settings > Org settings > Security & Privacy > Customer Lockbox OR Google Workspace Admin Console > Security > Encryption",
+        "expected_output": "Encryption at rest is confirmed as enabled. For Exchange Online, Microsoft-managed encryption is on by default; Customer Key shows as configured if tenant-managed keys are required."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Linux-based mail servers (Postfix + Dovecot), inspect whether the mail spool or maildir volumes are mounted from an encrypted filesystem (LUKS) by checking /etc/crypttab and the mount table.",
+        "command": "cat /etc/crypttab; lsblk -o NAME,FSTYPE,MOUNTPOINT,ROTA | grep -E 'mail|crypt'; cryptsetup status $(lsblk | grep -E 'mail' | awk '{print $1}')",
+        "file_path": "/etc/crypttab",
+        "navigation": null,
+        "expected_output": "crypttab contains an entry mapping the mail store volume to a LUKS-encrypted device. cryptsetup status shows 'type: LUKS2' and 'cipher: aes-xts-plain64' for the mail volume."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (Microsoft 365 Exchange Online, all data encrypted by default with Microsoft-managed keys)",
+      "false (legacy on-premises Exchange without BitLocker on mail store volume)",
+      "true (modern cloud deployments with provider-managed AES-256 encryption)",
+      "false (Postfix/Dovecot on bare-metal without LUKS volume encryption)"
+    ]
+  },
+  {
+    "option_name": "attachment_document_protection_enforced",
+    "option_description": "Controls whether email attachments that contain or are classified as sensitive content automatically receive document-level protection such as IRM/DRM rights management labels, AIP/MIP encryption, or password protection before being stored or forwarded, ensuring that the attachment content cannot be read by an unauthorized party even if the file is extracted from the mailbox store.",
+    "security_impact": "The Rego policy fires 'plaintext_pii_in_email_attachments' when mailbox_store_encryption_enabled is false and attachment_document_protection_enforced is false. Even when mailbox-level encryption exists, document-level protection provides a second layer that travels with the file—critical for attachments forwarded outside the organization's encryption boundary. Without this protection, PII in spreadsheets, PDFs, and scanned documents is immediately readable after extraction, directly enabling MITRE T1114.001 Local Email Collection and T1114.002 Remote Email Collection.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the Microsoft Purview Compliance Portal, navigate to Data Loss Prevention > Policies and review policies scoped to Exchange email. Confirm that at least one policy has an action of 'Encrypt' or 'Apply rights management protection' applied to attachments matching PII content patterns, and that the policy mode is Enforce rather than Test.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Data Loss Prevention > Policies > [policy] > Edit > Actions > check for 'Encrypt message' or 'Apply rights management protection'",
+        "expected_output": "Policy action includes 'Encrypt the message' or 'Apply Microsoft 365 Message Encryption' for rules matching PII-containing attachment content, with mode set to 'Enforce'."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Exchange Online PowerShell to check transport rules that apply IRM or RMS protection to messages with attachments containing sensitive content, confirming the rule is enabled and applies to attachment-borne PII patterns.",
+        "command": "Get-TransportRule | Where-Object {$_.ApplyRightsProtectionTemplate -ne $null -or $_.ApplyOME -eq $true} | Select-Object Name, Priority, State, ApplyRightsProtectionTemplate, ApplyOME, AttachmentHasExecutableContent, SubjectOrBodyMatchesPatterns; Get-TransportRule | Where-Object {$_.State -eq 'Enabled' -and ($_.ApplyOME -eq $true -or $_.ApplyRightsProtectionTemplate -ne $null)} | Measure-Object",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one enabled transport rule with ApplyOME = True or a non-null ApplyRightsProtectionTemplate targeting PII-bearing content patterns is returned."
+      },
+      {
+        "type": "api",
+        "instruction": "Check Microsoft Purview Information Protection policies for auto-labeling rules that apply encryption actions to attachments with PII content via the Graph API.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/security/informationProtection/sensitivityLabels' | jq '.value[] | select(.contentFormats[] | contains(\"email\")) | {name, encryptionEnabled: .labelActions[].actionSource}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Labels applied to email content show an encryption action source, confirming that matching attachments receive document-level encryption upon labeling."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request a demonstration or policy enforcement report from the DLP or IRM team showing that a test attachment containing synthetic PII (e.g., a CSV with fake SSNs) sent via email triggers automatic document protection. Review enforcement logs to confirm protection is applied before delivery or at archival.",
+        "command": "Get-MessageTrace -SenderAddress 'testuser@domain.com' -StartDate (Get-Date).AddDays(-1) -EndDate (Get-Date) | Get-MessageTraceDetail | Where-Object {$_.Event -eq 'ENCRYPT' -or $_.Data -like '*RMS*' -or $_.Data -like '*OME*'}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Message trace for the test email shows an ENCRYPT event or RMS/OME application entry, confirming document-level protection was enforced on the PII-bearing attachment."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most organizations without an IRM or DLP-triggered encryption policy)",
+      "true (organizations with Microsoft Purview OME or AIP auto-labeling with encryption actions)",
+      "false (environments using only transport-layer TLS without document-level protection)",
+      "true (financial and healthcare organizations with Proofpoint or Virtru document-level encryption enforced via DLP rules)"
+    ]
+  },
+  {
+    "option_name": "sensitivity_labeling_enforced_on_attachments",
+    "option_description": "Controls whether a mandatory sensitivity or classification label policy is enforced on email attachments containing PII. When enabled, DLP/information-protection platforms such as Microsoft Purview or Symantec DLP automatically detect, label, or block/quarantine PII-bearing attachments that lack an appropriate classification tag.",
+    "security_impact": "The Rego policy fires the 'plaintext_pii_in_email_attachments' exposure when mailbox-store encryption is absent AND sensitivity labeling on attachments is not enforced (`not input.sensitivity_labeling_enforced_on_attachments`). Without mandatory labeling, PII-laden attachments (spreadsheets, PDFs, scanned documents) are stored without at-rest protection or document-level controls, making their content immediately readable to any party who gains unauthorized mailbox access.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Purview Compliance Portal, navigate to Information Protection > Label Policies. Confirm an active policy exists that targets email attachments, is scoped to all users or the relevant mail-enabled groups, and has 'Require users to apply a label to their email and attachments' or an auto-labeling rule enabled for PII content types.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Information Protection > Label Policies > [Select Policy] > Settings > Label requirements for emails and attachments",
+        "expected_output": "Policy status shows 'On', mandatory labeling for attachments is toggled on, and PII sensitive-information types (e.g., Credit Card Number, National ID) are listed as auto-labeling conditions."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the Exchange Online PowerShell module to retrieve all active label policies and verify that attachment labeling is enforced.",
+        "command": "Connect-IPPSSession; Get-LabelPolicy | Select-Object Name, Enabled, Settings | Format-List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each relevant policy shows 'Enabled: True' and the Settings field includes 'AttachmentLabel' or equivalent enforcement flag set to mandatory/true."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Graph Security API or Purview REST API to enumerate active information-protection policies and confirm attachment label enforcement scope.",
+        "command": "curl -X GET 'https://graph.microsoft.com/v1.0/security/informationProtection/labelPolicies' -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response JSON includes policy objects with 'isEnabled: true' and 'labelRequirements' containing an attachment enforcement rule referencing PII content types."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the email security or DLP team to confirm whether Symantec DLP or an equivalent third-party solution is deployed, review the DLP policy documentation for email attachment inspection rules, and request evidence of a recent quarantine or block event for an unlabeled PII attachment.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written policy document shows mandatory attachment classification rules in production; incident log shows at least one attachment blocked or quarantined in the past 90 days."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "content_based_access_control_enabled",
+    "option_description": "Determines whether the email platform enforces access restrictions driven by the sensitivity label or PII classification of individual messages, rather than granting access purely based on who owns or is delegated to a mailbox. When enabled, users can only read messages whose classification level they are authorized to view, even within mailboxes they otherwise have access to.",
+    "security_impact": "The Rego policy triggers 'excessive_mailbox_access_grants_to_pii_data' when shared_mailbox_pii_access_scope is 'broad' or 'unrestricted' AND content-based access control is absent (`not input.content_based_access_control_enabled`). Without content-based controls, mailbox-level delegation grants unrestricted visibility into all PII-bearing messages, violating need-to-know principles and enabling abuse vectors such as T1098.002 (Additional Email Delegate Permissions) and T1114.003 (Email Forwarding Rules).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Purview, navigate to Information Protection > Sensitivity Labels and review whether any label is configured with encryption and access restrictions (e.g., 'Do Not Forward', specific user/group permissions). Then under Exchange Admin Center > Compliance Management > Information Rights Management, confirm IRM policies are active and enforced on incoming/outgoing mail.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Exchange Admin Center > Compliance Management > Information Rights Management > Enable IRM and review applied policies; Microsoft Purview > Information Protection > Sensitivity Labels > [Label] > Encryption settings",
+        "expected_output": "IRM is shown as enabled; at least one sensitivity label with encryption and scoped access restrictions exists and is applied by policy to PII-classified messages."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Exchange Online PowerShell to check whether IRM (Information Rights Management) is enabled and which transport rules or auto-apply policies enforce label-based access on messages.",
+        "command": "Connect-ExchangeOnline; Get-IRMConfiguration | Select-Object InternalLicensingEnabled, ExternalLicensingEnabled, TransportDecryptionSetting; Get-TransportRule | Where-Object { $_.ApplyRightsProtectionTemplate -ne $null } | Select-Object Name, ApplyRightsProtectionTemplate",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'InternalLicensingEnabled: True'; at least one transport rule applies a rights-protection template (e.g., 'Do Not Forward', 'Confidential') to messages matching PII content conditions."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Microsoft Graph API to list conditional access or sensitivity label policies that restrict email access by content classification.",
+        "command": "curl -X GET 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' -H 'Authorization: Bearer <token>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policies exist that reference sensitivity label conditions and enforce access controls beyond simple mailbox ownership, with state set to 'enabled'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Ask the email platform administrator to demonstrate what happens when a user with delegate access attempts to open a message labeled 'Confidential / PII' in a shared mailbox to which they have Full Access permission. Confirm whether the platform permits or blocks the read action based on label-level permissions.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The platform either blocks access or presents a rights-management prompt requiring additional authorization when the user's classification clearance does not match the message label."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "shared_mailbox_pii_access_scope",
+    "option_description": "Captures the breadth of user access granted to shared mailboxes or delegated mailbox accounts that are known to contain PII data. 'none' means no PII-containing shared mailboxes exist; 'restricted' means access is limited to named individuals; 'broad' means departmental or group-level access; 'unrestricted' means organization-wide or all-users access is granted.",
+    "security_impact": "The Rego policy evaluates this value in conjunction with content_based_access_control_enabled: when scope is 'broad' or 'unrestricted' and content-based controls are absent, the 'excessive_mailbox_access_grants_to_pii_data' exposure is raised. Broad or unrestricted access violates the principle of least privilege, expanding the attack surface for T1098.002 (Additional Email Delegate Permissions) and T1114.003 (Email Forwarding Rules), as any user in the group can read or forward PII messages.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use Exchange Online PowerShell to enumerate all shared mailboxes and their full-access delegations, then identify those containing PII-classified messages.",
+        "command": "Connect-ExchangeOnline; Get-Mailbox -RecipientTypeDetails SharedMailbox | ForEach-Object { $mb = $_; Get-MailboxPermission -Identity $mb.Identity | Where-Object { $_.AccessRights -contains 'FullAccess' -and $_.IsInherited -eq $false } | Select-Object @{N='Mailbox';E={$mb.DisplayName}}, User, AccessRights }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists each shared mailbox with its granted users. Review each entry: named individuals = restricted; distribution groups = broad; 'Everyone'/'All Users' groups = unrestricted."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Exchange Admin Center, navigate to Recipients > Mailboxes, filter by Shared type, select each PII-relevant mailbox, and open Mailbox delegation settings to review Full Access and Send As members.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Exchange Admin Center > Recipients > Mailboxes > [Filter: Shared] > [Select Mailbox] > Mailbox delegation > Full Access / Send As",
+        "expected_output": "Delegation list shows specific named users (restricted), a department group (broad), or an organization-wide group/All Company (unrestricted)."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Graph API for shared mailbox members and their permission levels to programmatically assess scope across all PII-associated shared mailboxes.",
+        "command": "curl -X GET 'https://graph.microsoft.com/v1.0/users?$filter=mailboxSettings/userPurpose eq sharedMailbox&$select=displayName,mail,id' -H 'Authorization: Bearer <token>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of shared mailboxes returned; for each, follow up with a call to `/users/{id}/mailFolders` and permissions endpoints to determine delegation breadth."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IT/email administration team to obtain the most recent shared mailbox access review records. Confirm whether a formal access review process exists and when it was last performed for PII-bearing shared mailboxes.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Access review records show date of last review, list of authorized users per mailbox, and justification for each grant; scope classification aligns with one of the enum values."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "restricted",
+      "broad",
+      "unrestricted"
+    ]
+  },
+  {
+    "option_name": "transfer_destination_recorded",
+    "option_description": "Indicates whether the organization's data classification record or inventory explicitly documents the geographic destinations of email relay nodes and archiving systems used to route or store PII-containing emails. This provides the foundational traceability required to verify cross-border transfer compliance.",
+    "security_impact": "The Rego policy fires 'cross_border_pii_transfer_via_email_routing' immediately when `not input.transfer_destination_recorded`. Without documented relay and archive destinations, it is impossible to attest compliance with GDPR Chapter V restrictions, adequacy decisions, or SCCs. The exposure is categorized under network_security and is directly linked to T1114 (Email Collection) and T1537 (Transfer Data to Cloud Account), since undocumented routing paths may pass through jurisdictions without adequate data protection.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the organization's data classification inventory or Data Protection Impact Assessment (DPIA) documentation and check whether there is a dedicated field or section listing email relay node locations (SMTP relay IPs/regions) and archive geographic regions for PII-bearing email flows.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Document contains a named section identifying relay node locations (e.g., 'EU-West relay cluster: Ireland, Netherlands') and archive destinations (e.g., 'Exchange Online Archive: EU data boundary') with associated PII classification labels."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Exchange Online PowerShell to retrieve connectors and mail-flow rules that route outbound messages, exposing relay node geography.",
+        "command": "Connect-ExchangeOnline; Get-OutboundConnector | Select-Object Name, SmartHosts, TlsSettings, RouteAllMessagesViaOnPremises; Get-InboundConnector | Select-Object Name, SenderIPAddresses, TlsDomainCapabilities",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SmartHosts or SenderIPAddresses reveal relay node hostnames/IPs; cross-reference these with geographic IP lookup or provider documentation to confirm documented destinations match actual routing."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Microsoft Purview Compliance Portal or your email archiving solution (e.g., Mimecast, Proofpoint Archive), navigate to archive region/tenant settings to identify where emails are stored geographically.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Settings > Data residency > Current data location; OR Mimecast Admin Console > Administration > Services > Archive > Region Settings",
+        "expected_output": "Archive region is clearly stated (e.g., 'Europe — Ireland (EU data boundary)'); this value is confirmed to be recorded in the organization's classification record."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Analyze email message headers from a representative PII-related email to trace relay hops, extracting 'Received' header lines to identify intermediate SMTP relay IPs and geolocate them.",
+        "command": "Get-MessageTrace -SenderAddress <pii_sender> -StartDate (Get-Date).AddDays(-7) -EndDate (Get-Date) | Select-Object Received, SenderAddress, RecipientAddress, MessageId | Export-Csv -Path relay_trace.csv",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CSV output lists relay hops; each hop IP should map to a documented region in the classification record."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "cross_border_transfer_compliance_verified",
+    "option_description": "Indicates whether each identified cross-border email routing path has been individually verified for compliance with applicable data residency requirements — such as GDPR Chapter V adequacy decisions, Standard Contractual Clauses (SCCs), or Binding Corporate Rules (BCRs) — and whether this verification is formally documented in compliance records or DPIAs.",
+    "security_impact": "The Rego policy fires 'cross_border_pii_transfer_via_email_routing' in a chained condition: even when transfer destinations ARE recorded (`transfer_destination_recorded == true`), a second rule fires if `not input.cross_border_transfer_compliance_verified`. This means documentation of routing alone is insufficient — each path must be verified against a valid legal transfer mechanism. Non-compliance creates regulatory exposure under GDPR Articles 44–49 and equivalent frameworks, and unverified transfers may involve jurisdictions with inadequate data protection, compounding T1537 (Transfer Data to Cloud Account) risks.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request completed Transfer Impact Assessments (TIAs), DPIA records, or SCCs signed with email relay and archiving vendors for each non-EEA routing destination. Confirm each document covers the specific email routing path and is current (reviewed within the past 12 months).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each third-country relay or archive destination has a corresponding signed SCC, adequacy-decision reference, or BCR on file with a review date within the current compliance cycle."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Purview Compliance Portal, navigate to Data Privacy > Data Subject Requests and review the Data Map or Privacy Risk Management reports to confirm cross-border transfer records are linked to legal bases.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Data Privacy > Privacy Risk Management > Data Transfers > Cross-border transfer assessments",
+        "expected_output": "Each identified cross-border email transfer is listed with a documented legal basis (e.g., 'EU-US Data Privacy Framework adequacy decision', 'SCC signed 2024-01-15') marked as verified."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Contact the Data Protection Officer (DPO) or Legal team to confirm whether vendor contracts with email relay or cloud archiving providers (e.g., Proofpoint, Mimecast, Microsoft, Google) include up-to-date SCCs or reference applicable adequacy decisions for each geographic region.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Vendor contracts or data processing addenda (DPAs) for each email provider reference the applicable legal transfer mechanism and are countersigned with a date after the most recent regulatory change (e.g., post-Schrems II)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the organization's vendor management register or third-party data processing inventory (often maintained as a spreadsheet, GRC tool record, or privacy management platform entry) to find rows corresponding to email relay and archiving services and confirm 'Transfer Compliance Verified' status and date.",
+        "command": null,
+        "file_path": "/path/to/vendor_data_processing_register.xlsx OR GRC_tool/records/email_vendors",
+        "navigation": null,
+        "expected_output": "Register shows each email relay/archive vendor with columns for 'Transfer Mechanism', 'Legal Basis', 'Verification Date', and 'Verified By' all populated and current."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "secure_erasure_policy_enabled",
+    "option_description": "Controls whether a secure erasure policy is configured on the email server to permanently and irrecoverably delete messages — including from Recoverable Items and Recoverable Deleted Items folders — after a defined maximum retention period. This prevents PII from persisting indefinitely in soft-delete stores beyond the active retention window.",
+    "security_impact": "The Rego policy fires 'inadequate_disposal_of_deleted_pii_emails' directly when `not input.secure_erasure_policy_enabled`, and again when deleted_items_retention_days exceeds 30 and the policy is still absent. Without secure erasure, deleted PII emails remain in Recoverable Items for up to the configured dumpster period (default 14–30 days in Exchange, up to 30 years under litigation hold), violating data subject erasure rights under GDPR Article 17 and creating residual data accessible via T1070.008 (Clear Mailbox Data) and T1485 (Data Destruction) techniques.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use Exchange Online PowerShell to inspect retention policies applied to mailboxes, focusing on tags that enforce permanent deletion (action: PermanentlyDelete) rather than soft-delete or move-to-archive.",
+        "command": "Connect-ExchangeOnline; Get-RetentionPolicy | Select-Object Name, RetentionPolicyTagLinks; Get-RetentionPolicyTag | Where-Object { $_.RetentionAction -eq 'PermanentlyDelete' } | Select-Object Name, RetentionAction, AgeLimitForRetention, MessageClass",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one retention tag with RetentionAction 'PermanentlyDelete' and a defined AgeLimitForRetention (e.g., 365 days) is linked to the active retention policy applied to PII-bearing mailboxes."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the Recoverable Items quota and the deleted-item retention configuration to confirm a maximum recoverability window is set and not overridden by litigation hold or in-place hold.",
+        "command": "Connect-ExchangeOnline; Get-Mailbox -ResultSize Unlimited | Select-Object DisplayName, RetainDeletedItemsFor, LitigationHoldEnabled, InPlaceHolds, RecoverableItemsQuota | Export-Csv -Path mailbox_erasure_config.csv -NoTypeInformation",
+        "file_path": "mailbox_erasure_config.csv",
+        "navigation": null,
+        "expected_output": "RetainDeletedItemsFor shows a value ≤ 30 days; LitigationHoldEnabled is False (or if True, a documented legal justification exists); no indefinite holds are applied to PII mailboxes without documented justification."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Microsoft Purview Compliance Portal, navigate to Data Lifecycle Management > Retention Policies. Identify policies applied to Exchange mailboxes and confirm at least one includes a 'Permanently delete' action with a defined retention age covering the Deleted Items and Recoverable Items folders.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Data Lifecycle Management > Retention Policies > [Select Policy] > Review Settings > Review actions and retention periods for Exchange locations",
+        "expected_output": "Policy shows 'Permanently delete items after [X] days' action, applied to Exchange mailboxes including Recoverable Items, with no exceptions that would apply to PII-classified messages."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the email server administration runbook or data lifecycle management procedure to confirm a documented process exists for triggering permanent erasure of PII emails after the retention window, including for Recoverable Items and Legal Hold exceptions.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Procedure document defines maximum PII retention period, specifies the permanent-delete mechanism (policy tag or manual purge), and includes an exception process for holds with a review cadence."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "backup_snapshot_pii_purge_policy",
+    "option_description": "Describes the maturity of the organization's procedure for purging or erasing PII from email backup snapshots when data subject erasure requests are received. 'none' means no such policy exists; 'manual' means ad-hoc, human-driven procedures only with no system enforcement; 'automated' means a system-enforced, repeatable purge mechanism is in place that can locate and remove PII from backup media without full restore.",
+    "security_impact": "The Rego policy fires 'inadequate_disposal_of_deleted_pii_emails' when `input.backup_snapshot_pii_purge_policy == 'none'`. When backups have no purge mechanism, PII deleted from the live mail store survives indefinitely in backup snapshots, violating GDPR Article 17 erasure rights and creating unmanaged PII accumulation outside the active retention scope. This residual data is accessible via T1485 (Data Destruction failures) and T1485.001 (Lifecycle-Triggered Deletion failures) if backup media is compromised or improperly decommissioned. 'manual' reduces regulatory risk but introduces human error and response-time variability; 'automated' is the target state.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the backup administrator and Data Protection Officer to determine whether a documented procedure exists for responding to GDPR Article 17 erasure requests that affect email backups. Request the procedure document, the most recent erasure request log, and evidence of backup purge execution.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Procedure document defines steps to locate PII in backup snapshots, purge mechanism (manual or automated), target completion time, and sign-off requirements. Log shows at least one completed backup purge event with date and confirmation."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the backup solution configuration (e.g., Veeam, Commvault, Azure Backup, Veritas) to determine whether data classification or index-based selective deletion is configured for email backup jobs.",
+        "command": null,
+        "file_path": "/etc/veeam/VeeamBackupConfiguration.xml OR C:\\ProgramData\\Veeam\\Backup\\VeeamBackupConfiguration.xml",
+        "navigation": null,
+        "expected_output": "Configuration shows a selective restore or purge feature enabled (e.g., Veeam Data Integration API, Commvault Content Indexing with GDPR Erasure workflow); absence of such configuration indicates 'none' or 'manual' only."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the backup management console (e.g., Commvault Command Center, Veeam Backup & Replication Console, Azure Backup Vault), navigate to Compliance or GDPR/Privacy features and check whether automated erasure workflows for email data are configured and active.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Commvault Command Center > Privacy > Data Erasure Requests; OR Veeam Console > Configuration > Backup Jobs > [Email Job] > Advanced Settings > Data Retention; OR Azure Backup > Backup Policies > [Policy] > Retention Rules",
+        "expected_output": "An active erasure workflow or policy is shown as enabled, linked to email backup jobs, with documented trigger (manual request vs. automated schedule) confirming 'manual' or 'automated' classification."
+      },
+      {
+        "type": "command",
+        "instruction": "If using Microsoft 365 Backup or Azure Backup for Exchange Online, query the backup vault policy configuration to determine whether item-level deletion or purge on erasure request is supported and enabled.",
+        "command": "Connect-AzAccount; Get-AzRecoveryServicesVault | ForEach-Object { Set-AzRecoveryServicesVaultContext -Vault $_; Get-AzRecoveryServicesBackupProtectionPolicy | Where-Object { $_.WorkloadType -eq 'AzureVM' -or $_.WorkloadType -eq 'Exchange' } | Select-Object Name, RetentionPolicy, SchedulePolicy }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy output shows retention limits and whether item-level purge or selective deletion is configured; absence of any PII-specific purge setting confirms 'none' or 'manual' status."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "manual",
+      "automated"
+    ]
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "name": "Network Segment",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "Network segmentation boundaries enforce trust zone separation through ingress/egress filtering and segment isolation. Key weaknesses include misconfigured ACLs, implicit trust between adjacent zones, credential reuse across segments, insufficient east-west traffic inspection, and monitoring blind spots at boundary crossing points. Effective enforcement requires strict policy enforcement at every zone boundary, not just the perimeter.",
+  "category": "Network Architecture",
+  "status": "reviewed"
+}

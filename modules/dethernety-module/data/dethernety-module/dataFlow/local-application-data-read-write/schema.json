@@ -1,0 +1,483 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "ipc_channel_type": {
+        "type": "string",
+        "enum": [
+          "unix_domain_socket",
+          "named_pipe",
+          "tcp_socket",
+          "shared_memory",
+          "none"
+        ],
+        "title": "IPC Channel Type",
+        "description": "The type of inter-process communication channel used between the application and filesystem proxy/daemon."
+      },
+      "ipc_channel_encryption_enabled": {
+        "type": "boolean",
+        "title": "IPC Channel Encryption Enabled",
+        "description": "Whether the IPC channel applies an application-layer encryption or integrity wrapper to data in transit between application and filesystem daemon.",
+        "default": false
+      },
+      "ipc_socket_permissions_restrictive": {
+        "type": "boolean",
+        "title": "IPC Socket/Pipe Permissions Restrictive",
+        "description": "Whether the UNIX socket or named pipe has filesystem permissions and ownership that restrict access to only the intended communicating processes (e.g., mode 0600 or 0660 owned by a dedicated service account).",
+        "default": false
+      },
+      "kernel_tracing_interfaces_accessible": {
+        "type": "boolean",
+        "title": "Kernel Tracing Interfaces Accessible to Co-resident Processes",
+        "description": "Whether kernel tracing or /proc-based introspection interfaces (e.g., ptrace, /proc/<pid>/mem, eBPF tracing, ftrace) are accessible to unprivileged or moderately privileged co-resident processes.",
+        "default": false
+      },
+      "integrity_verification_enabled": {
+        "type": "boolean",
+        "title": "Integrity Verification on Read Path",
+        "description": "Whether the application performs cryptographic integrity verification (e.g., HMAC, digital signature, or hash check) on data read from the filesystem before consuming it.",
+        "default": false
+      },
+      "filesystem_write_accessible_to_non_owner": {
+        "type": "boolean",
+        "title": "Filesystem Path Writable by Non-Owner Principals",
+        "description": "Whether the filesystem path(s) from which the application reads sensitive data are writable by principals other than the owning application account.",
+        "default": false
+      },
+      "read_path_on_shared_or_network_filesystem": {
+        "type": "boolean",
+        "title": "Read Path Located on Shared or Network Filesystem",
+        "description": "Whether the filesystem path(s) read by the application reside on a shared or network-mounted filesystem (e.g., NFS, SMB/CIFS, FUSE, shared tmpfs), increasing the attack surface for tampering.",
+        "default": false
+      },
+      "shm_owner_isolation_enforced": {
+        "type": "boolean",
+        "title": "Shared Memory Owner Isolation Enforced",
+        "description": "Whether access to the shared memory segment is restricted to the owning user/group only (permissions 0600 or 0660 at most, no world bits). True means isolation is enforced; false means broader access is permitted.",
+        "default": false
+      },
+      "shm_world_readable": {
+        "type": "boolean",
+        "title": "Shared Memory Segment World-Readable",
+        "description": "Whether the shared memory segment or mmap file is readable by any user on the system (world-readable bit set). True indicates any local process can attach and read data in transit.",
+        "default": false
+      },
+      "shm_segment_permissions": {
+        "type": "string",
+        "title": "Shared Memory Segment Permissions",
+        "description": "The octal permission mask applied to the shared memory segment or mmap-backed file (e.g., '0777', '0600'). Overly permissive modes allow unprivileged processes to attach and read in-flight data."
+      },
+      "pipe_directory_world_writable": {
+        "type": "boolean",
+        "title": "Pipe Directory World-Writable",
+        "description": "Indicates whether the directory containing the named pipe (FIFO) is world-writable or group-writable by untrusted users, enabling an attacker to delete and recreate the FIFO.",
+        "default": false
+      },
+      "pipe_creation_uses_exclusive_flag": {
+        "type": "boolean",
+        "title": "Named Pipe Created with Exclusive/Atomic Flag",
+        "description": "Indicates whether the application creates the named pipe using an atomic or exclusive creation mechanism that prevents TOCTOU substitution.",
+        "default": false
+      },
+      "pipe_ownership_verified_before_open": {
+        "type": "boolean",
+        "title": "Pipe Ownership and Type Verified Before Open",
+        "description": "Indicates whether the consumer/reader process verifies that the filesystem object at the pipe path is owned by the expected user, is of type FIFO, and has correct permissions before opening it.",
+        "default": false
+      },
+      "cache_side_channel_mitigation_enabled": {
+        "type": "boolean",
+        "title": "Page-Cache Side-Channel Mitigation Enabled",
+        "description": "Whether the application or OS deployment has countermeasures active against kernel page-cache timing side channels (e.g., O_DIRECT, cache-partitioning, or process isolation mechanisms).",
+        "default": false
+      },
+      "co_resident_untrusted_processes_permitted": {
+        "type": "boolean",
+        "title": "Co-Resident Untrusted Processes Permitted",
+        "description": "Whether untrusted or multi-tenant processes are permitted to run on the same physical or virtual host, sharing the kernel page cache with the target application.",
+        "default": true
+      },
+      "sensitive_file_access_pattern": {
+        "type": "string",
+        "enum": [
+          "none",
+          "non_sensitive",
+          "sensitive"
+        ],
+        "title": "Sensitive File Access Pattern",
+        "description": "Whether the application accesses sensitive files (e.g., secrets, key material, private data) through the kernel page cache in a timing-observable manner.",
+        "default": "none"
+      },
+      "uses_abstract_socket": {
+        "type": "boolean",
+        "title": "Uses Abstract Namespace Socket",
+        "description": "Indicates whether the application communicates over a Linux abstract namespace socket. Abstract sockets are not tied to the filesystem and are accessible to any process in the same network namespace.",
+        "default": false
+      },
+      "peer_credential_verification_enabled": {
+        "type": "boolean",
+        "title": "Peer Credential Verification Enabled",
+        "description": "Indicates whether the application calls SO_PEERCRED (or equivalent) on accepted connections and validates the peer's UID/GID/PID against an allowlist before processing requests.",
+        "default": false
+      },
+      "socket_namespace_isolation": {
+        "type": "string",
+        "enum": [
+          "host",
+          "shared_container_group",
+          "isolated"
+        ],
+        "title": "Network Namespace Isolation Level",
+        "description": "Describes whether the abstract socket is confined to an isolated network namespace or is exposed in the host/shared network namespace accessible to untrusted processes.",
+        "default": "host"
+      },
+      "filesystem_layer_type": {
+        "type": "string",
+        "enum": [
+          "none",
+          "fuse",
+          "nfs_loopback",
+          "overlayfs",
+          "caching_daemon",
+          "other_abstraction"
+        ],
+        "title": "Filesystem Abstraction Layer Type",
+        "description": "The type of filesystem abstraction or caching layer in use between the application and underlying storage."
+      },
+      "cache_freshness_validation_enabled": {
+        "type": "boolean",
+        "title": "Cache Freshness Validation Enabled",
+        "description": "Whether the filesystem abstraction layer enforces freshness tokens, ETags, sequence numbers, or equivalent mechanisms to prevent stale/replayed cache responses.",
+        "default": false
+      },
+      "fuse_handler_integrity_verified": {
+        "type": "boolean",
+        "title": "FUSE Handler Integrity Verified",
+        "description": "Indicates whether the FUSE daemon binary and its configuration are integrity-verified (e.g., via package manager signatures, IMA/EVM, or code-signing), ensuring the handler has not been tampered with.",
+        "default": false
+      },
+      "fuse_daemon_privilege_level": {
+        "type": "string",
+        "enum": [
+          "root",
+          "privileged_user",
+          "unprivileged_user"
+        ],
+        "title": "FUSE Daemon Privilege Level",
+        "description": "The privilege level under which the FUSE user-space daemon runs, indicating its ability to manipulate data in transit and the impact of a compromise."
+      },
+      "io_rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "I/O Rate Limiting Enabled",
+        "description": "Indicates whether the application or OS-level configuration enforces I/O rate limits or bandwidth throttling on filesystem data paths (e.g., cgroups blkio, ionice classes, application-level throttles).",
+        "default": false
+      },
+      "io_queue_depth_limit": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000,
+        "title": "I/O Queue Depth Limit",
+        "description": "The maximum number of outstanding I/O operations permitted for the process or device queue. A value of 0 indicates no limit is configured.",
+        "default": 0
+      },
+      "process_io_priority_class": {
+        "type": "string",
+        "enum": [
+          "none",
+          "idle",
+          "best_effort",
+          "realtime"
+        ],
+        "title": "Process I/O Priority Class",
+        "description": "The I/O scheduling priority class assigned to the process. 'none' means no priority class is set, allowing the process to compete at the default best-effort level without restriction.",
+        "default": "none"
+      },
+      "kernel_tracing_interfaces_enabled": {
+        "type": "boolean",
+        "title": "Kernel Tracing Interfaces Enabled",
+        "description": "Indicates whether kernel-level tracing interfaces (auditd, strace, eBPF/bpftrace, ftrace) are active and capturing filesystem-related syscalls on the host.",
+        "default": false
+      },
+      "tracing_access_control_enforced": {
+        "type": "boolean",
+        "title": "Tracing Interface Access Control Enforced",
+        "description": "Indicates whether access to kernel tracing outputs (audit log files, eBPF ring buffers, perf pipe outputs) is restricted to privileged users via filesystem permissions, MAC policies, or capability restrictions.",
+        "default": false
+      },
+      "audit_log_encryption_at_rest": {
+        "type": "boolean",
+        "title": "Audit Log Encryption at Rest",
+        "description": "Indicates whether the audit trail output files or ring buffer backing storage are encrypted at rest, preventing offline extraction of captured plaintext filesystem data.",
+        "default": false
+      }
+    },
+    "required": [
+      "ipc_channel_type",
+      "ipc_channel_encryption_enabled",
+      "ipc_socket_permissions_restrictive",
+      "kernel_tracing_interfaces_accessible",
+      "integrity_verification_enabled",
+      "filesystem_write_accessible_to_non_owner",
+      "read_path_on_shared_or_network_filesystem",
+      "shm_owner_isolation_enforced",
+      "shm_world_readable",
+      "shm_segment_permissions",
+      "pipe_directory_world_writable",
+      "pipe_creation_uses_exclusive_flag",
+      "pipe_ownership_verified_before_open",
+      "cache_side_channel_mitigation_enabled",
+      "co_resident_untrusted_processes_permitted",
+      "sensitive_file_access_pattern",
+      "uses_abstract_socket",
+      "peer_credential_verification_enabled",
+      "socket_namespace_isolation",
+      "filesystem_layer_type",
+      "cache_freshness_validation_enabled",
+      "fuse_handler_integrity_verified",
+      "fuse_daemon_privilege_level",
+      "io_rate_limiting_enabled",
+      "io_queue_depth_limit",
+      "process_io_priority_class",
+      "kernel_tracing_interfaces_enabled",
+      "tracing_access_control_enforced",
+      "audit_log_encryption_at_rest"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cache_freshness_validation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/fuse_handler_integrity_verified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/integrity_verification_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ipc_channel_encryption_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ipc_channel_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_encryption_at_rest"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/filesystem_write_accessible_to_non_owner"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/fuse_daemon_privilege_level"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ipc_socket_permissions_restrictive"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/peer_credential_verification_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pipe_creation_uses_exclusive_flag"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/pipe_directory_world_writable"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pipe_ownership_verified_before_open"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/shm_owner_isolation_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/shm_segment_permissions"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/shm_world_readable"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/uses_abstract_socket"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/filesystem_layer_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/read_path_on_shared_or_network_filesystem"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/socket_namespace_isolation"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/kernel_tracing_interfaces_accessible"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/kernel_tracing_interfaces_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tracing_access_control_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_file_access_pattern"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cache_side_channel_mitigation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/co_resident_untrusted_processes_permitted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/io_rate_limiting_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/io_queue_depth_limit"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/process_io_priority_class"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,992 @@
+[
+  {
+    "option_name": "classification_label_enforcement",
+    "option_description": "Controls whether the document management or collaboration platform (e.g., SharePoint, Google Drive, Microsoft 365 Purview) mandates that users apply a sensitivity classification label at document creation or upload time, versus making labeling optional or having no labeling system at all.",
+    "security_impact": "The Rego policy fires the 'missing_or_inconsistent_classification_labels' exposure whenever this value is 'none' or 'optional'. Without enforced labeling, downstream controls—including DLP policies, IRM encryption, retention schedules, and access scoping—cannot be reliably triggered because they depend on the classification label as the policy anchor. An 'optional' mode still exposes the organisation because employees may skip labeling under time pressure or through ignorance.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft 365 Purview compliance portal, navigate to Information Protection > Labels > Label policies. Open the active policy and inspect the 'Default label' and 'Require users to apply a label' settings on the policy settings page.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft 365 Purview portal (compliance.microsoft.com) > Information Protection > Label policies > [policy name] > Settings",
+        "expected_output": "Policy settings show 'Require users to apply a label to their emails and documents' toggled ON for enforced mode; OFF or absent indicates optional or none."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the Microsoft 365 Security & Compliance PowerShell module to retrieve the active label policy and check whether mandatory labeling is configured.",
+        "command": "Connect-IPPSSession; Get-LabelPolicy | Select-Object Name, Settings | Format-List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output includes 'RequireDowngradJustification', 'MandatoryLabel', or 'Mandatory' fields. 'Mandatory = True' indicates enforced; absence or False indicates optional or none."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Graph API for information protection policy settings to programmatically retrieve label enforcement configuration.",
+        "command": "curl -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/beta/informationProtection/policy/labels'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response listing label definitions; cross-reference with label policy endpoint to confirm mandatory application setting is enabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "For Google Workspace Drive, open the Admin Console and navigate to Apps > Google Workspace > Drive and Docs > Labels. Review whether labels are configured and whether label application is set to required for shared drives containing confidential content.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Admin Console (admin.google.com) > Apps > Google Workspace > Drive and Docs > Labels",
+        "expected_output": "Labels section shows classification labels are defined and set to required; if labels page is absent or labels show 'optional', enforcement is not in place."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "optional",
+      "enforced"
+    ]
+  },
+  {
+    "option_name": "documents_with_missing_labels_percent",
+    "option_description": "Represents the percentage of documents within the confidential document corpus that carry no classification label, as measured by a content audit or DLP scan across all document repositories including SharePoint, OneDrive, network file shares, and cloud storage buckets.",
+    "security_impact": "The Rego policy triggers the 'missing_or_inconsistent_classification_labels' exposure when this value exceeds 10%. Unlabeled documents are invisible to label-based DLP rules, IRM policies, automated retention schedules, and access controls. Even a small percentage above the 10% threshold indicates systemic label adoption failure and a measurable population of unprotected confidential content.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Run a Microsoft 365 Purview Content Explorer scan scoped to SharePoint, OneDrive, and Exchange. Filter by the confidential document corpus locations and use the 'Not labeled' filter to count documents without sensitivity labels. Calculate the percentage against total document count.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft 365 Purview portal > Data classification > Content explorer > Filter: Sensitivity label = None",
+        "expected_output": "Content Explorer displays a count of items with no label applied; divide by total items in scope and multiply by 100 to obtain the percentage."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the Purview compliance PowerShell cmdlet to export content search results for unlabeled items across SharePoint sites and OneDrive accounts.",
+        "command": "Connect-IPPSSession; New-ComplianceSearch -Name 'UnlabeledDocs' -ExchangeLocation All -SharePointLocation All -ContentMatchQuery 'SensitivityLabel:\"\"'; Start-ComplianceSearch -Identity 'UnlabeledDocs'; Get-ComplianceSearch -Identity 'UnlabeledDocs' | Select Items, Size",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Compliance search returns item count for documents with no sensitivity label applied; compare against total repository document count to derive percentage."
+      },
+      {
+        "type": "command",
+        "instruction": "For on-premises file shares or non-M365 repositories, run a PowerShell script using Get-ChildItem to enumerate files and check for classification metadata in file properties or Office document custom properties.",
+        "command": "Get-ChildItem -Path '\\\\fileserver\\confidential' -Recurse -Include '*.docx','*.xlsx','*.pdf' | ForEach-Object { $doc = $_; $props = (New-Object -ComObject Shell.Application).Namespace($doc.DirectoryName).ParseName($doc.Name); [PSCustomObject]@{File=$doc.Name; Label=$props.ExtendedProperty('SensitivityLabel')} } | Where-Object { -not $_.Label } | Measure-Object | Select-Object Count",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Count of files with no SensitivityLabel extended property; divide by total file count to compute the missing label percentage."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review DLP incident reports and audit logs in the compliance portal or SIEM to identify documents that triggered DLP rules due to absence of classification labels, providing a proxy measure of unlabeled document prevalence.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft 365 Purview portal > Data loss prevention > Reports > DLP policy matches; filter for 'No label' condition matches",
+        "expected_output": "DLP report shows frequency and volume of policy matches attributable to missing labels; high match rates indicate the unlabeled document percentage is significant."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "5",
+      "15",
+      "35",
+      "60"
+    ]
+  },
+  {
+    "option_name": "informal_labels_detected",
+    "option_description": "Indicates whether documents in scope have been found carrying ad-hoc or unofficial sensitivity markings—such as 'PRIV', 'Internal Only', 'Sensitive', or 'DO NOT SHARE'—that were applied manually and do not correspond to entries in the organisation's official classification taxonomy, making them unenforceable by DLP and IRM tooling.",
+    "security_impact": "The Rego policy fires 'missing_or_inconsistent_classification_labels' when this is true. Informal labels create a false sense of protection: employees believe a document is classified, but automated controls cannot act on unrecognized label strings. DLP rules, retention policies, and encryption triggers will not fire, meaning the document is treated as unclassified by all technical controls despite appearing labeled.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run a Microsoft 365 Purview content search using keyword queries targeting known informal label strings across SharePoint, OneDrive, and Exchange to identify documents bearing non-standard markings in metadata, subject lines, or document body headers and footers.",
+        "command": "Connect-IPPSSession; New-ComplianceSearch -Name 'InformalLabels' -SharePointLocation All -ExchangeLocation All -ContentMatchQuery '\"Internal Only\" OR \"Do Not Share\" OR \"PRIV\" OR \"Sensitive\" OR \"Confidential - Unofficial\"'; Start-ComplianceSearch -Identity 'InformalLabels'; Get-ComplianceSearch -Identity 'InformalLabels' | Select Items",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If Items count is greater than 0, informal labels are present; review matched documents to confirm markings are not part of the official taxonomy."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the Azure Information Protection unified labeling scanner or the AIP PowerShell module to scan repositories and return documents with custom properties or header/footer text not matching official label GUIDs.",
+        "command": "Get-AIPFileStatus -Path '\\\\fileserver\\confidential' | Where-Object { $_.LabelId -eq $null -and $_.SubLabelId -eq $null } | Select-Object FileName, MainLabelName, SubLabelName | Format-Table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Records where LabelId is null but the file contains text markings indicate informal labeling; cross-reference file content for informal strings."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft 365 Purview Content Explorer, filter documents by sensitivity label and look for items categorized under labels that do not appear in the official label policy. Any label names surfaced that are not in the published taxonomy indicate informal label usage.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft 365 Purview portal > Data classification > Content explorer > Sensitivity label filter; compare listed labels against official label policy entries",
+        "expected_output": "If label names appear in Content Explorer that are not defined in the active label policy (e.g., free-text custom labels), informal labels exist."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview document owners, records managers, and department administrators to determine whether employees have historically applied manual header/footer stamps or custom metadata fields as informal classification markers, and review any legacy document templates for embedded informal sensitivity text.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Interview responses or template review reveals use of informal markers predating the formal classification program; set attribute to true if any are confirmed."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "document_sensitivity_label",
+    "option_description": "Records the official sensitivity classification tier assigned to the document or document collection as determined by the organisation's data classification scheme—spanning from public through internal, confidential, restricted, to unclassified. This label is the primary policy anchor used by downstream controls including access enforcement, disposal procedures, and encryption requirements.",
+    "security_impact": "The Rego policy uses this attribute as the gating condition for both 'overly_broad_access_controls_on_confidential_documents' and 'inadequate_disposal_and_sanitization_procedures'. Access control and disposal rules only trigger for documents labeled 'confidential' or 'restricted'. If documents are mislabeled as 'internal' or remain 'unclassified', none of the higher-tier protections are applied, creating a protection gap for genuinely sensitive content.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the sensitivity label applied to a specific Office document using the AIP PowerShell module, which reads the label from the document's embedded metadata.",
+        "command": "Get-AIPFileStatus -Path 'C:\\path\\to\\document.docx' | Select-Object FileName, MainLabelName, SubLabelName, LabelId",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "MainLabelName returns the official label such as 'Confidential', 'Restricted', or 'Internal'; null or empty indicates unclassified."
+      },
+      {
+        "type": "command",
+        "instruction": "For PDF or non-Office documents, inspect extended file attributes or XMP metadata using the ExifTool utility to extract classification labels embedded in document properties.",
+        "command": "exiftool -SensitivityLabel -Subject -Keywords document.pdf",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows SensitivityLabel or equivalent metadata field; value should match an entry in the official classification taxonomy."
+      },
+      {
+        "type": "gui",
+        "instruction": "Open the document in Microsoft Word or Excel and check the sensitivity bar displayed at the top of the document window, or navigate to File > Info > Properties > Advanced Properties > Custom to view the label stored in document custom properties.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Word/Excel > File > Info > Protect Document > Current label shown in sensitivity bar, or File > Info > Properties > Advanced Properties > Custom tab",
+        "expected_output": "Sensitivity label bar displays the applied classification name (e.g., 'Confidential', 'Restricted'); absent or blank label indicates unclassified."
+      },
+      {
+        "type": "api",
+        "instruction": "Query SharePoint REST API or Microsoft Graph to retrieve the sensitivity label applied to a document stored in SharePoint Online.",
+        "command": "curl -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/sites/<site-id>/drives/<drive-id>/items/<item-id>?$select=sensitivityLabel,name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response includes 'sensitivityLabel' field with label name and ID; null or missing field indicates the document has no applied label."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "unclassified",
+      "internal",
+      "confidential",
+      "restricted"
+    ]
+  },
+  {
+    "option_name": "access_scope",
+    "option_description": "Describes the breadth of the permission grant on the document or document repository, categorized as individual (named user only), small_team (named group of fewer than ~10), department_or_role (a broad role-based group or department), or org_wide (all authenticated employees). This reflects the actual ACL or sharing settings applied at the document store, SharePoint site, DMS folder, or cloud storage object level.",
+    "security_impact": "The Rego policy triggers 'overly_broad_access_controls_on_confidential_documents' when document_sensitivity_label is 'confidential' or 'restricted' AND access_scope is 'department_or_role' or 'org_wide'. Excessively broad access dramatically increases the blast radius of any account compromise, insider threat event, or accidental disclosure by ensuring that a single lateral-movement step reaches the confidential document corpus.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use PnP PowerShell to retrieve the sharing permissions on a SharePoint Online document library or folder and identify whether access is granted to individuals, specific groups, or broad organizational groups.",
+        "command": "Connect-PnPOnline -Url 'https://tenant.sharepoint.com/sites/sitename' -Interactive; Get-PnPListItemPermission -List 'Documents' -Identity <item-id> | Select-Object Member, Roles",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Member field lists the principals with access; values showing 'Everyone', 'All Company', or large department groups indicate department_or_role or org_wide scope."
+      },
+      {
+        "type": "gui",
+        "instruction": "In SharePoint Online, navigate to the document library containing confidential files, select a document, click the ellipsis menu, choose Manage Access, and review the People with access panel to identify all groups and individuals listed.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SharePoint Online > Document Library > Select document > Ellipsis (...) > Manage access > People with access panel",
+        "expected_output": "Access panel shows named individuals (individual), a small named group (small_team), a department group (department_or_role), or 'Everyone in the organization' (org_wide)."
+      },
+      {
+        "type": "command",
+        "instruction": "For on-premises file shares, use icacls to enumerate ACL entries on the confidential document directory and identify the scope of access grants.",
+        "command": "icacls '\\\\fileserver\\confidential\\documents' /T 2>&1 | Select-String -Pattern 'BUILTIN|Domain Users|Everyone|Authenticated Users|<DeptGroup>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'Domain Users', 'Authenticated Users', or 'Everyone' indicates org_wide; department group names indicate department_or_role; specific named accounts indicate individual or small_team."
+      },
+      {
+        "type": "api",
+        "instruction": "Use Microsoft Graph API to list permissions on a SharePoint drive item and evaluate grantedToIdentities to determine access breadth.",
+        "command": "curl -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/sites/<site-id>/drives/<drive-id>/items/<item-id>/permissions'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response lists permissions with grantedToIdentities or grantedToIdentitiesV2 fields; link.scope = 'organization' indicates org_wide; specific user entries indicate individual or small_team scope."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "department_or_role",
+      "org_wide",
+      "small_team",
+      "individual"
+    ]
+  },
+  {
+    "option_name": "need_to_know_enforced",
+    "option_description": "Indicates whether the access control policy governing this document or collection requires a formally documented and justified business need before access is granted, rather than permitting access based solely on job title, department membership, default role group assignment, or catch-all security groups. True requires evidence of an approval workflow capturing the justification.",
+    "security_impact": "The Rego policy triggers 'overly_broad_access_controls_on_confidential_documents' when document_sensitivity_label is 'confidential' or 'restricted' AND need_to_know is not enforced. Without need-to-know controls, role-based access grants create standing entitlements to confidential material for the entire group regardless of whether individuals actually require the data, violating least-privilege principles and expanding the insider threat and compromise blast radius.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the access request and approval workflow documentation for the document repository. Confirm whether a formal ticket, justification field, and named approver are required before access is granted, and whether the justification is recorded and auditable. Interview the document owner or data custodian.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Workflow documentation shows mandatory justification field and manager or data owner approval step; absence of documented workflow or evidence that access is auto-provisioned via group membership indicates false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Entra ID (Azure AD), review the Access Package configuration for the document repository. Navigate to Identity Governance > Entitlement Management > Access Packages and check whether the package requires a business justification and approver at request time.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Microsoft Entra ID > Identity Governance > Entitlement Management > Access packages > [package name] > Requests > Approval settings",
+        "expected_output": "Approval settings show 'Require approver' = Yes and 'Require requestor justification' = Yes; if access is auto-approved or group-assigned without approval, need_to_know_enforced = false."
+      },
+      {
+        "type": "command",
+        "instruction": "Query Microsoft Entra ID access package policies via the Graph API to verify whether approval and justification requirements are configured for the document store access package.",
+        "command": "curl -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/accessPackages?$expand=assignmentPolicies' | python3 -m json.tool | grep -i 'isApprovalRequired\\|isRequestorJustificationRequired'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "isApprovalRequired: true and isRequestorJustificationRequired: true confirm need-to-know enforcement; false values indicate enforcement is absent."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Audit the access provisioning logs (Azure AD audit logs or ITSM ticketing system) for recent access grants to the confidential document repository. Verify that each grant has an associated justification record and approval event rather than being auto-provisioned via group sync.",
+        "command": "Connect-MgGraph -Scopes 'AuditLog.Read.All'; Get-MgAuditLogDirectoryAudit -Filter \"targetResources/any(t:t/displayName eq '<DocumentGroupName>') and activityDisplayName eq 'Add member to group'\" | Select-Object ActivityDateTime, InitiatedBy, TargetResources | Format-Table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit log entries show InitiatedBy as a human approver with a correlated ticket ID rather than an automated provisioning system, confirming need-to-know workflow is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "external_sharing_enabled",
+    "option_description": "Records whether the document or the repository containing it has external sharing enabled, allowing users outside the organisation's identity boundary—including guests, anonymous link holders, or federated external partners—to access the content via sharing links, guest accounts, or public URLs.",
+    "security_impact": "The Rego policy fires 'overly_broad_access_controls_on_confidential_documents' when document_sensitivity_label is 'confidential' or 'restricted' AND external_sharing_enabled is true. External sharing on confidential documents bypasses identity boundary controls entirely, exposing content to parties with no contractual, legal, or security accountability to the organisation. A single forwarded sharing link can result in uncontrolled data egress with no audit trail of secondary access.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the SharePoint admin center, navigate to Policies > Sharing and review the external sharing slider for SharePoint and OneDrive. Also check individual site collections by selecting the site under Active Sites > Sharing column to identify sites configured above the org-level default.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SharePoint Admin Center (admin.microsoft.com > SharePoint) > Policies > Sharing; also Active sites > select site > Sharing tab",
+        "expected_output": "Sharing setting showing 'Anyone', 'New and existing guests', or 'Existing guests' for the relevant site/library indicates external_sharing_enabled = true; 'Only people in your organization' indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "Use SharePoint PnP PowerShell to retrieve the external sharing configuration for a specific SharePoint site collection.",
+        "command": "Connect-PnPOnline -Url 'https://tenant.sharepoint.com/sites/confidentialsite' -Interactive; Get-PnPSite | Select-Object Url, SharingCapability, DefaultLinkPermission",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SharingCapability values of 'ExternalUserAndGuestSharing', 'ExternalUserSharingOnly', or 'ExistingExternalUserSharingOnly' indicate external_sharing_enabled = true; 'Disabled' indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the Microsoft Graph API to check the sharing settings on a specific SharePoint drive or OneDrive for Business library.",
+        "command": "curl -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/sites/<site-id>/drive/root/permissions' | python3 -m json.tool | grep -i 'scope\\|anonymous\\|external'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permissions with link.scope = 'anonymous' or grantedToIdentities containing external domain email addresses confirm external sharing is enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "For Google Drive, use the Google Workspace Admin SDK Directory API or Google Drive API to check the sharing settings on shared drives containing confidential documents and identify any files with link-based sharing set to 'Anyone with the link'.",
+        "command": "curl -H 'Authorization: Bearer <token>' 'https://www.googleapis.com/drive/v3/files/<fileId>/permissions?fields=permissions(id,type,role,emailAddress)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response includes a permission entry with type = 'anyone', confirming external/anonymous sharing is enabled; absence of 'anyone' type entries indicates false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "document_level_encryption_enforced",
+    "option_description": "Indicates whether document-level or rights-management encryption—such as Microsoft Information Rights Management (IRM), Azure Rights Management Service (RMS), DRM, or file-level encryption applied at classification time—is automatically applied to confidential documents independent of the storage platform's underlying at-rest encryption. This means the document itself is encrypted and access-controlled at the file level, not merely protected by storage-layer controls.",
+    "security_impact": "The Rego policy triggers 'encryption_not_enforced_at_rest_for_confidential_documents' when document_level_encryption_enforced is false. Storage-layer encryption (e.g., BitLocker, S3 SSE) only protects against physical media theft; it does not prevent authenticated users with storage access from reading documents in plaintext. Document-level encryption ensures that even administrators, backup restorers, or attackers with storage access cannot access content without being granted rights through the IRM/DRM policy, providing defense-in-depth independent of storage controls.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft 365 Purview, navigate to Information Protection > Labels and open each Confidential or Restricted label. Under the label settings, verify that the Encryption tab is configured to 'Apply encryption' with IRM settings defined, rather than 'None' or 'Remove encryption'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft 365 Purview portal (compliance.microsoft.com) > Information Protection > Labels > [Confidential/Restricted label] > Encryption tab",
+        "expected_output": "Encryption setting shows 'Apply encryption' with configured rights assignments (e.g., Co-Author, Co-Owner permissions for specific groups); 'None' indicates document-level encryption is not enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the Microsoft 365 Security & Compliance PowerShell module to inspect the encryption settings on sensitivity labels applied to the confidential document classification tier.",
+        "command": "Connect-IPPSSession; Get-Label | Where-Object {$_.DisplayName -match 'Confidential|Restricted'} | Select-Object DisplayName, EncryptionEnabled, EncryptionRightsDefinitions | Format-List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EncryptionEnabled = True confirms document-level encryption is configured for the label; False or null indicates encryption is not enforced at the document level."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect a sample confidential document file directly using the AIP PowerShell module to verify whether IRM/RMS encryption headers are embedded in the file.",
+        "command": "Get-AIPFileStatus -Path 'C:\\path\\to\\sample_confidential.docx' | Select-Object FileName, IsRMSProtected, MainLabelName, SubLabelName",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IsRMSProtected = True confirms document-level encryption is applied to the file; False indicates the document is stored in plaintext despite any storage-layer encryption."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the Azure Rights Management usage logs to confirm that protection operations are being applied to documents bearing confidential labels, indicating that IRM encryption is being triggered at creation or label-application time.",
+        "command": "Connect-AipService; Get-AipServiceUserLog -FromDate (Get-Date).AddDays(-30) | Where-Object { $_.Request -eq 'Protect' } | Group-Object -Property ContentName | Select-Object Count, Name | Sort-Object Count -Descending",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Protect operation entries confirm IRM encryption is being applied to documents; absence of Protect operations or low counts relative to document creation volume indicates encryption is not being enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "storage_encryption_tied_to_classification",
+    "option_description": "Controls whether the storage system applies encryption policies specifically scoped to a document's classification label, ensuring that confidential-tagged documents are automatically stored in encrypted buckets or volumes rather than relying on blanket storage-level encryption that may not differentiate by sensitivity.",
+    "security_impact": "Directly referenced in the Rego rule `encryption_not_enforced_at_rest_for_confidential_documents`. When `not input.storage_encryption_tied_to_classification` evaluates true, the exposure fires with a high criticality score of 8. Classification-agnostic encryption means confidential documents could land in unencrypted storage paths alongside lower-sensitivity data, negating the value of labeling entirely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS S3, inspect bucket policies and default encryption settings for buckets designated to hold confidential documents. Check whether SSE is conditioned on object tags.",
+        "command": "aws s3api get-bucket-encryption --bucket <confidential-docs-bucket> && aws s3api get-bucket-policy --bucket <confidential-docs-bucket> | jq '.Policy' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy output should include a Deny statement for s3:PutObject when the request lacks server-side encryption, scoped to objects with a tag key of 'classification' and value 'confidential'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Purview, navigate to Data Map > Collections > [Confidential Documents collection] > Scan rule sets, and verify that the scan rule set enforces encryption requirements linked to sensitivity labels marked Confidential.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview portal > Data Map > Collections > [target collection] > Scan rule sets > Sensitivity label enforcement",
+        "expected_output": "Sensitivity label 'Confidential' maps to an encryption protection action and is listed as enforced, not audit-only."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For on-premises storage using Azure Information Protection scanner or a SIEM-integrated classification engine, review the scanner configuration file for label-to-encryption-policy mappings.",
+        "command": "cat /etc/aip-scanner/scanner-config.json | jq '.labelPolicies[] | select(.label==\"Confidential\")'",
+        "file_path": "/etc/aip-scanner/scanner-config.json",
+        "navigation": null,
+        "expected_output": "The Confidential label entry should include an encryptionAction block with enforced: true and a reference to the corresponding protection template."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Information Protection API to verify that the Confidential sensitivity label has an associated encryption protection policy applied at the label level.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/security/informationProtection/sensitivityLabels' | jq '.value[] | select(.name==\"Confidential\") | .protectionSettings'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response contains a protectionSettings object with encryptContent set to true and a valid protectionLabelId."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "plaintext_confidential_documents_detected",
+    "option_description": "Records whether a DLP scan, CASB analysis, or storage audit has positively confirmed the presence of confidential documents stored in readable plaintext — meaning physical or logical storage access would yield unencrypted content without any access key requirement.",
+    "security_impact": "Evaluated in the Rego rule `encryption_not_enforced_at_rest_for_confidential_documents` as `input.plaintext_confidential_documents_detected == true`, which triggers the high-criticality exposure (score 8). A true value means confirmed, actionable evidence of unprotected confidential data at rest, representing immediate risk rather than a configuration gap alone.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run a Microsoft Purview or open-source DLP scan across file shares and cloud storage to identify confidential-labeled files lacking encryption. Use the Purview CLI or PowerShell module to extract findings.",
+        "command": "Get-DlpCompliancePolicy | Where-Object {$_.Mode -eq 'Enable'} | Get-DlpDetailReport -Action BlockAccess | Where-Object {$_.SensitiveInfoType -like '*Confidential*' -and $_.Encrypted -eq $false} | Select-Object -First 50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero results indicates no plaintext confidential documents detected. Any returned rows represent confirmed plaintext exposure incidents requiring remediation."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Defender for Cloud Apps (CASB), navigate to Investigations > Files, filter by Classification Label = Confidential, then add the Encryption filter set to Not Encrypted to surface unprotected files.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Defender for Cloud Apps > Investigations > Files > Filter: Classification Label = Confidential, Encryption Status = Not Encrypted",
+        "expected_output": "File count of zero confirms no plaintext confidential documents. A non-zero count with file names and storage paths confirms plaintext_confidential_documents_detected = true."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query SIEM (Splunk or Sentinel) for CASB or DLP alerts indicating confidential-classified content found without encryption. Correlate alert type with document metadata fields.",
+        "command": "index=casb sourcetype=defender_cloud_apps classification_label=Confidential encryption_status=plaintext | stats count by file_name, storage_path, detected_time | sort -detected_time",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty result set = false. Any rows with file_name and storage_path populated confirm the attribute should be set to true."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Microsoft Graph Security API to pull DLP alert data filtered by sensitive information type and encryption status for the confidential document class.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/security/alerts?$filter=category eq \"Data Loss Prevention\" and status eq \"newAlert\"' | jq '[.value[] | select(.description | test(\"Confidential\")) | select(.description | test(\"unencrypted|plaintext\"))]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty array [] indicates no active plaintext confidential document alerts. Non-empty array confirms detection."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "retention_policy_assigned",
+    "option_description": "Indicates whether a formally documented retention schedule has been assigned to the confidential internal documents data class, specifying a named start trigger, explicit minimum hold period, maximum retention ceiling, and disposal instructions — all mapped to the classification label in the organization's records management system.",
+    "security_impact": "The Rego rule `retention_schedule_non_compliance` fires immediately on `not input.retention_policy_assigned`, triggering a medium-criticality exposure (score 5). Without an assigned policy, all downstream controls — automated enforcement, audit trails, and scheduled disposal — have no schedule to reference, leaving confidential documents in indefinite limbo and creating regulatory and legal liability.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Purview Compliance portal, navigate to Data Lifecycle Management > Retention Policies, filter by scope or label for Confidential documents, and verify an active policy exists with defined retention duration and expiration action.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance portal > Solutions > Data Lifecycle Management > Retention Policies > filter for Confidential label scope",
+        "expected_output": "A retention policy entry for the Confidential documents class is listed with Status = Active, a defined retention period (e.g., 7 years), and an expiration action of Delete or Review."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the Security & Compliance PowerShell module to enumerate all retention policies and confirm one is scoped to the Confidential sensitivity label or the designated document repository.",
+        "command": "Connect-IPPSSession; Get-RetentionCompliancePolicy | Where-Object {$_.Enabled -eq $true} | Get-RetentionComplianceRule | Where-Object {$_.ContentMatchQuery -like '*Confidential*' -or $_.ApplyComplianceTag -like '*Confidential*'} | Select-Object Name, RetentionDuration, RetentionAction, ContentMatchQuery",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one rule returned with a non-null RetentionDuration and a RetentionAction of Delete or KeepAndDelete confirms retention_policy_assigned = true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's data retention schedule register (typically maintained by Legal, Compliance, or Records Management). Confirm a schedule entry exists for 'Confidential Internal Documents' with an assigned policy owner, start trigger, and disposal method.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A signed, dated schedule entry exists in the register with all required fields populated and a reference to the corresponding system enforcement configuration."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Purview REST API for compliance policies to programmatically verify a retention policy exists and is active for the confidential document class.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://compliance.microsoft.com/api/RetentionPolicy/ListPolicies' | jq '[.value[] | select(.isEnabled==true) | select(.name | test(\"[Cc]onfidential\"))] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A returned count greater than 0 confirms retention_policy_assigned = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "automated_retention_enforcement_enabled",
+    "option_description": "Indicates whether a DLP engine, records management platform, or storage policy system actively enforces the assigned retention schedule by blocking premature deletion before the minimum hold period expires and automatically triggering disposal or review actions when the maximum retention window closes — operating in enforced mode, not audit-only.",
+    "security_impact": "In the Rego policy, `retention_schedule_non_compliance` fires when `input.retention_policy_assigned == true` but `not input.automated_retention_enforcement_enabled`. A retention policy without automated enforcement is entirely dependent on manual compliance, which is routinely inconsistent. Documents may be deleted prematurely (destroying evidence) or retained indefinitely (accumulating regulatory exposure).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify Microsoft Purview retention policies are in Enforce mode (not simulation or test mode) for the confidential documents class using PowerShell.",
+        "command": "Connect-IPPSSession; Get-RetentionCompliancePolicy | Where-Object {$_.Name -like '*Confidential*'} | Select-Object Name, Mode, Enabled, @{N='EnforcementMode';E={if($_.Mode -eq 'Enforce'){'Enforced'}else{'Audit/Simulation'}}}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EnforcementMode column shows 'Enforced' and Enabled is True for the confidential document retention policy."
+      },
+      {
+        "type": "gui",
+        "instruction": "In SharePoint Online or OneDrive admin center, navigate to the document library containing confidential documents, open Library Settings > Information Management Policy, and confirm retention policies are set to enforce deletion or legal hold — not configured as advisory only.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SharePoint Admin Center > Active Sites > [Confidential Docs site] > Site Contents > [Library] > Library Settings > Information Management Policy Settings",
+        "expected_output": "Policy is listed as Enabled with automatic actions (Delete or Move to RecycleBin) configured at the defined retention period expiry."
+      },
+      {
+        "type": "gui",
+        "instruction": "In OpenText Content Server or Documentum (on-premises records management), navigate to the Records Management module, open the Confidential document classification entry, and verify that the retention schedule has automated hold and dispose actions configured and activated.",
+        "command": null,
+        "file_path": null,
+        "navigation": "OpenText Content Server > Records Management > Retention Schedules > Confidential Internal Documents > Schedule Actions > Verify Activated status",
+        "expected_output": "Schedule shows status Active with system-enforced hold actions and an automated disposition trigger."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Microsoft Graph API to check the current mode of retention policies applied to confidential document locations and confirm enforcement is active.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/compliance/ediscovery/cases' ; curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/beta/compliance/retentionLabels?$filter=contains(displayName,\"Confidential\")' | jq '.value[] | {name: .displayName, behaviorDuringRetentionPeriod, actionAfterRetentionPeriod, isInUse}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "isInUse is true and actionAfterRetentionPeriod is delete or startDispositionReview confirming automated enforcement."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "disposal_audit_trail_available",
+    "option_description": "Controls whether the records management or storage system generates a complete, tamper-evident audit log for every document deletion or disposal event affecting confidential documents, capturing the actor identity, timestamp, document identifier, classification label, and the disposal method used — sufficient for regulatory demonstration and forensic reconstruction.",
+    "security_impact": "Referenced in the Rego rule `retention_schedule_non_compliance`: even when both `retention_policy_assigned` and `automated_retention_enforcement_enabled` are true, the exposure still fires if `not input.disposal_audit_trail_available`. Without disposal logs, organizations cannot demonstrate compliant destruction of confidential documents to regulators or courts, and cannot detect unauthorized premature deletion by insiders.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM for document deletion events sourced from the confidential document repository, confirming log fields include actor UPN, timestamp, document ID, and deletion method.",
+        "command": "index=compliance sourcetype=purview_audit Operation=FileDeleted OR Operation=FileRecycled SensitivityLabel=Confidential | table _time, UserId, ObjectId, Operation, SiteUrl, FileName | head 100",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Results contain rows with all four required fields (UserId, _time, ObjectId/FileName, Operation) for each deletion event. Absence of results or missing fields indicates disposal_audit_trail_available = false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Microsoft Purview Audit portal, run a custom audit search for the activities 'Deleted file' and 'Permanently deleted file' scoped to confidential document sites or libraries over the last 90 days, and confirm the log includes user, date, file name, and site.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance portal > Audit > New Search > Activities: Deleted file, Permanently deleted file > Site: [Confidential Docs URL] > Run Search > Export results",
+        "expected_output": "Exported CSV contains columns UserId, CreationTime, FileName, SiteUrl, Operation for each deletion event. All required fields populated confirms disposal_audit_trail_available = true."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the Exchange Online / Unified Audit Log PowerShell cmdlet to retrieve deletion audit records for the confidential documents SharePoint site and verify completeness of log fields.",
+        "command": "Connect-IPPSSession; Search-UnifiedAuditLog -StartDate (Get-Date).AddDays(-30) -EndDate (Get-Date) -RecordType SharePointFileOperation -Operations FileDeleted,FileDeletedFirstStageRecycleBin,FileDeletedSecondStageRecycleBin -SiteIds 'https://<tenant>.sharepoint.com/sites/ConfidentialDocs' | Select-Object CreationDate, UserIds, Operations, @{N='File';E={($_.AuditData | ConvertFrom-Json).ObjectId}} | Format-Table -AutoSize",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each row contains CreationDate, UserIds (non-empty), Operations, and a resolved file path. Empty output or missing UserIds indicates an audit trail gap."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft 365 Management Activity API for SharePoint deletion events scoped to confidential document repositories to verify the audit trail is being populated in real time.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://manage.office.com/api/v1.0/<tenantId>/activity/feed/subscriptions/content?contentType=Audit.SharePoint&startTime=<ISO8601>&endTime=<ISO8601>' | jq '[.[] | select(.Operation | test(\"Delete\")) | select(.SensitivityLabel==\"Confidential\")] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-zero count of deletion events with SensitivityLabel = Confidential confirms the audit trail is actively capturing disposal events."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "last_retention_audit_days_ago",
+    "option_description": "Records the number of calendar days elapsed since the most recent formal, documented audit or compliance review verified that confidential documents across all storage locations are adhering to their defined retention schedules — including checking for over-retained documents, prematurely deleted records, and disposal audit trail completeness.",
+    "security_impact": "The Rego policy fires `retention_schedule_non_compliance` when all three preceding controls are true but `input.last_retention_audit_days_ago > 365`, meaning audits older than one year are treated as equivalent to no audit. Stale audits fail to detect drift — new storage repositories accumulate outside policy scope, automated enforcement misconfigures silently, and over-retained confidential documents continue creating regulatory exposure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's compliance audit calendar or records management audit log maintained by the Records Management, Legal, or Internal Audit team. Locate the most recent closed audit report for 'Confidential Document Retention Compliance' and calculate days since its completion date.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A signed, dated audit report or tracker entry with a completion date within the last 365 days. Calculate: today's date minus completion date = last_retention_audit_days_ago."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the GRC platform (e.g., ServiceNow GRC, Archer, or Vanta), navigate to the Compliance module, filter audits by control domain 'Records Retention' and data class 'Confidential Documents', and view the most recently completed audit's closure date.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GRC Platform > Compliance > Audits > Filter: Control Domain = Records Retention, Data Class = Confidential Documents > Sort by Completion Date Descending > View most recent entry",
+        "expected_output": "Most recent audit completion date is displayed. Days elapsed should be calculated relative to the current date."
+      },
+      {
+        "type": "command",
+        "instruction": "If audit records are tracked in a compliance database, query for the most recent retention audit completion date for the confidential document class and compute elapsed days.",
+        "command": "psql -h <db-host> -U compliance_reader -d compliance_db -c \"SELECT audit_name, completed_date, CURRENT_DATE - completed_date AS days_ago FROM retention_audits WHERE data_class = 'confidential_documents' AND status = 'closed' ORDER BY completed_date DESC LIMIT 1;\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A single row with audit_name, completed_date, and days_ago. The days_ago value is the last_retention_audit_days_ago input. Value > 365 will trigger the Rego exposure rule."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search SIEM or document management audit logs for audit completion events tagged to the retention compliance control for confidential documents, and calculate days since the most recent event.",
+        "command": "index=grc sourcetype=audit_events event_type=audit_closed control_domain=records_retention data_class=confidential_documents | stats max(_time) as last_audit_time | eval days_ago=round((now()-last_audit_time)/86400,0) | table days_ago",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A single days_ago value. Values above 365 confirm the exposure will fire; values of 0–365 confirm a current audit posture."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30",
+      "90",
+      "180",
+      "365",
+      "548",
+      "730"
+    ]
+  },
+  {
+    "option_name": "deletion_method",
+    "option_description": "Specifies the technical method applied when confidential documents are deleted, distinguishing between disposal approaches that make data unrecoverable (secure_overwrite, cryptographic_erasure) versus those that leave data recoverable by an attacker or forensic tool (soft_delete, logical_delete) or organizations with no defined process at all.",
+    "security_impact": "The Rego rule `inadequate_disposal_and_sanitization_procedures` fires when `input.deletion_method in [\"soft_delete\", \"logical_delete\", \"no_defined_process\"]`, triggering a medium-criticality exposure (score 5). Soft or logical deletion marks data as deleted in the file system or database index while leaving blocks intact, making recovery trivial with standard tools. For confidential documents, this violates data minimization requirements and creates residual exposure after the retention period expires.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's data disposal policy and the system-specific deletion procedures documented for each confidential document repository (cloud storage, file shares, DMS). Confirm whether the documented procedure specifies secure overwrite passes, cryptographic key destruction, or only file-system-level deletion.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy documentation explicitly states one of: secure overwrite (e.g., DoD 5220.22-M, Gutmann), cryptographic erasure (key deletion for encrypted volumes), or reveals that only standard OS-level delete is performed."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Purview Data Lifecycle Management, open the retention label applied to confidential documents and inspect the disposition action configured at label expiry. Verify whether it triggers secure deletion or only moves content to the recycle bin.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance portal > Data Lifecycle Management > Retention Labels > [Confidential Label] > Edit > Define retention settings > At end of retention period: review action type",
+        "expected_output": "Action is 'Permanently delete items automatically' (cryptographic erasure for SharePoint) or 'Start a disposition review' (manual). 'Move to recycle bin' or no expiry action indicates soft_delete or logical_delete."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS S3 storage of confidential documents using SSE-KMS, verify whether object deletion includes key deletion (cryptographic_erasure) or only removes the object reference. Check S3 versioning and object lifecycle policies.",
+        "command": "aws s3api get-bucket-versioning --bucket <confidential-docs-bucket> && aws s3api get-bucket-lifecycle-configuration --bucket <confidential-docs-bucket> | jq '.Rules[] | {ID, Status, Expiration, NoncurrentVersionExpiration}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Versioning Enabled with lifecycle rules that include NoncurrentVersionExpiration confirms permanent removal after version expiry. No lifecycle rules with versioning enabled indicates only logical_delete occurs."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the storage system or DMS configuration file for deletion method settings. For on-premises systems, check the document management platform's disposal configuration.",
+        "command": "grep -iE 'deletion_method|disposal_method|secure_delete|wipe_passes|overwrite' /etc/dms/disposal-config.yaml",
+        "file_path": "/etc/dms/disposal-config.yaml",
+        "navigation": null,
+        "expected_output": "A parameter such as deletion_method: secure_overwrite with wipe_passes: 3 or deletion_method: cryptographic_erasure confirms compliant disposal. Absence of the parameter or deletion_method: logical confirms inadequate disposal."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "soft_delete",
+      "logical_delete",
+      "cryptographic_erasure",
+      "secure_overwrite",
+      "no_defined_process"
+    ]
+  },
+  {
+    "option_name": "retained_in_backup_after_deletion",
+    "option_description": "Indicates whether confidential documents persist in backup sets or archive storage after they have been logically deleted from the primary document store, effectively extending the data lifecycle beyond the authorized retention window and creating a secondary exposure surface that is typically less controlled and monitored than primary storage.",
+    "security_impact": "Evaluated in the Rego rule `inadequate_disposal_and_sanitization_procedures` as `input.retained_in_backup_after_deletion == true`, triggering the medium-criticality exposure (score 5). Backups are frequently stored in locations with weaker access controls, less frequent encryption key rotation, and no DLP coverage. Confidential documents surviving in backups after logical deletion evade retention enforcement and remain recoverable by backup administrators, subpoenas, or attackers who compromise backup infrastructure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review backup and archival policies for the systems storing confidential documents. Confirm whether backup retention schedules are aligned with the document retention schedule, including whether deleted documents are purged from backup sets at or before the retention window expiry.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Backup policy documentation explicitly states backup sets are purged or overwritten within the retention window, and deleted confidential documents are not restorable after their disposition date. Absence of this language confirms retained_in_backup_after_deletion = true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Veeam Backup & Replication or Commvault Command Center, navigate to the backup job configured for the confidential documents repository and review the retention settings to determine whether backup cycles outlast the document retention schedule and whether deleted objects are excluded from restore points.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Veeam Backup & Replication Console > Backup Jobs > [Confidential Docs Backup Job] > Edit > Storage > Advanced > Retention Policy > Compare backup retention period to document retention period",
+        "expected_output": "Backup retention period is equal to or shorter than the document retention period, and deleted item restore is disabled or restricted. Backup retention longer than document retention confirms retained_in_backup_after_deletion = true."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS environments, check whether S3 backup buckets or Glacier archives holding confidential documents have lifecycle policies that expire objects aligned with the retention schedule, and whether deleted primary objects have corresponding delete markers propagated to backups.",
+        "command": "aws s3api list-object-versions --bucket <confidential-docs-backup-bucket> --prefix confidential/ --query 'Versions[?LastModified<=`<retention-expiry-date>`].[Key,LastModified,VersionId]' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No object versions returned for documents past their retention expiry date confirms proper purging. Objects returned with LastModified prior to the retention expiry confirm retained_in_backup_after_deletion = true."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query backup system logs or SIEM for restore test events on confidential documents that had been logically deleted from primary storage. Successful restores of deleted confidential documents confirm they persist in backup.",
+        "command": "index=backup sourcetype=veeam_logs OR sourcetype=commvault_logs EventType=RestoreCompleted FileName=*confidential* | join FileName [search index=dlp sourcetype=purview_audit Operation=FileDeleted SensitivityLabel=Confidential] | table _time, FileName, RestoreSource, BackupDate | head 50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Matching rows where a file appears in both deletion events and successful restore events confirm confidential documents are retained in backup after logical deletion."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "physical_destruction_verified",
+    "option_description": "Controls whether printed or physical copies of confidential Employee Work Files are destroyed using an approved method (cross-cut shredding, incineration, or certified vendor destruction) and whether that destruction is documented with verifiable records such as shredder logs, destruction certificates, or vendor attestations.",
+    "security_impact": "The Rego policy triggers the 'inadequate_disposal_and_sanitization_procedures' exposure when input.physical_destruction_verified is false or missing. This reflects the risk that unverified physical destruction leaves recoverable confidential content outside active lifecycle controls. Without documented destruction, printed copies of confidential internal documents may be retrieved from waste streams, recycling bins, or vendor facilities, bypassing all digital DLP and access controls entirely.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the facilities manager or records management officer to determine whether a formal physical destruction policy exists, which vendors or in-house equipment are approved, and whether destruction events are logged. Request copies of the most recent shredder logs or vendor destruction certificates.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented destruction procedure referencing approved shredding standards (e.g., DIN 66399 security level P-4 or higher for cross-cut), with signed logs or certificates dated within the last 90 days."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Locate the physical destruction logbook or records management system (e.g., SharePoint records library, Iron Mountain portal, or equivalent) and review entries for completeness: date, volume or document identifiers, destruction method, and authorizing signature or witness.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Iron Mountain Portal → Account → Destruction History → Export CSV; or SharePoint Records Center → Destruction Logs → Last 12 Months",
+        "expected_output": "Log entries covering all confidential document disposal events, each with method, date, quantity, and attestation signature. Gaps or absent entries indicate physical_destruction_verified = false."
+      },
+      {
+        "type": "gui",
+        "instruction": "If using a managed print/document services vendor (e.g., Ricoh, Xerox, Shred-it), log into the vendor's client portal and download destruction manifests or certificates of destruction for the reporting period.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Shred-it Client Portal → My Account → Certificates of Destruction → Date Range Filter → Download PDF",
+        "expected_output": "Certificate of Destruction PDF listing service date, location, container count, and compliance standard (e.g., NAID AAA Certified), confirming physical_destruction_verified = true."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check whether the organization's Information Security Policy or Records Retention Schedule document explicitly defines physical destruction requirements and approval criteria. Absence of a documented standard itself indicates physical_destruction_verified cannot be confirmed as true.",
+        "command": null,
+        "file_path": "/policies/records-retention-schedule.pdf or SharePoint:/sites/compliance/Shared Documents/Physical Destruction Policy.docx",
+        "navigation": null,
+        "expected_output": "Policy document references an approved destruction standard, designates responsible roles, and mandates documentation. If no such policy exists, set physical_destruction_verified = false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null (not assessed)"
+    ]
+  },
+  {
+    "option_name": "destination_jurisdiction_validated",
+    "option_description": "Controls whether a technical or procedural mechanism validates that the target country or cloud storage region meets data protection adequacy requirements before any transfer of confidential Employee Work Files is permitted. Encompasses DLP policy enforcement, automated geo-blocking, and workflow approval gates tied to jurisdiction checks.",
+    "security_impact": "The Rego policy fires the 'unauthorized_cross_border_transfer_of_confidential_documents' exposure when document_contains_regulated_data is true and input.destination_jurisdiction_validated is false or missing. The default value is false, meaning any deployment that has not explicitly configured jurisdiction validation is treated as non-compliant. Without this control, regulated data in Employee Work Files can flow to jurisdictions lacking GDPR adequacy decisions or equivalent safeguards, creating direct regulatory liability under GDPR Chapter V and analogous data localization laws.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Purview Compliance Portal, review Data Loss Prevention policies scoped to the Employee Work Files sensitivity label. Check whether any policy rule includes a condition for recipient geography or cloud storage region and whether the action is Block or Restrict rather than Audit-only.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview → Data Loss Prevention → Policies → [Policy Name] → Edit Policy → Conditions → Check for 'Recipient domain is' or 'Content is shared with people outside the organization in specific countries'",
+        "expected_output": "An active DLP policy rule with a geographic condition set to Block or Require Override with business justification. If only Audit mode is configured, destination_jurisdiction_validated = false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Graph API to retrieve DLP policy configurations and confirm whether jurisdiction-based conditions are present and enforced in Block mode.",
+        "command": "curl -s -H 'Authorization: Bearer <ACCESS_TOKEN>' 'https://graph.microsoft.com/v1.0/security/informationProtection/policy/labels' | jq '.value[] | {name, isActive, conditions}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response showing label policies with geographic restriction conditions. An empty conditions array or absence of geography-based rules indicates destination_jurisdiction_validated = false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review cloud storage provider (AWS S3, Azure Blob, GCP GCS) bucket/container policies and Service Control Policies or Organization Policies for data residency constraints. Check for explicit region restrictions that prevent data placement in non-adequate jurisdictions.",
+        "command": "aws s3api get-bucket-policy --bucket <confidential-docs-bucket> | jq '.Policy | fromjson | .Statement[] | select(.Condition.StringNotEquals[\"aws:RequestedRegion\"])'",
+        "file_path": "~/.aws/config or terraform/modules/storage/main.tf (IaC-defined policies)",
+        "navigation": null,
+        "expected_output": "A bucket policy condition denying PutObject requests from non-approved AWS regions. Absence of such a condition means destination_jurisdiction_validated = false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the data transfer or privacy team to determine whether a transfer impact assessment (TIA) or Transfer Risk Assessment process exists that requires jurisdiction validation before any confidential document is sent cross-border. Request evidence of the last completed assessment.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented TIA or Data Transfer Agreement checklist that includes a jurisdiction adequacy check step. If no such process exists or is bypassed in practice, destination_jurisdiction_validated = false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default — most orgs lack automated jurisdiction gating)",
+      "true (orgs with mature DLP or cloud-native data residency controls)"
+    ]
+  },
+  {
+    "option_name": "transfer_destination_adequacy_status",
+    "option_description": "Captures the data protection adequacy classification of the specific destination country or cloud region where a confidential Employee Work File is being transferred or stored. Values reflect whether the destination has a formal EU Commission adequacy decision, relies on approved safeguards such as Standard Contractual Clauses or Binding Corporate Rules, is known to be inadequate, or is unclassified.",
+    "security_impact": "The Rego policy triggers 'unauthorized_cross_border_transfer_of_confidential_documents' when document_contains_regulated_data is true and transfer_destination_adequacy_status is 'inadequate' or 'unknown'. The default value is 'unknown', meaning all unassessed transfers are treated as potentially non-compliant. Transfers to inadequate or unknown jurisdictions expose the organization to GDPR Chapter V violations, fines up to 4% of global annual turnover, and potential data subject harm. Distinguishing 'safeguarded' (SCCs/BCRs in place) from 'adequate' enables proportional control enforcement.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Cross-reference the destination country or cloud region against the European Commission's official adequacy decisions list. For cloud providers, map the storage region (e.g., AWS eu-west-1, us-east-1) to the corresponding country and then check adequacy status.",
+        "command": null,
+        "file_path": null,
+        "navigation": "European Commission → Justice & Consumers → Data Protection → International Dimension → Adequacy Decisions (https://commission.europa.eu/law/law-topic/data-protection/international-dimension-data-protection/adequacy-decisions_en)",
+        "expected_output": "Destination country appears on the adequacy list → 'adequate'. Country not on list but SCCs are executed → 'safeguarded'. Country not on list and no SCCs → 'inadequate'. Status unknown or not assessed → 'unknown'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the cloud provider API to identify the storage region of the target bucket or container, then map that region to a jurisdiction for adequacy assessment.",
+        "command": "aws s3api get-bucket-location --bucket <target-bucket-name> --query 'LocationConstraint' --output text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Region code such as 'eu-west-1' (Ireland, adequate) or 'us-east-1' (United States — evaluate against EU-US Data Privacy Framework adequacy decision) or 'ap-southeast-1' (Singapore — check bilateral agreements). Map result to enum value."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review email gateway or DLP transfer logs to identify the recipient domain's registered country or the cloud service endpoint's geolocation, then assess adequacy status based on current regulatory guidance.",
+        "command": "grep -i 'confidential' /var/log/dlp/transfer_audit.log | awk '{print $5, $8}' | sort | uniq -c | sort -rn",
+        "file_path": "/var/log/dlp/transfer_audit.log or SIEM query against DLP data transfer events",
+        "navigation": null,
+        "expected_output": "List of destination domains/IPs with transfer counts. Resolve IPs to country using geoip lookup, then classify each country against adequacy list."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the organization's Data Transfer Register or Records of Processing Activities (RoPA) from the DPO. This register should document each cross-border transfer, the destination country, the legal basis, and whether SCCs or other safeguards are in place.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A transfer register entry for each confidential document transfer showing destination country and legal transfer mechanism. Entries without a documented legal basis should be classified as 'inadequate' or 'unknown'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "unknown (default — most orgs lack systematic tracking)",
+      "adequate (EU/EEA destinations, UK post-adequacy, select others)",
+      "safeguarded (US with EU-US DPF, India with SCCs)",
+      "inadequate (transfers without legal basis)"
+    ]
+  },
+  {
+    "option_name": "document_contains_regulated_data",
+    "option_description": "Indicates whether a specific Employee Work File has been classified as containing personal data subject to GDPR, trade secrets, PII, PHI, financial data (PCI-DSS scope), or other regulated or sensitive information categories. This classification determines whether transfer controls, masking requirements, and heightened access restrictions must be applied to that document.",
+    "security_impact": "This attribute is a prerequisite condition in both the 'unauthorized_cross_border_transfer_of_confidential_documents' and 'absence_of_anonymization_or_masking_in_shared_document_copies' Rego rules. When true, both downstream exposure checks are activated: jurisdiction validation and masking enforcement are evaluated only for documents carrying regulated data. The default of false means documents not yet scanned or labeled are treated as non-regulated, which can create a false sense of compliance if classification scanning is incomplete. Accurate detection of regulated content is therefore foundational to the entire data governance control chain.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Purview (formerly MIP), review the document's applied sensitivity label and any auto-classification results. Documents labeled 'Confidential', 'Highly Confidential', or tagged with PII/PHI/Financial trainable classifiers indicate document_contains_regulated_data = true.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview → Content Explorer → Filter by Sensitive Information Types (e.g., 'U.S. Social Security Number', 'Credit Card Number', 'EU Personal Identification Number') → Export Results",
+        "expected_output": "Content Explorer shows document matches for one or more sensitive information types, confirming document_contains_regulated_data = true. Zero matches with adequate classifier coverage indicates false."
+      },
+      {
+        "type": "api",
+        "instruction": "Use Microsoft Purview or an equivalent DLP platform API to retrieve classification scan results for a specific document by its storage path or document ID.",
+        "command": "curl -s -H 'Authorization: Bearer <ACCESS_TOKEN>' 'https://graph.microsoft.com/v1.0/sites/<site-id>/drive/items/<item-id>/extractSensitivityLabels' | jq '.labels'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response listing applied sensitivity labels and detected sensitive information types. Presence of any regulated SIT confirms document_contains_regulated_data = true."
+      },
+      {
+        "type": "command",
+        "instruction": "Run a local DLP scanning tool or use the Azure Information Protection (AIP) client scanner to scan a file share or SharePoint library for regulated content patterns and retrieve a classification report.",
+        "command": "Start-AIPScan -Profile 'ConfidentialDocsScan' -Reset; Get-AIPScannerStatus | Select-Object -ExpandProperty ScanStatus; Export-AIPLogs -FileName 'C:\\AIPScanResults\\scan_report.csv'",
+        "file_path": "C:\\AIPScanResults\\scan_report.csv",
+        "navigation": null,
+        "expected_output": "CSV report listing files, detected sensitive information types, and recommended labels. Files with detected SITs (PII, financial, health data) should be set to document_contains_regulated_data = true."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM or DLP console for classification events associated with the Employee Work Files data store. Look for auto-classification engine results, manual override events, and any DLP policy match alerts that indicate regulated content was detected.",
+        "command": "index=dlp sourcetype=purview_audit Operation=SensitivityLabelApplied OR Operation=SensitivityLabelAutoApplied | table _time, UserId, FileName, LabelName, SensitiveInfoType | sort -_time",
+        "file_path": null,
+        "navigation": "Splunk/SIEM → DLP Dashboard → Classification Events → Filter: Employee Work Files data source → Export",
+        "expected_output": "Audit events showing sensitivity label application with associated sensitive information type detections. High volume of auto-applied regulated labels confirms widespread document_contains_regulated_data = true across the data class."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common in HR, Legal, Finance document stores)",
+      "false (operational documents without PII/PHI/financial data)",
+      "false (default — unscanned documents inherit false, creating classification gap)"
+    ]
+  },
+  {
+    "option_name": "masking_controls_enforced",
+    "option_description": "Controls whether the document sharing workflow automatically or through policy-driven enforcement applies masking, redaction, or anonymization to sensitive fields before a confidential Employee Work File is shared with lower-trust recipients or external parties. Encompasses tooling such as Adobe Acrobat redaction, Microsoft Purview sensitivity label-based protection, or custom DLP workflow redaction integrations.",
+    "security_impact": "The Rego policy triggers 'absence_of_anonymization_or_masking_in_shared_document_copies' when document_contains_regulated_data is true, sharing_trust_level is 'external' or 'internal_low_trust', and masking_controls_enforced is false or missing. The default of false means the exposure fires for any regulated document shared with non-high-trust recipients unless masking is explicitly configured. This reflects the real-world risk that full-fidelity confidential documents containing PII, financial data, or trade secrets are routinely shared in collaboration workflows where a redacted version would suffice, unnecessarily expanding exposure surface.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Purview DLP, review sharing policies for the Confidential sensitivity label. Verify whether any policy rule applies Rights Management encryption or enforces redaction via Power Automate flow when documents are shared outside the organization or with guest users.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview → Data Loss Prevention → Policies → [Sharing Policy] → Edit → Actions → Check for 'Encrypt content', 'Restrict access', or 'Apply Rights Management protection' on external share events",
+        "expected_output": "Policy action set to encrypt or restrict copy/print rights for external sharing events. If the only action is 'Audit' or 'Notify', masking_controls_enforced = false."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Microsoft Purview Compliance API to enumerate DLP policy rules and check whether masking or rights-management actions are bound to sharing conditions for confidential documents.",
+        "command": "curl -s -H 'Authorization: Bearer <ACCESS_TOKEN>' 'https://graph.microsoft.com/v1.0/security/informationProtection/policy/labels' | jq '.value[] | select(.name | test(\"Confidential\")) | {name, labelActions}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "labelActions array includes entries with actionType 'protectByTemplate' or 'protectDoNotForward', indicating active masking/rights-management enforcement. An empty or audit-only action list means masking_controls_enforced = false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview document owners and collaboration tool administrators to determine whether redaction is a documented, enforced step in the document sharing workflow or only a recommended best practice. Request evidence of any automated redaction pipeline (e.g., Power Automate flow, Panopto redaction for video, Adobe Acrobat batch redaction script).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented workflow with a mandatory redaction gate before external sharing, with evidence of enforcement (e.g., Power Automate flow approval log, SharePoint sharing policy blocking unredacted confidential documents to guests). Absence of evidence indicates masking_controls_enforced = false."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review SharePoint or OneDrive sharing audit logs to identify confidential documents shared externally without an applied sensitivity label upgrade or rights-management action, indicating that masking was not enforced at share time.",
+        "command": "Search-UnifiedAuditLog -StartDate (Get-Date).AddDays(-30) -EndDate (Get-Date) -RecordType SharePoint -Operations SharingSet,AddedToSecureLink | Where-Object {$_.AuditData -like '*Confidential*'} | Select-Object CreationDate,UserIds,Operations,AuditData | Export-Csv C:\\Logs\\sharing_audit.csv",
+        "file_path": "C:\\Logs\\sharing_audit.csv",
+        "navigation": null,
+        "expected_output": "Sharing events for Confidential documents. If events show external sharing without a corresponding RMS protection or label downgrade action, masking_controls_enforced = false. Events showing rights-management applied at share time confirm true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default — most orgs rely on manual redaction guidance rather than enforced controls)",
+      "true (orgs with mature Purview label-based RMS or automated redaction pipelines)",
+      "false (common in Google Workspace environments without third-party DLP add-ons)"
+    ]
+  },
+  {
+    "option_name": "sharing_trust_level",
+    "option_description": "Classifies the trust tier of the intended recipients when a confidential Employee Work File is shared. 'internal_high_trust' designates authorized document owners or need-to-know staff with explicit permissions. 'internal_low_trust' covers contractors, broad internal distribution lists, or staff without established need-to-know. 'external' applies to any recipient outside the organization boundary. This value drives the masking enforcement requirement in the absence_of_anonymization policy.",
+    "security_impact": "The Rego policy evaluates sharing_trust_level as a condition in 'absence_of_anonymization_or_masking_in_shared_document_copies'. The exposure fires when document_contains_regulated_data is true and sharing_trust_level is 'external' OR 'internal_low_trust', combined with masking_controls_enforced being false. This means even internal sharing to contractors or broad audiences — not just external sharing — triggers the masking requirement. Accurate classification of sharing recipients is therefore essential: misclassifying a contractor audience as 'internal_high_trust' would suppress a valid exposure finding for a high-risk sharing event.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Extract SharePoint or OneDrive sharing event logs and classify recipients based on their UPN domain: organization domain = internal, guest/external domain = external. For internal recipients, check group membership against need-to-know groups to distinguish high-trust from low-trust.",
+        "command": "Search-UnifiedAuditLog -StartDate (Get-Date).AddDays(-30) -EndDate (Get-Date) -RecordType SharePoint -Operations SharingInvitationCreated,SharingSet | Select-Object @{N='Recipient';E={($_.AuditData | ConvertFrom-Json).TargetUserOrGroupName}},@{N='RecipientType';E={($_.AuditData | ConvertFrom-Json).TargetUserOrGroupType}} | Export-Csv C:\\Logs\\sharing_recipients.csv",
+        "file_path": "C:\\Logs\\sharing_recipients.csv",
+        "navigation": null,
+        "expected_output": "CSV with recipient UPNs and type (Member/Guest/SharePointGroup). Guest entries = 'external'. Members in broad groups (e.g., All Staff, All Contractors) = 'internal_low_trust'. Members in scoped need-to-know groups = 'internal_high_trust'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the SharePoint Admin Center or OneDrive sharing settings, review the current sharing link type applied to confidential document libraries. Check whether 'Anyone', 'People in your organization', or 'Specific people' is the default and whether guest sharing is enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SharePoint Admin Center → Sites → [Site Name] → Sharing → External Sharing settings; also check individual document permissions via Site Contents → [Library] → [Document] → Manage Access → View who has access",
+        "expected_output": "If 'Anyone links' or 'New and existing guests' sharing is enabled, external sharing is active → 'external' is a live trust level. 'Only people in your organization' with no guest access means 'external' is blocked at platform level."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Microsoft Graph to enumerate current sharing permissions on a specific confidential document and identify whether external or broad internal principals have access.",
+        "command": "curl -s -H 'Authorization: Bearer <ACCESS_TOKEN>' 'https://graph.microsoft.com/v1.0/sites/<site-id>/drives/<drive-id>/items/<item-id>/permissions' | jq '.value[] | {grantedTo: .grantedTo.user.displayName, roles, link: .link.type, scope: .link.scope}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON listing permissions with scope field: 'anonymous' or 'organization' with 'Anyone' links = external; 'organization' scoped but granted to all-company group = internal_low_trust; scoped to named authorized users only = internal_high_trust."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's contractor and third-party access provisioning process to determine how contractor accounts are provisioned (as guest accounts vs. member accounts) and whether contractors are included in broad internal distribution groups that would classify them as 'internal_low_trust' rather than being isolated in dedicated restricted groups.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation showing contractor account type (Guest UPN vs. member UPN) and group memberships. If contractors are added to 'All Staff' or department-wide groups, sharing with those groups must be classified as 'internal_low_trust'. Isolated contractor-specific groups with limited scope may warrant 'internal_high_trust' if access is scoped."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "external (common in document review, vendor collaboration, audit scenarios)",
+      "internal_low_trust (prevalent where contractor onboarding adds users to broad groups)",
+      "internal_high_trust (ideal state — restricted to named authorized personnel)",
+      "null (not yet assessed — requires sharing log analysis)"
+    ]
+  }
+]

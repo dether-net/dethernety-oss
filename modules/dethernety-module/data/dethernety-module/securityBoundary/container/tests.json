@@ -1,0 +1,152 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "privileged_mode_enabled": true,
+      "granted_capabilities": [
+        "CAP_SYS_ADMIN"
+      ],
+      "seccomp_profile_type": "Unconfined",
+      "read_only_root_filesystem": false,
+      "host_network_enabled": true,
+      "cni_policy_enforcement_capable": false,
+      "mounted_secret_paths": [
+        "item_0"
+      ],
+      "secret_mount_scope": "adjacent_zone",
+      "ipc_namespace_mode": "host",
+      "syscall_auditing_enabled": false,
+      "ebpf_runtime_monitoring_enabled": false,
+      "cpu_limit_enforced": false,
+      "capability_drop_all_enforced": false,
+      "dangerous_syscall_capabilities_added": [],
+      "lsm_profile_assigned": false,
+      "lsm_profile_mode": "unconfined",
+      "network_mode": "bridge",
+      "network_policy_enforced": false,
+      "egress_network_policy_enforced": false,
+      "egress_policy_default_deny": false,
+      "read_only_secret_mounts_enforced": true,
+      "automount_service_account_token": true,
+      "cross_zone_workloads_share_ipc": false,
+      "seccomp_ipc_syscalls_restricted": false,
+      "container_network_flow_logging_enabled": false,
+      "memory_limit_enforced": false,
+      "pid_limit_enforced": false,
+      "trust_zone_boundary_role": "interior",
+      "host_pid_or_ipc_shared": false,
+      "workload_zone_classification": "untrusted"
+    },
+    "expectedExposures": [
+      "Privileged Flag Zone Collapse",
+      "Missing Seccomp Profile Syscall Exposure",
+      "Excessive Capability Grant Boundary Bypass",
+      "Cgroup Resource Limit Absence Noisy Neighbor Zone Disruption",
+      "Writable Root Filesystem Boundary Persistence",
+      "Monitoring Blind Spot Intra Zone Lateral Movement",
+      "Ipc Namespace Cross Zone Signal Injection",
+      "Credential Bleed Via Mounted Secret Paths",
+      "Lsm Profile Absence Lateral Access",
+      "Network Namespace Ingress Egress Gap",
+      "Absent Egress Filtering Trust Zone Exfiltration"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "privileged_mode_enabled": false,
+      "granted_capabilities": [],
+      "capability_drop_all_enforced": true,
+      "seccomp_profile_type": "RuntimeDefault",
+      "lsm_profile_assigned": true,
+      "lsm_profile_mode": "enforcing",
+      "read_only_root_filesystem": true,
+      "host_network_enabled": false,
+      "network_mode": "bridge",
+      "network_policy_enforced": true,
+      "egress_network_policy_enforced": true,
+      "cni_policy_enforcement_capable": true,
+      "egress_policy_default_deny": true,
+      "mounted_secret_paths": [],
+      "automount_service_account_token": false,
+      "read_only_secret_mounts_enforced": true,
+      "ipc_namespace_mode": "private",
+      "cross_zone_workloads_share_ipc": false,
+      "syscall_auditing_enabled": true,
+      "container_network_flow_logging_enabled": true,
+      "cpu_limit_enforced": true,
+      "memory_limit_enforced": true,
+      "pid_limit_enforced": true,
+      "dangerous_syscall_capabilities_added": [],
+      "secret_mount_scope": "same_zone",
+      "seccomp_ipc_syscalls_restricted": false,
+      "ebpf_runtime_monitoring_enabled": false,
+      "trust_zone_boundary_role": "interior",
+      "host_pid_or_ipc_shared": false,
+      "workload_zone_classification": "untrusted"
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "privileged_mode_enabled": false,
+      "granted_capabilities": [
+        "partial"
+      ],
+      "capability_drop_all_enforced": true,
+      "seccomp_profile_type": "Unconfined",
+      "dangerous_syscall_capabilities_added": [
+        "partial"
+      ],
+      "lsm_profile_assigned": true,
+      "lsm_profile_mode": "unconfined",
+      "read_only_root_filesystem": true,
+      "network_mode": "bridge",
+      "host_network_enabled": false,
+      "network_policy_enforced": true,
+      "egress_network_policy_enforced": true,
+      "egress_policy_default_deny": true,
+      "cni_policy_enforcement_capable": true,
+      "mounted_secret_paths": [
+        "partial"
+      ],
+      "secret_mount_scope": "adjacent_zone",
+      "read_only_secret_mounts_enforced": true,
+      "automount_service_account_token": false,
+      "ipc_namespace_mode": "host",
+      "cross_zone_workloads_share_ipc": false,
+      "seccomp_ipc_syscalls_restricted": false,
+      "syscall_auditing_enabled": true,
+      "ebpf_runtime_monitoring_enabled": false,
+      "container_network_flow_logging_enabled": true,
+      "cpu_limit_enforced": true,
+      "memory_limit_enforced": true,
+      "pid_limit_enforced": true,
+      "trust_zone_boundary_role": "interior",
+      "host_pid_or_ipc_shared": false,
+      "workload_zone_classification": "untrusted"
+    },
+    "expectedExposures": [
+      "Missing Seccomp Profile Syscall Exposure",
+      "Ipc Namespace Cross Zone Signal Injection",
+      "Credential Bleed Via Mounted Secret Paths",
+      "Lsm Profile Absence Lateral Access"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Cgroup Resource Limit Absence Noisy Neighbor Zone Disruption",
+      "Writable Root Filesystem Boundary Persistence",
+      "Monitoring Blind Spot Intra Zone Lateral Movement",
+      "Lsm Profile Absence Lateral Access",
+      "Absent Egress Filtering Trust Zone Exfiltration"
+    ]
+  }
+]

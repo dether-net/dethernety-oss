@@ -1,0 +1,2016 @@
+[
+  {
+    "option_name": "backend_protocol",
+    "option_description": "Controls the protocol the load balancer uses when forwarding client traffic to backend server pool members. Determines whether connections to upstream servers travel over plaintext HTTP, encrypted HTTPS, raw TCP, or SSL tunnels.",
+    "security_impact": "The Rego rule `unencrypted_backend_traffic` fires when `backend_protocol == 'HTTP'` is combined with `ssl_termination_at_load_balancer == true` and no internal network encryption. This means TLS is stripped at the load balancer and sensitive data traverses the internal network in plaintext, exposing it to T1040 (Network Sniffing) and T1048 (Exfiltration Over Alternative Protocol) by any host on the backend segment.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS ALB, query the target group protocol using the AWS CLI to identify what protocol is used on the backend forwarding path.",
+        "command": "aws elbv2 describe-target-groups --query 'TargetGroups[*].{Name:TargetGroupName,Protocol:Protocol,Port:Port}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A table listing each target group with its Protocol column showing HTTP, HTTPS, or TCP."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For NGINX, inspect the upstream proxy_pass directive to determine whether backends are addressed with http:// or https:// schemes.",
+        "command": "grep -rn 'proxy_pass' /etc/nginx/conf.d/ /etc/nginx/sites-enabled/ | grep -v '#'",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Lines such as `proxy_pass http://backend_pool;` (plaintext) or `proxy_pass https://backend_pool;` (encrypted)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, review the backend section 'server' lines to check whether the 'ssl' keyword is present on each backend server definition.",
+        "command": "grep -A 20 '^backend ' /etc/haproxy/haproxy.cfg | grep 'server '",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "Server lines with 'ssl' keyword indicate HTTPS backend; absence of 'ssl' confirms HTTP plaintext forwarding."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Management Console, navigate to EC2 > Load Balancers > select the ALB > Listeners tab > click the listener rule > inspect the forward action target group and check its Protocol column.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → EC2 → Load Balancers → [ALB name] → Listeners → View/edit rules → Target group protocol",
+        "expected_output": "Protocol shown as HTTP or HTTPS for each target group attached to forwarding rules."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "HTTP",
+      "HTTPS",
+      "TCP"
+    ]
+  },
+  {
+    "option_name": "ssl_termination_at_load_balancer",
+    "option_description": "Indicates whether the load balancer decrypts incoming TLS/SSL sessions from clients at the listener level, converting encrypted client traffic into plaintext before passing it to backend servers. When false, TLS may be passed through transparently to backends.",
+    "security_impact": "This attribute is a prerequisite trigger in the `unencrypted_backend_traffic` Rego rule. When `ssl_termination_at_load_balancer == true` and `backend_protocol == 'HTTP'`, the load balancer becomes a decryption boundary that exposes sensitive data on the internal network. Without re-encryption to backends or compensating internal network encryption, the traffic is fully readable by any observer on the backend segment, enabling T1040 and T1048 attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS ALB, check whether HTTPS listeners exist (indicating TLS termination) versus TCP listeners which indicate passthrough mode.",
+        "command": "aws elbv2 describe-listeners --query 'Listeners[*].{Protocol:Protocol,Port:Port,LoadBalancerArn:LoadBalancerArn}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTPS or SSL protocol on listeners confirms TLS termination at the load balancer. TCP protocol indicates passthrough."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For NGINX, check for ssl_certificate and ssl_certificate_key directives in the server block. Their presence alongside proxy_pass to an HTTP backend confirms TLS termination.",
+        "command": "grep -n 'ssl_certificate\\|ssl_certificate_key\\|listen.*ssl\\|proxy_pass' /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/*",
+        "file_path": "/etc/nginx/conf.d/",
+        "navigation": null,
+        "expected_output": "If ssl_certificate is present in the same server block as proxy_pass http://, TLS is terminated at NGINX."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, identify frontend blocks with 'bind ... ssl crt' directives. If the corresponding backend uses plain 'server' lines without 'ssl', termination is occurring at the load balancer.",
+        "command": "awk '/^frontend/,/^$/' /etc/haproxy/haproxy.cfg | grep -E 'bind|mode'",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "Lines like `bind *:443 ssl crt /etc/ssl/certs/` confirm SSL termination. Mode 'http' with ssl bind confirms TLS offload."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl to test the TLS handshake directly with the load balancer IP on port 443 to confirm it presents a certificate and terminates the session itself.",
+        "command": "openssl s_client -connect <load_balancer_ip>:443 -servername <hostname> 2>&1 | grep -E 'subject|issuer|Cipher|Protocol'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful TLS handshake showing the load balancer's certificate subject/issuer confirms TLS termination at the LB layer."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "internal_network_encryption_enforced",
+    "option_description": "Indicates whether compensating network-layer encryption controls such as IPsec tunnels, WireGuard VPNs, or service mesh mutual TLS are in place to encrypt traffic on the internal segment between the load balancer and backend servers, even when backend_protocol is HTTP.",
+    "security_impact": "This attribute is the compensating control check in the `unencrypted_backend_traffic` Rego rule. The rule uses `not input.internal_network_encryption_enforced` as its third condition — meaning if this is false (the default) and the other conditions are met, a high-criticality exposure is raised. Correctly identifying this control as present avoids a false positive and accurately reflects that plaintext HTTP backend traffic is protected by an alternate encryption layer.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for active IPsec security associations on the load balancer host to verify IPsec tunnels are established to backend server subnets.",
+        "command": "ip xfrm state list && ip xfrm policy list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing src/dst pairs covering the backend server CIDR range with encryption algorithms (e.g., aes) indicates active IPsec."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for WireGuard interfaces active on the system that cover the backend network path.",
+        "command": "wg show all && ip addr show type wireguard",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active WireGuard interfaces with peer endpoints corresponding to backend servers confirm WireGuard encryption is in use."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review service mesh configuration (Istio, Linkerd, Consul Connect) to verify that PeerAuthentication or equivalent policies enforce mTLS for all internal service-to-service traffic in the backend namespace.",
+        "command": "kubectl get peerauthentication --all-namespaces -o yaml | grep -A5 'mtls'   # Istio example",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PeerAuthentication policy with mode: STRICT confirms mTLS is enforced between load balancer sidecar and backend services."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review strongSwan or Libreswan IPsec configuration files to confirm tunnel policies cover the load balancer to backend server network range.",
+        "command": "grep -rn 'rightsubnet\\|leftsubnet\\|esp\\|ike' /etc/ipsec.conf /etc/ipsec.d/",
+        "file_path": "/etc/ipsec.conf",
+        "navigation": null,
+        "expected_output": "Subnet definitions covering backend server IPs with cipher specifications confirm IPsec is configured for that segment."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "accepted_tls_versions",
+    "option_description": "The complete list of TLS/SSL protocol versions that the load balancer's client-facing listener will accept for incoming connections. Controls which versions clients may negotiate, including legacy versions such as TLSv1.0 and TLSv1.1 that are cryptographically broken.",
+    "security_impact": "The `weak_tls_configuration` Rego rule fires independently for each deprecated version present in this list: if 'TLSv1.0' or 'TLSv1.1' appear in `accepted_tls_versions`, a high-criticality exposure is raised. These versions are vulnerable to POODLE, BEAST, and protocol downgrade attacks (T1562.010 Downgrade Attack, T1600 Weaken Encryption). An attacker can force negotiation of the weakest mutually supported version if legacy versions remain enabled, even when TLSv1.3 is also available.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For NGINX, extract the ssl_protocols directive from all configuration files to see the exact list of enabled protocol versions.",
+        "command": "grep -rn 'ssl_protocols' /etc/nginx/nginx.conf /etc/nginx/conf.d/ /etc/nginx/sites-enabled/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Line such as `ssl_protocols TLSv1.2 TLSv1.3;` — presence of TLSv1 or TLSv1.1 indicates a weak configuration."
+      },
+      {
+        "type": "command",
+        "instruction": "For HAProxy, check ssl-min-ver and ssl-max-ver directives in the global or bind sections.",
+        "command": "grep -En 'ssl-min-ver|ssl-max-ver|ssl-default-bind-options|ciphers' /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "Output showing `ssl-min-ver TLSv1.2` confirms TLS 1.0/1.1 are disabled; absence or `ssl-min-ver TLSv1.0` flags a risk."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS ALB, retrieve the security policy name and then cross-reference the AWS documentation or use the CLI to list the protocols included in that policy.",
+        "command": "aws elbv2 describe-listeners --query 'Listeners[?Protocol==`HTTPS`].SslPolicy' --output text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy name such as ELBSecurityPolicy-TLS13-1-2-2021-06; then verify against AWS documentation that TLSv1.0/1.1 are excluded."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap's ssl-enum-ciphers script to actively probe the load balancer listener and enumerate all accepted TLS protocol versions from an external perspective.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 <load_balancer_ip> | grep -E 'TLSv|SSLv'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output listing each accepted TLS version per port; presence of TLSv1.0 or TLSv1.1 sections confirms weak versions are active."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"TLSv1.2\", \"TLSv1.3\"]",
+      "[\"TLSv1.0\", \"TLSv1.1\", \"TLSv1.2\"]",
+      "[\"TLSv1.3\"]"
+    ]
+  },
+  {
+    "option_name": "accepted_cipher_suites",
+    "option_description": "The enumerated list of cipher suites enabled on the client-facing TLS listener, identified by their IANA or OpenSSL names. Determines the cryptographic algorithms available for key exchange, authentication, bulk encryption, and MAC in TLS sessions.",
+    "security_impact": "The `weak_tls_configuration` Rego rule checks this array for the presence of individually prohibited ciphers: RC4, DES, NULL, EXPORT, 3DES. Each match independently triggers a high-criticality exposure. These ciphers are broken by attacks such as RC4 biases, Sweet32 (3DES), and FREAK/LOGJAM (EXPORT), directly enabling T1600.001 (Reduce Key Space) and T1600 (Weaken Encryption). Attackers perform cipher downgrade via T1562.010 to force negotiation of the weakest available cipher.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For NGINX, extract the ssl_ciphers directive to see the full OpenSSL cipher string or explicit cipher list configured.",
+        "command": "grep -rn 'ssl_ciphers' /etc/nginx/nginx.conf /etc/nginx/conf.d/ /etc/nginx/sites-enabled/ && openssl ciphers -v 'ECDHE+AESGCM:ECDHE+CHACHA20:!aNULL' 2>/dev/null | head -20",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "The cipher string; then use `openssl ciphers -v '<string>'` to expand it and check for RC4, DES, NULL, or EXPORT entries."
+      },
+      {
+        "type": "command",
+        "instruction": "For HAProxy, extract both the 'ciphers' (TLS 1.2) and 'ciphersuites' (TLS 1.3) directives from the configuration file.",
+        "command": "grep -En 'ciphers|ciphersuites' /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "Cipher lists; run `openssl ciphers -v '<cipher_string>'` to expand and check for prohibited algorithms."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use testssl.sh to perform an active cipher enumeration against the load balancer listener and flag any weak, broken, or NULL cipher suites.",
+        "command": "testssl.sh --cipher-per-proto --warnings off https://<load_balancer_hostname>:443 2>&1 | grep -E 'RC4|DES|NULL|EXPORT|WEAK|3DES'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any lines returned indicate the presence of prohibited ciphers actively accepted by the listener."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS ALB, use the CLI to retrieve the security policy and then describe its cipher suite composition using the describe-ssl-policies command.",
+        "command": "aws elbv2 describe-ssl-policies --names <policy-name> --query 'SslPolicies[0].Ciphers[*].Name' --output text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A space-separated list of IANA cipher names; check for RC4-SHA, DES-CBC3-SHA, TLS_NULL_WITH_NULL_NULL, or EXP-* entries."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"ECDHE-RSA-AES128-GCM-SHA256\", \"ECDHE-RSA-AES256-GCM-SHA384\", \"TLS_AES_256_GCM_SHA384\"]",
+      "[\"RC4-SHA\", \"DES-CBC3-SHA\", \"AES256-SHA\"]",
+      "[\"TLS_AES_128_GCM_SHA256\", \"TLS_AES_256_GCM_SHA384\", \"ECDHE-RSA-AES128-GCM-SHA256\"]"
+    ]
+  },
+  {
+    "option_name": "management_interface_network_exposure",
+    "option_description": "Defines which network segments can reach the load balancer's administrative console, REST API, or management port. Determines whether the management plane is accessible from the public internet, all network interfaces, a dedicated management VLAN, or only the local loopback interface.",
+    "security_impact": "The `exposed_management_interface` Rego rule fires on two conditions: (1) `management_interface_network_exposure == 'public'` unconditionally raises a high-criticality exposure, and (2) `management_interface_network_exposure == 'all_interfaces'` fires if no IP allowlist is enforced. Both scenarios directly enable T1190 (Exploit Public-Facing Application) and T1021 (Remote Services) — an internet-accessible admin panel is a primary attack surface for credential brute-force, CVE exploitation, and unauthorized configuration changes that can reroute all backend traffic.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify which IP addresses and interfaces the load balancer management/stats port is bound to by checking listening sockets on the host.",
+        "command": "ss -tlnp | grep -E ':8080|:8443|:9000|:1936|:8404' ; netstat -tlnp 2>/dev/null | grep -E ':8080|:8443|:9000|:1936|:8404'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Socket entries showing 0.0.0.0 (all_interfaces), 127.0.0.1 (localhost_only), or a specific management IP. Confirm port numbers match the admin interface."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, inspect the stats socket and stats enable configuration to determine the bind address of the statistics and management interface.",
+        "command": "grep -En 'stats socket|stats enable|stats bind|stats listen|frontend.*admin' /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "Lines like `stats socket /run/haproxy/admin.sock` (localhost-equivalent) or `bind *:8404` (all interfaces) reveal exposure scope."
+      },
+      {
+        "type": "command",
+        "instruction": "For NGINX, check if the stub_status or nginx_status location is restricted by allow/deny directives, and identify what address it listens on.",
+        "command": "grep -A 10 'stub_status\\|nginx_status' /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/* | grep -E 'allow|deny|listen|server_name'",
+        "file_path": "/etc/nginx/conf.d/",
+        "navigation": null,
+        "expected_output": "`allow 127.0.0.1; deny all;` confirms localhost-only. Missing allow/deny restrictions with a public IP in server_name indicates public exposure."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to connect to common load balancer management ports from an external IP to test whether the management interface is publicly reachable. Use nmap to probe known admin ports.",
+        "command": "nmap -Pn -p 8080,8443,9000,1936,8404,2000 --open <load_balancer_public_ip> -sV",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Open ports on public IP matching management interface ports confirm `public` exposure. All ports filtered/closed from external confirms network-level restriction."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "management_network_only",
+      "localhost_only",
+      "public",
+      "all_interfaces"
+    ]
+  },
+  {
+    "option_name": "ip_allowlist_enforced",
+    "option_description": "Controls whether access to the load balancer's management interface (admin console, REST API, SSH management plane) is restricted to a defined set of trusted IP addresses or CIDR ranges, blocking all other source addresses at the network or application layer.",
+    "security_impact": "The Rego policy fires the 'exposed_management_interface' exposure when management_interface_network_exposure is 'all_interfaces' AND ip_allowlist_enforced is false. Without an allowlist, any host that can route to the management port can attempt authentication, dramatically expanding the attack surface for T1190 (Exploit Public-Facing Application) and T1021 (Remote Services). An overly broad allowlist (0.0.0.0/0) is functionally equivalent to no allowlist and must be treated as a misconfiguration.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On nginx Plus or HAProxy, inspect the ACL or allow/deny directives applied to the management listener (e.g., stats socket or nginx status/API block). On HAProxy, grep the config for the stats ACL block.",
+        "command": "grep -E '(allow|deny|acl|whitelist|allowlist|ip_allow)' /etc/haproxy/haproxy.cfg | grep -i 'stats\\|admin\\|management'",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "Lines showing specific CIDR ranges in allow rules and a catch-all deny; absence of 0.0.0.0/0 in allow directives confirms a non-trivial allowlist."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS ALB/NLB, query the Security Group ingress rules attached to the load balancer to determine which source CIDRs are permitted on the management port (typically port 443 for the AWS console or API).",
+        "command": "aws ec2 describe-security-groups --group-ids $(aws elbv2 describe-load-balancers --query 'LoadBalancers[*].SecurityGroups' --output text) --query 'SecurityGroups[*].IpPermissions' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array of inbound rules; confirm no rule contains CidrIp '0.0.0.0/0' or CidrIpv6 '::/0' on management ports."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the F5 BIG-IP TMUI, navigate to System > Platform > Management IP and review the 'Allow Source Address' field, or check System > Packet Filters for management-port ACLs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "System > Platform > Management IP | System > Packet Filters",
+        "expected_output": "A non-empty list of specific CIDRs in the allowed sources field; a value of '0.0.0.0/0' or an empty/absent list constitutes a finding."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an IP address outside the expected allowlist, attempt a TCP connection to the management port. A connection refused or firewall drop confirms the allowlist is enforced.",
+        "command": "nc -zv <lb_mgmt_ip> 8443 2>&1; echo exit_code=$?",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection timed out or refused from untrusted source; successful handshake indicates the allowlist is not enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "default_credentials_in_use",
+    "option_description": "Indicates whether the load balancer's management interface still accepts the vendor-documented default username and password (e.g., admin/admin, admin/password, haproxy/haproxy, bigip/admin) without having been changed post-deployment.",
+    "security_impact": "The Rego policy triggers 'default_or_weak_admin_credentials' immediately when default_credentials_in_use is true, regardless of other controls. Default credentials are publicly documented in vendor manuals and security databases (CIRT.net, DefaultPassword.us), making them the first credential pair attackers try (T1078.001). Successful login grants full administrative access for configuration exfiltration, backend manipulation, or TLS certificate replacement.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Attempt authentication to the management interface using the vendor's documented default credentials. Consult the vendor manual or CIRT.net for the specific default username/password pair for the installed product and version.",
+        "command": "curl -sk -u 'admin:admin' -o /dev/null -w '%{http_code}' https://<lb_mgmt_ip>/api/v1/info",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 401 confirms defaults have been changed; HTTP 200 or a redirect to the dashboard confirms default credentials are still active."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, inspect the userlist section or htpasswd file used by the stats page for default or trivially guessable account names and hashed passwords.",
+        "command": "grep -A 5 'userlist\\|stats auth' /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "Usernames should not be 'admin', 'haproxy', or 'test'; if a recognizable vendor default appears, escalate as a finding."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the operations team responsible for load balancer deployment and ask whether credential rotation is part of the build runbook. Request evidence of the change (change ticket, configuration diff, or first-login-force-change screenshot).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented runbook step requiring credential change and a timestamped change record; absence of documentation warrants active testing."
+      },
+      {
+        "type": "command",
+        "instruction": "On F5 BIG-IP, check whether the default 'admin' account password has been changed by verifying the password hash is not the factory default SHA-512 value documented in F5 K13121 advisory.",
+        "command": "ssh admin@<bigip_ip> 'tmsh list auth user admin | grep -i password'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-default crypt hash; if the system returns the documented factory hash or login succeeds with 'admin/admin', it is a finding."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "password_policy_enforced",
+    "option_description": "Controls whether the load balancer management interface actively rejects weak passwords by enforcing a policy requiring minimum character length (≥12), complexity (uppercase, lowercase, digit, special character), and optionally a rotation period, preventing trivially guessable credentials from being set.",
+    "security_impact": "The Rego policy triggers 'default_or_weak_admin_credentials' when both password_policy_enforced is false AND admin_account_lockout_enabled is false—recognizing that absent both controls, brute-force and credential guessing (T1110.001) become viable without limit. A weak password policy also undermines any credential-change requirement because users may simply set 'password1' or 'admin123', which are trivially guessable.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Attempt to set a trivially weak password (e.g., 'password', 'abc123', 'admin1') via the management API or UI password-change endpoint and observe whether the change is accepted or rejected with a policy error.",
+        "command": "curl -sk -u 'admin:<current_pass>' -X PUT -H 'Content-Type: application/json' -d '{\"password\":\"password\"}' https://<lb_mgmt_ip>/api/v1/auth/password",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 400 or a response body containing a policy violation message confirms enforcement; HTTP 200 or 204 accepting 'password' as a new credential is a critical finding."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On F5 BIG-IP or Citrix ADC, inspect the system password policy configuration file or running config for minimum-length and complexity settings.",
+        "command": "ssh admin@<bigip_ip> 'tmsh list auth password-policy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show 'minimum-length 12' or greater and complexity rules enabled; 'minimum-length 6' or policy-type 'none' is a finding."
+      },
+      {
+        "type": "gui",
+        "instruction": "For AWS ALB managed via IAM, navigate to the IAM console and review the account password policy applied to admin IAM users. For appliance-based load balancers, navigate to System > User Management > Password Policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console: IAM > Account Settings > Password Policy | F5 TMUI: System > Users > Authentication > Password Policy",
+        "expected_output": "Minimum password length ≥12, complexity requirements checked, and a defined maximum password age."
+      },
+      {
+        "type": "command",
+        "instruction": "For nginx or HAProxy with LDAP/PAM-integrated management auth, check the PAM configuration for the password quality module settings (pam_pwquality or pam_cracklib).",
+        "command": "cat /etc/pam.d/common-password | grep -E 'pam_pwquality|pam_cracklib|minlen|dcredit|ucredit'",
+        "file_path": "/etc/pam.d/common-password",
+        "navigation": null,
+        "expected_output": "Lines showing 'minlen=12' or greater and credit parameters; absence of these modules means no OS-level complexity enforcement."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "admin_account_lockout_enabled",
+    "option_description": "Controls whether the management interface automatically locks an account after a defined number of consecutive failed authentication attempts (typically 3–10), preventing automated brute-force and credential-stuffing attacks from running unlimited guesses against admin credentials.",
+    "security_impact": "The Rego policy triggers 'default_or_weak_admin_credentials' when both password_policy_enforced is false AND admin_account_lockout_enabled is false—treating the absence of both as a compound weak-credential risk (T1110.001, T1110.004). Even with a moderate password policy, unlimited login attempts allow offline-style online brute-force if response times are fast. Lockout acts as a rate-limiting safety net when password policy alone is insufficient.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Perform 6–10 consecutive failed login attempts against the management interface using an incorrect password and observe whether subsequent attempts are rejected with a lockout message or HTTP 429/423 rather than HTTP 401.",
+        "command": "for i in $(seq 1 10); do curl -sk -o /dev/null -w \"attempt $i: %{http_code}\\n\" -u 'admin:wrongpassword' https://<lb_mgmt_ip>/api/v1/info; sleep 1; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "After the lockout threshold (typically attempt 5–6), responses should change from '401 Unauthorized' to '423 Locked' or '429 Too Many Requests'; continued 401 responses indicate no lockout is enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "On F5 BIG-IP, query the authentication policy to confirm max-login-failures and lockout duration are configured.",
+        "command": "ssh admin@<bigip_ip> 'tmsh list auth password-policy | grep -E \"max-login-failures|lockout-duration\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing 'max-login-failures 5' (or similar non-zero value) and 'lockout-duration 60' or greater; 'max-login-failures 0' means lockout is disabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For PAM-integrated load balancer management consoles (common on Linux-based appliances), check pam_tally2 or pam_faillock configuration for deny threshold.",
+        "command": "grep -E 'pam_tally2|pam_faillock|deny=' /etc/pam.d/sshd /etc/pam.d/common-auth 2>/dev/null",
+        "file_path": "/etc/pam.d/common-auth",
+        "navigation": null,
+        "expected_output": "'deny=5' or similar non-zero deny count with an unlock_time; absence of pam_tally2/pam_faillock modules means no lockout enforcement."
+      },
+      {
+        "type": "gui",
+        "instruction": "For Citrix ADC, navigate to System > Settings > Configure Advanced Security Settings and review the Max Login Attempts and Lock-Out Period fields.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Citrix ADC GUI: System > Settings > Configure Advanced Security Settings > Max Login Attempts",
+        "expected_output": "Max Login Attempts set to a value between 3 and 10, with a non-zero lockout period; a value of 0 or 'Unlimited' is a finding."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "backend_tls_mode",
+    "option_description": "Specifies the encryption mode used for connections between the load balancer and backend servers: 'none' (plaintext), 'one_way_tls' (load balancer validates server certificate only), or 'mutual_tls' (both parties present and validate certificates, providing cryptographic backend identity verification).",
+    "security_impact": "The Rego policy triggers 'missing_mutual_tls_on_backend' for both 'none' and 'one_way_tls' values unconditionally, and also fires for 'mutual_tls' if the client certificate is not actually configured. 'none' fully exposes backend traffic to T1040 (Network Sniffing) on the internal segment. 'one_way_tls' prevents eavesdropping but does not prevent a rogue internal host from masquerading as a backend server (T1557 Adversary-in-the-Middle) because the load balancer presents no identity. Only 'mutual_tls' with both certificate configuration and CA validation enforced fully satisfies the policy.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For nginx, inspect upstream blocks for proxy_ssl settings. For HAProxy, inspect server lines in backend sections for 'ssl', 'verify', and 'crt' keywords.",
+        "command": "grep -E '(proxy_ssl|ssl verify|ssl crt|proxy_pass https)' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/haproxy/haproxy.cfg 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "nginx: 'proxy_ssl_certificate' + 'proxy_ssl_verify on' = mutual_tls; 'proxy_pass https://' without proxy_ssl_certificate = one_way_tls; 'proxy_pass http://' = none. HAProxy: 'ssl verify required crt /path/cert.pem' = mutual_tls; 'ssl verify none' or just 'ssl' = one_way_tls; no ssl = none."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS ALB, check the target group protocol attribute to determine if HTTPS is configured for backend connections (one-way TLS is the AWS ALB maximum; mTLS requires NLB or custom proxy).",
+        "command": "aws elbv2 describe-target-groups --query 'TargetGroups[*].{Name:TargetGroupName,Protocol:Protocol,Port:Port}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Protocol 'HTTPS' = at minimum one_way_tls; Protocol 'HTTP' = none. AWS ALB does not support mTLS to backends natively; NLB with TLS listener and target-side verification is required for mutual_tls."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client to initiate a connection from the load balancer host to a backend server and observe whether a client certificate is presented and server cert is validated.",
+        "command": "openssl s_client -connect <backend_ip>:443 -cert /path/to/client.crt -key /path/to/client.key -CAfile /path/to/ca.crt -verify_return_error 2>&1 | head -30",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "For mutual_tls: 'Verify return code: 0 (ok)' and 'Certificate chain' showing server cert plus client cert presented; 'verify error' indicates CA validation failure; no -cert/-key needed for one_way_tls."
+      },
+      {
+        "type": "api",
+        "instruction": "For GCP Cloud Load Balancing, query the backend service's securityPolicy and clientTlsPolicy via the REST API to determine the configured TLS mode.",
+        "command": "gcloud compute backend-services describe <backend-service-name> --format='json' --global | jq '.securityPolicy,.logConfig'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of a clientTlsPolicy resource reference and serverTlsPolicy with mutual authentication settings confirms mutual_tls; absence indicates one_way_tls or none."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "one_way_tls",
+      "mutual_tls"
+    ]
+  },
+  {
+    "option_name": "backend_client_certificate_configured",
+    "option_description": "Controls whether the load balancer has a client TLS certificate and corresponding private key configured for presentation to backend servers during the TLS handshake, enabling backends to cryptographically verify that connections originate from the authorized load balancer and not from a rogue internal host.",
+    "security_impact": "The Rego policy fires 'missing_mutual_tls_on_backend' when backend_tls_mode is 'mutual_tls' but backend_client_certificate_configured is false—recognizing that mTLS mode alone is insufficient if no client credential is actually loaded. Without a client certificate, backend servers cannot authenticate the load balancer, leaving them vulnerable to T1557 (Adversary-in-the-Middle) from internal hosts and T1649 (Steal or Forge Authentication Certificates) since any host can successfully connect to backends.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For nginx, check upstream blocks for proxy_ssl_certificate and proxy_ssl_certificate_key directives. Both must be present and point to non-empty, valid files for the value to be true.",
+        "command": "grep -E 'proxy_ssl_certificate|proxy_ssl_certificate_key' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf 2>/dev/null && ls -la $(grep 'proxy_ssl_certificate ' /etc/nginx/conf.d/*.conf | awk '{print $2}' | tr -d ';') 2>/dev/null",
+        "file_path": "/etc/nginx/conf.d/",
+        "navigation": null,
+        "expected_output": "Both proxy_ssl_certificate and proxy_ssl_certificate_key present with valid file paths; files should be non-zero size and readable by the nginx process user."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, inspect backend server lines for the 'crt' keyword which specifies the PEM file containing both the client certificate and private key used for backend mTLS.",
+        "command": "grep -n 'server \\|crt ' /etc/haproxy/haproxy.cfg | grep -A1 'server '",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "Server lines should include 'crt /etc/haproxy/client.pem' parameter; absence of 'crt' on server lines within an SSL-enabled backend means no client certificate is presented."
+      },
+      {
+        "type": "command",
+        "instruction": "Capture a TLS handshake from the load balancer to a backend server using tcpdump/Wireshark and verify a Certificate message is sent by the client (load balancer) in the handshake.",
+        "command": "tcpdump -i any -w /tmp/backend_tls.pcap host <backend_ip> and port 443 & sleep 10 && kill %1; tshark -r /tmp/backend_tls.pcap -Y 'ssl.handshake.type == 11' -V 2>/dev/null | grep -E 'Certificate|Subject'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A TLS Certificate handshake message (type 11) from the load balancer IP to the backend containing a valid Subject DN; an empty certificate message or absence of type-11 from the LB side indicates no client cert is configured."
+      },
+      {
+        "type": "api",
+        "instruction": "For GCP Application Load Balancer, check the clientTlsPolicy attached to the backend service to confirm a client certificate is defined in the clientCertificate field.",
+        "command": "gcloud network-security client-tls-policies describe <policy-name> --location=global --format=json | jq '.clientCertificate'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-null clientCertificate object with a certificateProviderInstance or grpcEndpoint reference; null output indicates no client certificate is configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "backend_ca_validation_enforced",
+    "option_description": "Controls whether the load balancer verifies backend server TLS certificates against a trusted Certificate Authority (CA) bundle, rejecting connections to backends presenting self-signed, expired, or untrusted certificates, thereby preventing rogue backend impersonation even when encryption is in use.",
+    "security_impact": "The Rego policy fires 'missing_mutual_tls_on_backend' when backend_ca_validation_enforced is false AND backend_tls_mode is not 'none'—meaning even encrypted backend connections are flagged if certificate validation is disabled. Without CA validation, an attacker who performs ARP or DNS poisoning on the internal network can present any certificate and the load balancer will silently forward traffic to the rogue host (T1557). This renders backend TLS encryption meaningless for authentication purposes and enables T1649 (certificate forgery for impersonation).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For nginx, check for proxy_ssl_verify on and proxy_ssl_trusted_certificate directives in upstream or server blocks. Both must be present for validation to be enforced.",
+        "command": "grep -E 'proxy_ssl_verify|proxy_ssl_trusted_certificate|proxy_ssl_crl' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf 2>/dev/null",
+        "file_path": "/etc/nginx/conf.d/",
+        "navigation": null,
+        "expected_output": "'proxy_ssl_verify on' paired with a valid 'proxy_ssl_trusted_certificate /path/to/ca-bundle.crt' confirms enforcement; 'proxy_ssl_verify off' or absence of both directives means validation is disabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, inspect backend server lines for 'verify required' and a 'ca-file' parameter. 'verify none' or absence of verify explicitly disables CA validation.",
+        "command": "grep -E 'verify|ca-file|crt-ignore-err' /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "'verify required ca-file /etc/ssl/ca-bundle.crt' on backend server lines is compliant; 'verify none' or 'crt-ignore-err all' are findings indicating disabled validation."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Temporarily replace a backend server's certificate with a self-signed certificate not in the LB's trust store and verify the load balancer rejects the connection (502/503 response to clients).",
+        "command": "openssl s_client -connect <lb_frontend_ip>:443 -servername <test_hostname> 2>&1 | tail -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "When the backend presents an untrusted cert, the LB should return HTTP 502 to clients and log a certificate verification error; a successful 200 response with the untrusted backend cert in place confirms validation is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS ALB, check whether HTTPS target groups have the load-balancing.target_group_attribute for certificate verification enabled, and inspect the target group's associated ACM or custom CA certificate.",
+        "command": "aws elbv2 describe-target-group-attributes --target-group-arn <tg-arn> --query 'Attributes[?Key==`load_balancing.algorithm.type` || Key==`stickiness.enabled`]' --output table; aws elbv2 describe-target-groups --target-group-arns <tg-arn> --query 'TargetGroups[*].{Protocol:Protocol,HealthCheckProtocol:HealthCheckProtocol}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "For AWS ALB HTTPS backends, certificate verification is not natively configurable per target (ALB trusts ACM-issued or AWS-managed certs); for third-party backends, this requires NLB with a custom TLS policy or a proxy tier—document this architectural limitation as a finding if backends use non-ACM certificates."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "health_check_endpoint_network_exposure",
+    "option_description": "Controls whether the load balancer's health check endpoint (e.g., /health, /status, /actuator/health) is reachable from untrusted/external networks, restricted to internal/management networks only, or requires authentication before responding.",
+    "security_impact": "The Rego policy fires health_check_information_disclosure when this value is 'external_unrestricted' combined with verbose responses. External exposure allows unauthenticated adversaries to probe /health from the internet, enabling T1016 (System Network Configuration Discovery) reconnaissance. Even with authentication, external_unrestricted exposure increases attack surface compared to internal_only.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Attempt to reach the health check endpoint from an external or untrusted IP address using curl. If a response body is returned rather than a connection refused or firewall block, the endpoint is externally reachable.",
+        "command": "curl -v --max-time 10 http://<load-balancer-public-ip>/health && curl -v --max-time 10 http://<load-balancer-public-ip>/status && curl -v --max-time 10 http://<load-balancer-public-ip>/actuator/health",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused or TCP timeout indicates internal_only. HTTP 200/503 body returned indicates external_unrestricted. HTTP 401/403 indicates authenticated_only."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the load balancer configuration for ACL or location blocks that restrict health check paths to specific source networks.",
+        "command": null,
+        "file_path": "/etc/nginx/nginx.conf or /etc/haproxy/haproxy.cfg or /etc/aws-load-balancer/listener-rules.json",
+        "navigation": null,
+        "expected_output": "NGINX: 'location /health { allow 10.0.0.0/8; deny all; }'. HAProxy: 'acl internal_net src 10.0.0.0/8' combined with 'http-request deny unless internal_net' on health path. Absence of such rules indicates external_unrestricted."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS ALB, query the listener rules to identify if health check paths are blocked at the listener or target group level using the AWS CLI.",
+        "command": "aws elbv2 describe-rules --listener-arn <listener-arn> --query 'Rules[*].{Priority:Priority,Conditions:Conditions,Actions:Actions}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A rule with a path-pattern condition matching /health or /actuator/health that returns a fixed-response 403 for non-internal sources indicates restricted access."
+      },
+      {
+        "type": "gui",
+        "instruction": "For AWS ALB, navigate to EC2 > Load Balancers > select the load balancer > Listeners tab > View/edit rules. For F5 BIG-IP, navigate to Local Traffic > Policies and review iRules that restrict health check URI paths.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console: EC2 > Load Balancers > [select LB] > Listeners > [port] > View/edit rules. F5: Local Traffic > iRules > [health-check-restriction-rule] > View.",
+        "expected_output": "A rule denying or redirecting /health requests from non-RFC1918 source IPs confirms internal_only or authenticated_only configuration."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "external_unrestricted (common in misconfigured cloud deployments where security groups are overly permissive)",
+      "internal_only (recommended; enforced via security group, ACL, or location block)",
+      "authenticated_only (less common; seen in environments using mutual TLS or basic auth on health endpoints)"
+    ]
+  },
+  {
+    "option_name": "health_check_response_verbosity",
+    "option_description": "Controls how much detail the health check endpoint returns in its response body — either minimal (simple UP/DOWN status only) or verbose (including software versions, dependency names/versions, internal hostnames, IP addresses, environment names, stack traces, or configuration details).",
+    "security_impact": "The Rego policy triggers health_check_information_disclosure when verbosity is 'verbose' AND the endpoint is externally reachable, regardless of authentication state. Verbose responses feed adversary reconnaissance (T1016, T1190), disclosing exact framework versions, database connection strings, internal hostnames, and topology that reduce the effort required to craft targeted exploits.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Request the health check endpoint and inspect the full response body for version strings, hostnames, dependency status objects, or environment variables.",
+        "command": "curl -sk http://<load-balancer-ip>/health | python3 -m json.tool; curl -sk http://<load-balancer-ip>/actuator/health | python3 -m json.tool; curl -sk http://<load-balancer-ip>/status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Minimal: '{\"status\":\"UP\"}' or 'OK'. Verbose: JSON containing 'version', 'dependencies', 'db.url', 'hostname', 'environment', or nested component health objects with connection details."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Spring Boot applications behind the load balancer, check the actuator management configuration for show-details settings that control verbosity.",
+        "command": "grep -rn 'show-details\\|health.show-components\\|management.endpoint' /opt/app/config/application.yml /opt/app/config/application.properties 2>/dev/null",
+        "file_path": "/opt/app/config/application.yml or /opt/app/config/application.properties",
+        "navigation": null,
+        "expected_output": "'management.endpoint.health.show-details=never' or 'show-components=never' confirms minimal. 'always' or 'when_authorized' with no auth configured indicates verbose."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For NGINX or HAProxy acting as the health check responder, review stub_status or custom response configurations to check what content is served at health check URIs.",
+        "command": "grep -A5 'location /health\\|location /status\\|http-check\\|monitor-uri' /etc/nginx/nginx.conf /etc/haproxy/haproxy.cfg 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf or /etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "NGINX returning 'return 200 OK' with no dynamic content is minimal. HAProxy monitor-uri returning static 200 is minimal. Dynamic proxy_pass to an application /actuator/health with no response filtering may be verbose."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review load balancer access logs for health check requests and sample the response sizes — large response bodies (>100 bytes) at health check paths suggest verbose output.",
+        "command": "grep -E '(GET|HEAD) /(health|status|actuator/health)' /var/log/nginx/access.log | awk '{print $10}' | sort -n | tail -20",
+        "file_path": "/var/log/nginx/access.log or /var/log/haproxy.log",
+        "navigation": null,
+        "expected_output": "Response sizes of 2-10 bytes suggest minimal ('OK'). Sizes of 200-5000 bytes suggest verbose JSON with component details."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "minimal (recommended; hardened environments returning only HTTP 200 with body 'OK' or '{\"status\":\"UP\"}')",
+      "verbose (common default in Spring Boot Actuator, Express health-check middleware, and Django health-check libraries without hardening)"
+    ]
+  },
+  {
+    "option_name": "health_check_authentication_required",
+    "option_description": "Controls whether the health check endpoint enforces an authentication mechanism (HTTP Basic Auth, Bearer token, mutual TLS, or API key) before returning any response data, or responds openly to all unauthenticated requests.",
+    "security_impact": "The Rego policy evaluates health_check_authentication_required in both true and false states when combined with external exposure and verbose responses. Even with authentication enabled, the policy still fires health_check_information_disclosure if the endpoint is externally unrestricted and verbose — indicating authentication alone is insufficient without network restriction. False (no auth) with external_unrestricted exposure is the worst-case scenario enabling unauthenticated T1190 reconnaissance.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Send an unauthenticated request to the health check endpoint and observe the HTTP response code. A 401 or 403 without credentials confirms authentication is required.",
+        "command": "curl -v --max-time 10 -o /dev/null -w '%{http_code}' http://<load-balancer-ip>/health; curl -v --max-time 10 -o /dev/null -w '%{http_code}' http://<load-balancer-ip>/actuator/health",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 401 with WWW-Authenticate header or HTTP 403 confirms authentication_required=true. HTTP 200 or 503 with response body confirms authentication_required=false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the load balancer or application configuration for auth directives protecting health check paths.",
+        "command": "grep -A10 'location /health\\|location /actuator' /etc/nginx/nginx.conf | grep -E 'auth_basic|auth_request|proxy_set_header Authorization'; grep -E 'http-request auth|use_backend.*health' /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/nginx/nginx.conf or /etc/haproxy/haproxy.cfg or /etc/apache2/sites-enabled/*.conf",
+        "navigation": null,
+        "expected_output": "NGINX: 'auth_basic \"Health Check\"' with 'auth_basic_user_file' set confirms auth required. HAProxy: 'http-request auth realm health' on the health ACL confirms auth required. Absence of such directives indicates no authentication."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS ALB with Cognito or OIDC authentication, check if the listener rule for the health check path has an 'authenticate-cognito' or 'authenticate-oidc' action.",
+        "command": "aws elbv2 describe-rules --listener-arn <listener-arn> --query 'Rules[?Conditions[?Field==`path-pattern` && Values[?contains(@, `/health`)]]].Actions' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Actions array containing 'Type: authenticate-cognito' or 'Type: authenticate-oidc' before the 'forward' action confirms authentication required=true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform or DevOps team responsible for the load balancer to determine if health check authentication was deliberately omitted for compatibility with upstream monitoring systems (e.g., Kubernetes liveness probes, AWS target group health checks that don't support credentials).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation or runbook entry confirming deliberate unauthenticated health check design for Kubernetes liveness/readiness probe compatibility, combined with network-level restriction confirming compensating control."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most common; health check endpoints are typically left unauthenticated for compatibility with orchestration platforms)",
+      "true (seen in high-security environments using mTLS between the load balancer and health check consumers, or token-based health APIs)"
+    ]
+  },
+  {
+    "option_name": "logged_fields",
+    "option_description": "Specifies the set of request and response fields that the load balancer includes in each access log entry. The Rego policy requires all five of: client_ip, request_method, uri, response_code, and backend_destination to be present for logging to be considered sufficient.",
+    "security_impact": "The Rego policy fires insufficient_access_logging individually for each missing field from the required set when access_logging_enabled is true. Missing client_ip prevents attacker attribution (T1654). Missing uri hides targeted path enumeration. Missing backend_destination prevents internal traffic flow reconstruction. Missing response_code conceals error-rate-based attack signatures. Together, incomplete fields enable adversaries to hide infrastructure (T1665) and attack activity.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the load balancer log format directive to enumerate which fields are present in the configured log format string.",
+        "command": "grep -A3 'log_format\\|access_log\\|log-format' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf 2>/dev/null; grep -E 'log-format|option httplog|capture' /etc/haproxy/haproxy.cfg 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf or /etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "NGINX log_format should contain: $remote_addr (client_ip), $request_method (request_method), $request_uri (uri), $status (response_code), $upstream_addr (backend_destination). HAProxy log-format should contain %ci (client IP), %HM (method), %HU (URI), %ST (status), %si:%sp (server IP:port)."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Sample recent access log entries and identify which fields are present by parsing a few lines. Compare against the five required fields.",
+        "command": "tail -5 /var/log/nginx/access.log; tail -5 /var/log/haproxy.log; aws s3 cp s3://<alb-log-bucket>/<prefix>/$(date +%Y/%m/%d)/ /tmp/alb-sample/ --recursive --include '*.log.gz' && zcat /tmp/alb-sample/*.log.gz 2>/dev/null | head -3",
+        "file_path": "/var/log/nginx/access.log or /var/log/haproxy.log",
+        "navigation": null,
+        "expected_output": "Each log line should contain a recognizable source IP, HTTP method (GET/POST), request path, numeric status code (200/404/500), and backend server address. Missing fields appear as '-' or are absent entirely."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS ALB, retrieve the load balancer attributes to check access log configuration and then review the ALB log field specification against AWS documentation.",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn <alb-arn> --query 'Attributes[?Key==`access_logs.s3.enabled` || Key==`access_logs.s3.bucket` || Key==`access_logs.s3.prefix`]' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS ALB access logs always include: client:port, request (method+URI), elb-status-code, target:port (backend_destination) when enabled. If enabled=true, all five required fields are present by default in ALB log format."
+      },
+      {
+        "type": "gui",
+        "instruction": "For F5 BIG-IP, navigate to Local Traffic > Profiles > Other > Request Logging to review which template variables are configured in the log template string.",
+        "command": null,
+        "file_path": null,
+        "navigation": "F5 BIG-IP: Local Traffic > Profiles > Other > Request Logging > [profile name] > Request Settings > Template. Verify template contains: $CLIENT_IP, $HTTP_METHOD, $HTTP_URI, $HTTP_STATUS, $SERVER_IP.",
+        "expected_output": "Template string containing all five variable tokens confirms all required fields are logged."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['client_ip', 'request_method', 'uri', 'response_code'] (common omission: backend_destination not logged in default NGINX combined format)",
+      "['client_ip', 'request_method', 'uri', 'response_code', 'backend_destination'] (complete; achieved with NGINX upstream log format or HAProxy full log-format)",
+      "['response_code'] (severely incomplete; seen when only HAProxy 'option httplog' is partially applied)",
+      "[] (empty; occurs when access logging is enabled at the platform level but no format string is defined, resulting in default minimal output)"
+    ]
+  },
+  {
+    "option_name": "access_logging_enabled",
+    "option_description": "Controls whether the load balancer is actively writing access logs at all. When false or unconfigured, no record of client requests, backend routing decisions, or response codes is preserved.",
+    "security_impact": "The Rego policy fires insufficient_access_logging immediately when access_logging_enabled is false or null, regardless of what fields would be logged. Without access logs, forensic reconstruction of attack campaigns (T1654 Log Enumeration) is impossible, and adversaries can operate without leaving traffic evidence, directly enabling T1665 (Hide Infrastructure). This is treated as a baseline control failure.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the load balancer configuration for access log directives, looking for explicit disablement (access_log off) or absence of any log destination.",
+        "command": "grep -n 'access_log\\|no log\\|nolog' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/haproxy/haproxy.cfg 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf or /etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "NGINX: 'access_log /var/log/nginx/access.log' confirms enabled. 'access_log off' confirms disabled. HAProxy: global section must have a 'log' directive pointing to a syslog target; 'no log' in a frontend confirms disabled for that frontend."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS ALB, check the access_logs.s3.enabled attribute via the AWS CLI.",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn <alb-arn> --query 'Attributes[?Key==`access_logs.s3.enabled`].Value' --output text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'true' confirms access logging enabled to S3. 'false' confirms disabled. Note: AWS ALB access logs have a 5-minute delivery delay and must be explicitly enabled as they are off by default."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check whether the log destination file or S3 bucket is being actively written to with recent timestamps.",
+        "command": "ls -la /var/log/nginx/access.log; stat /var/log/nginx/access.log | grep Modify; find /var/log/haproxy/ -name '*.log' -mmin -10 -ls",
+        "file_path": "/var/log/nginx/access.log or /var/log/haproxy/ or configured S3 bucket",
+        "navigation": null,
+        "expected_output": "File modification time within the last 60 seconds (for an active load balancer) confirms logs are being actively written. A file that hasn't been modified in hours or days despite traffic indicates logging is broken or disabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "For AWS ALB, navigate to EC2 > Load Balancers > select the load balancer > Attributes tab > check 'Access logs' setting. For Azure Application Gateway, navigate to the resource > Diagnostic Settings > check for an active diagnostic setting sending 'ApplicationGatewayAccessLog' to a Log Analytics Workspace or storage account.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS: EC2 > Load Balancers > [LB name] > Attributes > Monitoring > Access logs (Enabled/Disabled). Azure: Application Gateway > Diagnostic Settings > [setting name] > verify ApplicationGatewayAccessLog is checked.",
+        "expected_output": "AWS: 'Access logs: Enabled, S3 URI: s3://bucket/prefix' confirms enabled. Azure: Active diagnostic setting with ApplicationGatewayAccessLog category selected confirms enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (AWS ALB default; logging is disabled unless explicitly enabled with an S3 bucket configured)",
+      "true (correctly configured environments; NGINX default writes to /var/log/nginx/access.log unless explicitly disabled)"
+    ]
+  },
+  {
+    "option_name": "per_source_connection_rate_limit_configured",
+    "option_description": "Controls whether the load balancer enforces a maximum rate of new connection attempts per unit time from a single source IP address, preventing any one client from exhausting connection handling capacity through rapid connection floods.",
+    "security_impact": "The Rego policy fires missing_rate_limiting_and_connection_throttling when BOTH per_source_connection_rate_limit_configured AND max_concurrent_sessions_per_source_configured are false. Without rate limiting, a single source can execute T1499.002 (Service Exhaustion Flood) and T1498 (Network Denial of Service) attacks that saturate connection pools, degrade availability for all users, and mask other attack activity in the noise.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check NGINX configuration for limit_req_zone and limit_req directives, or HAProxy configuration for stick-table conn_rate settings.",
+        "command": "grep -n 'limit_req_zone\\|limit_req\\|limit_conn_zone\\|limit_conn' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf 2>/dev/null; grep -n 'stick-table.*conn_rate\\|sc-inc-conn-rate\\|conn_rate' /etc/haproxy/haproxy.cfg 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf or /etc/nginx/conf.d/*.conf or /etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "NGINX: 'limit_req_zone $binary_remote_addr zone=req_limit:10m rate=100r/s' with 'limit_req zone=req_limit' in a server or location block confirms rate limiting. HAProxy: 'stick-table type ip size 1m expire 10s store conn_rate(3s)' with 'http-request track-sc0 src' and a deny rule confirms rate limiting. Absence of these patterns confirms false."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS WAF attached to an ALB, check for rate-based rules that limit requests per IP.",
+        "command": "aws wafv2 list-web-acls --scope REGIONAL --output json | jq '.WebACLs[] | .Name,.ARN'; aws wafv2 get-web-acl --scope REGIONAL --name <acl-name> --id <acl-id> --output json | jq '.WebACL.Rules[] | select(.Statement.RateBasedStatement) | {Name:.Name, Limit:.Statement.RateBasedStatement.Limit}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A rule with 'RateBasedStatement' containing a 'Limit' value (e.g., 2000 requests per 5 minutes per IP) confirms per-source rate limiting is configured via WAF."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For F5 BIG-IP, check the LTM profile or AFM policy for connection rate limiting directives.",
+        "command": "tmsh list ltm profile client-ssl | grep -E 'conn-rate-limit|max-syn-backlog'; tmsh list security firewall rule-list | grep -E 'rate-limit\\|conn-rate'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "F5 tmsh output showing 'rate-limit <value>' in firewall rules or 'conn-rate-limit <value>' in LTM profiles confirms rate limiting is configured."
+      },
+      {
+        "type": "gui",
+        "instruction": "For Azure Application Gateway, navigate to the resource > WAF Policy (if attached) > Custom Rules and review for rate-limit rule types. For AWS ALB with WAF, navigate to WAF & Shield > Web ACLs > [ACL name] > Rules and look for rate-based rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS WAF: WAF & Shield > Web ACLs > [ACL] > Rules > check for rules of Type 'Rate based'. Azure: Application Gateway > Associated WAF Policy > Custom Rules > check for rules with Match Type 'Rate limit'.",
+        "expected_output": "A rate-based rule with a numeric threshold per IP and an action of 'Block' confirms per-source connection rate limiting is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most common default; NGINX, HAProxy, and cloud load balancers do not enable per-source rate limiting without explicit configuration)",
+      "true (found in hardened deployments using NGINX limit_req_zone, HAProxy stick-tables with conn_rate, or ALB with AWS WAF rate-based rules)"
+    ]
+  },
+  {
+    "option_name": "max_concurrent_sessions_per_source_configured",
+    "option_description": "Controls whether the load balancer enforces a cap on the number of simultaneously open connections from a single source IP address, preventing slow-loris style attacks and connection pool exhaustion from a single client holding many persistent connections open.",
+    "security_impact": "The Rego policy fires missing_rate_limiting_and_connection_throttling when BOTH this attribute AND per_source_connection_rate_limit_configured are false. Without concurrent session limits, an attacker can execute T1499.003 (Application Exhaustion Flood) by holding large numbers of connections open simultaneously, exhausting backend connection pools while evading rate-per-second limits. This complements rate limiting — a slow attacker opening connections gradually can bypass rate limits but is caught by concurrent connection caps.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check NGINX configuration for limit_conn_zone and limit_conn directives, or HAProxy stick-table conn_cur settings.",
+        "command": "grep -n 'limit_conn_zone\\|limit_conn\\b' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf 2>/dev/null; grep -n 'conn_cur\\|maxconn\\|sc-inc-conn-cur\\|stick-table.*conn_cur' /etc/haproxy/haproxy.cfg 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf or /etc/nginx/conf.d/*.conf or /etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "NGINX: 'limit_conn_zone $binary_remote_addr zone=conn_limit:10m' with 'limit_conn conn_limit 20' in a server block confirms concurrent session limiting. HAProxy: 'stick-table type ip size 1m expire 30s store conn_cur' with 'http-request deny if { sc0_conn_cur ge 50 }' confirms concurrent session cap. Absence confirms false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, also check frontend-level maxconn scoped per-source via ACLs in the default or named backends.",
+        "command": "grep -B5 -A10 'conn_cur\\|concurrent' /etc/haproxy/haproxy.cfg 2>/dev/null; awk '/^frontend/,/^[a-z]/' /etc/haproxy/haproxy.cfg | grep -E 'maxconn|stick'",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "Frontend or backend sections containing stick-table definitions with 'conn_cur' store type and ACL-based deny rules using 'sc_conn_cur' counters confirm per-source concurrent session limits are configured."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS ALB, check if AWS WAF has a rule using IPSet-based connection count restrictions, or query Network Firewall stateful rule groups for connection tracking limits.",
+        "command": "aws wafv2 get-web-acl --scope REGIONAL --name <acl-name> --id <acl-id> --output json | jq '.WebACL.Rules[] | select(.Statement.RateBasedStatement) | {Name:.Name, AggregateKey:.Statement.RateBasedStatement.AggregateKeyType}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rate-based rules with AggregateKeyType of 'IP' act as a proxy for concurrent session limiting. Note: AWS ALB itself does not natively enforce concurrent sessions per IP; this requires WAF or upstream NACLs. No such rule confirms max_concurrent_sessions_per_source_configured=false for ALB."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security or platform team to determine whether concurrent connection limits are enforced at an upstream network layer (e.g., cloud NACL, firewall appliance) rather than within the load balancer itself, which would constitute a compensating control.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written documentation or ticket history confirming an upstream stateful firewall (e.g., Palo Alto, AWS Network Firewall, Azure Firewall) enforces per-source concurrent connection limits as a compensating control for load balancer-level absence of this configuration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default for all major load balancers; concurrent session limiting requires explicit stick-table or limit_conn configuration)",
+      "true (found in PCI-DSS or high-availability environments using NGINX limit_conn, HAProxy conn_cur stick-tables, or upstream stateful firewalls)"
+    ]
+  },
+  {
+    "option_name": "trusted_proxy_header_override_enabled",
+    "option_description": "Controls whether the load balancer actively strips and rewrites X-Forwarded-For and similar proxy headers before forwarding requests to backend servers, ensuring the header value reflects the true client IP address rather than any attacker-supplied value.",
+    "security_impact": "The Rego policy flags 'unvalidated_or_spoofable_forwarded_headers' when trusted_proxy_header_override_enabled is false AND either client_supplied_forwarded_headers_stripped is false or trusted_upstream_cidr_ranges is empty. Without this control, attackers can inject arbitrary X-Forwarded-For values (e.g., '127.0.0.1') to spoof source IPs and bypass IP-based access controls on backend applications, corresponding to MITRE T1090 (Proxy) and T1557 (Adversary-in-the-Middle).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For nginx-based load balancers, inspect the proxy configuration for override directives. Look for 'proxy_set_header X-Forwarded-For $remote_addr' which overwrites any client-supplied value with the real remote address.",
+        "command": "grep -rn 'proxy_set_header.*X-Forwarded-For' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf,/etc/nginx/conf.d/*.conf,/etc/nginx/sites-enabled/*",
+        "navigation": null,
+        "expected_output": "Lines containing 'proxy_set_header X-Forwarded-For $remote_addr' indicate override is enabled; 'proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for' without prior stripping does not constitute a trusted override."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, inspect frontend and backend sections for 'http-request set-header X-Forwarded-For' directives that replace rather than append the header value.",
+        "command": "grep -n 'set-header\\|del-header\\|X-Forwarded-For' /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/haproxy/haproxy.cfg,/etc/haproxy/conf.d/*.cfg",
+        "navigation": null,
+        "expected_output": "'http-request set-header X-Forwarded-For %[src]' confirms override is active; absence of this directive with only append logic means the control is missing."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send a test request with a spoofed X-Forwarded-For header and observe what value the backend application receives to confirm whether the load balancer is overwriting it.",
+        "command": "curl -H 'X-Forwarded-For: 1.2.3.4' -v http://<load_balancer_vip>/echo-headers 2>&1 | grep -i 'x-forwarded-for'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the backend echoes the actual client IP (not 1.2.3.4), the override is functioning correctly. If 1.2.3.4 or '1.2.3.4, <real_ip>' appears, the override is not active."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Traefik, check the entryPoints and middleware configuration for forwardedHeaders settings that control trusted IP handling.",
+        "command": "grep -rn 'forwardedHeaders\\|trustedIPs\\|insecure' /etc/traefik/ /opt/traefik/",
+        "file_path": "/etc/traefik/traefik.yml,/etc/traefik/traefik.toml",
+        "navigation": null,
+        "expected_output": "Absence of 'insecure: true' and presence of explicit 'trustedIPs' with rewrite logic indicates proper override behavior."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default, not configured)",
+      "true (explicitly overwriting with $remote_addr or %[src])"
+    ]
+  },
+  {
+    "option_name": "client_supplied_forwarded_headers_stripped",
+    "option_description": "Controls whether the load balancer explicitly deletes or sanitizes X-Forwarded-For, X-Real-IP, X-Forwarded-Host, and Forwarded headers that arrive from untrusted external clients before those headers can reach backend servers.",
+    "security_impact": "The Rego policy triggers 'unvalidated_or_spoofable_forwarded_headers' when client_supplied_forwarded_headers_stripped is false and either trusted_proxy_header_override_enabled is false or trusted_upstream_cidr_ranges is empty. Failing to strip these headers allows attackers to pre-populate forwarded headers with false IP addresses, tricking backends that trust these headers for access control decisions. This maps to MITRE T1090 (Proxy) and T1557 (Adversary-in-the-Middle).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, look for 'http-request del-header' directives applied on the frontend that faces external clients, targeting forwarding-related headers before any set-header operation.",
+        "command": "grep -n 'del-header\\|X-Forwarded\\|X-Real-IP\\|Forwarded' /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/haproxy/haproxy.cfg,/etc/haproxy/conf.d/*.cfg",
+        "navigation": null,
+        "expected_output": "'http-request del-header X-Forwarded-For' present in the frontend block confirms stripping. All three headers (X-Forwarded-For, X-Real-IP, Forwarded) should be present."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For nginx, verify that a 'proxy_set_header' directive is used to clear the header value (setting to empty string or using the override pattern) before passing to upstream.",
+        "command": "grep -A2 -B2 'X-Forwarded-For\\|X-Real-IP\\|X-Forwarded-Host' /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/*",
+        "file_path": "/etc/nginx/nginx.conf,/etc/nginx/conf.d/*.conf",
+        "navigation": null,
+        "expected_output": "Lines such as 'proxy_set_header X-Forwarded-For \"\";' or 'proxy_set_header X-Real-IP $remote_addr;' with no prior passthrough indicate stripping is configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Apache with mod_proxy, check for 'RequestHeader unset' or 'RequestHeader set' directives in VirtualHost blocks that face external traffic.",
+        "command": "grep -rn 'RequestHeader.*unset\\|RequestHeader.*set.*X-Forwarded' /etc/apache2/ /etc/httpd/",
+        "file_path": "/etc/apache2/sites-enabled/*.conf,/etc/httpd/conf.d/*.conf",
+        "navigation": null,
+        "expected_output": "'RequestHeader unset X-Forwarded-For' followed by 'RequestHeader set X-Forwarded-For %{REMOTE_ADDR}e' confirms proper stripping and rewrite."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send multiple headers that backends might trust and observe via a header-echo endpoint whether they are passed through unmodified.",
+        "command": "curl -H 'X-Forwarded-For: 10.0.0.1' -H 'X-Real-IP: 192.168.1.1' -H 'X-Forwarded-Host: evil.example.com' http://<lb_vip>/echo-headers",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the echo endpoint shows the original spoofed values, stripping is not configured. If the values are absent or replaced with the actual client IP, stripping is working."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default, headers passed through)",
+      "true (del-header or equivalent configured for all forwarding headers)"
+    ]
+  },
+  {
+    "option_name": "trusted_upstream_cidr_ranges",
+    "option_description": "The list of CIDR ranges configured in the load balancer from which proxy headers are accepted and trusted. Sources not in this list should have their forwarded headers ignored or stripped. An empty list means no IP-based restriction is enforced.",
+    "security_impact": "The Rego policy triggers 'unvalidated_or_spoofable_forwarded_headers' when trusted_upstream_cidr_ranges is empty and either trusted_proxy_header_override_enabled or client_supplied_forwarded_headers_stripped is also false. An empty or absent trusted CIDR list means the load balancer may accept spoofed proxy headers from any source, enabling IP bypass attacks (T1090, T1557). Even when other controls exist, CIDR restriction provides defense-in-depth.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For nginx, extract 'set_real_ip_from' directives which define the CIDR ranges whose X-Forwarded-For or X-Real-IP headers are trusted.",
+        "command": "grep -rn 'set_real_ip_from\\|real_ip_recursive\\|real_ip_header' /etc/nginx/",
+        "file_path": "/etc/nginx/nginx.conf,/etc/nginx/conf.d/*.conf",
+        "navigation": null,
+        "expected_output": "Lines like 'set_real_ip_from 10.0.0.0/8;' list trusted CIDRs. Collect all such entries. Absence of any 'set_real_ip_from' directive means the list is empty."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, inspect 'trusted_proxies' or ACL definitions restricting which source IPs are permitted to set forwarded headers.",
+        "command": "grep -n 'trusted_proxies\\|acl trusted\\|src.*10\\.\\|src.*172\\.\\|src.*192\\.168' /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "ACL entries such as 'acl trusted_proxy src 10.0.0.0/8' followed by conditional del-header or set-header rules indicate CIDR-based trust restrictions."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Traefik, review forwardedHeaders.trustedIPs in the static configuration to collect all defined trusted proxy CIDRs.",
+        "command": "grep -A10 'forwardedHeaders' /etc/traefik/traefik.yml | grep -E 'trustedIPs|\\-\\s+[0-9]'",
+        "file_path": "/etc/traefik/traefik.yml,/etc/traefik/traefik.toml",
+        "navigation": null,
+        "expected_output": "A populated trustedIPs list with internal CIDR ranges (e.g., 10.0.0.0/8, 172.16.0.0/12) is expected. Empty or absent trustedIPs with 'insecure: true' is a finding."
+      },
+      {
+        "type": "api",
+        "instruction": "For cloud-managed load balancers (AWS ALB), query the load balancer attributes to determine if a proxy protocol or trusted CIDR configuration is in place.",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn <arn> | jq '.Attributes[] | select(.Key | contains(\"routing\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Review routing.http.xff_client_port.enabled and routing.http.xff_header_processing.mode attributes to determine header trust policy and any implicit CIDR enforcement."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[] (empty, no restriction — finding)",
+      "['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'] (RFC1918 internal ranges)",
+      "['10.10.0.0/24'] (specific internal LB subnet)",
+      "['0.0.0.0/0'] (misconfigured, trusts all — critical finding)"
+    ]
+  },
+  {
+    "option_name": "process_run_user",
+    "option_description": "The OS user account name under which the load balancer daemon process runs at runtime. This directly determines the OS-level privileges the process holds and the blast radius of a process compromise.",
+    "security_impact": "The Rego policy triggers 'privileged_process_execution' when process_run_user equals 'root'. Running as root means a vulnerability in the load balancer software (e.g., buffer overflow, RCE) immediately grants full system access to an attacker, corresponding to MITRE T1068 (Exploitation for Privilege Escalation) and T1543 (Create or Modify System Process). A dedicated low-privilege user limits the damage to what that account can access.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the running load balancer process and extract its effective username using ps.",
+        "command": "ps aux | grep -E 'nginx|haproxy|traefik|envoy|caddy|pound' | grep -v grep | awk '{print $1, $2, $11}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output format: '<username> <pid> <command>'. Username should be a non-root service account such as 'nginx', 'haproxy', or 'lb-svc'. 'root' in the first column is a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "Read the effective user from the kernel process status file for a precise answer unaffected by terminal width truncation.",
+        "command": "cat /proc/$(pgrep -f 'nginx\\|haproxy\\|traefik' | head -1)/status | grep -E '^Name:|^Uid:|^Gid:'",
+        "file_path": "/proc/<pid>/status",
+        "navigation": null,
+        "expected_output": "The Uid line shows: real UID, effective UID, saved UID, filesystem UID. All four should be non-zero (non-root). 'Uid: 0 0 0 0' is a critical finding."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the service unit file or init script to see what user the process is configured to run as at startup.",
+        "command": "grep -E '^User=|^Group=|user |group ' /etc/systemd/system/nginx.service /etc/systemd/system/haproxy.service /lib/systemd/system/nginx.service 2>/dev/null; grep -E 'user|group' /etc/nginx/nginx.conf /etc/haproxy/haproxy.cfg 2>/dev/null | head -10",
+        "file_path": "/etc/systemd/system/nginx.service,/etc/haproxy/haproxy.cfg,/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "'User=nginx' or 'user haproxy haproxy;' in configuration files confirms the intended run user. Cross-reference with the live process to detect overrides."
+      },
+      {
+        "type": "command",
+        "instruction": "Use stat on the process executable to understand ownership, then confirm the running context with id lookup.",
+        "command": "pid=$(pgrep -f 'nginx\\|haproxy\\|traefik' | head -1); echo \"PID: $pid\"; ls -la /proc/$pid/exe; id $(awk '/^Uid:/{print $2}' /proc/$pid/status | xargs getent passwd | cut -d: -f1)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The 'id' output should show a non-privileged user with no sudo group membership. 'uid=0(root)' confirms the process runs as root."
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "root (finding — privileged)",
+      "nobody",
+      "nginx",
+      "haproxy",
+      "www-data",
+      "lb-svc",
+      "envoy"
+    ]
+  },
+  {
+    "option_name": "dedicated_service_account_exists",
+    "option_description": "Indicates whether a dedicated, low-privilege OS service account has been created specifically for the load balancer daemon, distinct from generic system accounts like 'nobody' and without interactive login capability or sudo privileges.",
+    "security_impact": "The Rego policy triggers 'privileged_process_execution' when dedicated_service_account_exists is false and process_effective_uid is below 1000. Using generic accounts like 'nobody' or 'daemon' can cause privilege overlap with other services, increasing the attack surface. A properly isolated dedicated account with no shell, no home directory write access, and no sudo entries minimizes lateral movement risk after a process compromise (MITRE T1068, T1543).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check /etc/passwd for a named service account that corresponds to the load balancer software and verify it has a non-interactive shell.",
+        "command": "grep -E 'nginx|haproxy|traefik|envoy|lb-svc|loadbal' /etc/passwd",
+        "file_path": "/etc/passwd",
+        "navigation": null,
+        "expected_output": "A line such as 'haproxy:x:99:99::/var/lib/haproxy:/sbin/nologin' confirms a dedicated account exists with a non-login shell. Generic accounts like 'nobody' do not qualify as dedicated."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the dedicated account has no sudo privileges by checking sudoers files and drop-in directory.",
+        "command": "grep -rn 'nginx\\|haproxy\\|traefik\\|lb-svc' /etc/sudoers /etc/sudoers.d/ 2>/dev/null",
+        "file_path": "/etc/sudoers,/etc/sudoers.d/",
+        "navigation": null,
+        "expected_output": "No output indicates the account has no sudo entries, which is the expected secure state. Any matching line is a finding requiring review."
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the account has no valid password and no interactive shell that could allow direct login.",
+        "command": "getent passwd nginx haproxy traefik envoy 2>/dev/null | awk -F: '{print \"User:\", $1, \"Shell:\", $7, \"Home:\", $6}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Shell should be '/sbin/nologin' or '/bin/false'. Also run 'passwd -S nginx' (or equivalent) to confirm the account is locked (status 'L' or 'LK')."
+      },
+      {
+        "type": "command",
+        "instruction": "Check that the account was not recently added to any privileged groups such as wheel, sudo, or adm.",
+        "command": "id nginx 2>/dev/null || id haproxy 2>/dev/null || id traefik 2>/dev/null; groups nginx 2>/dev/null || groups haproxy 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The account should belong only to its own primary group with no secondary group memberships in privileged groups. 'groups: wheel' or 'groups: sudo' is a finding."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (named account such as nginx, haproxy, or traefik exists with nologin shell)",
+      "false (process runs as root, nobody, or daemon without a dedicated account)"
+    ]
+  },
+  {
+    "option_name": "process_effective_uid",
+    "option_description": "The effective numeric user ID (EUID) of the load balancer daemon process at runtime. This is the actual privilege level the kernel enforces for all system calls made by the process, regardless of what username is configured.",
+    "security_impact": "The Rego policy directly triggers 'privileged_process_execution' when process_effective_uid equals 0 (root). It also fires when dedicated_service_account_exists is false and process_effective_uid is below 1000, indicating an undedicated system account with potentially broad privileges. EUID 0 means the process can read any file, bind any port, and modify any kernel parameter — maximizing blast radius for MITRE T1068 and T1543 exploitation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the effective UID directly from the kernel's process status interface, which provides the most reliable and unambiguous value.",
+        "command": "pid=$(pgrep -f 'nginx\\|haproxy\\|traefik\\|envoy' | head -1); echo \"PID: $pid EUID: $(awk '/^Uid:/{print $2}' /proc/$pid/status)\"",
+        "file_path": "/proc/<pid>/status",
+        "navigation": null,
+        "expected_output": "Output should show a numeric UID of 1000 or higher (e.g., 'PID: 1234 EUID: 1001') or a well-known service account UID documented in /etc/passwd. EUID 0 is a critical finding."
+      },
+      {
+        "type": "command",
+        "instruction": "Use ps with custom output format to retrieve the effective UID column for all load balancer processes.",
+        "command": "ps -o pid,euid,euser,comm -p $(pgrep -d',' -f 'nginx\\|haproxy\\|traefik\\|envoy') 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The EUID column should show a non-zero value for worker processes. Note that master processes may briefly run as root before dropping privileges — verify all worker process EUIDs."
+      },
+      {
+        "type": "command",
+        "instruction": "Cross-reference the EUID with /etc/passwd to confirm it maps to the expected dedicated service account.",
+        "command": "pid=$(pgrep -f 'nginx\\|haproxy' | head -1); euid=$(awk '/^Uid:/{print $2}' /proc/$pid/status); echo \"EUID=$euid\"; getent passwd $euid",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The getent output should show a named service account with a nologin shell. No matching passwd entry for a UID below 1000 is a finding. UID 0 mapping to 'root' is a critical finding."
+      },
+      {
+        "type": "command",
+        "instruction": "For systems using systemd, use systemctl to show the actual runtime user the service is executing as.",
+        "command": "systemctl show nginx.service haproxy.service 2>/dev/null | grep -E 'ExecMainPID|User=|Group=' ; loginctl user-status nginx 2>/dev/null | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ExecMainPID combined with the User field confirms the configured versus actual running user. Discrepancies between configured and actual EUIDs indicate a configuration override."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (root — critical finding)",
+      "33 (www-data on Debian/Ubuntu)",
+      "99 (nobody)",
+      "48 (apache on RHEL/CentOS)",
+      "1001 (dedicated service account UID >= 1000 — compliant)"
+    ]
+  },
+  {
+    "option_name": "plaintext_secrets_present",
+    "option_description": "Indicates whether TLS private key material, API tokens, bearer tokens, or administrative passwords are stored in cleartext within load balancer configuration files, rather than being referenced via file path to a restricted key file, a secrets manager, or an encrypted vault.",
+    "security_impact": "The Rego policy triggers 'hardcoded_secrets_in_configuration' when plaintext_secrets_present is true AND either secrets_manager_integrated is false or config_file_permissions_restricted is false. Plaintext secrets in configuration files are directly exploitable via MITRE T1552.001 (Credentials in Files) and T1552.004 (Private Keys). Any user or process with read access to the configuration file — including backup agents, log shippers, and misconfigured CI/CD pipelines — can immediately extract credentials and impersonate the load balancer or access protected backends.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search load balancer configuration files for PEM-encoded private key material embedded directly in the file rather than as a path reference.",
+        "command": "grep -rn 'BEGIN PRIVATE KEY\\|BEGIN RSA PRIVATE KEY\\|BEGIN EC PRIVATE KEY\\|BEGIN ENCRYPTED PRIVATE KEY' /etc/nginx/ /etc/haproxy/ /etc/traefik/ /opt/lb/ 2>/dev/null",
+        "file_path": "/etc/nginx/,/etc/haproxy/,/etc/traefik/",
+        "navigation": null,
+        "expected_output": "Any match is a finding. Configuration files should reference a path (e.g., 'ssl_certificate_key /etc/ssl/private/lb.key;') not contain the key material inline."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Scan for password, token, and API key directives that contain non-placeholder literal values in load balancer configuration.",
+        "command": "grep -rEn 'password\\s*=\\s*[^${}\"<]|api_key\\s*=|auth_basic\\s+\"|ssl_password\\s+|admin_password\\s*=' /etc/nginx/ /etc/haproxy/ /etc/traefik/ 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/nginx/,/etc/haproxy/,/etc/traefik/",
+        "navigation": null,
+        "expected_output": "Directives should reference a secrets manager path, environment variable, or password file rather than a literal string. Any literal credential value is a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "Check file permissions on the configuration files to understand the exposure scope of any secrets that may be present.",
+        "command": "find /etc/nginx /etc/haproxy /etc/traefik /opt/lb -type f \\( -name '*.conf' -o -name '*.cfg' -o -name '*.yml' -o -name '*.yaml' \\) -exec ls -la {} \\; 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Configuration files should be owned by root with permissions 640 or stricter (readable only by root and the service group). World-readable config files (644 or 755) that contain secrets are a critical finding."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For nginx specifically, check whether ssl_certificate_key points to a file path (correct) or contains inline key material, and verify password files are used instead of inline passphrases.",
+        "command": "grep -n 'ssl_certificate_key\\|ssl_password_file\\|ssl_password' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/* 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "'ssl_certificate_key /etc/ssl/private/server.key;' is correct. 'ssl_password_file /etc/nginx/ssl_pass.txt;' is preferred over inline passphrase. Any inline key block or literal password string is a finding."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (secrets stored as file path references or vault references — compliant)",
+      "true (PEM blocks or literal passwords embedded in config files — finding)"
+    ]
+  },
+  {
+    "option_name": "secrets_manager_integrated",
+    "option_description": "Indicates whether the load balancer configuration retrieves secrets (TLS keys, API tokens, admin credentials) at runtime from an external secrets management system such as HashiCorp Vault, AWS Secrets Manager, or Azure Key Vault, rather than sourcing them from static configuration files.",
+    "security_impact": "The Rego policy triggers 'hardcoded_secrets_in_configuration' when plaintext_secrets_present is true and secrets_manager_integrated is false. Without secrets manager integration, credential rotation requires configuration file edits and process reloads, increasing the window of exposure for compromised secrets. Integration with a secrets manager enables automatic rotation, audit logging of secret access (MITRE T1552 detection), fine-grained access control, and eliminates the need for secrets to ever touch configuration files on disk.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check for Vault agent sidecar configuration, Vault agent annotations, or direct Vault API references in the load balancer configuration or its deployment manifest.",
+        "command": "grep -rn 'vault\\|secretsmanager\\|keyvault\\|aws_secrets\\|VAULT_ADDR\\|VAULT_TOKEN\\|AWS_SECRET' /etc/nginx/ /etc/haproxy/ /etc/traefik/ /opt/lb/ ~/.env 2>/dev/null",
+        "file_path": "/etc/nginx/,/etc/haproxy/,/etc/traefik/",
+        "navigation": null,
+        "expected_output": "References to 'vault.example.com', ARNs like 'arn:aws:secretsmanager:', or Azure Key Vault URIs confirm secrets manager integration. Environment variable injection from a vault agent is also acceptable evidence."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the running environment of the load balancer process for injected secrets or secrets manager endpoint variables that indicate runtime secret retrieval.",
+        "command": "pid=$(pgrep -f 'nginx\\|haproxy\\|traefik' | head -1); cat /proc/$pid/environ 2>/dev/null | tr '\\0' '\\n' | grep -iE 'vault|secret|key_arn|aws_secret|keyvault'",
+        "file_path": "/proc/<pid>/environ",
+        "navigation": null,
+        "expected_output": "Presence of VAULT_ADDR, AWS_SECRETS_MANAGER_*, or AZURE_KEYVAULT_* environment variables indicates the process is configured for secrets manager integration."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform or infrastructure team to determine whether a Vault agent, AWS Secrets Manager sidecar, or equivalent is deployed alongside the load balancer and what secrets it manages.",
+        "command": "systemctl list-units | grep -iE 'vault-agent\\|secret\\|credential-helper'; docker ps 2>/dev/null | grep -iE 'vault\\|secret'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A running vault-agent service or secrets-manager sidecar container confirms integration. Ask to see the agent configuration file and verify it retrieves load balancer TLS keys and admin credentials."
+      },
+      {
+        "type": "api",
+        "instruction": "For Kubernetes-deployed load balancers, check whether the pod spec references Kubernetes secrets or ExternalSecrets resources that pull from an external vault.",
+        "command": "kubectl get pod -n <namespace> -l app=<lb_app> -o jsonpath='{.items[0].spec.containers[*].env}' | jq .; kubectl get externalsecret -n <namespace> 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ExternalSecret resources referencing AWS Secrets Manager or Vault confirm integration. Native Kubernetes secrets without an external backend do not constitute secrets manager integration for this control."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (no secrets manager — secrets in config files or basic k8s secrets)",
+      "true (Vault agent configured)",
+      "true (AWS Secrets Manager ARN referenced in configuration)",
+      "true (Azure Key Vault URI with managed identity authentication)"
+    ]
+  },
+  {
+    "option_name": "config_file_permissions_restricted",
+    "option_description": "Controls whether load balancer configuration files (e.g., haproxy.cfg, nginx.conf, traefik.yml) are protected with restrictive file permissions, limiting read/write access to the service account only (mode 0600 or 0640 at most).",
+    "security_impact": "The Rego policy flags a 'Hardcoded Secrets In Configuration' exposure when plaintext_secrets_present is true AND config_file_permissions_restricted is false. Configuration files often contain TLS private key paths, backend API tokens, and admin credentials. World-readable permissions (0644, 0755) allow any local OS user or compromised process to read these secrets, mapping directly to MITRE T1552.001 (Credentials in Files) and T1552.004 (Private Keys). Setting this to true requires mode 0600 or 0640 with owner set to the service account.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use 'stat' to check the octal permissions and owner of the primary HAProxy configuration file.",
+        "command": "stat -c '%a %U %G %n' /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "600 haproxy haproxy /etc/haproxy/haproxy.cfg — or 640 with group restricted to the service account group. Values of 644, 664, or 755 indicate a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "Check permissions on NGINX and Traefik configuration files using 'ls -l' for a broader overview of all relevant configs.",
+        "command": "ls -l /etc/nginx/nginx.conf /etc/nginx/conf.d/ /etc/traefik/traefik.yml 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Files should show '-rw-------' (0600) or '-rw-r-----' (0640) with ownership by the service account. Any world-readable bit (-----r--r) is a failure."
+      },
+      {
+        "type": "command",
+        "instruction": "Recursively scan the entire load balancer configuration directory for files more permissive than 0640.",
+        "command": "find /etc/haproxy /etc/nginx /etc/traefik -type f -perm /o+r -o -type f -perm /g+w 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output means no files are world-readable or group-writable. Any file path returned is a finding requiring remediation."
+      },
+      {
+        "type": "config_file",
+        "instruction": "After identifying configuration files, manually inspect includes and referenced certificate/key file paths for their own permission settings, as private key files referenced in the config must also be protected.",
+        "command": "grep -E '(ssl_certificate_key|tls.key|ca-file|privatekey)' /etc/nginx/nginx.conf /etc/haproxy/haproxy.cfg 2>/dev/null | awk '{print $NF}' | xargs stat -c '%a %U %n' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Referenced key files should show 600 owned by the service account. Any broader permissions indicate a finding."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in default installations where config files are deployed as 0644)",
+      "true (hardened environments enforcing 0600 or 0640 with service account ownership)"
+    ]
+  },
+  {
+    "option_name": "version_has_known_cve",
+    "option_description": "Indicates whether the currently installed and running load balancer software version has one or more publicly disclosed CVEs in the NVD database or vendor security advisories. A true value means the software is currently vulnerable to at least one known, disclosed vulnerability.",
+    "security_impact": "The Rego policy triggers 'Unpatched Load Balancer Software' immediately when version_has_known_cve is true, regardless of patching cadence or days since last patch. This is the highest-priority patching signal. Known CVEs against load balancer software (HAProxy, NGINX, Traefik, F5 BIG-IP) can expose the host to remote exploitation (T1190) and remote service exploitation (T1210). Because the load balancer sits at the network boundary, a successful exploit gives attackers a privileged pivot point into backend infrastructure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve the installed version string for common load balancer software and compare against NVD or vendor advisories.",
+        "command": "haproxy -v 2>/dev/null; nginx -v 2>/dev/null; traefik version 2>/dev/null; /usr/sbin/nginx -V 2>&1 | head -1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns version strings such as 'HAProxy version 2.6.14', 'nginx/1.24.0', or 'Traefik 3.0.0'. Cross-reference with https://www.cve.org or https://nvd.nist.gov/vuln/search using the product name and version."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the 'grype' vulnerability scanner to automatically check the installed binaries or OS packages against known CVE databases.",
+        "command": "grype dir:/ --scope all-layers 2>/dev/null | grep -iE '(haproxy|nginx|traefik|envoy)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists CVE IDs, severity, and affected version. Empty output for these packages indicates no known CVEs detected. Any CVE listed sets this attribute to true."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the NVD CVE API programmatically with the detected version to check for known vulnerabilities.",
+        "command": "curl -s 'https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=haproxy+2.6.14&keywordExactMatch' | python3 -m json.tool | grep -c '\"cveId\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A count greater than 0 means CVEs exist for the queried version string. Substitute the actual product name and version number from the previous step."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review vendor security mailing lists and advisory pages for the specific product: HAProxy security at https://www.haproxy.org/security/, NGINX at https://nginx.org/en/security_advisories.html, Traefik at https://github.com/traefik/traefik/security/advisories.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Vendor advisory page for the installed product",
+        "expected_output": "No advisories matching the installed version means false. Any active advisory matching the version sets this to true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (patched, current version with no outstanding CVEs)",
+      "true (running an end-of-life or unpatched version with disclosed CVEs)"
+    ]
+  },
+  {
+    "option_name": "patching_cadence_defined",
+    "option_description": "Indicates whether a formal, documented patching schedule or an automated update mechanism exists for the load balancer software. This covers both periodic manual patch windows documented in change management systems and automated pipelines (e.g., CI/CD, Ansible, unattended-upgrades) that apply security patches.",
+    "security_impact": "The Rego policy triggers 'Unpatched Load Balancer Software' when patching_cadence_defined is false AND days_since_last_patch exceeds 90. Without a defined cadence, patch application becomes ad hoc and dependent on individual awareness, increasing the window during which known CVEs (T1190, T1210) remain exploitable. A documented cadence also demonstrates compliance with frameworks requiring periodic patching (CIS, PCI-DSS, NIST 800-53 SI-2).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's CMDB, IT service management tool (e.g., ServiceNow, Jira Service Management), or change management records to confirm an active recurring patch task or change request exists for the load balancer.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ITSM tool → Change Management → Search for recurring change tasks tagged with the load balancer's CI name",
+        "expected_output": "A recurring change request or maintenance window with a defined frequency (e.g., monthly) set to 'Active' or 'Scheduled'. Absence of any such record sets this to false."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for automated update tooling such as unattended-upgrades (Debian/Ubuntu) or dnf-automatic (RHEL/CentOS) configured and enabled on the load balancer host.",
+        "command": "systemctl is-enabled unattended-upgrades 2>/dev/null; systemctl is-enabled dnf-automatic 2>/dev/null; cat /etc/apt/apt.conf.d/20auto-upgrades 2>/dev/null",
+        "file_path": "/etc/apt/apt.conf.d/20auto-upgrades",
+        "navigation": null,
+        "expected_output": "Output of 'enabled' for the service and 'APT::Periodic::Unattended-Upgrade \"1\"' in the config file indicates automated patching is configured. Both absent sets this to false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect CI/CD pipeline configuration files (Ansible playbooks, Terraform configs, Kubernetes manifests) to verify whether a patching or image-update workflow references the load balancer component.",
+        "command": "find /etc/ansible /opt/ansible /srv/ci -name '*.yml' -o -name '*.yaml' 2>/dev/null | xargs grep -l -i '(haproxy|nginx|traefik|load.balancer)' 2>/dev/null | head -10",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more playbook or pipeline files referencing the load balancer with patch or upgrade tasks indicates a defined cadence. No matching files suggests ad hoc patching only."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the system owner or operations team to confirm whether a written patching policy document exists that explicitly covers network infrastructure components including load balancers, with a defined frequency.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Security policy repository or GRC tool (e.g., Confluence, SharePoint) → Patch Management Policy",
+        "expected_output": "A policy document specifying patch frequency (e.g., 'critical patches within 30 days, standard patches within 90 days') that explicitly includes load balancers confirms true. No document or exclusion of infrastructure components sets this to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (enterprises with mature ITSM and defined patch windows, or DevOps environments with automated image rebuilds)",
+      "false (small teams relying on manual, unscheduled patching or where patch policy covers only endpoint/server OS but not network appliances)"
+    ]
+  },
+  {
+    "option_name": "days_since_last_patch",
+    "option_description": "Records the number of days elapsed since the load balancer software was last updated to a version that addressed known security vulnerabilities. This is a continuous measure used alongside patching cadence to determine whether the software is effectively maintained.",
+    "security_impact": "The Rego policy triggers 'Unpatched Load Balancer Software' when patching_cadence_defined is false AND days_since_last_patch exceeds 90. A high value (>90 days without a defined cadence) indicates the load balancer is operating in a prolonged unpatched state, increasing the probability that disclosed CVEs (T1190, T1210) are present and exploitable. Even with a defined cadence, large values indicate cadence is not being followed. This metric provides evidence for compliance reporting against PCI-DSS Requirement 6 and CIS Control 7.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the installation timestamp of the load balancer package using the package manager to calculate days since last update.",
+        "command": "rpm -q --queryformat '%{INSTALLTIME:date}\\n' haproxy nginx 2>/dev/null; dpkg-query -W -f='${Package} ${Version} ${db:Status-Status}\\n' haproxy nginx 2>/dev/null; stat -c '%y' $(which haproxy nginx 2>/dev/null | head -1)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns a timestamp such as 'Mon 15 Jan 2024 10:23:45'. Calculate the difference between this date and today's date in days. The result is the value for this attribute."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the package manager history log to find the most recent upgrade event for the load balancer package.",
+        "command": "grep -i 'haproxy\\|nginx\\|traefik' /var/log/dpkg.log 2>/dev/null | grep ' install\\| upgrade' | tail -5; grep -i 'haproxy\\|nginx\\|traefik' /var/log/dnf.log /var/log/yum.log 2>/dev/null | grep -i 'installed\\|updated' | tail -5",
+        "file_path": "/var/log/dpkg.log",
+        "navigation": null,
+        "expected_output": "Log entries with timestamps showing the last upgrade event, e.g., '2024-01-15 10:23:45 upgrade haproxy 2.6.12 2.6.14'. Use the most recent entry date to calculate days elapsed."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review change management records or deployment pipeline logs for the last production deployment of the load balancer configuration or binary.",
+        "command": "ls -lt /etc/haproxy/ /etc/nginx/ | head -20; find /var/lib/dpkg/info -name 'haproxy.*' -o -name 'nginx.*' 2>/dev/null | xargs stat -c '%y %n' 2>/dev/null | sort -r | head -5",
+        "file_path": "/var/lib/dpkg/info",
+        "navigation": null,
+        "expected_output": "File modification timestamps on package info files reflect the last package installation/upgrade. The most recent modification date gives the baseline for calculating days elapsed."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Check the CI/CD pipeline or infrastructure-as-code deployment history (e.g., Terraform state, Ansible AWX job history, Kubernetes deployment history) for the last successful load balancer image or package update.",
+        "command": "kubectl rollout history deployment/nginx-ingress-controller -n ingress-nginx 2>/dev/null; helm history nginx-ingress 2>/dev/null | tail -5",
+        "file_path": null,
+        "navigation": "CI/CD platform (Jenkins, GitLab CI, GitHub Actions) → Pipeline runs → Filter by load balancer deployment job → Last successful run date",
+        "expected_output": "A deployment record with a timestamp. Subtract this date from today to obtain the integer value for days_since_last_patch."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0–30 (actively maintained environments with automated patching or monthly patch windows)",
+      "31–90 (quarterly patching cadence, still within typical compliance thresholds)",
+      "91–365 (policy gap or forgotten infrastructure — triggers exposure in Rego when cadence is undefined)",
+      "365+ (end-of-life software or severely neglected systems)"
+    ]
+  },
+  {
+    "option_name": "mfa_enforced_on_admin_interface",
+    "option_description": "Specifies whether multi-factor authentication is actively required for all administrative logins to the load balancer management interface, including web console, REST API, SSH access, and CLI. A value of true means no admin session can be established with a single authentication factor.",
+    "security_impact": "The Rego policy fires 'Missing Multi Factor Authentication On Admin' when mfa_enforced_on_admin_interface is not true (falsy), and also references this attribute in the 'Default Or Weak Admin Credentials' rule. Without MFA, stolen or guessed credentials are sufficient for full administrative compromise (T1110.004 credential stuffing, T1078.001 default accounts). Because the load balancer controls traffic routing and TLS termination, admin access enables traffic interception, backend pool manipulation, and certificate theft. MFA is the primary control preventing credential-based administrative takeover.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the HAProxy runtime API authentication config and NGINX Plus management authentication settings for MFA integration references.",
+        "command": "grep -iE '(mfa|totp|radius|tacacs|two.factor|second.factor|otp)' /etc/haproxy/haproxy.cfg /etc/nginx/nginx.conf /etc/traefik/traefik.yml 2>/dev/null",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "Presence of MFA-related configuration directives (e.g., RADIUS server address with MFA, TACACS+ integration) confirms a mechanism exists. Absence suggests MFA is not configured at the load balancer level and may rely on upstream IdP or OS PAM."
+      },
+      {
+        "type": "command",
+        "instruction": "Check PAM configuration for SSH and management services on the load balancer host to determine if MFA is enforced at the OS level.",
+        "command": "grep -r 'pam_google_authenticator\\|pam_duo\\|pam_radius\\|pam_oath' /etc/pam.d/ 2>/dev/null; sshd -T 2>/dev/null | grep -iE '(authenticationmethods|keyboard.interactive|challengeresponse)'",
+        "file_path": "/etc/pam.d/",
+        "navigation": null,
+        "expected_output": "PAM entries referencing MFA modules (pam_duo, pam_google_authenticator) and sshd AuthenticationMethods showing 'publickey,keyboard-interactive' indicate MFA is enforced for SSH. Absence means SSH admin access may be single-factor."
+      },
+      {
+        "type": "gui",
+        "instruction": "Log in to the load balancer vendor web management interface and navigate to the authentication or user management settings to verify MFA requirement.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Load balancer web console → Settings/Administration → Authentication → MFA/Two-Factor Authentication → Verify 'Enforce MFA for all admin users' is enabled",
+        "expected_output": "A toggle or policy setting showing MFA enforcement is 'Enabled' or 'Required' for all administrative roles. 'Disabled' or 'Optional' sets this attribute to false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the Identity Provider (IdP) configuration for SAML SSO or RADIUS/TACACS+ integration to confirm MFA is mandated in the authentication policy applied to load balancer admin access.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP console (Okta, Azure AD, Duo) → Applications → Load Balancer Admin App → Sign-On Policy → Verify MFA is required for the admin user group",
+        "expected_output": "An active MFA policy requiring a second factor (TOTP, push, hardware token) for the user group assigned administrative access to the load balancer confirms true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most default configurations rely solely on local username/password)",
+      "true (environments with Duo, Okta, Azure AD Conditional Access, or hardware tokens enforced)"
+    ]
+  },
+  {
+    "option_name": "admin_auth_method",
+    "option_description": "Identifies the specific authentication mechanism configured for the load balancer management interface. This enum captures the full authentication method including whether it inherently includes MFA (e.g., saml_sso_with_mfa, radius_with_mfa, tacacs_with_mfa) or uses credentials-only approaches (local_password, ldap_no_mfa, radius_no_mfa) or certificate-based authentication.",
+    "security_impact": "The Rego policy triggers 'Missing Multi Factor Authentication On Admin' when admin_auth_method is in ['local_password', 'ldap_no_mfa', 'radius_no_mfa']. These methods provide no second factor, making credential theft (T1110.004, T1078.001) sufficient for administrative takeover. local_password is the highest-risk option as it relies entirely on a locally managed secret with no centralized policy enforcement. certificate_based provides strong authentication without requiring a traditional second factor. Methods with embedded MFA (saml_sso_with_mfa, radius_with_mfa, tacacs_with_mfa) satisfy the Rego policy requirement.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect load balancer configuration files for authentication backend directives to identify the configured method.",
+        "command": "grep -iE '(userlist|auth|login|ldap|radius|tacacs|saml|certificate|ssl.client.cert)' /etc/haproxy/haproxy.cfg 2>/dev/null; grep -iE '(auth_basic|auth_request|ldap|radius|ssl_client_certificate)' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf 2>/dev/null",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "HAProxy 'userlist' blocks with 'user' entries indicate local_password. LDAP server references indicate ldap_no_mfa or ldap_with_mfa. RADIUS server directives indicate radius_no_mfa or radius_with_mfa depending on server configuration. ssl_client_certificate indicates certificate_based."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Traefik, examine the traefik.yml or static configuration for authentication middleware definitions.",
+        "command": "grep -A 10 -iE '(basicauth|digestauth|forwardauth|tls\\.options)' /etc/traefik/traefik.yml /etc/traefik/dynamic/*.yml 2>/dev/null",
+        "file_path": "/etc/traefik/traefik.yml",
+        "navigation": null,
+        "expected_output": "basicAuth indicates local_password. forwardAuth pointing to an external IdP may indicate saml_sso_with_mfa if the IdP enforces MFA. tls.options with clientAuth.caFiles indicates certificate_based."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the authentication configuration section of the load balancer web management console to view the configured authentication provider.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Load balancer web console → Administration → Authentication Settings → Authentication Method dropdown — note the selected value and any MFA checkbox state",
+        "expected_output": "The UI should display the current authentication method (e.g., 'RADIUS', 'LDAP', 'Local Database', 'SAML 2.0'). Map this to the enum values: RADIUS without MFA server-side policy = radius_no_mfa; SAML with IdP MFA policy = saml_sso_with_mfa."
+      },
+      {
+        "type": "command",
+        "instruction": "Check PAM service configuration for the management interface service to identify the authentication stack.",
+        "command": "cat /etc/pam.d/haproxy-admin /etc/pam.d/sshd /etc/pam.d/login 2>/dev/null; ls /etc/pam.d/ 2>/dev/null",
+        "file_path": "/etc/pam.d/sshd",
+        "navigation": null,
+        "expected_output": "PAM modules reveal the authentication method: pam_unix.so = local_password; pam_ldap.so without MFA module = ldap_no_mfa; pam_radius_auth.so = radius_no_mfa or radius_with_mfa; pam_duo.so or pam_google_authenticator.so alongside another module = method_with_mfa."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "local_password (default for most software load balancers, highest risk)",
+      "ldap_no_mfa (common in enterprise environments integrated with Active Directory but without MFA)",
+      "radius_with_mfa (common in environments using Cisco ISE or FreeRADIUS with Duo)",
+      "certificate_based (common in PKI-mature environments and mutual TLS management access)",
+      "saml_sso_with_mfa (modern cloud-native deployments using Okta or Azure AD)"
+    ]
+  },
+  {
+    "option_name": "management_session_timeout_seconds",
+    "option_description": "Specifies the number of seconds of inactivity after which the load balancer automatically terminates an authenticated administrative or management session. A value of 0 means no inactivity timeout is configured and sessions persist indefinitely until explicitly logged out.",
+    "security_impact": "The Rego policy triggers 'No Session Timeout On Management Session' when management_session_timeout_seconds equals 0. Indefinitely persistent sessions expose the load balancer to session hijacking (T1563), stolen session cookie reuse (T1539, T1550.004), and unauthorized access from unattended terminals. An authenticated session without expiry means a compromised session token provides permanent administrative access. Recommended values range from 300 seconds (5 minutes) for high-security environments to 900 seconds (15 minutes) for standard operations, with 1800 seconds (30 minutes) as a common maximum for usability balance.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search HAProxy configuration for timeout settings applicable to the stats or admin socket interface.",
+        "command": "grep -iE '(timeout|session.timeout|stats.timeout|idle)' /etc/haproxy/haproxy.cfg 2>/dev/null",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "HAProxy uses directives such as 'timeout http-keep-alive', 'timeout http-request', 'timeout client'. For the stats page: 'stats timeout' value. A value of 0 or absence of a session timeout directive for management access means management_session_timeout_seconds = 0."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check NGINX management or stub_status module configuration for session timeout settings, and review any Lua-based session management.",
+        "command": "grep -iE '(keepalive_timeout|client_header_timeout|send_timeout|session.*expire|session.*timeout)' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Values shown in seconds for timeout directives. Note that NGINX Plus dashboard may have separate session management. keepalive_timeout value represents connection persistence. Absent session expiry settings for admin access means value = 0."
+      },
+      {
+        "type": "command",
+        "instruction": "For F5 BIG-IP or similar enterprise load balancers, query the management session timeout via tmsh or REST API.",
+        "command": "tmsh list sys httpd auth-pam-idle-timeout 2>/dev/null; curl -sk -u admin:password https://localhost/mgmt/tm/sys/httpd 2>/dev/null | python3 -m json.tool | grep -i 'idle\\|timeout\\|session'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output such as 'auth-pam-idle-timeout 1200' indicates a 1200-second (20-minute) timeout is configured. A value of 0 or 'indefinite' confirms management_session_timeout_seconds = 0."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the session management settings in the load balancer web console to read the configured inactivity timeout value.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Load balancer web console → System → Management → Session Settings → Idle Timeout or Session Timeout field — record the value in seconds",
+        "expected_output": "A numeric value in seconds (e.g., 900, 1800) or a field showing 'No Timeout' / 0. Record this exact integer value as management_session_timeout_seconds."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (default in many appliances and software load balancers — no timeout configured)",
+      "300 (5 minutes — high-security or PCI-DSS compliant environments)",
+      "900 (15 minutes — CIS benchmark recommendation for management interfaces)",
+      "1800 (30 minutes — common enterprise compromise between security and usability)",
+      "3600 (1 hour — less secure but common in operational environments with persistent monitoring)"
+    ]
+  },
+  {
+    "option_name": "session_timeout_enforced",
+    "option_description": "A boolean flag indicating whether the session inactivity timeout mechanism is explicitly enabled and actively applied to management console sessions. This is distinct from the timeout duration value itself — a system may have a non-zero timeout value configured but the enforcement mechanism may be disabled via a separate toggle or missing configuration directive.",
+    "security_impact": "The Rego policy triggers 'No Session Timeout On Management Session' when session_timeout_enforced is not true (falsy), independent of the management_session_timeout_seconds value. This means a load balancer can have a timeout value set but still be vulnerable if enforcement is not enabled. Unenforced sessions enable session hijacking (T1563), persistent use of stolen session cookies (T1539, T1550.004), and unauthorized reuse on shared terminals or jump hosts. This attribute captures the enforcement state separately because some platforms require an explicit 'enable' flag in addition to the numeric timeout value.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search load balancer configuration files for explicit session timeout enablement directives separate from the duration value.",
+        "command": "grep -iE '(enable.session.timeout|session.timeout.enabled|idle.timeout.enabled|auth.timeout|stats\\s+auth)' /etc/haproxy/haproxy.cfg /etc/nginx/nginx.conf /etc/traefik/traefik.yml 2>/dev/null",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "Presence of an explicit enablement directive set to true, 'on', or 'yes' confirms session_timeout_enforced = true. If only a numeric value exists without an enable flag, verify platform documentation to determine if the value alone activates enforcement."
+      },
+      {
+        "type": "command",
+        "instruction": "For F5 BIG-IP, verify that the management idle timeout is not set to 'indefinite' and that the PAM configuration is active.",
+        "command": "tmsh list sys httpd auth-pam-idle-timeout auth-pam-validate-ip 2>/dev/null; tmsh show sys httpd 2>/dev/null | grep -i 'timeout'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'auth-pam-idle-timeout 900' (non-zero value) with no 'indefinite' keyword confirms enforcement is active. 'auth-pam-idle-timeout 0' or 'indefinite' means enforcement is disabled, setting this to false."
+      },
+      {
+        "type": "gui",
+        "instruction": "Access the load balancer management web console and verify there is an explicit 'Enable Session Timeout' or 'Enforce Idle Timeout' toggle that is set to the active/enabled state.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Load balancer web console → System → Management → Session Settings → Locate 'Enable Session Timeout' or 'Enforce Idle Timeout' toggle → Confirm it is set to 'On' or 'Enabled'",
+        "expected_output": "An 'Enabled' or 'Active' state for the session timeout enforcement toggle confirms true. 'Disabled' or absence of the setting entirely (relying only on the numeric value) sets this to false pending platform documentation review."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify enforcement by testing an actual management session: authenticate, leave idle for a duration less than the configured timeout, then attempt to use the session; also verify the session is terminated after the configured timeout elapses.",
+        "command": "sleep 600 && curl -sk -b session.cookie https://loadbalancer-mgmt/api/status 2>/dev/null | grep -iE '(unauthorized|session.expired|401|403)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 401 Unauthorized or session-expired response after the timeout period confirms enforcement is active (true). A successful response with valid data after the timeout period confirms enforcement is not working (false)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common default on many platforms where timeout value exists in config but enforcement requires a separate enable flag that is not set)",
+      "true (explicitly configured on hardened systems where both the timeout duration and enforcement mechanism are active)"
+    ]
+  },
+  {
+    "option_name": "discovery_service_auth_enabled",
+    "option_description": "Controls whether the load balancer's service discovery integration (Consul, Kubernetes API, etcd) requires valid authentication credentials—tokens, certificates, or mTLS—before accepting backend node registrations from the discovery service.",
+    "security_impact": "The Rego policy fires the `backend_pool_auto_discovery_without_authentication` exposure whenever `discovery_service_auth_enabled` is false. An unauthenticated discovery channel allows any host that can reach the discovery service to inject arbitrary backend nodes into the active pool, enabling traffic hijacking and adversary-in-the-middle attacks. This is rated high criticality (score 8) and maps to T1046 (Network Service Discovery) and T1580 (Cloud Infrastructure Discovery).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Consul-backed load balancers, inspect the agent configuration for an ACL token or verify the Consul agent token is set in the load balancer's environment.",
+        "command": "consul acl token list --token=$(cat /etc/consul/acl-token) 2>/dev/null || grep -rE 'token|acl' /etc/consul/ /etc/haproxy/ /etc/nginx/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows a non-empty ACL token value or references to token files; absence of any token indicates auth is disabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the load balancer's service discovery configuration block for credential references. For HAProxy with Consul, check the dataplaneapi or consul-template config. For NGINX Plus, inspect the zone_sync or upstream resolver block.",
+        "command": null,
+        "file_path": "/etc/haproxy/haproxy.cfg, /etc/nginx/nginx.conf, /etc/consul-template/config.hcl, /etc/traefik/traefik.yml",
+        "navigation": null,
+        "expected_output": "Presence of 'token', 'ca_file', 'cert_file', 'tls_config', or 'credentials' directives in the discovery stanza indicates authentication is configured."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Kubernetes API or Consul HTTP API without credentials to test whether unauthenticated access is permitted, which would indicate auth is not enforced.",
+        "command": "curl -sk https://<discovery-endpoint>:8500/v1/catalog/services; curl -sk https://<k8s-api>:6443/api/v1/nodes",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 401 or 403 HTTP response confirms authentication is required. A 200 response with data confirms authentication is NOT enforced."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform or infrastructure team to confirm whether the load balancer service account or configuration management pipeline injects discovery credentials at deploy time, and review the CI/CD pipeline secrets configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation or pipeline scripts show a secrets injection step that populates a Consul token, Kubernetes service account token, or etcd client certificate before the load balancer process starts."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "backend_node_registration_validation_enabled",
+    "option_description": "Controls whether the load balancer validates newly discovered or dynamically registered backend nodes—via allowlist membership, cryptographic signature verification, or an approval workflow—before adding them to the active backend pool.",
+    "security_impact": "The Rego policy fires `backend_pool_auto_discovery_without_authentication` when `backend_node_registration_validation_enabled` is false even if `discovery_service_auth_enabled` is true. Without node validation, a compromised internal host or a stolen discovery credential can register a rogue backend and intercept production traffic. This is rated high criticality (score 8) and maps to T1046 and T1580.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search the load balancer configuration for allowlist, whitelist, or node-filter directives. In Traefik, look for `constraints` or `tags` filters in provider configuration. In Consul-template-generated HAProxy config, check for node tag requirements.",
+        "command": "grep -rEi 'allowlist|whitelist|constraint|tag|filter|approve|validate' /etc/haproxy/ /etc/nginx/ /etc/traefik/ /etc/envoy/ 2>/dev/null",
+        "file_path": "/etc/traefik/traefik.yml, /etc/haproxy/haproxy.cfg, /etc/envoy/envoy.yaml",
+        "navigation": null,
+        "expected_output": "Presence of tag constraints, IP allowlists, or certificate validation directives indicates validation is enabled. Empty result or pure auto-accept configuration indicates it is disabled."
+      },
+      {
+        "type": "api",
+        "instruction": "Attempt to register a test backend node via the discovery API (using valid credentials if auth is enabled) without it appearing on any known allowlist. Check if it is added to the active pool.",
+        "command": "curl -X PUT -H 'X-Consul-Token: <token>' http://localhost:8500/v1/catalog/register -d '{\"Node\":\"test-rogue\",\"Address\":\"10.99.99.99\",\"Service\":{\"Service\":\"web\",\"Port\":9999}}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the test node appears immediately in the load balancer's backend pool without any approval step, validation is NOT enabled. A rejection or absence from the pool confirms validation is active."
+      },
+      {
+        "type": "gui",
+        "instruction": "In cloud-managed load balancers (AWS ALB/NLB, GCP Load Balancing, Azure Application Gateway), navigate to the backend pool or target group configuration and verify that membership is defined by explicit target registration or allowlisted instance tags rather than fully open auto-discovery.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → EC2 → Load Balancers → [LB Name] → Target Groups → [Group Name] → Targets tab; verify targets are registered explicitly or filtered by specific tags.",
+        "expected_output": "Target registration shows explicit member IDs or tag-filter rules. An 'Auto-scaling group' attachment without tag filtering indicates insufficient validation."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the infrastructure-as-code (Terraform, Pulumi, CloudFormation) that defines backend pool membership to confirm that registration is controlled by explicit resource references or tag selectors rather than open service discovery.",
+        "command": "grep -rE 'target_group|backend_pool|health_check|service_discovery' infrastructure/ terraform/ k8s/ 2>/dev/null | head -50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IaC code references explicit resource IDs or restrictive tag selectors for backend membership. Open discovery with no filter criteria indicates validation is absent."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "certificate_expiry_alerting_enabled",
+    "option_description": "Controls whether automated alerting is configured to notify operators when TLS certificates on client-facing listeners or backend listeners are approaching their expiration date.",
+    "security_impact": "The Rego policy fires `missing_certificate_validity_monitoring` when `certificate_expiry_alerting_enabled` is false. Without expiry alerts, certificates silently expire, causing service outages or forcing operators to continue running the load balancer with expired, untrusted certificates—opening the door to T1649 (Steal or Forge Authentication Certificates) and T1587.003 (Digital Certificates). The exposure is rated low criticality (score 2) but can cascade to service-level incidents.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the load balancer host or monitoring agent configuration for certificate expiry check scripts, cron jobs, or alerting integrations.",
+        "command": "crontab -l 2>/dev/null | grep -i cert; ls /etc/cron.d/ /etc/cron.daily/ | grep -i cert; systemctl list-units --type=timer | grep -i cert",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of a cron job, systemd timer, or scheduled task referencing certificate checking indicates alerting may be configured. Absence suggests it is not."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect SIEM, Prometheus, Datadog, or Nagios/Icinga configuration for certificate expiry alert rules targeting the load balancer's listeners.",
+        "command": "grep -rE 'ssl_expiry|cert_expiry|certificate.*expir|tls.*expir' /etc/prometheus/ /etc/alertmanager/ /etc/nagios/ /etc/icinga2/ /opt/datadog-agent/conf.d/ 2>/dev/null",
+        "file_path": "/etc/prometheus/rules/, /etc/alertmanager/alertmanager.yml, /etc/nagios/conf.d/, /opt/datadog-agent/conf.d/tls.d/conf.yaml",
+        "navigation": null,
+        "expected_output": "Alert rules referencing certificate expiry thresholds against the load balancer's FQDN or IP confirm alerting is enabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In cloud-managed environments, check the certificate manager for expiry notification settings. In AWS ACM, verify SNS notifications for expiry are configured. In GCP, check Cloud Monitoring alert policies for certificate expiry.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → Certificate Manager → [Certificate] → check 'Renewal Status' and SNS topic for expiry events; GCP Console → Monitoring → Alerting → check for 'ssl_certificate/days_until_expiration' metric alert.",
+        "expected_output": "An active SNS topic subscription or monitoring alert policy targeting certificate expiry confirms alerting is enabled."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Ask the operations team to demonstrate or show documentation of the last certificate expiry alert received and the notification channel (email, PagerDuty, Slack) it used.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team can show a historical alert notification with certificate name, expiry date, and notification timestamp. Inability to produce this indicates alerting is absent or untested."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "automated_certificate_rotation_enabled",
+    "option_description": "Controls whether an automated mechanism—such as cert-manager, AWS ACM auto-renewal, HashiCorp Vault PKI, or a CI/CD pipeline—renews and rotates TLS certificates before expiry across all load balancer listeners.",
+    "security_impact": "The Rego policy fires `missing_certificate_validity_monitoring` when both `automated_certificate_rotation_enabled` and `certificate_expiry_alerting_enabled` are false. Automated rotation eliminates the manual renewal window during which expired certificates cause service outages or force insecure workarounds. Without it, adversaries can exploit expiry windows to introduce forged certificates (T1649) or intercept traffic during certificate re-issuance delays.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for cert-manager CRDs in Kubernetes, ACME client configuration, or Vault agent sidecar configuration on the load balancer.",
+        "command": "kubectl get certificate,certificaterequest,clusterissuer -A 2>/dev/null; ls /etc/letsencrypt/renewal/ 2>/dev/null; vault lease lookup <certificate-lease-id> 2>/dev/null; systemctl status certbot.timer 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active cert-manager Certificate resources, certbot renewal timer, or Vault lease entries confirm automated rotation is configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the load balancer and certificate management configuration files for ACME, Vault PKI, or secrets manager renewal references.",
+        "command": "grep -rE 'acme|letsencrypt|certbot|vault.*pki|cert.manager|auto.renew|rotate' /etc/haproxy/ /etc/nginx/ /etc/traefik/ /etc/envoy/ /etc/cerbot/ 2>/dev/null",
+        "file_path": "/etc/traefik/traefik.yml, /etc/nginx/nginx.conf, /etc/haproxy/haproxy.cfg, /etc/letsencrypt/renewal/*.conf",
+        "navigation": null,
+        "expected_output": "ACME provider blocks, Vault PKI role references, or cert-manager annotations confirm automated rotation is in place."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS ACM for managed renewal status on certificates attached to the load balancer, or query cert-manager API for certificate conditions.",
+        "command": "aws acm list-certificates --query 'CertificateSummaryList[*].[CertificateArn,RenewalEligibility]' --output table; kubectl get certificate -A -o jsonpath='{range .items[*]}{.metadata.name}{\" \"}{.status.conditions[*].type}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACM shows 'ELIGIBLE' for managed renewal; cert-manager shows 'Ready=True' condition. 'INELIGIBLE' or absent conditions indicate manual rotation only."
+      },
+      {
+        "type": "gui",
+        "instruction": "In cloud console, verify the certificate attached to the load balancer listener shows auto-renewal status.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → Certificate Manager → [Certificate ARN] → Renewal tab → confirm 'Pending automatic renewal' or 'Renewed'; Azure Portal → App Service Certificates → [Cert] → Auto Renew = On.",
+        "expected_output": "Auto-renewal status shows 'Enabled' or 'Pending automatic renewal'. 'Disabled' or no renewal status indicates automated rotation is not configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "minimum_days_before_expiry_alert",
+    "option_description": "Specifies the number of days before a TLS certificate expires at which the alerting system is configured to fire a notification. A value of 0 means no threshold is defined, meaning no advance warning will be issued.",
+    "security_impact": "The Rego policy fires `missing_certificate_validity_monitoring` when `certificate_expiry_alerting_enabled` is true but `minimum_days_before_expiry_alert` equals 0—indicating alerting is nominally enabled but effectively useless with no threshold. Industry best practice requires at least a 30-day lead time to allow for certificate procurement, change management, and deployment. Too short a window risks undetected expiry, enabling T1649 attack scenarios and service outages.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect Prometheus alerting rules or Nagios/Icinga check commands for the certificate expiry threshold value configured for the load balancer endpoints.",
+        "command": "grep -rE 'days|threshold|warning|critical|expir' /etc/prometheus/rules/ /etc/nagios/conf.d/ /etc/icinga2/conf.d/ /opt/datadog-agent/conf.d/tls.d/ 2>/dev/null | grep -i cert",
+        "file_path": "/etc/prometheus/rules/cert-expiry.yml, /etc/nagios/conf.d/ssl_check.cfg, /etc/icinga2/conf.d/certificates.conf",
+        "navigation": null,
+        "expected_output": "Alert rule shows a 'for' duration or threshold value such as '30d', '720h', or '--days 30'. A value of 0 or absent threshold indicates no warning window is set."
+      },
+      {
+        "type": "command",
+        "instruction": "If using a custom certificate monitoring script (e.g., check_ssl_cert, ssl-cert-check), inspect its invocation parameters for the warning/critical day thresholds.",
+        "command": "grep -rE 'check_ssl|ssl.cert.check|openssl.*days' /etc/cron.d/ /etc/cron.daily/ /usr/local/bin/ /opt/monitoring/ 2>/dev/null; check_ssl_cert --help 2>/dev/null | grep -E 'warning|critical'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Script invocation shows '-w 30 -c 14' or equivalent warning/critical threshold parameters. Missing parameters indicate threshold is 0 or undefined."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the monitoring platform API (Prometheus, Datadog, PagerDuty) for alert rules targeting certificate expiry on load balancer endpoints and extract the threshold value.",
+        "command": "curl -s http://localhost:9090/api/v1/rules | python3 -m json.tool | grep -A5 -i 'cert\\|expir\\|ssl'; curl -s -H 'DD-API-KEY: <key>' 'https://api.datadoghq.com/api/v1/monitor' | python3 -m json.tool | grep -A10 'ssl_certificate'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Alert rule JSON shows a threshold expression such as 'ssl_earliest_cert_expiry - time() < 86400 * 30'. A missing or zero-valued threshold confirms the gap."
+      },
+      {
+        "type": "gui",
+        "instruction": "In cloud monitoring or SIEM dashboards, navigate to certificate monitoring alerts and inspect the configured expiry notification window.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → CloudWatch → Alarms → search for 'DaysToExpiry'; GCP Console → Monitoring → Alerting → find policy for 'ssl_certificate/days_until_expiration' and check threshold value.",
+        "expected_output": "Alert policy threshold shows a positive integer (e.g., 30 days). A threshold of 0 or no alert policy confirms the minimum days value is 0."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "7",
+      "14",
+      "30",
+      "60"
+    ]
+  },
+  {
+    "option_name": "icmp_unrestricted",
+    "option_description": "Controls whether ICMP traffic (ping, traceroute, timestamp, etc.) is permitted on the load balancer's external or management interfaces without source IP restriction, allowing any host to probe the load balancer's reachability and internal network topology.",
+    "security_impact": "The Rego policy fires `unrestricted_icmp_and_diagnostic_protocols` when `icmp_unrestricted` is true. Unrestricted ICMP enables adversary reconnaissance via ping sweeps and traceroute to map internal network topology (T1016 - System Network Configuration Discovery) and can be abused as a covert non-application layer protocol channel (T1095). While rated low criticality (score 2), it meaningfully increases attacker situational awareness of the environment.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect host-level firewall rules (iptables, nftables, ufw) for ICMP accept rules and their source restrictions.",
+        "command": "iptables -L INPUT -n -v | grep -i icmp; ip6tables -L INPUT -n -v | grep -i icmp; nft list ruleset 2>/dev/null | grep -i icmp; ufw status verbose 2>/dev/null | grep -i icmp",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An ICMP ACCEPT rule with source 0.0.0.0/0 confirms unrestricted ICMP. Rules restricted to specific source CIDRs or a DROP/REJECT default indicate ICMP is restricted."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send ICMP echo requests to the load balancer's public IP from an external test host to determine if ping is permitted.",
+        "command": "ping -c 4 <load-balancer-public-ip>; traceroute <load-balancer-public-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Successful ping replies from external host confirm ICMP is unrestricted. 100% packet loss or 'Request timeout' indicates ICMP is blocked or restricted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review cloud security group or network ACL rules for ICMP permissions on the load balancer's interface.",
+        "command": "aws ec2 describe-security-groups --group-ids <sg-id> --query 'SecurityGroups[*].IpPermissions[?IpProtocol==`icmp`]' --output json; gcloud compute firewall-rules list --filter='allowed.IPProtocol=icmp' --format=json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ICMP rule with CidrIp 0.0.0.0/0 confirms unrestricted inbound ICMP. Absence of ICMP rules or restricted source CIDRs indicates it is controlled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In cloud console, navigate to the security group or firewall rules for the load balancer and check for any ICMP ingress rules and their source IP ranges.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → EC2 → Security Groups → [LB Security Group] → Inbound Rules → filter by Type: 'All ICMP - IPv4'; Azure Portal → Network Security Groups → [NSG] → Inbound Security Rules → filter by Protocol: ICMP.",
+        "expected_output": "ICMP rule with source 0.0.0.0/0 or Any = unrestricted (true). No ICMP rule or source-restricted ICMP = restricted (false)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "snmp_enabled",
+    "option_description": "Controls whether the SNMP agent is running and listening on the load balancer host for monitoring or management purposes. When enabled without source restriction or with weak community strings, SNMP exposes detailed infrastructure configuration data.",
+    "security_impact": "The Rego policy fires `unrestricted_icmp_and_diagnostic_protocols` when `snmp_enabled` is true AND either `snmp_source_restricted` is false or `snmp_community_string_strength` is 'default' or 'weak'. An accessible SNMP agent allows adversaries to dump the MIB (T1602.001 - SNMP MIB Dump), discovering interface configurations, routing tables, and connected device information (T1016). Default community strings ('public', 'private') require no credential brute-forcing. Rated low criticality (score 2) but enables significant reconnaissance.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether an SNMP daemon is running on the load balancer host and which interfaces it is listening on.",
+        "command": "systemctl status snmpd 2>/dev/null; ps aux | grep -i snmp; ss -ulnp | grep ':161\\|:162'; netstat -ulnp 2>/dev/null | grep ':161'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active snmpd process or UDP port 161 in LISTEN state confirms SNMP is enabled. No process or closed port indicates SNMP is disabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the SNMP daemon configuration for enabled status, listening interfaces, community string values, and source restrictions.",
+        "command": "cat /etc/snmp/snmpd.conf 2>/dev/null | grep -E 'agentAddress|rocommunity|rwcommunity|com2sec|view|access'",
+        "file_path": "/etc/snmp/snmpd.conf, /etc/snmp/snmptrapd.conf",
+        "navigation": null,
+        "expected_output": "agentAddress binding to 0.0.0.0 with rocommunity 'public' or 'private' confirms SNMP is enabled with weak, unrestricted community strings. Binding to 127.0.0.1 only or absent config indicates SNMP is disabled or localhost-only."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt an SNMP walk against the load balancer from an external or internal test host to confirm whether SNMP responds and whether the default community string is accepted.",
+        "command": "snmpwalk -v2c -c public <load-balancer-ip> 1.3.6.1.2.1.1 2>/dev/null; snmpwalk -v2c -c private <load-balancer-ip> 1.3.6.1.2.1.1 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Successful OID responses confirm SNMP is enabled and reachable with default community strings. 'Timeout' or 'No response' confirms SNMP is disabled or blocked."
+      },
+      {
+        "type": "api",
+        "instruction": "For cloud load balancers, check whether SNMP is listed as an enabled protocol or management feature in the load balancer service configuration via the provider API.",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn <arn> --query 'Attributes[?Key==`routing.http.drop_invalid_header_fields.enabled`]'; az network lb show --name <lb-name> --resource-group <rg> --query 'sku'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Cloud-managed load balancers (ALB, NLB, Azure LB) do not expose SNMP natively; if a software load balancer VM is in use, the host-level check above is authoritative."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "snmp_source_restricted",
+    "option_description": "Controls whether SNMP access to the load balancer is limited to a defined set of trusted source IP addresses (e.g., dedicated monitoring servers), rather than accepting SNMP queries from any host on the network. When restricted, only explicitly listed IP ranges can poll or interact with the SNMP agent.",
+    "security_impact": "The Rego policy flags 'unrestricted_icmp_and_diagnostic_protocols' when snmp_enabled is true and snmp_source_restricted is not set. Without source IP restrictions, any host on the network—including a compromised internal system—can query SNMP MIB data, enabling network topology discovery (T1602.001 SNMP MIB Dump, T1016 System Network Configuration Discovery) and potentially exploiting weak community strings. Restricting source IPs significantly limits the blast radius of SNMP exposure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux-based load balancers (e.g., HAProxy with SNMP via net-snmp), inspect the snmpd configuration for rocommunity or rouser directives with source IP constraints.",
+        "command": "grep -E 'rocommunity|rouser|com2sec|agentaddress' /etc/snmp/snmpd.conf | grep -v '^#'",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "Lines such as 'rocommunity <string> <source-IP-or-CIDR>' indicating restricted sources, or absence of source IP indicating unrestricted access."
+      },
+      {
+        "type": "command",
+        "instruction": "For F5 BIG-IP load balancers, use tmsh to list SNMP allowed addresses configuration.",
+        "command": "tmsh list sys snmp allowed-addresses",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of allowed-addresses entries containing specific IP addresses or CIDR ranges. An empty list or wildcard (0.0.0.0/0) indicates unrestricted access."
+      },
+      {
+        "type": "gui",
+        "instruction": "On F5 BIG-IP, navigate to the SNMP configuration panel to review allowed source addresses.",
+        "command": null,
+        "file_path": null,
+        "navigation": "System > SNMP > Agent > Configuration > Client Allow List",
+        "expected_output": "A populated list of specific IP addresses or subnets permitted to query SNMP. An empty allow-list or wildcard entry indicates unrestricted access."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an IP address that should NOT be allowed (e.g., a workstation outside the monitoring subnet), attempt an SNMP walk against the load balancer management IP to verify whether source restrictions are enforced.",
+        "command": "snmpwalk -v2c -c public <load-balancer-management-IP> 1.3.6.1.2.1.1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'Timeout' or 'No response' result from unauthorized source IPs confirms source restriction is in place. A successful MIB response from an untrusted IP confirms the control is absent."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (SNMP ACL or allowed-addresses list is populated with specific monitoring server IPs)",
+      "false (SNMP accepts queries from any source, or no ACL is configured)"
+    ]
+  },
+  {
+    "option_name": "snmp_community_string_strength",
+    "option_description": "Represents an assessment of the SNMP community string configured on the load balancer. The possible values reflect the security quality of the string: 'default' indicates the well-known vendor defaults ('public' for read, 'private' for write) are in use; 'weak' indicates a short or easily guessable string; 'strong' indicates a long, randomly generated string; and 'none' indicates SNMP is fully disabled.",
+    "security_impact": "The Rego policy triggers 'unrestricted_icmp_and_diagnostic_protocols' when snmp_enabled is true and snmp_community_string_strength is either 'default' or 'weak'. Default community strings like 'public' are universally known and trivially exploited—any attacker can query MIB data (T1602.001 SNMP MIB Dump) to enumerate network configuration and system details (T1016). Weak strings offer marginal improvement but remain guessable under brute-force. Only 'strong' or 'none' avoid this policy violation.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On Linux-based systems using net-snmp, inspect the snmpd configuration file for community string definitions and assess their complexity.",
+        "command": "grep -E '^rocommunity|^rwcommunity|^com2sec' /etc/snmp/snmpd.conf | grep -v '^#'",
+        "file_path": "/etc/snmp/snmpd.conf",
+        "navigation": null,
+        "expected_output": "Lines revealing the community string value. Compare against known defaults ('public', 'private') and assess length/complexity. A string of 16+ random alphanumeric characters is considered strong."
+      },
+      {
+        "type": "command",
+        "instruction": "For F5 BIG-IP, use tmsh to display the configured SNMP communities and their access levels.",
+        "command": "tmsh list sys snmp communities",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output listing community names and their access types (read-only/read-write). Community names of 'public' or 'private' confirm default strings; short, dictionary-word strings indicate weakness."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt SNMP queries using well-known default community strings from an authorized test host to verify whether the load balancer responds to default strings.",
+        "command": "snmpwalk -v2c -c public <load-balancer-management-IP> 1.3.6.1.2.1.1 && snmpwalk -v2c -c private <load-balancer-management-IP> 1.3.6.1.2.1.1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful SNMP response to 'public' or 'private' community strings confirms default strings are in use. Timeout or authentication failure for both strings indicates defaults have been changed."
+      },
+      {
+        "type": "gui",
+        "instruction": "On NGINX Plus with SNMP integration or on commercial load balancers such as Citrix ADC (NetScaler), review SNMP community configuration in the management console.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Citrix ADC: System > SNMP > Community Strings; or NGINX Plus admin dashboard under SNMP settings if applicable.",
+        "expected_output": "Displayed community string names. Presence of 'public' or 'private' confirms default configuration. Absence of SNMP communities or presence of opaque strings suggests strong or disabled configuration."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "default (community string is 'public' or 'private'; most common in legacy or out-of-box deployments)",
+      "weak (short, guessable string such as a company name or simple word; common in environments with informal change management)",
+      "strong (16+ character randomly generated string; found in security-hardened or compliance-driven deployments)",
+      "none (SNMP agent is fully disabled; recommended when SNMP monitoring is not required)"
+    ]
+  }
+]

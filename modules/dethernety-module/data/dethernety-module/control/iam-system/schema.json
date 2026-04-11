@@ -1,0 +1,429 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "centralized_iam_provider_enabled": {
+        "type": "boolean",
+        "title": "Centralized IAM Provider Enabled",
+        "description": "Indicates whether a centralized identity and access management provider (e.g., LDAP, Active Directory, Okta, AWS IAM Identity Center) is configured and actively enforcing policies across all zones and services.",
+        "default": false
+      },
+      "policy_enforcement_scope": {
+        "type": "string",
+        "enum": [
+          "all_zones",
+          "partial",
+          "none"
+        ],
+        "title": "Policy Enforcement Scope",
+        "description": "Describes the breadth of centralized policy application across the environment. 'all_zones' means every zone and service is covered; 'partial' means some zones or services are excluded; 'none' means no centralized enforcement exists.",
+        "default": "none"
+      },
+      "least_privilege_policy_enforced": {
+        "type": "boolean",
+        "title": "Least-Privilege Policy Enforced Centrally",
+        "description": "Indicates whether the centralized IAM system enforces least-privilege access controls for all users and service accounts across every resource location.",
+        "default": false
+      },
+      "automated_lifecycle_management_enabled": {
+        "type": "boolean",
+        "title": "Automated Identity Lifecycle Management Enabled",
+        "description": "Indicates whether the centralized IAM system automatically provisions, de-provisions, and updates access rights in response to identity lifecycle events across all zones.",
+        "default": false
+      },
+      "mfa_enforcement_scope": {
+        "type": "string",
+        "enum": [
+          "all_users",
+          "privileged_only",
+          "none"
+        ],
+        "title": "MFA Enforcement Scope",
+        "description": "Indicates which user populations are required to authenticate with MFA. 'all_users' means every user including service accounts, 'privileged_only' means only admin/privileged roles, 'none' means MFA is not enforced."
+      },
+      "step_up_authentication_enabled": {
+        "type": "boolean",
+        "title": "Step-Up Authentication Enabled",
+        "description": "Whether step-up re-authentication with MFA is required for sensitive or high-risk operations such as privilege escalation, data exports, or configuration changes.",
+        "default": false
+      },
+      "mfa_bypass_mechanisms": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "MFA Bypass Mechanisms",
+        "description": "List of active bypass mechanisms that allow authentication without MFA (e.g., 'trusted_ip_whitelist', 'legacy_auth_protocols', 'remember_device', 'service_account_exemption'). An empty array indicates no bypasses are configured.",
+        "default": []
+      },
+      "rbac_policy_model_enabled": {
+        "type": "boolean",
+        "title": "RBAC/ABAC Policy Model Enabled",
+        "description": "Whether a formal Role-Based Access Control or Attribute-Based Access Control policy model is actively enforced across the environment, as opposed to relying solely on flat permissions or ad-hoc access grants.",
+        "default": false
+      },
+      "least_privilege_scope": {
+        "type": "string",
+        "enum": [
+          "fine_grained",
+          "moderate",
+          "coarse"
+        ],
+        "title": "Least Privilege Permission Scope",
+        "description": "The granularity level at which permissions are scoped. Indicates whether permissions are assigned at a coarse (broad wildcards or admin-level roles) or fine-grained (specific resource, action, and condition-level) scope.",
+        "default": "coarse"
+      },
+      "service_identity_rbac_coverage": {
+        "type": "boolean",
+        "title": "Service Identity RBAC Coverage",
+        "description": "Whether non-human service identities (e.g., service accounts, workload identities, API keys) are subject to the same RBAC/ABAC policy controls as human users, with distinct roles and minimal permission scopes.",
+        "default": false
+      },
+      "credential_rotation_policy_enabled": {
+        "type": "boolean",
+        "title": "Credential Rotation Policy Enabled",
+        "description": "Indicates whether an automated credential and API key rotation policy is configured and enforced for service accounts.",
+        "default": false
+      },
+      "max_credential_age_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Maximum Credential Age (Days)",
+        "description": "The maximum allowed age in days for service account credentials or API keys before mandatory rotation or expiry is enforced."
+      },
+      "dormant_account_detection_enabled": {
+        "type": "boolean",
+        "title": "Dormant Account Detection Enabled",
+        "description": "Indicates whether automated detection and alerting or deprovisioning of dormant or inactive service accounts is active.",
+        "default": false
+      },
+      "authentication_logging_enabled": {
+        "type": "boolean",
+        "title": "Authentication Logging Enabled",
+        "description": "Whether comprehensive logging of all authentication attempts (successful and failed) is enabled across all zones.",
+        "default": false
+      },
+      "log_coverage_scope": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Log Coverage Scope",
+        "description": "The breadth of events captured in authentication logs: whether coverage includes authentication, authorization decisions, policy changes, and session activities.",
+        "default": "none"
+      },
+      "tamper_evident_storage_configured": {
+        "type": "boolean",
+        "title": "Tamper-Evident Log Storage Configured",
+        "description": "Whether logs are stored in a tamper-evident or write-once manner (e.g., log integrity validation, immutable storage, cryptographic signing) to support forensic use.",
+        "default": false
+      },
+      "behavioral_analytics_enabled": {
+        "type": "boolean",
+        "title": "Behavioral Analytics Enabled",
+        "description": "Whether the IAM system has behavioral analytics / anomalous access pattern detection actively enabled and processing events.",
+        "default": false
+      },
+      "risk_score_triggers_automated_response": {
+        "type": "boolean",
+        "title": "Risk Score Triggers Automated Response",
+        "description": "Whether elevated risk scores generated by behavioral analytics are wired to automated response workflows (e.g., step-up authentication, session termination, account lock, SOAR playbook).",
+        "default": false
+      },
+      "detection_signals_configured": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Configured Detection Signals",
+        "description": "List of anomaly detection signal types actively configured in the behavioral analytics engine (e.g., 'impossible_travel', 'unusual_access_time', 'abnormal_resource_enumeration', 'new_device', 'credential_stuffing').",
+        "default": []
+      },
+      "federated_protocol_configured": {
+        "type": "string",
+        "enum": [
+          "saml",
+          "oidc",
+          "scim",
+          "multiple",
+          "none"
+        ],
+        "title": "Federated Identity Protocol",
+        "description": "The federated identity protocol in use across trust zones for cross-zone authentication.",
+        "default": "none"
+      },
+      "cross_zone_sso_enabled": {
+        "type": "boolean",
+        "title": "Cross-Zone SSO Enabled",
+        "description": "Whether single sign-on is actively enforced across all federated trust zones, preventing credential duplication.",
+        "default": false
+      },
+      "identity_lifecycle_automation": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Identity Lifecycle Automation",
+        "description": "Whether automated provisioning and deprovisioning is enforced across zones via SCIM or equivalent protocol.",
+        "default": "none"
+      },
+      "zones_without_federation_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Zones Without Federation Count",
+        "description": "Number of network or security zones that are not covered by the federated identity integration.",
+        "default": 0
+      },
+      "access_review_enabled": {
+        "type": "boolean",
+        "title": "Access Review Enabled",
+        "description": "Whether automated access review and recertification workflows are enabled in the IAM system.",
+        "default": false
+      },
+      "review_schedule_frequency_days": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 365,
+        "title": "Review Schedule Frequency (Days)",
+        "description": "How frequently in days the automated access review cycle runs. Lower values indicate more frequent reviews."
+      },
+      "auto_revocation_on_no_response": {
+        "type": "boolean",
+        "title": "Automatic Revocation on Non-Response",
+        "description": "Whether permissions are automatically revoked when a reviewer fails to certify access within the review deadline.",
+        "default": false
+      },
+      "event_triggered_review_enabled": {
+        "type": "boolean",
+        "title": "Event-Triggered Review Enabled",
+        "description": "Whether access reviews are automatically triggered by identity lifecycle events such as role changes, transfers, or privilege escalations.",
+        "default": false
+      }
+    },
+    "required": [
+      "centralized_iam_provider_enabled",
+      "policy_enforcement_scope",
+      "least_privilege_policy_enforced",
+      "automated_lifecycle_management_enabled",
+      "mfa_enforcement_scope",
+      "step_up_authentication_enabled",
+      "mfa_bypass_mechanisms",
+      "rbac_policy_model_enabled",
+      "least_privilege_scope",
+      "service_identity_rbac_coverage",
+      "credential_rotation_policy_enabled",
+      "max_credential_age_days",
+      "dormant_account_detection_enabled",
+      "authentication_logging_enabled",
+      "log_coverage_scope",
+      "tamper_evident_storage_configured",
+      "behavioral_analytics_enabled",
+      "risk_score_triggers_automated_response",
+      "detection_signals_configured",
+      "federated_protocol_configured",
+      "cross_zone_sso_enabled",
+      "identity_lifecycle_automation",
+      "zones_without_federation_count",
+      "access_review_enabled",
+      "review_schedule_frequency_days",
+      "auto_revocation_on_no_response"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Configuration",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_review_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/authentication_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/behavioral_analytics_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_iam_provider_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_rotation_policy_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cross_zone_sso_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/federated_protocol_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_policy_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_coverage_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/max_credential_age_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_bypass_mechanisms"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enforcement_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/policy_enforcement_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rbac_policy_model_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/risk_score_triggers_automated_response"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/service_identity_rbac_coverage"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/step_up_authentication_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/zones_without_federation_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/auto_revocation_on_no_response"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/automated_lifecycle_management_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/detection_signals_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dormant_account_detection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/identity_lifecycle_automation"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/review_schedule_frequency_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tamper_evident_storage_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/event_triggered_review_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

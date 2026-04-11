@@ -1,0 +1,8 @@
+{
+  "name": "EDR/MDR/XDR",
+  "classType": "control",
+  "type": "EDR/MDR/XDR",
+  "description": "Advanced threat detection and response systems deliver comprehensive security visibility through multi-layer telemetry collection, behavioral analytics, and automated response orchestration. When properly configured, these systems provide high-fidelity detection, accelerated incident response, and deep integration across the security stack to minimize dwell time and operational blind spots.",
+  "category": "Cross Cutting Controls",
+  "status": "reviewed"
+}

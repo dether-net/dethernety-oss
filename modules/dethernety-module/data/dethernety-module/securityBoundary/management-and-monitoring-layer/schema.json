@@ -1,0 +1,607 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "management_interface_ingress_filter_enabled": {
+        "type": "boolean",
+        "title": "Management Interface Ingress Filtering Enabled",
+        "description": "Whether strict ingress filtering (ACLs, firewall rules, or security group policies) is enforced on management interfaces to restrict source traffic to designated management zone CIDRs only.",
+        "default": false
+      },
+      "allowed_management_source_cidrs": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Allowed Management Source CIDRs",
+        "description": "List of CIDR ranges explicitly permitted as ingress sources to management interfaces. Presence of overly permissive entries (e.g., 0.0.0.0/0, ::/0) indicates insufficient zone separation."
+      },
+      "management_zone_network_segment_defined": {
+        "type": "boolean",
+        "title": "Management Zone Network Segment Defined",
+        "description": "Whether a dedicated, documented network segment (VLAN, subnet, or VPC) is formally designated as the management zone, establishing the authoritative source range for management traffic.",
+        "default": false
+      },
+      "egress_destination_allowlist_enabled": {
+        "type": "boolean",
+        "title": "Egress Destination Allowlist Enabled",
+        "description": "Indicates whether outbound telemetry/monitoring traffic is restricted to an explicit allowlist of approved destination endpoints (IP ranges, hostnames, or domains).",
+        "default": false
+      },
+      "telemetry_destination_validation_mode": {
+        "type": "string",
+        "enum": [
+          "allowlist",
+          "denylist",
+          "none"
+        ],
+        "title": "Telemetry Destination Validation Mode",
+        "description": "Describes how outbound telemetry destinations are validated: 'allowlist' enforces only approved destinations, 'denylist' blocks known-bad destinations, 'none' applies no destination filtering.",
+        "default": "none"
+      },
+      "telemetry_egress_tls_with_server_auth": {
+        "type": "boolean",
+        "title": "Telemetry Egress TLS with Server Authentication",
+        "description": "Indicates whether outbound telemetry connections enforce mutual or one-way TLS with server certificate validation, preventing redirection to attacker-controlled endpoints without a trusted certificate.",
+        "default": false
+      },
+      "credential_zone_scope": {
+        "type": "string",
+        "enum": [
+          "single_zone",
+          "multi_zone",
+          "unknown"
+        ],
+        "title": "Credential Zone Scope",
+        "description": "Indicates whether management credentials or service account tokens are scoped to a single trust zone or reused across multiple trust zones, and how many distinct zones share the same credential."
+      },
+      "zone_isolation_enforced": {
+        "type": "boolean",
+        "title": "Zone Isolation Enforced for Management Credentials",
+        "description": "Whether zone-level isolation controls (e.g., RBAC bindings, network policy, vault namespaces) actively prevent a credential valid in one zone from being used in another zone.",
+        "default": false
+      },
+      "distinct_zones_sharing_credential": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "title": "Number of Distinct Trust Zones Sharing a Credential",
+        "description": "Count of distinct trust zones (e.g., management, production, DMZ, monitoring) that reference or are authorized by the same credential or service account token.",
+        "default": 1
+      },
+      "agent_network_policy_enforced": {
+        "type": "boolean",
+        "title": "Agent Network Policy Enforced",
+        "description": "Whether network policies (e.g., Kubernetes NetworkPolicy, firewall ACLs, or iptables rules) are applied to monitoring agents to restrict their outbound and inbound traffic to only required endpoints. Also covers egress-specific policy enforcement for supply chain scenarios.",
+        "default": false
+      },
+      "agent_zone_access_scope": {
+        "type": "string",
+        "enum": [
+          "monitoring_only",
+          "management_and_monitoring",
+          "multi_zone"
+        ],
+        "title": "Agent Zone Access Scope",
+        "description": "The breadth of network zones the monitoring agent has access to, based on its credentials, network bindings, or service account permissions.",
+        "default": "multi_zone"
+      },
+      "agent_privilege_level": {
+        "type": "string",
+        "enum": [
+          "least_privilege",
+          "elevated",
+          "root"
+        ],
+        "title": "Agent Privilege Level",
+        "description": "The effective privilege level of the monitoring agent on the host or within the cluster, which influences how far lateral movement could reach if the agent is compromised.",
+        "default": "root"
+      },
+      "agent_credential_scope": {
+        "type": "string",
+        "enum": [
+          "telemetry_read_only",
+          "management_read",
+          "broad"
+        ],
+        "title": "Agent Credential Scope",
+        "description": "The scope of credentials (API tokens, certificates, service account keys) held by the monitoring agent — whether they are scoped only to read telemetry data or grant broader access across zones.",
+        "default": "broad"
+      },
+      "management_vlan_dedicated": {
+        "type": "boolean",
+        "title": "Dedicated Management VLAN Configured",
+        "description": "Indicates whether a separate, dedicated VLAN is configured exclusively for management traffic, isolating it from production and user traffic.",
+        "default": false
+      },
+      "management_traffic_acl_enforced": {
+        "type": "boolean",
+        "title": "ACL or Firewall Rules Enforcing Management Traffic Isolation",
+        "description": "Indicates whether explicit ACL or firewall rules are in place to restrict management traffic to authorized sources and prevent management protocols from traversing production network segments.",
+        "default": false
+      },
+      "management_network_micro_segmentation_enabled": {
+        "type": "boolean",
+        "title": "Micro-Segmentation Policy Applied to Management Network",
+        "description": "Indicates whether a micro-segmentation or software-defined policy (e.g., NSX, Cisco ACI, cloud security groups) is applied to enforce east-west traffic controls within the management zone, preventing lateral movement.",
+        "default": false
+      },
+      "per_zone_authorization_enforced": {
+        "type": "boolean",
+        "title": "Per-Zone Authorization Enforced",
+        "description": "Whether the orchestration controller requires distinct authorization checks before issuing commands to each managed zone, rather than using a single global credential or token.",
+        "default": false
+      },
+      "controller_blast_radius_scope": {
+        "type": "string",
+        "enum": [
+          "single_zone",
+          "subset_of_zones",
+          "all_zones"
+        ],
+        "title": "Controller Blast Radius Scope",
+        "description": "The scope of zones the controller can directly reach with a single compromised credential or session — single zone, subset of zones, or all managed zones."
+      },
+      "zone_isolation_policy_defined": {
+        "type": "boolean",
+        "title": "Zone Isolation Policy Defined",
+        "description": "Whether a network or policy boundary is explicitly defined and enforced between the management/orchestration plane and each production data-plane zone, limiting transitive command propagation.",
+        "default": false
+      },
+      "endpoint_authentication_required": {
+        "type": "boolean",
+        "title": "Health Check Endpoint Authentication Required",
+        "description": "Whether the health-check or status endpoints require authentication before returning response data.",
+        "default": false
+      },
+      "exposed_zone": {
+        "type": "string",
+        "enum": [
+          "management",
+          "production",
+          "dmz",
+          "internet",
+          "other"
+        ],
+        "title": "Zone Exposed To",
+        "description": "The network zone from which the health-check or status endpoints are accessible."
+      },
+      "response_includes_internal_state": {
+        "type": "boolean",
+        "title": "Response Includes Internal Component State",
+        "description": "Whether the health-check or status endpoint responses include sensitive internal information such as dependency names, versions, internal IP addresses, connection pool states, or error details.",
+        "default": false
+      },
+      "zone_boundary_traffic_mirroring_enabled": {
+        "type": "boolean",
+        "title": "Zone Boundary Traffic Mirroring Enabled",
+        "description": "Indicates whether traffic crossing the boundary between the management zone and adjacent zones is mirrored to a monitoring or inspection component (e.g., IDS, network tap, SIEM collector).",
+        "default": false
+      },
+      "inline_inspection_deployed": {
+        "type": "boolean",
+        "title": "Inline Inspection Component Deployed at Boundary",
+        "description": "Indicates whether an inline inspection device (e.g., NGFW, IPS, DPI appliance) is positioned at the management-to-adjacent-zone boundary to inspect all crossing traffic in real time.",
+        "default": false
+      },
+      "boundary_traffic_logged_to_siem": {
+        "type": "boolean",
+        "title": "Management Zone Boundary Traffic Logged to SIEM",
+        "description": "Indicates whether flow records, firewall logs, or full packet captures for management-zone boundary traffic are forwarded to a SIEM or centralized log analysis system with active alerting rules."
+      },
+      "oob_channel_enabled": {
+        "type": "boolean",
+        "title": "Out-of-Band Management Channel Enabled",
+        "description": "Whether an out-of-band management channel (IPMI, iDRAC, BMC, serial-over-LAN) is active and accessible on the management boundary.",
+        "default": false
+      },
+      "oob_traffic_logging_enabled": {
+        "type": "boolean",
+        "title": "Out-of-Band Channel Traffic Logging Enabled",
+        "description": "Whether authentication attempts, session activity, and administrative commands on the OOB channel are captured in a centralized logging or SIEM system.",
+        "default": false
+      },
+      "oob_network_segment_isolated": {
+        "type": "boolean",
+        "title": "OOB Management Network Segment Isolated",
+        "description": "Whether the out-of-band management network is on a dedicated, isolated VLAN or physical network segment with enforced ingress/egress ACLs preventing cross-zone access.",
+        "default": false
+      },
+      "oob_authentication_method": {
+        "type": "string",
+        "enum": [
+          "none",
+          "default_credentials",
+          "local_only",
+          "mfa_enforced"
+        ],
+        "title": "OOB Channel Authentication Method",
+        "description": "The authentication mechanism enforced on the out-of-band management channel."
+      },
+      "agent_integrity_verification_enabled": {
+        "type": "boolean",
+        "title": "Agent Integrity Verification Enabled",
+        "description": "Whether cryptographic signature or hash verification is enforced for monitoring agent binaries and updates before installation or execution.",
+        "default": false
+      },
+      "agent_runtime_behavior_monitored": {
+        "type": "boolean",
+        "title": "Agent Runtime Behavior Monitored",
+        "description": "Whether runtime behavioral monitoring (e.g., eBPF-based syscall tracing, EDR agent, or anomaly detection) is applied to the monitoring agent process to detect unexpected outbound connections or privilege escalation."
+      },
+      "mtls_peer_authentication_mode": {
+        "type": "string",
+        "enum": [
+          "STRICT",
+          "PERMISSIVE",
+          "DISABLE",
+          "UNSET"
+        ],
+        "title": "mTLS Peer Authentication Mode",
+        "description": "The PeerAuthentication policy mode applied to sidecars in the management zone, controlling whether mTLS is strictly enforced or permissive.",
+        "default": "PERMISSIVE"
+      },
+      "authorization_policy_source_namespaces": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "AuthorizationPolicy Allowed Source Namespaces",
+        "description": "List of source namespaces explicitly permitted to send traffic to management-zone sidecars via AuthorizationPolicy rules. An empty list or absent policy implies allow-all."
+      },
+      "cross_zone_deny_policy_present": {
+        "type": "boolean",
+        "title": "Cross-Zone Deny Policy Present",
+        "description": "Indicates whether an explicit DENY AuthorizationPolicy exists in the management namespace to block inbound connections from untrusted or production zones.",
+        "default": false
+      },
+      "legacy_management_protocols_permitted": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Legacy Management Protocols Permitted",
+        "description": "List of legacy or obsolete management protocols (e.g., telnet, SNMPv1, SNMPv2c, HTTP, rsh, rlogin) explicitly permitted by firewall rules on the management zone boundary.",
+        "default": []
+      },
+      "stale_source_ranges_permitted": {
+        "type": "boolean",
+        "title": "Stale or Overly Broad Source Ranges Permitted",
+        "description": "Indicates whether any firewall ingress rules on the management zone boundary reference source IP ranges that are no longer operationally required (e.g., decommissioned subnets, former vendor CIDR blocks, or overly broad ranges like 0.0.0.0/0).",
+        "default": false
+      },
+      "last_rule_review_days_ago": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Days Since Last Firewall Rule Review",
+        "description": "Number of days elapsed since the management zone firewall rules were last formally reviewed and approved for operational necessity."
+      }
+    },
+    "required": [
+      "management_interface_ingress_filter_enabled",
+      "allowed_management_source_cidrs",
+      "management_zone_network_segment_defined",
+      "egress_destination_allowlist_enabled",
+      "telemetry_destination_validation_mode",
+      "telemetry_egress_tls_with_server_auth",
+      "credential_zone_scope",
+      "zone_isolation_enforced",
+      "distinct_zones_sharing_credential",
+      "agent_network_policy_enforced",
+      "agent_zone_access_scope",
+      "agent_privilege_level",
+      "agent_credential_scope",
+      "management_vlan_dedicated",
+      "management_traffic_acl_enforced",
+      "management_network_micro_segmentation_enabled",
+      "per_zone_authorization_enforced",
+      "controller_blast_radius_scope",
+      "zone_isolation_policy_defined",
+      "endpoint_authentication_required",
+      "exposed_zone",
+      "response_includes_internal_state",
+      "zone_boundary_traffic_mirroring_enabled",
+      "inline_inspection_deployed",
+      "boundary_traffic_logged_to_siem",
+      "oob_channel_enabled",
+      "oob_traffic_logging_enabled",
+      "oob_network_segment_isolated",
+      "oob_authentication_method",
+      "agent_integrity_verification_enabled",
+      "agent_runtime_behavior_monitored",
+      "mtls_peer_authentication_mode",
+      "authorization_policy_source_namespaces",
+      "cross_zone_deny_policy_present",
+      "legacy_management_protocols_permitted",
+      "stale_source_ranges_permitted",
+      "last_rule_review_days_ago"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_network_policy_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_zone_access_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/allowed_management_source_cidrs"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cross_zone_deny_policy_present"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_destination_allowlist_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/exposed_zone"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/legacy_management_protocols_permitted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/management_interface_ingress_filter_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_traffic_acl_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/management_vlan_dedicated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_zone_network_segment_defined"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/oob_network_segment_isolated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/stale_source_ranges_permitted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/telemetry_destination_validation_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/zone_isolation_policy_defined"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/last_rule_review_days_ago"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_network_micro_segmentation_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_credential_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_privilege_level"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/authorization_policy_source_namespaces"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/controller_blast_radius_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_zone_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/distinct_zones_sharing_credential"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_authentication_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mtls_peer_authentication_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/per_zone_authorization_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/zone_isolation_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/oob_authentication_method"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/telemetry_egress_tls_with_server_auth"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/response_includes_internal_state"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/inline_inspection_deployed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/oob_traffic_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/zone_boundary_traffic_mirroring_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_runtime_behavior_monitored"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/boundary_traffic_logged_to_siem"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_integrity_verification_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/oob_channel_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

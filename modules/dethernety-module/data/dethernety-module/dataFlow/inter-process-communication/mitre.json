@@ -1,0 +1,82 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1559",
+      "name": "Inter-Process Communication",
+      "relevance": "Directly relates to exploiting IPC channels, where missing mutual authentication allows unauthorized processes to communicate."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1021",
+      "name": "Remote Services",
+      "relevance": "Lack of mutual authentication on IPC channels mirrors the risk of unauthenticated access to remote services."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1055.009",
+      "name": "Proc Memory",
+      "relevance": "Attackers can manipulate shared memory regions without integrity checks, similar to proc memory injection techniques."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1040",
+      "name": "Network Sniffing",
+      "relevance": "Capturing IPC messages for replay requires intercepting/sniffing the communication, analogous to network sniffing."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1212",
+      "name": "Exploitation for Credential Access",
+      "relevance": "Exposed unauthenticated D-Bus methods can be exploited to gain credentials or escalate privileges."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1569",
+      "name": "System Services",
+      "relevance": "D-Bus services often mediate system service interactions; unauthenticated exposure can allow abuse of system services."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1574.009",
+      "name": "Path Interception by Unquoted Path",
+      "relevance": "Named pipe squatting is conceptually similar to path interception, where an attacker pre-creates a resource at an expected location."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1499.001",
+      "name": "OS Exhaustion Flood",
+      "relevance": "Without rate limiting, IPC endpoints are vulnerable to flooding attacks that exhaust OS resources."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1588.004",
+      "name": "Digital Certificates",
+      "relevance": "Absence of proper TLS certificates on RPC channels relates to the misuse or absence of digital certificates for securing communications."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1572",
+      "name": "Protocol Tunneling",
+      "relevance": "Weak TLS on loopback RPC can be exploited to tunnel malicious traffic through the unprotected RPC channel."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1048.003",
+      "name": "Exfiltration Over Unencrypted Non-C2 Protocol",
+      "relevance": "Sensitive data present in unprotected IPC headers can be exfiltrated over unencrypted protocols by a local attacker."
+    }
+  ],
+  "respondsWith": []
+}

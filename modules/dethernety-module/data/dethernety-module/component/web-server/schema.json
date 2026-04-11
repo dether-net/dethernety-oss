@@ -1,0 +1,658 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "accepted_tls_versions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Accepted TLS/SSL Protocol Versions",
+        "description": "List of TLS/SSL protocol versions the server is configured to accept (e.g., SSLv3, TLSv1.0, TLSv1.1, TLSv1.2, TLSv1.3)"
+      },
+      "weak_cipher_suites_enabled": {
+        "type": "boolean",
+        "title": "Weak Cipher Suites Enabled",
+        "description": "Whether the server is configured to accept weak or deprecated cipher suites (e.g., RC4, DES, 3DES, NULL ciphers, EXPORT ciphers, anonymous DH)",
+        "default": false
+      },
+      "certificate_authority_type": {
+        "type": "string",
+        "enum": [
+          "trusted_public_ca",
+          "private_internal_ca",
+          "self_signed"
+        ],
+        "title": "Certificate Authority Type",
+        "description": "Indicates whether the TLS certificate is issued by a trusted public CA, a private/internal CA, or is self-signed."
+      },
+      "certificate_expired": {
+        "type": "boolean",
+        "title": "Certificate Expired",
+        "description": "Whether the TLS certificate's notAfter date is in the past, making it invalid for client trust validation.",
+        "default": false
+      },
+      "certificate_domain_match": {
+        "type": "boolean",
+        "title": "Certificate Domain Matches Server Hostname",
+        "description": "Whether the certificate's Subject CN or Subject Alternative Names (SANs) match the server's configured hostname or public-facing domain.",
+        "default": false
+      },
+      "tls_configured": {
+        "type": "boolean",
+        "title": "TLS Configured on Server",
+        "description": "Whether the web server has TLS/HTTPS enabled and a certificate is configured at all.",
+        "default": false
+      },
+      "http_port_open": {
+        "type": "boolean",
+        "title": "HTTP Port 80 Open",
+        "description": "Whether the web server is actively listening and accepting connections on port 80 (unencrypted HTTP).",
+        "default": false
+      },
+      "http_to_https_redirect_enabled": {
+        "type": "boolean",
+        "title": "HTTP to HTTPS Redirect Enabled",
+        "description": "Whether the server is configured to automatically redirect all HTTP (port 80) requests to HTTPS (port 443) with a 301 or 302 redirect response.",
+        "default": false
+      },
+      "hsts_enabled": {
+        "type": "boolean",
+        "title": "HTTP Strict Transport Security (HSTS) Enabled",
+        "description": "Whether the server sends the Strict-Transport-Security response header, instructing browsers to only communicate over HTTPS."
+      },
+      "server_header_disclosure": {
+        "type": "boolean",
+        "title": "Server Header Discloses Version",
+        "description": "Indicates whether the HTTP Server response header exposes software name and/or version information (e.g., 'Apache/2.4.51 (Ubuntu)')."
+      },
+      "x_powered_by_header_disclosure": {
+        "type": "boolean",
+        "title": "X-Powered-By Header Present",
+        "description": "Indicates whether the X-Powered-By response header is present and exposes technology stack information (e.g., 'PHP/8.0.3', 'Express')."
+      },
+      "directory_listing_enabled": {
+        "type": "boolean",
+        "title": "Directory Listing Enabled",
+        "description": "Indicates whether the web server is configured to automatically generate and serve directory index pages when no index file is present, allowing clients to enumerate directory contents.",
+        "default": false
+      },
+      "publicly_accessible": {
+        "type": "boolean",
+        "title": "Publicly Accessible Endpoint",
+        "description": "Indicates whether the web server or the affected virtual host/path is reachable from untrusted networks (e.g., the internet or a shared network), as opposed to being restricted to internal/loopback interfaces only.",
+        "default": true
+      },
+      "authentication_required": {
+        "type": "boolean",
+        "title": "Authentication Required for Directory Access",
+        "description": "Indicates whether access to the affected directories or write methods requires authentication, limiting exposure to authenticated users only.",
+        "default": false
+      },
+      "present_security_headers": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Present Security Response Headers",
+        "description": "List of security-relevant HTTP response headers currently present and configured in server responses (e.g., Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options, Content-Security-Policy, Referrer-Policy)",
+        "default": []
+      },
+      "hsts_max_age_seconds": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 63072000,
+        "title": "HSTS max-age Value (Seconds)",
+        "description": "The max-age directive value from the Strict-Transport-Security header. A value below 31536000 (1 year) is considered insufficient. Use 0 if the header is absent.",
+        "default": 0
+      },
+      "csp_policy_configured": {
+        "type": "boolean",
+        "title": "Content-Security-Policy Configured",
+        "description": "Whether a non-empty Content-Security-Policy header is present and contains at least a default-src or script-src directive.",
+        "default": false
+      },
+      "allowed_http_methods": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Allowed HTTP Methods",
+        "description": "List of HTTP methods the server accepts on the endpoint or globally. Dangerous methods include PUT, DELETE, TRACE, CONNECT."
+      },
+      "endpoint_is_static_or_readonly": {
+        "type": "boolean",
+        "title": "Endpoint Is Static or Read-Only",
+        "description": "Indicates whether the endpoint is intended to serve only read-only or static content, meaning write/destructive methods should never be permitted."
+      },
+      "trace_method_response_reflects_headers": {
+        "type": "boolean",
+        "title": "TRACE Method Reflects Request Headers",
+        "description": "Indicates whether a TRACE request to the server results in the request body/headers being echoed back, confirming active cross-site tracing (XST) vulnerability."
+      },
+      "process_run_uid": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 65535,
+        "title": "Web Server Process UID",
+        "description": "The numeric user ID (UID) of the OS account running the web server process. UID 0 is root. UIDs below 100 may indicate system or service accounts with elevated access."
+      },
+      "process_run_user": {
+        "type": "string",
+        "title": "Web Server Process Run User",
+        "description": "The OS user account under which the web server process is running (e.g., root, www-data, nginx, apache, nobody)"
+      },
+      "dedicated_service_account_configured": {
+        "type": "boolean",
+        "title": "Dedicated Low-Privilege Service Account Configured",
+        "description": "Whether the web server is explicitly configured to use a dedicated, low-privilege service account (e.g., www-data, nginx, apache) rather than a generic or privileged account.",
+        "default": false
+      },
+      "web_root_owner": {
+        "type": "string",
+        "title": "Web Root Directory Owner",
+        "description": "The OS user that owns the web root directory (e.g., /var/www/html). Should be a dedicated web server user, not root or a generic user."
+      },
+      "web_root_world_writable": {
+        "type": "boolean",
+        "title": "Web Root World-Writable",
+        "description": "Indicates whether the web root directory or its contents have world-writable permissions (mode includes o+w).",
+        "default": false
+      },
+      "config_dir_permissions_octal": {
+        "type": "string",
+        "title": "Web Server Config Directory Permissions (Octal)",
+        "description": "Octal permission string of the web server configuration directory (e.g., /etc/nginx or /etc/apache2). Safe value is 750 or more restrictive."
+      },
+      "access_logging_enabled": {
+        "type": "boolean",
+        "title": "Access Logging Enabled",
+        "description": "Whether HTTP access logging is enabled on the web server, capturing requests made to the server.",
+        "default": false
+      },
+      "error_logging_enabled": {
+        "type": "boolean",
+        "title": "Error Logging Enabled",
+        "description": "Whether HTTP error logging is enabled on the web server, capturing server errors and anomalous conditions."
+      },
+      "log_fields_captured": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Log Fields Captured",
+        "description": "List of fields captured in the access log format string. Expected fields include: client_ip, request_uri, response_code, timestamp.",
+        "default": []
+      },
+      "log_input_sanitization_enabled": {
+        "type": "boolean",
+        "title": "Log Input Sanitization Enabled",
+        "description": "Whether the server sanitizes or encodes user-supplied input (e.g., newline characters, control characters) before writing it to log files.",
+        "default": false
+      },
+      "logged_user_supplied_fields": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "User-Supplied Fields Written to Logs",
+        "description": "List of user-controlled HTTP request fields (e.g., User-Agent, Referer, URI, query string, X-Forwarded-For) that are recorded verbatim in server log files."
+      },
+      "version_has_known_cve": {
+        "type": "boolean",
+        "title": "Server Version Has Known CVE",
+        "description": "Indicates whether the running web server binary or its bundled modules have one or more publicly disclosed CVEs in the current installed version.",
+        "default": false
+      },
+      "days_since_patch_available": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Days Since Patch Available",
+        "description": "Number of calendar days elapsed since a patched version addressing the known CVE(s) was publicly released by the vendor, and the server has not yet been updated."
+      },
+      "rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "Rate Limiting Enabled",
+        "description": "Whether per-client or per-IP request rate limiting is configured at the web server or reverse proxy level (e.g., nginx limit_req, Apache mod_ratelimit, or equivalent).",
+        "default": false
+      },
+      "connection_throttling_enabled": {
+        "type": "boolean",
+        "title": "Connection Throttling Enabled",
+        "description": "Whether limits on simultaneous connections per client or overall concurrent connections are configured (e.g., nginx limit_conn, Apache LimitRequestFields/MaxKeepAliveRequests, or equivalent).",
+        "default": false
+      },
+      "max_request_body_size_bytes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 2147483647,
+        "title": "Maximum Request Body Size (Bytes)",
+        "description": "The configured maximum allowed size of an HTTP request body in bytes. A value of 0 or -1 typically indicates no limit is enforced.",
+        "default": 0
+      },
+      "default_welcome_page_active": {
+        "type": "boolean",
+        "title": "Default Welcome Page Active",
+        "description": "Whether the server serves its default welcome/index page (e.g., Apache 'It works!', nginx default page, IIS default page) on the root or well-known paths.",
+        "default": false
+      },
+      "sample_scripts_accessible": {
+        "type": "boolean",
+        "title": "Sample Scripts or Test Endpoints Accessible",
+        "description": "Whether vendor-shipped sample scripts, test pages, or demo endpoints (e.g., /examples/, /cgi-bin/test-cgi, /phpinfo.php, /server-info, /server-status) are reachable and return a 2xx or 3xx response.",
+        "default": false
+      },
+      "vhosts_share_document_root": {
+        "type": "boolean",
+        "title": "Virtual Hosts Share Document Root",
+        "description": "Indicates whether two or more configured virtual hosts resolve to the same filesystem document root directory, enabling cross-vhost content access.",
+        "default": false
+      },
+      "chroot_or_namespace_isolation_enabled": {
+        "type": "boolean",
+        "title": "Chroot or Namespace Isolation Enabled",
+        "description": "Indicates whether each virtual host process or worker runs within a chroot jail, container namespace, or equivalent OS-level isolation boundary preventing cross-vhost filesystem traversal.",
+        "default": false
+      },
+      "path_traversal_controls_enabled": {
+        "type": "boolean",
+        "title": "Path Traversal Controls Enabled",
+        "description": "Indicates whether the server enforces controls that prevent directory traversal sequences (e.g., '../') from escaping the intended document root for each virtual host."
+      },
+      "key_file_in_document_root": {
+        "type": "boolean",
+        "title": "Private Key File Located Within Document Root",
+        "description": "Indicates whether any TLS private key file path is located under the web server document root directory, making it potentially retrievable via HTTP request.",
+        "default": false
+      },
+      "key_file_world_readable": {
+        "type": "boolean",
+        "title": "Private Key File Has World-Readable Permissions",
+        "description": "Indicates whether the TLS private key file has filesystem permissions that allow reading by users other than the owning user or designated web server group (e.g., mode includes o+r or permissions are 644, 666, 777).",
+        "default": false
+      }
+    },
+    "required": [
+      "accepted_tls_versions",
+      "weak_cipher_suites_enabled",
+      "certificate_authority_type",
+      "certificate_expired",
+      "certificate_domain_match",
+      "tls_configured",
+      "http_port_open",
+      "http_to_https_redirect_enabled",
+      "hsts_enabled",
+      "directory_listing_enabled",
+      "publicly_accessible",
+      "authentication_required",
+      "present_security_headers",
+      "hsts_max_age_seconds",
+      "csp_policy_configured",
+      "allowed_http_methods",
+      "endpoint_is_static_or_readonly",
+      "trace_method_response_reflects_headers",
+      "process_run_uid",
+      "process_run_user",
+      "dedicated_service_account_configured",
+      "web_root_owner",
+      "web_root_world_writable",
+      "config_dir_permissions_octal",
+      "access_logging_enabled",
+      "error_logging_enabled",
+      "log_fields_captured",
+      "log_input_sanitization_enabled",
+      "logged_user_supplied_fields",
+      "version_has_known_cve",
+      "days_since_patch_available",
+      "rate_limiting_enabled",
+      "connection_throttling_enabled",
+      "max_request_body_size_bytes",
+      "vhosts_share_document_root",
+      "chroot_or_namespace_isolation_enabled",
+      "path_traversal_controls_enabled",
+      "key_file_in_document_root",
+      "key_file_world_readable"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/accepted_tls_versions"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_authority_type"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_domain_match"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_expired"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/http_port_open"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/http_to_https_redirect_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/key_file_in_document_root"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/key_file_world_readable"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_cipher_suites_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_days_until_expiry"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hsts_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/hsts_max_age_seconds"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/allowed_http_methods"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/chroot_or_namespace_isolation_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/config_dir_permissions_octal"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/publicly_accessible"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/vhosts_share_document_root"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/web_root_owner"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/web_root_world_writable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/authentication_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/directory_listing_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_is_static_or_readonly"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/path_traversal_controls_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/trace_method_response_reflects_headers"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/days_since_patch_available"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dedicated_service_account_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/process_run_uid"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/process_run_user"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/version_has_known_cve"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/default_welcome_page_active"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sample_scripts_accessible"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/connection_throttling_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/csp_policy_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/max_request_body_size_bytes"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/present_security_headers"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/server_header_disclosure"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/x_powered_by_header_disclosure"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_fields_captured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_input_sanitization_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/error_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_aggregation_or_siem_connected"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logged_user_supplied_fields"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

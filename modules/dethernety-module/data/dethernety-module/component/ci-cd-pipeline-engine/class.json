@@ -1,0 +1,8 @@
+{
+  "name": "CI/CD Pipeline Engine",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "The automated build, test, and deployment orchestration process executing compilation, test runs, image builds, artifact promotion, and deployment triggers. Primary threat vector is pipeline poisoning via compromised pipeline definitions or dependency confusion. Represents the highest-privilege automated process in the delivery chain.",
+  "category": "Software Supply Chain",
+  "status": "draft"
+}

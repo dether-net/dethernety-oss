@@ -1,0 +1,393 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "minimum_tls_version": {
+        "type": "string",
+        "enum": [
+          "SSL_2_0",
+          "SSL_3_0",
+          "TLS_1_0",
+          "TLS_1_1",
+          "TLS_1_2",
+          "TLS_1_3"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "The minimum TLS protocol version enforced for all connections on this channel. Older versions (SSL 2.0, SSL 3.0, TLS 1.0, TLS 1.1) have known weaknesses and must be disabled."
+      },
+      "weak_ciphers_enabled": {
+        "type": "boolean",
+        "title": "Weak Cipher Suites Enabled",
+        "description": "Indicates whether any weak or deprecated cipher suites (e.g., RC4, DES, 3DES, NULL, EXPORT, anon) are permitted in the cipher suite list.",
+        "default": false
+      },
+      "minimum_key_length_bits": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 8192,
+        "title": "Minimum Key Length (bits)",
+        "description": "The minimum symmetric key length in bits enforced by the selected cipher suites (e.g., AES-128 = 128, AES-256 = 256)."
+      },
+      "cipher_suite_mac_type": {
+        "type": "string",
+        "enum": [
+          "aead",
+          "hmac",
+          "none"
+        ],
+        "title": "Cipher Suite MAC/AEAD Type",
+        "description": "Indicates whether the negotiated cipher suite uses an AEAD scheme (e.g., GCM, CCM, CHACHA20-POLY1305) or a legacy MAC-based approach (e.g., HMAC-SHA), or none/null."
+      },
+      "null_cipher_or_mac_permitted": {
+        "type": "boolean",
+        "title": "Null Cipher or MAC Permitted",
+        "description": "Indicates whether the TLS configuration explicitly permits cipher suites with null encryption or null MAC (e.g., TLS_NULL_WITH_NULL_NULL, eNULL, aNULL), which would disable integrity protection.",
+        "default": false
+      },
+      "certificate_validation_enabled": {
+        "type": "boolean",
+        "title": "Certificate Validation Enabled",
+        "description": "Whether the system validates the peer certificate against a trusted CA chain during TLS handshake, preventing acceptance of self-signed or untrusted certificates.",
+        "default": false
+      },
+      "mutual_tls_mode": {
+        "type": "string",
+        "enum": [
+          "mutual",
+          "server_only",
+          "none"
+        ],
+        "title": "Mutual TLS Mode",
+        "description": "The TLS authentication mode configured: whether only the server presents a certificate (server-only), both parties present certificates (mutual/mTLS), or authentication is disabled."
+      },
+      "trusted_ca_store_configured": {
+        "type": "boolean",
+        "title": "Trusted CA Store Configured",
+        "description": "Whether a non-empty, explicitly defined CA trust store (bundle or directory) is configured for validating peer certificates, rather than relying on system defaults or no store at all.",
+        "default": false
+      },
+      "ephemeral_key_exchange_enabled": {
+        "type": "boolean",
+        "title": "Ephemeral Key Exchange Enabled",
+        "description": "Indicates whether ephemeral key exchange (e.g., ECDHE or DHE) is configured and active for TLS sessions, ensuring forward secrecy."
+      },
+      "configured_cipher_suites": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Configured TLS Cipher Suites",
+        "description": "List of TLS cipher suites explicitly configured for the service. Used to confirm presence of forward-secret suites (e.g., TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) and absence of non-PFS suites."
+      },
+      "non_pfs_cipher_suites_present": {
+        "type": "boolean",
+        "title": "Non-PFS Cipher Suites Present",
+        "description": "Indicates whether any cipher suites that do not provide forward secrecy (e.g., RSA key exchange: TLS_RSA_WITH_*) are included in the allowed configuration alongside or instead of PFS suites."
+      },
+      "deprecated_versions_explicitly_disabled": {
+        "type": "boolean",
+        "title": "Deprecated Versions Explicitly Disabled",
+        "description": "Whether SSL 2.0, SSL 3.0, TLS 1.0, and TLS 1.1 are explicitly disabled in configuration rather than relying on defaults."
+      },
+      "tls_enforcement_scope": {
+        "type": "string",
+        "enum": [
+          "full",
+          "external_only",
+          "partial",
+          "none"
+        ],
+        "title": "TLS Enforcement Scope",
+        "description": "Describes how broadly TLS is applied across the system and whether enforcement covers all listeners/endpoints (internal, external, admin interfaces) or only a subset."
+      },
+      "protocol_downgrade_protection_enabled": {
+        "type": "boolean",
+        "title": "Protocol Downgrade Protection Enabled",
+        "description": "Whether mechanisms such as TLS_FALLBACK_SCSV or equivalent are enabled to prevent protocol downgrade attacks."
+      },
+      "certificate_monitoring_enabled": {
+        "type": "boolean",
+        "title": "Certificate Expiry Monitoring Enabled",
+        "description": "Whether automated monitoring and alerting for certificate expiry is actively configured and operational, with appropriate lead time before expiry.",
+        "default": false
+      },
+      "auto_renewal_configured": {
+        "type": "boolean",
+        "title": "Automated Certificate Renewal Configured",
+        "description": "Whether certificates are automatically renewed before expiration without requiring manual intervention.",
+        "default": false
+      },
+      "revocation_check_method": {
+        "type": "string",
+        "enum": [
+          "ocsp_stapling",
+          "ocsp",
+          "crl",
+          "ocsp_and_crl",
+          "none"
+        ],
+        "title": "Certificate Revocation Check Method",
+        "description": "The mechanism used to verify certificate revocation status during TLS handshakes."
+      },
+      "tls_handshake_logging_enabled": {
+        "type": "boolean",
+        "title": "TLS Handshake Logging Enabled",
+        "description": "Indicates whether TLS handshake events (connection initiation, protocol version, cipher suite negotiation, certificate details) are being logged by the system or network component.",
+        "default": false
+      },
+      "logged_handshake_fields": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Logged Handshake Fields",
+        "description": "List of TLS handshake metadata fields captured in logs. Expected fields include cipher_suite, tls_version, client_certificate_subject, server_certificate_fingerprint, and session_id.",
+        "default": []
+      },
+      "log_destination": {
+        "type": "string",
+        "enum": [
+          "siem",
+          "centralized_aggregator",
+          "local_only",
+          "none"
+        ],
+        "title": "Log Destination",
+        "description": "Where TLS handshake logs are shipped for retention and analysis.",
+        "default": "none"
+      },
+      "all_endpoints_tls_enforced": {
+        "type": "boolean",
+        "title": "All Application Endpoints Enforce TLS",
+        "description": "Indicates whether every application endpoint and API surface (including internal microservices, webhooks, and management interfaces) enforces TLS for all inbound and outbound connections, with no plaintext fallback permitted.",
+        "default": false
+      },
+      "unencrypted_endpoint_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 99999,
+        "title": "Count of Unencrypted Communication Endpoints",
+        "description": "The number of application endpoints or API routes that are accessible over plaintext (HTTP, unencrypted gRPC, etc.) without mandatory TLS upgrade."
+      }
+    },
+    "required": [
+      "minimum_tls_version",
+      "weak_ciphers_enabled",
+      "minimum_key_length_bits",
+      "cipher_suite_mac_type",
+      "null_cipher_or_mac_permitted",
+      "certificate_validation_enabled",
+      "mutual_tls_mode",
+      "trusted_ca_store_configured",
+      "ephemeral_key_exchange_enabled",
+      "configured_cipher_suites",
+      "non_pfs_cipher_suites_present",
+      "deprecated_versions_explicitly_disabled",
+      "tls_enforcement_scope",
+      "protocol_downgrade_protection_enabled",
+      "certificate_monitoring_enabled",
+      "auto_renewal_configured",
+      "revocation_check_method",
+      "tls_handshake_logging_enabled",
+      "logged_handshake_fields",
+      "log_destination",
+      "all_endpoints_tls_enforced",
+      "unencrypted_endpoint_count"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/all_endpoints_tls_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cipher_suite_mac_type"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/minimum_key_length_bits"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/minimum_tls_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/null_cipher_or_mac_permitted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_enforcement_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unencrypted_endpoint_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_ciphers_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/configured_cipher_suites"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/deprecated_versions_explicitly_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ephemeral_key_exchange_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/forward_secrecy_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/integrity_verification_tested"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/non_pfs_cipher_suites_present"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/protocol_downgrade_protection_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/auto_renewal_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_monitoring_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_validation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mutual_tls_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/trusted_ca_store_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/days_until_earliest_expiry"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/revocation_check_method"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_handshake_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_destination"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/logged_handshake_fields"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

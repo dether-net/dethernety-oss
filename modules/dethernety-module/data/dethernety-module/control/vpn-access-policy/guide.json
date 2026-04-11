@@ -1,0 +1,1125 @@
+[
+  {
+    "option_name": "approved_cipher_suites_enforced",
+    "option_description": "Controls whether only organization-approved cryptographic cipher suites are explicitly listed and enforced for all remote sessions, preventing negotiation of unapproved or weaker alternatives.",
+    "security_impact": "The Rego cipher_suite_enforcement rule requires this attribute to be true alongside deprecated_algorithms_disabled and minimum_tls_version of tls_1_2 or tls_1_3 to satisfy the countermeasure. Without explicit enforcement, remote endpoints may negotiate weak or unapproved ciphers, undermining data confidentiality guarantees for sessions in transit.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the SSH daemon configuration for explicit cipher directives.",
+        "command": "grep -i 'ciphers' /etc/ssh/sshd_config",
+        "file_path": "/etc/ssh/sshd_config",
+        "navigation": null,
+        "expected_output": "A Ciphers directive listing only approved algorithms such as 'aes256-gcm@openssh.com,chacha20-poly1305@openssh.com,aes128-gcm@openssh.com'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review OpenSSL or nginx TLS cipher string configuration for approved suite enforcement.",
+        "command": "grep -iE 'ssl_ciphers|SSLCipherSuite|cipher' /etc/nginx/nginx.conf /etc/apache2/ssl.conf /etc/haproxy/haproxy.cfg 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "An explicit cipher string referencing approved suites only, e.g., 'ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384'."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use testssl.sh to enumerate offered cipher suites and confirm no unapproved suites are accepted.",
+        "command": "testssl.sh --cipher-per-proto --openssl-timeout 5 <vpn_or_remote_host>:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only approved cipher suites listed; connection attempts using weak suites (RC4, DES, NULL) result in handshake failure."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap ssl-enum-ciphers script to verify the cipher suite list presented by the remote access service.",
+        "command": "nmap --script ssl-enum-ciphers -p 443,8443,22 <vpn_or_remote_host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows only A-grade cipher suites; no ciphers rated below A or marked as deprecated appear."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "deprecated_algorithms_disabled",
+    "option_description": "Controls whether known-weak or deprecated cryptographic algorithms including RC4, DES, 3DES, MD5-based MACs, export-grade ciphers, SSLv2, SSLv3, TLS 1.0, and TLS 1.1 are explicitly disabled in the remote access service configuration.",
+    "security_impact": "The Rego cipher_suite_enforcement rule requires this attribute to be true alongside approved_cipher_suites_enforced and an acceptable minimum_tls_version. Leaving deprecated algorithms enabled creates downgrade attack vectors where an adversary can force negotiation to broken ciphers, compromising confidentiality and integrity of all session traffic.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check SSH daemon configuration for explicit exclusion of deprecated MAC and key exchange algorithms.",
+        "command": "grep -iE 'MACs|KexAlgorithms|HostKeyAlgorithms' /etc/ssh/sshd_config",
+        "file_path": "/etc/ssh/sshd_config",
+        "navigation": null,
+        "expected_output": "MACs directive excludes hmac-md5, hmac-sha1, umac-64; KexAlgorithms excludes diffie-hellman-group1-sha1 and diffie-hellman-group14-sha1."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Run testssl.sh vulnerability checks for known-weak cipher usage including SWEET32, POODLE, DROWN, and BEAST.",
+        "command": "testssl.sh --vulnerable <vpn_or_remote_host>:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All deprecated algorithm vulnerability checks return 'not vulnerable'; no RC4, DES, 3DES, or export-grade ciphers accepted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect OpenSSL configuration for explicit cipher exclusion strings using NOT or ! operators for deprecated algorithms.",
+        "command": "grep -rE 'ssl_ciphers|SSLCipherSuite' /etc/nginx/ /etc/apache2/ /etc/haproxy/ 2>/dev/null | grep -iE '\\!RC4|\\!DES|\\!3DES|\\!MD5|\\!EXP'",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Cipher strings contain explicit negation of deprecated algorithms such as '!RC4:!DES:!3DES:!MD5:!EXP:!NULL'."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a forced connection using a deprecated cipher to verify rejection.",
+        "command": "openssl s_client -connect <vpn_or_remote_host>:443 -cipher 'RC4-SHA' 2>&1 | grep -E 'handshake|alert|error'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection fails with 'handshake failure' or 'no ciphers available', confirming deprecated algorithms are rejected."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "minimum_tls_version",
+    "option_description": "Specifies the minimum TLS protocol version that the remote access service will accept during handshake negotiation, enforcing a cryptographic floor below which connections are rejected.",
+    "security_impact": "The Rego cipher_suite_enforcement rule and protocol_version_restriction rule both evaluate this attribute, requiring tls_1_2 or tls_1_3 for countermeasure activation. Values of ssl_3_0, tls_1_0, or tls_1_1 leave the service vulnerable to POODLE, BEAST, and CRIME downgrade attacks, failing both rules and exposing all session traffic to cryptographic compromise.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check nginx TLS minimum protocol version directive.",
+        "command": "grep -iE 'ssl_protocols' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Directive reads 'ssl_protocols TLSv1.2 TLSv1.3;' with no mention of TLSv1, TLSv1.1, SSLv2, or SSLv3."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Apache HTTPD SSL protocol version restrictions.",
+        "command": "grep -iE 'SSLProtocol|SSLMinProtocol' /etc/apache2/apache2.conf /etc/apache2/sites-enabled/*.conf /etc/httpd/conf.d/ssl.conf 2>/dev/null",
+        "file_path": "/etc/apache2/apache2.conf",
+        "navigation": null,
+        "expected_output": "SSLProtocol directive reads 'all -SSLv3 -TLSv1 -TLSv1.1' or 'TLSv1.2 TLSv1.3'."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt explicit TLS 1.1 connection to verify the service rejects it.",
+        "command": "openssl s_client -connect <vpn_or_remote_host>:443 -tls1_1 2>&1 | grep -E 'Protocol|handshake|alert'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection terminated with 'alert handshake failure' or similar, confirming TLS 1.1 is not accepted."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use testssl.sh protocol enumeration to identify the minimum accepted TLS version.",
+        "command": "testssl.sh --protocols <vpn_or_remote_host>:443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SSLv2, SSLv3, TLS 1.0, and TLS 1.1 all shown as 'not offered'; TLS 1.2 and/or TLS 1.3 shown as 'offered'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls_1_2",
+      "tls_1_3",
+      "tls_1_0",
+      "tls_1_1"
+    ]
+  },
+  {
+    "option_name": "legacy_protocols_disabled",
+    "option_description": "Controls whether insecure or legacy protocol variants including SSLv2, SSLv3, TLS 1.0, TLS 1.1, and SSHv1 are explicitly disabled through deny directives or version restriction settings in the remote access service configuration.",
+    "security_impact": "The Rego protocol_version_restriction rule requires this attribute to be true in both its TLS and SSH evaluation branches. If legacy protocols are not explicitly disabled, even a server configured for TLS 1.2+ may accept downgrade negotiation to broken protocol versions, enabling protocol downgrade attacks and failing the countermeasure regardless of the minimum version setting.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Verify explicit disabling of legacy protocols in SSH and TLS/SSL configuration files.",
+        "command": "grep -rE 'Protocol|SSLProtocol|ssl_protocols' /etc/ssh/sshd_config /etc/nginx/ /etc/apache2/ 2>/dev/null",
+        "file_path": "/etc/ssh/sshd_config",
+        "navigation": null,
+        "expected_output": "sshd_config shows 'Protocol 2'; web server configs show explicit exclusion or omission of SSLv2, SSLv3, TLSv1, TLSv1.1."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt SSLv3 connection to confirm it is actively rejected.",
+        "command": "openssl s_client -connect <vpn_or_remote_host>:443 -ssl3 2>&1 | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'wrong version number', 'handshake failure', or 'unknown option' indicating SSLv3 is disabled."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test for TLS 1.0 acceptance using testssl.sh to confirm it is disabled.",
+        "command": "testssl.sh --protocols --warnings off <vpn_or_remote_host>:443 | grep -E 'TLSv1\\b|SSLv'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS 1.0, SSLv2, and SSLv3 all shown as 'not offered'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review OpenSSL system-wide crypto policy to confirm legacy protocol disablement is enforced at the OS level.",
+        "command": "cat /etc/crypto-policies/config && update-crypto-policies --show",
+        "file_path": "/etc/crypto-policies/config",
+        "navigation": null,
+        "expected_output": "Policy set to DEFAULT, FUTURE, or FIPS; not LEGACY, which would permit TLS 1.0 and other deprecated protocols."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "ssh_protocol_version",
+    "option_description": "Specifies which SSH protocol versions the SSH daemon accepts for remote shell access connections, with the acceptable value being ssh_v2_only to eliminate the cryptographically broken SSHv1 attack surface.",
+    "security_impact": "The Rego protocol_version_restriction rule activates when ssh_protocol_version is ssh_v2_only and legacy_protocols_disabled is true. SSHv1 is fundamentally broken with known vulnerabilities including session hijacking and man-in-the-middle attacks. Values of ssh_v1_only, ssh_v1_and_v2, or not_configured all fail the policy rule, leaving the service exposed to credential theft and session compromise.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the Protocol directive in sshd_config to determine which SSH versions are permitted.",
+        "command": "grep -i '^Protocol' /etc/ssh/sshd_config",
+        "file_path": "/etc/ssh/sshd_config",
+        "navigation": null,
+        "expected_output": "'Protocol 2' or no Protocol directive (modern OpenSSH defaults to v2 only, which is acceptable if confirmed)."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the running OpenSSH server version to confirm it defaults to SSHv2-only behavior when no Protocol directive is set.",
+        "command": "sshd -V 2>&1; ssh -V 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "OpenSSH version 7.4 or higher, which does not support SSHv1 by default."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap to probe the SSH service and verify the protocol version banner and offered algorithms.",
+        "command": "nmap -p 22 --script ssh2-enum-algos,sshv1 <vpn_or_remote_host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "sshv1 script returns 'Protocol version 1 is not enabled'; ssh2-enum-algos shows only v2 algorithms."
+      },
+      {
+        "type": "command",
+        "instruction": "Review effective sshd configuration including defaults for Protocol setting.",
+        "command": "sshd -T 2>/dev/null | grep -i protocol",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'protocol 2' confirming SSHv2-only operation."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "ssh_v2_only",
+      "not_configured",
+      "ssh_v1_and_v2"
+    ]
+  },
+  {
+    "option_name": "mfa_enabled",
+    "option_description": "Controls whether multi-factor authentication is enforced as a mandatory requirement for establishing all remote access sessions through the VPN gateway or remote access service, ensuring that credential knowledge alone is insufficient for access.",
+    "security_impact": "The Rego multi_factor_authentication_requirement rule fires as a finding when mfa_enabled is false, immediately failing the countermeasure regardless of any other settings. MFA is the single highest-impact control against credential-based remote access attacks including phishing, password spraying, and credential stuffing. Its absence means compromised passwords alone grant full remote access.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Review the VPN gateway or identity provider admin console for MFA policy enforcement settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "For Cisco ASA: ASDM -> Remote Access VPN -> Clientless SSL VPN Access -> Connection Profiles -> select profile -> Advanced -> Authentication. For Azure AD: Azure Portal -> Azure AD -> Security -> Conditional Access -> Policies -> check MFA requirement for VPN/Remote App.",
+        "expected_output": "MFA or two-factor authentication shown as required or enforced, not optional or disabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect VPN or RADIUS authentication configuration for MFA enforcement directives.",
+        "command": "grep -iE 'mfa|two.factor|2fa|otp|totp|radius|duo' /etc/openvpn/server.conf /etc/ipsec.conf /etc/strongswan.conf 2>/dev/null",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "References to a RADIUS server configured with MFA backend (Duo, RSA, TOTP) or auth-user-pass-verify script enforcing second factor."
+      },
+      {
+        "type": "api",
+        "instruction": "Query identity provider API to check if MFA policy is active for remote access application.",
+        "command": "curl -sk -H 'Authorization: SSWS <okta_token>' https://<okta_domain>/api/v1/policies?type=MFA_ENROLL | jq '.[] | {name, status, conditions}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy with status 'ACTIVE' and conditions covering remote access users or the VPN application."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the identity and access management team or review the remote access policy document to confirm MFA is mandated.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy document states MFA is required for all remote access; operations team confirms MFA is technically enforced and cannot be bypassed."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "mfa_enforcement_scope",
+    "option_description": "Defines the population of users and sessions to which MFA enforcement applies for remote access, distinguishing between universal enforcement across all users, restriction to privileged accounts only, partial coverage of some groups, or no enforcement.",
+    "security_impact": "The Rego multi_factor_authentication_requirement rule fires as a finding when mfa_enabled is true but mfa_enforcement_scope is not all_users, meaning privileged_only, partial, or none all trigger a policy violation. Partial MFA coverage leaves non-privileged or ungrouped accounts as viable targets for credential-based remote access attacks, and attackers commonly pivot through standard user accounts before escalating privileges.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Review conditional access or MFA policy assignment in the identity provider to determine which user groups are included and excluded.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure AD: Azure Portal -> Azure AD -> Security -> Conditional Access -> select VPN/Remote Access policy -> Users and Groups tab -> review Included and Excluded groups. Okta: Admin Console -> Security -> Authentication -> Sign On Policies -> review conditions per rule.",
+        "expected_output": "Policy assigned to 'All Users' group with no exclusions, or explicit enumeration of all user groups confirming universal coverage."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Okta API to enumerate conditional access policy rules and their assigned user groups for the remote access application.",
+        "command": "curl -sk -H 'Authorization: SSWS <okta_token>' https://<okta_domain>/api/v1/apps/<app_id>/policies | jq '.[] | {name, conditions: .conditions.people}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy conditions show 'groups: {include: [Everyone]}' or equivalent universal assignment with no bypass groups."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request MFA exemption or exclusion list from the IAM team and review whether any user categories bypass MFA for remote access.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No exemption list exists or the list is empty; documented exceptions have formal risk acceptance and compensating controls."
+      },
+      {
+        "type": "command",
+        "instruction": "For on-premises VPN using RADIUS with MFA, verify the RADIUS server user filter to determine scope of MFA challenges.",
+        "command": "grep -iE 'filter|group|include|exclude|bypass' /etc/freeradius/3.0/mods-enabled/ldap /etc/freeradius/3.0/sites-enabled/default 2>/dev/null",
+        "file_path": "/etc/freeradius/3.0/sites-enabled/default",
+        "navigation": null,
+        "expected_output": "No group filter limiting MFA to a subset of users, or explicit inclusion of all user groups with no bypass conditions."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "all_users",
+      "privileged_only",
+      "partial",
+      "none"
+    ]
+  },
+  {
+    "option_name": "mfa_bypass_methods_present",
+    "option_description": "Controls whether any legitimate bypass mechanisms exist that permit remote VPN sessions to complete without satisfying MFA — including exception lists, trusted IP exclusions, fallback to password-only authentication, or conditional access exclusion groups.",
+    "security_impact": "The Rego policy flags a misconfiguration whenever mfa_bypass_methods_present is true, even if MFA is enabled and scoped to all_users. A bypass path defeats the entire MFA requirement, allowing credential-only compromise to succeed. This maps to the multi_factor_authentication_requirement rule, which requires all three conditions — mfa_enabled, all_users scope, and no bypass — to be satisfied simultaneously before granting countermeasure credit.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD / Entra ID Conditional Access, open each VPN-related policy and inspect the 'Exclude' tab for users, groups, service principals, or named locations that are excluded from MFA enforcement.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Entra ID → Security → Conditional Access → Policies → [VPN Policy] → Conditions / Exclude",
+        "expected_output": "Exclusion lists should be empty or contain only break-glass emergency accounts documented in a formal exception register."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Microsoft Graph API to enumerate all conditional access policy exclusions and identify any that apply to VPN sign-in scenarios.",
+        "command": "az rest --method GET --url 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' --query 'value[].{name:displayName, excludeUsers:conditions.users.excludeUsers, excludeGroups:conditions.users.excludeGroups}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output listing policy names alongside any excluded user or group object IDs; each should be cross-referenced against an approved exception list."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Cisco ASA or FTD, review the tunnel-group and group-policy configurations for 'authentication' directives that allow non-MFA fallback methods such as AAA local database or certificate-only without RADIUS MFA integration.",
+        "command": "show running-config tunnel-group | include authentication|secondary-authentication",
+        "file_path": "/opt/cisco/asa/config/running-config",
+        "navigation": null,
+        "expected_output": "Authentication should reference the RADIUS/LDAP server enforcing MFA; absence of secondary-authentication or presence of 'authentication local' indicates a bypass path."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the identity platform administrator and request the formal exception register for MFA bypass. Verify that any trusted network exclusions (e.g., on-premises IP ranges) are documented, time-limited, and approved through change management.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented exception register with no unapproved or expired entries; absence of any register indicates bypass methods may be undocumented."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "access_rules_defined",
+    "option_description": "Indicates whether explicit access control rules are attached to the remote access VPN profile, ACL, or firewall policy — specifying permitted users, roles, devices, or source networks rather than relying on a default permit-all posture.",
+    "security_impact": "The Rego access_rule_precision rule requires access_rules_defined to be true as a precondition for any access control countermeasure credit. Without explicit rules, the gateway defaults to allowing any authenticated session, removing the ability to enforce least-privilege remote connectivity. This is a high-criticality attribute directly gating all precision-related countermeasure scoring.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, display the group-policy and associated access-lists to confirm at least one explicit permit/deny ACL is bound to the remote access profile.",
+        "command": "show running-config group-policy | include vpn-filter|address-pools|split-tunnel-policy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'vpn-filter value <acl-name>' should appear, referencing a named ACL with at least one explicit rule entry."
+      },
+      {
+        "type": "command",
+        "instruction": "On Palo Alto GlobalProtect, list the gateway security policies and confirm at least one rule references the VPN-sourced traffic zone with explicit allow conditions.",
+        "command": "show running security-rule | match 'from trust\\|from vpn-zone'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one named policy rule with explicit source zone, destination zone, and application conditions should be returned."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Fortinet FortiGate, navigate to Policy & Objects → Firewall Policy and filter by the SSL-VPN or IPsec interface. Confirm that named policies with explicit source address objects and destination address objects exist.",
+        "command": null,
+        "file_path": null,
+        "navigation": "FortiGate GUI → Policy & Objects → Firewall Policy → Filter: Incoming Interface = ssl.root or vpn-interface",
+        "expected_output": "At least one policy row should appear with non-'all' source address and destination address objects, confirming explicit rules are defined."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the OpenVPN server configuration for client-config-dir entries or iptables rules that define per-user or per-group access restrictions.",
+        "command": "grep -E 'client-config-dir|push|iroute|route' /etc/openvpn/server.conf",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "Presence of client-config-dir pointing to per-client configuration files, or push route directives with specific subnets, indicates explicit access rules are defined."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "rule_specificity_level",
+    "option_description": "Classifies the granularity of configured access control rules along a four-tier scale: none (no rules), broad (any authenticated user permitted), role_based (group or role membership enforced but no device or network constraints), or granular (role/user constraints combined with source network or device posture checks).",
+    "security_impact": "The Rego access_rule_precision rule awards countermeasure credit only when rule_specificity_level is 'granular' or 'role_based', and both conditions are combined with default_deny and source_network_restrictions. A 'broad' or 'none' level means any authenticated identity can reach internal resources, providing no lateral movement restriction. Granular rules are required for the highest assurance tier.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, display the VPN filter ACL content and assess whether entries reference specific user attributes, LDAP group membership, or only broad permit-any statements.",
+        "command": "show access-list <vpn-filter-acl-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Entries referencing specific host ranges or object-groups for users and destinations indicate role_based or granular; a single 'permit ip any any' indicates broad."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Okta or Azure AD to determine whether VPN group assignments enforce role-based segmentation by listing groups assigned to the VPN application and their membership criteria.",
+        "command": "az ad group list --query '[].{name:displayName, id:id}' --output table && az ad app show --id <vpn-app-id> --query 'assignedTo'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Multiple distinct groups with role-descriptive names (e.g., VPN-Contractors, VPN-Admins) indicate role_based; a single all-employees group indicates broad."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Panorama or local NGFW, review GlobalProtect gateway HIP profiles and security policies. Check whether policies reference HIP-check objects (device posture) and specific user-ID or group mappings simultaneously.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama → Policies → Security → [VPN Rules] → Source: User, Source: HIP Profile columns",
+        "expected_output": "Presence of both user/group values and HIP profile conditions in the same rule row indicates granular; only group membership without HIP indicates role_based."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the WireGuard or strongSwan IPsec configuration for peer definitions that combine identity (certificate CN / PSK identity) with allowed IP ranges to determine specificity.",
+        "command": "grep -A5 '\\[Peer\\]' /etc/wireguard/wg0.conf | grep -E 'AllowedIPs|PublicKey'",
+        "file_path": "/etc/wireguard/wg0.conf",
+        "navigation": null,
+        "expected_output": "Each [Peer] block with a unique PublicKey and narrowly scoped AllowedIPs (e.g., /32 per user) indicates granular; a wildcard AllowedIPs of 0.0.0.0/0 indicates broad."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "broad",
+      "role_based",
+      "granular"
+    ]
+  },
+  {
+    "option_name": "default_deny_configured",
+    "option_description": "Determines whether the remote access gateway enforces a default-deny or deny-all-unmatched rule at the terminal position of its rule set, ensuring that any connection attempt not explicitly matched by a permit rule is blocked rather than permitted.",
+    "security_impact": "The Rego access_rule_precision rule requires default_deny_configured to be true alongside access_rules_defined and source_network_restrictions_applied to award countermeasure credit. Without a default-deny posture, any gap in explicit rules creates an implicit allow path, undermining the entire access control framework. This is a medium-criticality attribute but a logical prerequisite for rule effectiveness.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, verify that the interface or group-policy ACL terminates with an explicit 'deny ip any any' entry, or confirm that the implicit deny is not overridden by a broad permit.",
+        "command": "show access-list <vpn-filter-acl-name> | tail -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The final ACE should read 'deny ip any any' or 'deny any any'; absence of this and presence of a broad permit indicates default-deny is not configured."
+      },
+      {
+        "type": "command",
+        "instruction": "On iptables-based VPN servers (OpenVPN with iptables), display the FORWARD chain policy and rules to confirm the default policy is DROP.",
+        "command": "iptables -L FORWARD -n -v --line-numbers | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The chain header should show 'policy DROP'; if it shows 'policy ACCEPT', default-deny is not enforced at the firewall level."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Fortinet FortiGate, navigate to Policy & Objects → Firewall Policy and check whether an explicit 'deny all' rule exists as the last policy in the VPN interface rule set, or verify the implicit deny-all setting in the policy table.",
+        "command": null,
+        "file_path": null,
+        "navigation": "FortiGate GUI → Policy & Objects → Firewall Policy → [last rule in VPN interface set] → Action column",
+        "expected_output": "The last rule should show Action = DENY with Source/Destination = all; alternatively, the policy table footer should indicate implicit deny is active."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For nftables-based systems, inspect the ruleset for a terminal drop/reject statement in the VPN-relevant chain.",
+        "command": "nft list chain inet filter forward | tail -10",
+        "file_path": "/etc/nftables.conf",
+        "navigation": null,
+        "expected_output": "The last statement in the chain should be 'drop' or 'reject'; a missing terminal statement means the chain default policy governs, which must also be verified as 'drop'."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "source_network_restrictions_applied",
+    "option_description": "Indicates whether the VPN or remote access gateway applies source IP address filtering, network range allowlists, or geolocation-based blocking rules that restrict which external networks or countries can initiate remote connections.",
+    "security_impact": "The Rego access_rule_precision rule requires source_network_restrictions_applied to be true as a co-condition for both the granular and role_based tiers to achieve countermeasure credit. Without source restrictions, any internet-reachable host can attempt VPN authentication regardless of geographic risk profile or known-bad IP reputation. This is medium-criticality but essential for precision access control.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, inspect the crypto map or tunnel-group pre-filter ACL for source IP address conditions applied before tunnel establishment is permitted.",
+        "command": "show running-config | include ip local pool|crypto map|access-group",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An access-group applied to the outside interface referencing an ACL with specific source address ranges (not 'any') confirms source restrictions are applied."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Azure AD Named Locations and Conditional Access policies to verify that VPN sign-in policies include location-based conditions restricting allowed countries or IP ranges.",
+        "command": "az rest --method GET --url 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/namedLocations' --query 'value[].{name:displayName, ipRanges:ipRanges}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Named locations with specific CIDR ranges should exist and be referenced as 'includeLocations' conditions in the VPN Conditional Access policy."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto GlobalProtect, check the gateway agent configuration for allowed source IP ranges or review the pre-logon security policy for source address restrictions on the untrust interface.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto NGFW → Network → GlobalProtect → Gateways → [Gateway] → Agent → Client Settings → IP Pools / Source Address",
+        "expected_output": "Source address fields should contain specific CIDR ranges or named address objects; empty or 'any' source values indicate no source restrictions are applied."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For strongSwan IPsec, inspect the connection definitions for leftsubnet or rightsubnet directives that constrain which source networks are permitted to establish tunnels.",
+        "command": "grep -E 'left|right|subnet|id' /etc/ipsec.conf | grep -v '#'",
+        "file_path": "/etc/ipsec.conf",
+        "navigation": null,
+        "expected_output": "rightsubnet or left/rightid entries with specific IP ranges or identities indicate source restrictions are applied; a wildcard '%any' for both sides indicates no restriction."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "idle_timeout_enabled",
+    "option_description": "Controls whether the VPN gateway, SSH daemon, or remote access service is configured to automatically terminate sessions that have been inactive for a defined period, preventing abandoned or hijacked sessions from persisting indefinitely.",
+    "security_impact": "The Rego session_timeout_and_idle_control rule flags a gap whenever idle_timeout_enabled is false, independently of the timeout duration value. An idle session with valid credentials represents a persistent attack surface for session hijacking or unauthorized reuse of an unattended workstation. This is a high-criticality precondition — enabling idle timeout is required before the timeout duration threshold check is evaluated.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On SSH servers, check the ClientAliveInterval and ClientAliveCountMax values in the sshd_config to confirm idle timeout is enabled (non-zero ClientAliveInterval).",
+        "command": "grep -E 'ClientAliveInterval|ClientAliveCountMax|TCPKeepAlive' /etc/ssh/sshd_config",
+        "file_path": "/etc/ssh/sshd_config",
+        "navigation": null,
+        "expected_output": "ClientAliveInterval should be a non-zero positive integer (e.g., 300); a value of 0 or an absent directive means idle timeout is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, display the group-policy to check whether vpn-idle-timeout is configured to a non-zero, non-none value for the relevant remote access group.",
+        "command": "show running-config group-policy | include vpn-idle-timeout|vpn-session-timeout",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'vpn-idle-timeout <minutes>' with a positive integer value indicates idle timeout is enabled; 'vpn-idle-timeout none' or absence of the directive means it is disabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Fortinet FortiGate SSL-VPN settings, navigate to VPN → SSL-VPN Settings and locate the 'Idle Logout' field to confirm it is enabled and set to a non-zero duration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "FortiGate GUI → VPN → SSL-VPN Settings → Tunnel Mode Client Settings → Idle Logout",
+        "expected_output": "The 'Idle Logout' checkbox should be checked and the value field should contain a positive integer representing minutes of inactivity before disconnect."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For OpenVPN, check for the keepalive or inactive directive in the server configuration that controls session idle termination.",
+        "command": "grep -E 'keepalive|inactive|tls-timeout' /etc/openvpn/server.conf",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "A 'keepalive <interval> <timeout>' directive or 'inactive <seconds>' entry indicates idle timeout is enabled; absence of both means idle sessions persist indefinitely."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "idle_timeout_seconds",
+    "option_description": "Specifies the maximum number of seconds a remote session may remain idle before automatic termination is triggered. This value directly bounds how long an abandoned or hijacked session can persist without user activity.",
+    "security_impact": "The Rego session_timeout_and_idle_control rule flags a gap when idle_timeout_seconds exceeds 1800 (30 minutes), even if idle_timeout_enabled is true. A threshold above 1800 seconds provides insufficient session hygiene, allowing attackers extended windows to exploit unattended sessions. The acceptable range per policy is 1–1800 seconds for compliant configurations.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, extract the vpn-idle-timeout value from the group-policy and convert from minutes to seconds for comparison against the 1800-second threshold.",
+        "command": "show running-config group-policy <policy-name> | include vpn-idle-timeout",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'vpn-idle-timeout 30' means 1800 seconds (compliant boundary); multiply the displayed minute value by 60 to obtain seconds. Values above 30 minutes exceed the threshold."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux SSH servers, read the effective idle timeout in seconds by multiplying ClientAliveInterval by ClientAliveCountMax from sshd_config.",
+        "command": "awk '/^ClientAliveInterval/{ci=$2} /^ClientAliveCountMax/{cm=$2} END{print \"Idle timeout seconds:\", ci*cm}' /etc/ssh/sshd_config",
+        "file_path": "/etc/ssh/sshd_config",
+        "navigation": null,
+        "expected_output": "Output such as 'Idle timeout seconds: 900' indicates 15-minute timeout (compliant); values above 1800 seconds require remediation."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Windows RDP Group Policy, review the 'Set time limit for active but idle Remote Desktop Services sessions' registry key value and convert from milliseconds to seconds.",
+        "command": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\" /v MaxIdleTime",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "MaxIdleTime is stored in milliseconds; divide by 1000 for seconds. A value of 0x0006DDD0 (450000ms) equals 450 seconds — compliant. Absent key means no idle timeout."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto GlobalProtect, navigate to the gateway agent configuration and read the 'Disconnect on Idle' timeout value, converting displayed minutes to seconds.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto NGFW → Network → GlobalProtect → Gateways → [Gateway] → Agent → Client Settings → Disconnect on Idle (minutes)",
+        "expected_output": "A value of 15 or less (≤900 seconds) is well within threshold; a value of 31 or more (≥1860 seconds) exceeds the 1800-second policy limit."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "900",
+      "1800",
+      "3600",
+      "0"
+    ]
+  },
+  {
+    "option_name": "max_session_duration_seconds",
+    "option_description": "Defines the hard absolute maximum lifetime of a remote session regardless of user activity. Once this limit is reached, the session is forcibly terminated and the user must re-authenticate, preventing indefinitely long sessions from persisting even when actively used.",
+    "security_impact": "The Rego session_timeout_and_idle_control rule flags a gap when max_session_duration_seconds equals 0, meaning no absolute session limit is enforced. Without a hard cap, a single authenticated session can persist for days or weeks, providing a persistent foothold if session tokens are stolen. This is medium-criticality but critical for environments where re-authentication frequency is a compliance requirement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, retrieve the vpn-session-timeout value from the relevant group-policy and convert minutes to seconds.",
+        "command": "show running-config group-policy <policy-name> | include vpn-session-timeout",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'vpn-session-timeout 480' means 28800 seconds (8 hours); 'vpn-session-timeout none' or absent means no absolute limit is enforced (value = 0, non-compliant)."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux systems using PAM session controls or sssd, check for session_timeout or offline_credentials_expiration settings that impose an absolute session cap.",
+        "command": "grep -E 'session_timeout|offline_credentials_expiration|maxlifetime' /etc/sssd/sssd.conf /etc/pam.d/sshd 2>/dev/null",
+        "file_path": "/etc/sssd/sssd.conf",
+        "navigation": null,
+        "expected_output": "'session_timeout = 28800' in sssd.conf indicates an 8-hour absolute session cap; absence of this setting means sessions persist until disconnected."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure AD Conditional Access, check the session control 'Sign-in frequency' applied to the VPN application policy, which enforces re-authentication after the defined period regardless of session activity.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Entra ID → Security → Conditional Access → Policies → [VPN Policy] → Session → Sign-in frequency",
+        "expected_output": "Sign-in frequency should be set to a specific number of hours (e.g., 8 hours); 'Every time' or disabled means no absolute session duration enforcement at the IdP level."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the GlobalProtect or Prisma Access API for the configured 'Max Session Duration' parameter on active gateway configurations.",
+        "command": "curl -sk -X GET 'https://<panorama-ip>/api/?type=config&action=get&xpath=/config/devices/entry/vsys/entry/global-protect/global-protect-gateway/entry/tunnel-settings/max-session-duration&key=<api-key>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "XML response containing a numeric value representing seconds (e.g., <max-session-duration>28800</max-session-duration>); empty or absent element indicates no limit is configured."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "28800",
+      "43200",
+      "86400"
+    ]
+  },
+  {
+    "option_name": "minimum_key_length_bits",
+    "option_description": "Controls the minimum cryptographic key length (in bits) enforced for all certificates and keys used during remote session establishment, covering both RSA and ECC key types used by VPN gateways, TLS terminators, and SSH daemons.",
+    "security_impact": "The Rego policy requires minimum_key_length_bits >= 2048 to satisfy the certificate_and_key_management_coverage countermeasure. Keys shorter than 2048 bits (RSA) or 256 bits (ECC) are considered cryptographically weak and susceptible to factorization attacks. Failure to meet this threshold means the countermeasure does not activate, leaving remote sessions exposed to man-in-the-middle and decryption attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On an OpenVPN server, inspect the server configuration and linked PKI for key size parameters.",
+        "command": "grep -E 'tls-cipher|cert|key|dh' /etc/openvpn/server.conf && openssl x509 -in /etc/openvpn/server.crt -noout -text | grep 'Public-Key'",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "Output should show 'Public-Key: (2048 bit)' or higher for RSA, or '(256 bit)' for EC keys."
+      },
+      {
+        "type": "command",
+        "instruction": "For StrongSwan or Libreswan IPsec VPN, check the PKI certificate key size.",
+        "command": "openssl x509 -in /etc/ipsec.d/certs/vpnserver.crt -noout -text | grep 'Public-Key' && ipsec listcerts",
+        "file_path": "/etc/ipsec.d/certs/",
+        "navigation": null,
+        "expected_output": "Public-Key entry should report 2048 bit or greater for RSA certificates."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco ASA ASDM, navigate to Configuration > Remote Access VPN > Certificate Management > Identity Certificates, select the active certificate, and view the key size field in certificate details.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ASDM > Configuration > Remote Access VPN > Certificate Management > Identity Certificates > [Select Certificate] > Show Details",
+        "expected_output": "Key Size field displays 2048 or higher."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Palo Alto GlobalProtect, inspect the certificate profile XML configuration exported from the firewall.",
+        "command": "grep -i 'key-size\\|key_size\\|RSA\\|EC' /opt/paloalto/var/config/running-config.xml",
+        "file_path": "/opt/paloalto/var/config/running-config.xml",
+        "navigation": null,
+        "expected_output": "Key size references should show 2048 or 4096 for RSA, or 256/384 for EC."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "2048",
+      "3072",
+      "4096",
+      "256 (ECC)",
+      "384 (ECC)"
+    ]
+  },
+  {
+    "option_name": "certificate_revocation_checking_enabled",
+    "option_description": "Controls whether the VPN gateway or TLS terminator actively checks certificate revocation status via CRL (Certificate Revocation List) or OCSP (Online Certificate Status Protocol) before completing remote session establishment. When enabled, revoked certificates are rejected even if they are otherwise valid.",
+    "security_impact": "The Rego policy requires certificate_revocation_checking_enabled == true for the certificate_and_key_management_coverage countermeasure to activate. Without revocation checking, a stolen or compromised certificate can be used indefinitely to authenticate remote sessions until the certificate naturally expires, creating a critical authentication bypass risk.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the OpenVPN server configuration for CRL verification directives.",
+        "command": "grep -E 'crl-verify|tls-verify|verify-x509' /etc/openvpn/server.conf",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "A 'crl-verify /path/to/crl.pem' line confirms CRL checking is configured."
+      },
+      {
+        "type": "command",
+        "instruction": "Check StrongSwan IKEv2 configuration for OCSP or CRL enforcement settings.",
+        "command": "grep -E 'ocsp|crl|revocation' /etc/strongswan.conf /etc/ipsec.conf 2>/dev/null",
+        "file_path": "/etc/strongswan.conf",
+        "navigation": null,
+        "expected_output": "Presence of 'ocsp_uri' or 'crl_uri' directives with 'revocation = strict' confirms enforcement."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco ASA, verify OCSP or CRL configuration under crypto CA settings via ASDM.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ASDM > Configuration > Device Management > Certificate Management > CA Certificates > [Select CA] > Edit > Revocation Check tab",
+        "expected_output": "CRL or OCSP should be listed as the revocation check method, not 'None'."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to connect to the VPN gateway using a manually revoked test certificate and observe whether the connection is rejected.",
+        "command": "openssl verify -crl_check -CAfile /etc/ssl/certs/ca-bundle.crt -CRLfile /tmp/test.crl /tmp/revoked-client.crt",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show 'certificate revoked' error, confirming revocation checking is active and enforcing rejections."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "key_rotation_period_days",
+    "option_description": "Defines the maximum number of days that cryptographic keys and certificates used for remote access sessions are permitted to remain in use before they must be rotated or renewed. This applies to VPN server certificates, client certificates, and associated private keys.",
+    "security_impact": "The Rego policy requires key_rotation_period_days <= 365 as part of the certificate_and_key_management_coverage countermeasure. Long-lived certificates increase the window of opportunity for key compromise exploitation. If a private key is exfiltrated, a 3-year certificate provides a 3-year exploitation window versus a 1-year certificate providing a much smaller exposure. Certificates with lifetimes exceeding 365 days fail the policy threshold.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the validity period of the currently deployed VPN server certificate to determine its configured lifetime.",
+        "command": "openssl x509 -in /etc/openvpn/server.crt -noout -dates | awk -F= '{print $1, $2}'",
+        "file_path": "/etc/openvpn/server.crt",
+        "navigation": null,
+        "expected_output": "notBefore and notAfter dates; calculate the difference to determine the certificate lifetime in days."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the PKI lifecycle policy document or CA issuance procedures to identify the formally defined maximum certificate validity period for remote access certificates.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented policy stating maximum certificate validity (e.g., '365 days for VPN certificates')."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the Certificate Authority (e.g., HashiCorp Vault PKI) for the maximum TTL configured for the VPN certificate role.",
+        "command": "vault read pki/roles/vpn-clients | grep -E 'max_ttl|ttl'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "max_ttl value expressed in hours; divide by 24 to convert to days (e.g., '8760h' = 365 days)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Windows Server Active Directory Certificate Services, inspect the certificate template validity period for the VPN authentication template.",
+        "command": null,
+        "file_path": null,
+        "navigation": "certtmpl.msc > [VPN Certificate Template] > Right-click > Properties > General tab > Validity Period",
+        "expected_output": "Validity Period field showing the configured duration (e.g., '1 year' or '2 years')."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90",
+      "180",
+      "365",
+      "730"
+    ]
+  },
+  {
+    "option_name": "certificate_validity_enforcement",
+    "option_description": "Controls the enforcement behavior of the VPN gateway or remote access system when it encounters an expired, not-yet-valid, or otherwise temporally invalid certificate during session establishment. Options are 'enforced' (connection rejected), 'warning_only' (connection allowed with alert), or 'disabled' (no temporal validation performed).",
+    "security_impact": "The Rego policy requires certificate_validity_enforcement == 'enforced' for the certificate_and_key_management_coverage countermeasure to activate. Operating in 'warning_only' or 'disabled' mode allows sessions to be established with expired certificates, which may represent abandoned accounts, forgotten service credentials, or certificates from decommissioned users that should no longer have access. This creates an uncontrolled authentication bypass path.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect OpenVPN or equivalent TLS-based VPN configuration for certificate verification flags that may suppress validity errors.",
+        "command": "grep -E 'verify-x509|tls-verify|ns-cert-type|remote-cert-tls|allow-expired' /etc/openvpn/server.conf",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "Absence of 'allow-expired' or similar bypass flags; presence of 'remote-cert-tls server' indicates enforcement is active."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a VPN or TLS connection using a deliberately expired test certificate and observe the gateway response.",
+        "command": "openssl s_client -connect vpn.example.com:443 -cert /tmp/expired-test.crt -key /tmp/expired-test.key 2>&1 | grep -E 'Verify|certificate expired|error'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If enforced, output will contain 'certificate has expired' with connection termination. Warning-only mode may show the error but still complete the handshake."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Networks GlobalProtect, check the Gateway certificate profile for validation settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama/Firewall > Objects > Certificate Profile > [VPN Profile] > check 'Use CRL' and validate that 'Block session if certificate status is unknown' is enabled",
+        "expected_output": "Certificate profile should show strict validation with no bypass options enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "For F5 BIG-IP APM, query the SSL profile configuration to check certificate validity enforcement mode.",
+        "command": "tmsh list ltm profile client-ssl <profile-name> cert-key-chain authenticate-depth peer-cert-mode",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "peer-cert-mode should show 'require' rather than 'ignore' or 'request'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "enforced",
+      "warning_only",
+      "disabled"
+    ]
+  },
+  {
+    "option_name": "session_logging_enabled",
+    "option_description": "Controls whether the VPN gateway, SSH daemon, RDP broker, or other remote access system generates and stores log records for remote session events. When enabled, the system produces audit trail entries for authentication events, session establishment, and session termination.",
+    "security_impact": "The Rego policy requires session_logging_enabled == true as a prerequisite for the remote_session_logging_completeness countermeasure. Without session logging, there is no audit trail for forensic investigation of unauthorized access, no ability to detect anomalous session patterns, and no evidence for compliance validation. This is a foundational control that gates all downstream logging quality requirements.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the SSH daemon configuration for logging level settings on Linux-based VPN or bastion hosts.",
+        "command": "grep -E '^LogLevel|^SyslogFacility' /etc/ssh/sshd_config",
+        "file_path": "/etc/ssh/sshd_config",
+        "navigation": null,
+        "expected_output": "LogLevel should be set to INFO, VERBOSE, or DEBUG (not QUIET or silent), and SyslogFacility should reference a valid facility like AUTH or AUTHPRIV."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify that OpenVPN logging is active and pointing to a log destination.",
+        "command": "grep -E '^log|^log-append|^status|^verb' /etc/openvpn/server.conf && systemctl status openvpn@server | grep 'Active'",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "A 'log' or 'log-append' directive pointing to a log file path, and verb level >= 3 to capture session events."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco ASA, verify that logging is enabled and session events are captured via ASDM.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ASDM > Configuration > Device Management > Logging > Logging Setup > check 'Enable Logging' checkbox",
+        "expected_output": "Logging checkbox is enabled, and syslog server or local buffer is configured as a destination."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Validate that recent remote session activity is actually producing log entries by checking for current VPN session records.",
+        "command": "journalctl -u openvpn@server --since '1 hour ago' | grep -E 'client connected|AUTH|TLS' | tail -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Recent log entries showing authentication events and session connections confirm logging is active and producing records."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logged_event_types",
+    "option_description": "Defines the specific categories of remote session events that are actively captured in logs. Required event types for compliance include authentication_attempt, session_established, session_terminated, and optionally session_duration. This governs the completeness of the audit trail produced by the remote access system.",
+    "security_impact": "The Rego policy checks that 'authentication_attempt', 'session_established', and 'session_terminated' are all present in logged_event_types for the remote_session_logging_completeness countermeasure. Missing any of these event types creates blind spots: without authentication_attempt logs, failed brute-force attempts are invisible; without session_terminated logs, session duration and abrupt disconnections cannot be reconstructed during incident response.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Review existing VPN or remote access logs to identify which event categories are currently being captured.",
+        "command": "grep -E 'AUTH|CONNECTED|DISCONNECTED|session|login|logout|failed' /var/log/openvpn/openvpn.log | awk '{print $5}' | sort | uniq -c | sort -rn | head -20",
+        "file_path": "/var/log/openvpn/openvpn.log",
+        "navigation": null,
+        "expected_output": "Distinct event type labels should include authentication-related entries, connection events, and disconnection events."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux systems using SSH, check auth logs for the range of event types being recorded.",
+        "command": "grep -E 'sshd' /var/log/auth.log | grep -oE 'Accepted|Failed|Disconnected|session opened|session closed' | sort | uniq -c",
+        "file_path": "/var/log/auth.log",
+        "navigation": null,
+        "expected_output": "Output should show counts for 'Accepted', 'Failed', 'session opened', and 'session closed' entries, confirming all critical event types are present."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the SIEM or log aggregator configuration to confirm which event types are being forwarded and indexed from the VPN gateway.",
+        "command": "grep -A 5 'vpn\\|remote_access\\|openvpn' /etc/rsyslog.d/*.conf /etc/syslog-ng/syslog-ng.conf 2>/dev/null",
+        "file_path": "/etc/rsyslog.d/",
+        "navigation": null,
+        "expected_output": "Filter rules should pass authentication, connection, and disconnection event categories to the log destination without dropping them."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the VPN administrator or review the logging configuration documentation to confirm which event types have been formally configured for capture.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Administrator can enumerate logged event types matching: authentication_attempt, session_established, session_terminated, and ideally session_duration."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[authentication_attempt, session_established, session_terminated]",
+      "[authentication_attempt, session_established, session_duration, session_terminated]",
+      "[authentication_attempt, session_established, session_terminated, configuration_change]"
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Specifies the number of days that remote session log records are retained in the SIEM, log management platform, or local storage before being purged. This governs the forensic lookback window and the organization's ability to satisfy compliance audit requests for historical session data.",
+    "security_impact": "The Rego policy requires log_retention_days >= 90 for the remote_session_logging_completeness countermeasure to activate. Many breaches are detected weeks or months after initial compromise. Without sufficient retention, forensic reconstruction of attacker activity becomes impossible once logs are purged. Many compliance frameworks (PCI-DSS, HIPAA, SOC 2) explicitly require 90 to 365 days of log retention for remote access events.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check logrotate configuration for VPN or authentication log retention settings on Linux systems.",
+        "command": "grep -A 10 'openvpn\\|auth\\|syslog' /etc/logrotate.d/* | grep -E 'rotate|daily|weekly|monthly'",
+        "file_path": "/etc/logrotate.d/",
+        "navigation": null,
+        "expected_output": "The 'rotate' value combined with rotation frequency determines retention; e.g., 'daily' with 'rotate 90' equals 90 days."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Splunk, check the index retention policy for the index receiving VPN or remote access logs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk Web > Settings > Indexes > [vpn or auth index] > Max Size of Entire Index / Frozen Path / Max Hot Bucket Age",
+        "expected_output": "frozenTimePeriodInSecs or equivalent setting should correspond to at least 7776000 seconds (90 days)."
+      },
+      {
+        "type": "command",
+        "instruction": "Query an Elasticsearch cluster for the Index Lifecycle Management (ILM) policy applied to VPN log indices to determine the delete phase timing.",
+        "command": "curl -s -X GET 'http://localhost:9200/_ilm/policy/vpn-logs-policy' | python3 -m json.tool | grep -A 5 'delete\\|min_age'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The delete phase min_age should be 90d or greater (e.g., '90d', '180d', '365d')."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Sentinel or Azure Monitor workspace retention settings via Azure CLI for the Log Analytics workspace receiving VPN logs.",
+        "command": "az monitor log-analytics workspace show --resource-group <rg> --workspace-name <workspace> --query 'retentionInDays'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "retentionInDays value should be 90 or greater."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30",
+      "90",
+      "180",
+      "365",
+      "730"
+    ]
+  },
+  {
+    "option_name": "remote_access_policy_documented",
+    "option_description": "Indicates whether the organization maintains a formal, written remote access policy document that defines encryption standards, authentication requirements, approved VPN protocols, session rules, and acceptable use. This document must be accessible to administrators and auditors and represent the authoritative governance baseline for remote connectivity controls.",
+    "security_impact": "The Rego policy requires remote_access_policy_documented == true as part of the policy_consistency_and_maintainability countermeasure. Without a formal documented policy, technical configurations become the de facto policy with no accountability structure, making it impossible to detect configuration drift, onboard new administrators consistently, or demonstrate governance to auditors. This is a foundational control for audit readiness and operational consistency, even though it carries lower criticality than technical enforcement controls.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the formal remote access policy document from the IT security team or policy management system and verify it covers VPN encryption standards, MFA requirements, and session rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dated, approved document (PDF, Word, or wiki page) with version number, owner, review date, and sections covering encryption, authentication, and session management for remote access."
+      },
+      {
+        "type": "gui",
+        "instruction": "Search the organization's policy management platform (e.g., ServiceNow GRC, Confluence, SharePoint) for a remote access or VPN policy document.",
+        "command": null,
+        "file_path": null,
+        "navigation": "PolicyManagementSystem > Policy Library > Search 'Remote Access' or 'VPN Policy' > verify document status is 'Active' and not expired",
+        "expected_output": "An active policy document titled 'Remote Access Policy' or 'VPN Security Policy' with current approval status and a review date within the last 12 months."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the CISO, IT security manager, or VPN administrator to determine whether a formal remote access policy exists and where it is stored.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Administrator can produce or reference a specific document location. Inability to produce the document or vague references to informal guidelines indicate the attribute should be set to false."
+      },
+      {
+        "type": "api",
+        "instruction": "If using an GRC tool with an API (e.g., OneTrust, Archer), query the policy repository for remote access policy records and their approval status.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://grc.example.com/api/v1/policies?category=remote_access&status=active' | python3 -m json.tool | grep -E 'title|status|review_date'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "API response returns a policy record with status 'active' and a review_date within the acceptable review cycle."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "policy_version_controlled",
+    "option_description": "Controls whether the remote access policy document is stored in a version-controlled repository or document management system that provides revision history, author tracking, and change logs, enabling rollback to prior policy states.",
+    "security_impact": "The Rego rule policy_consistency_and_maintainability requires policy_version_controlled == true alongside remote_access_policy_documented == true and a review frequency of 12 months or fewer to award the Policy Consistency And Maintainability countermeasure. Without version control, policy drift goes undetected, unauthorized or accidental changes cannot be attributed or reversed, and auditors cannot verify the policy in effect at any given point in time. This directly undermines audit readiness and consistent enforcement of remote access rules across endpoints.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the policy owner or security governance team to ask which system hosts the authoritative remote access policy document. Confirm whether it is a Git-based repository (GitHub, GitLab, Bitbucket), a document management system (Confluence, SharePoint with versioning enabled), or a GRC platform (ServiceNow GRC, Archer). Request a direct URL or path to the document and verify that revision history is visible.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The respondent can provide a URL to the repository or DMS showing a commit/revision log with dated entries, author names, and change descriptions for the remote access policy document."
+      },
+      {
+        "type": "gui",
+        "instruction": "If the policy is stored in SharePoint, navigate to the document library containing the remote access policy, select the file, click 'Version History' in the context menu, and confirm that multiple versioned entries exist with author and timestamp metadata. For Confluence, open the page and click 'Page History' under the three-dot menu to verify the same.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SharePoint: Document Library > Select Policy File > Right-click > Version History | Confluence: Policy Page > ··· Menu > Page History",
+        "expected_output": "A version history table is displayed listing at least two revisions with author, date, and a change comment or diff link."
+      },
+      {
+        "type": "command",
+        "instruction": "If the policy document is tracked in a Git repository, clone or access the repository and inspect the commit log for the policy file to confirm version-controlled storage with author attribution.",
+        "command": "git log --follow --oneline -- path/to/remote_access_policy.md",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more commit hashes are returned with short messages and author information, confirming the file has a tracked revision history."
+      },
+      {
+        "type": "api",
+        "instruction": "If the organization uses the GitHub or GitLab API, query the commits endpoint for the policy file to programmatically confirm version history exists.",
+        "command": "curl -H 'Authorization: Bearer <TOKEN>' 'https://api.github.com/repos/<ORG>/<REPO>/commits?path=docs/remote_access_policy.md'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON array of commit objects is returned, each containing sha, author name, date, and commit message fields, confirming tracked revision history."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "policy_review_frequency_months",
+    "option_description": "Defines the mandated interval in months at which the remote access policy must be formally reviewed and updated to reflect current controls, threat landscape changes, and regulatory requirements. Valid values range from 1 to 60 months.",
+    "security_impact": "The Rego rule policy_consistency_and_maintainability requires policy_review_frequency_months <= 12 for the countermeasure to apply. A review cycle longer than 12 months means the policy may remain misaligned with evolved threats, newly introduced VPN technologies, or changed compliance mandates (e.g., NIST SP 800-77r1, ISO 27002:2022 controls). Infrequent review allows stale access rules, deprecated cipher references, and outdated user scope definitions to persist in the governing document, creating a gap between documented policy and operational enforcement.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the remote access policy document itself and locate the section specifying the review schedule, often titled 'Review Cycle', 'Policy Maintenance', or 'Document Control'. Also ask the policy owner or CISO office for the governance calendar entry that schedules the next mandatory review, and confirm whether the interval is enforced via a ticketing system or GRC workflow.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The policy document contains a clearly stated review interval (e.g., 'This policy shall be reviewed annually' or 'Review cycle: 6 months') and a governance calendar entry or recurring task corroborates the cadence."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If the organization uses a GRC platform such as ServiceNow GRC or Archer that stores policy metadata in exportable formats, locate the exported policy record file and inspect the review_frequency or next_review_date fields.",
+        "command": null,
+        "file_path": "/exports/grc/policies/vpn_remote_access_policy_record.json",
+        "navigation": null,
+        "expected_output": "The JSON or XML policy record contains a field such as 'review_cycle_months': 12 or a next_review_date that, subtracted from the last_review_date, yields the configured interval in months."
+      },
+      {
+        "type": "gui",
+        "instruction": "If policies are managed in Confluence, open the remote access policy page and check the page properties or metadata panel (if using a page properties macro or similar structured content plugin) for a 'Review Frequency' field. In SharePoint, check the document's custom metadata columns for a 'Review Cycle' or 'Next Review Date' property under File > Properties.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Confluence: Policy Page > Page Properties Macro table > Review Frequency field | SharePoint: Select File > Info pane > Properties > Review Cycle column",
+        "expected_output": "A review frequency value in months is displayed in the structured metadata, for example '12 months' or a next review date that implies the cycle length when compared to the last review date."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the GRC or ITSM platform API to retrieve the policy record and extract the review frequency attribute programmatically, enabling automated compliance checks.",
+        "command": "curl -H 'Authorization: Bearer <TOKEN>' -H 'Content-Type: application/json' 'https://<GRC_INSTANCE>/api/now/table/sn_policy_mgmt_policy?sysparm_query=name=Remote+Access+Policy&sysparm_fields=review_frequency,last_reviewed_date,next_review_date'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON response containing review_frequency (e.g., '12'), last_reviewed_date, and next_review_date fields for the matching policy record."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "6",
+      "12",
+      "24",
+      "36"
+    ]
+  }
+]

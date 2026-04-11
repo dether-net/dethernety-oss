@@ -1,0 +1,8 @@
+{
+  "name": "Data Loss Prevention",
+  "classType": "control",
+  "type": "Data Loss Prevention",
+  "description": "Data Loss Prevention (DLP) systems provide layered protection capabilities across network, endpoint, and cloud channels by accurately detecting sensitive data patterns, enforcing blocking policies, automating incident response, and maintaining comprehensive audit trails when properly configured and tuned.",
+  "category": "Cross Cutting Controls",
+  "status": "reviewed"
+}

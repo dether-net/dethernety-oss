@@ -1,0 +1,1264 @@
+[
+  {
+    "option_name": "default_inter_segment_policy",
+    "option_description": "Controls the fallback action applied to any inter-segment traffic that does not match an explicit firewall or ACL rule. Determines whether unmatched traffic is silently dropped (deny) or allowed through (permit) when no rule applies.",
+    "security_impact": "Directly gates the `segment_boundary_enforcement` Rego rule, which requires this value to be 'deny'. A value of 'permit' or 'unset' means any traffic not explicitly blocked flows freely between segments, undermining the entire least-privilege segmentation posture and enabling unrestricted lateral movement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Cisco IOS/IOS-XE firewall or router, display the access-list applied to inter-VLAN interfaces and inspect for a terminal implicit or explicit deny statement.",
+        "command": "show ip access-lists | grep -E 'deny|permit any any'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A terminal 'deny ip any any' entry at the end of each inter-segment ACL confirms deny-by-default. Absence of this entry or presence of 'permit any any' indicates a permissive default."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Palo Alto Networks NGFW, retrieve the default security policy action for inter-zone traffic via CLI.",
+        "command": "show running security-policy | match 'default' ",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show an intrazone-default or interzone-default rule with action 'deny'. 'allow' indicates an unsafe default."
+      },
+      {
+        "type": "gui",
+        "instruction": "In an SDN controller such as VMware NSX-T, navigate to Security > Distributed Firewall > Policy, inspect the default section at the bottom of each applied policy for the default rule action.",
+        "command": null,
+        "file_path": null,
+        "navigation": "NSX-T Manager > Security > Distributed Firewall > [Policy Name] > Default Rule (last row in table)",
+        "expected_output": "Default rule action column should display 'Drop' or 'Reject'. 'Allow' indicates the inter-segment default is permissive."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Palo Alto Panorama or NSX-T REST API to retrieve the default security policy action for inter-segment zones programmatically.",
+        "command": "curl -sku admin:password https://<panorama>/api/?type=config&action=get&xpath=/config/devices/entry/vsys/entry/rulebase/security/rules/entry[@name='interzone-default'] | xmllint --xpath '//action/text()' -",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response should return 'deny'. Any other value such as 'allow' signals misconfiguration."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "deny",
+      "permit",
+      "unset"
+    ]
+  },
+  {
+    "option_name": "explicit_allowlist_rules_configured",
+    "option_description": "Indicates whether every permitted inter-segment traffic flow is backed by a specific, reviewed, and scoped firewall or ACL rule (explicit source, destination, port, and protocol) rather than broad wildcard permits that implicitly allow large traffic volumes.",
+    "security_impact": "Required by the `segment_boundary_enforcement` Rego rule alongside deny-by-default. Even with a deny default, overly broad wildcard rules (e.g., permit any any on specific zones) defeat the intent. True here means every allow rule has been reviewed and scoped to a minimum necessary flow, ensuring the policy is a genuine allowlist rather than a partially constrained permissive ruleset.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Cisco ASA or IOS firewall, export ACLs applied to inter-VLAN or inter-zone interfaces and search for broad wildcard permit rules that suggest no explicit scoping.",
+        "command": "show running-config | section access-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each 'permit' line should specify explicit source address/mask, destination address/mask, and port/protocol. Lines reading 'permit ip any any' or 'permit ip any <subnet>' indicate explicit allowlist rules are NOT configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the firewall policy export or configuration backup file to count permit rules with full five-tuple specificity versus wildcard rules.",
+        "command": "grep -E 'permit' /etc/firewall/rules.conf | awk '{print NR, $0}'",
+        "file_path": "/etc/firewall/rules.conf",
+        "navigation": null,
+        "expected_output": "Each permit entry should include specific source IP/range, destination IP/range, protocol, and port. Any 'any any' combinations without port scope are evidence that explicit allowlist rules are not fully configured."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Illumio Core or VMware NSX-T Distributed Firewall, navigate to the policy ruleset and filter for allow/permit rules. Verify each rule has a defined workload scope, IP range or segment, and service port rather than 'any'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Illumio PCE > Security Policy > Rulebase > Filter: Action=Allow; review Consuming Service/Provider columns for specificity",
+        "expected_output": "All allow rules should display named services or specific port numbers, and source/destination scoped to workload labels or CIDRs — not open-ended 'Any' entries."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security team and request the change-management or firewall rule review register to confirm each inter-segment permit rule has a documented approval and expiration review date.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A rule register or ticketing system (e.g., ServiceNow, Jira) entry exists for each permit rule with owner, business justification, approval date, and review cycle. Absence of documentation suggests allowlist governance is not enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "boundary_enforcement_scope",
+    "option_description": "Describes the completeness of segment boundary enforcement across all network paths — specifically whether enforcement covers both north-south perimeter traffic and east-west lateral traffic between internal segments, or only a subset of paths.",
+    "security_impact": "Critical to the `segment_boundary_enforcement` Rego rule, which requires 'full' scope. Partial coverage — for example, enforcing only at the perimeter gateway while leaving direct inter-VLAN routing uncontrolled — leaves east-west paths open for lateral movement. Attackers who breach an internal segment can freely traverse to other segments if boundary controls are absent on those paths.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a core layer-3 switch, verify that inter-VLAN routing is either disabled or routed through a firewall by checking routed VLAN interfaces and their associated ACLs for enforcement presence.",
+        "command": "show ip interface brief | grep Vlan && show ip access-lists",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every VLAN SVI (Switch Virtual Interface) should either be absent (inter-VLAN routing delegated to firewall) or have an access-group applied. Bare SVIs with no ACL represent uncontrolled east-west boundary gaps."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a host in one internal segment, attempt TCP connection to a known-closed port on a host in a different internal segment to verify traffic is dropped and not silently routed.",
+        "command": "nc -zv <host_in_other_segment> 8080 -w 3; echo exit: $?",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection should time out or return 'Connection refused by firewall'. Successful connections between segments where no rule should allow it confirm partial or no boundary enforcement on east-west paths."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review network topology diagrams in the configuration management database (CMDB) or network management platform (e.g., SolarWinds, Cisco DNA Center) to identify all inter-segment adjacencies and verify each has a policy enforcement point mapped.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco DNA Center > Design > Network Hierarchy > Topology View; cross-reference each inter-segment link with Security > Policy applied status",
+        "expected_output": "Every inter-segment link should have a firewall, SDN policy, or ACL enforcement point symbol. Links shown without policy enforcement represent partial scope gaps."
+      },
+      {
+        "type": "api",
+        "instruction": "Query an SDN controller (e.g., NSX-T) API to retrieve all transport nodes and verify Distributed Firewall (DFW) is enabled on all segments, not just selected ones.",
+        "command": "curl -sku admin:password https://<nsx-manager>/api/v1/transport-nodes?include_system_owned=false | python3 -c \"import sys,json; nodes=json.load(sys.stdin); [print(n['display_name'], n.get('resource_type')) for n in nodes.get('results',[])]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All transport nodes should be listed and associated with a DFW policy. Nodes or segments not covered by DFW indicate partial boundary enforcement scope."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "full",
+      "partial",
+      "none"
+    ]
+  },
+  {
+    "option_name": "segmentation_policy_enforced",
+    "option_description": "Indicates whether an active network segmentation policy is currently applied and in enforcement mode on the target host or network segment, restricting outbound inter-segment communication to only pre-authorized destinations.",
+    "security_impact": "This is the primary gate for the `lateral_movement_containment` Rego rule. If false, no segmentation policy is running — even if one is defined — meaning a compromised host can freely reach adjacent segments. Both `lateral_movement_containment` rule conditions require this to be true before any containment credit is awarded.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Linux host using iptables or nftables as a host-based firewall, verify an active ruleset is loaded and contains inter-segment restrictions.",
+        "command": "iptables -L FORWARD -n -v --line-numbers 2>/dev/null || nft list ruleset 2>/dev/null | grep -E 'drop|reject|accept'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active FORWARD chain rules should be present with explicit drop/reject actions for unauthorized inter-segment traffic. An empty FORWARD chain with ACCEPT policy means no segmentation policy is enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Windows host, verify Windows Defender Firewall is active and has rules restricting inter-segment outbound connections.",
+        "command": "Get-NetFirewallProfile | Select-Object Name,Enabled; Get-NetFirewallRule | Where-Object {$_.Direction -eq 'Outbound' -and $_.Action -eq 'Block'} | Select-Object DisplayName,RemoteAddress",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All profiles (Domain, Private, Public) should show Enabled=True. Outbound block rules scoped to remote segment CIDRs confirm policy enforcement. No block rules indicate segmentation policy is not enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Query VMware NSX-T to verify Distributed Firewall policy is applied to the specific segment or logical switch where the target host resides.",
+        "command": "curl -sku admin:password 'https://<nsx-manager>/policy/api/v1/infra/domains/default/gateway-policies' | python3 -m json.tool | grep -E 'enforcement_state|display_name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy enforcement_state should be 'REALIZED' for the target segment. States of 'PENDING' or absence of policy entries indicate the segmentation policy is not yet enforced."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Illumio PCE, navigate to the workload detail page for the target host and confirm the security policy status shows 'Enforced' rather than 'Visibility Only', 'Illuminated', or 'Not Managed'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Illumio PCE > Workloads > [Target Host] > Policy State column",
+        "expected_output": "Policy State should display 'Enforced'. Any other state means the segmentation policy rules exist but are not actively blocking unauthorized inter-segment traffic."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "default_deny_posture",
+    "option_description": "Describes the enforced fallthrough behavior of the segmentation policy's base rule for east-west inter-segment traffic — whether traffic not matching any explicit allow rule is dropped (deny_all), allowed (allow_all), inconsistently handled across rules (mixed), or no policy is configured at all (not_configured).",
+    "security_impact": "Required to be 'deny_all' for the `lateral_movement_containment` Rego rule to fire. This attribute captures the actual enforced posture rather than just the existence of a deny rule, distinguishing between a properly configured deny-all baseline and a mixed or unconfigured state where some paths are exposed. A value of 'allow_all', 'mixed', or 'not_configured' means lateral movement paths remain open.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Cisco ASA, inspect the final/implicit rule at the bottom of each security-level boundary to confirm it is a deny rather than an implicit permit (ASA denies by default when going from lower to higher security level only).",
+        "command": "show running-config access-list | tail -20 && show run | include security-level",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "For inter-segment flows, each ACL applied to an interface should terminate with an explicit 'deny ip any any log' rule. Interfaces relying on implicit permit (same-security-traffic) without an explicit deny represent a 'mixed' posture."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the pfSense or OPNsense firewall configuration XML to confirm the default action for inter-interface rules is set to block.",
+        "command": "grep -A5 '<rule>' /cf/conf/config.xml | grep -E '<type>|<interface>|<action>' | head -60",
+        "file_path": "/cf/conf/config.xml",
+        "navigation": null,
+        "expected_output": "Each inter-interface rule block should have <type>block</type> as the fallthrough entry. <type>pass</type> as a catch-all indicates allow_all or mixed posture."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Check Point SmartConsole, view the Policy Layers for the relevant gateway and confirm the bottom implicit rule in each layer is set to 'Drop' for inter-segment traffic.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SmartConsole > Security Policies > [Policy Package] > Access Control > [Layer] > scroll to bottom implicit rule; verify Action column = Drop",
+        "expected_output": "The implicit cleanup rule should show Action='Drop' and Track='Log'. An implicit 'Accept' at the bottom of any inter-segment layer indicates allow_all or mixed posture."
+      },
+      {
+        "type": "command",
+        "instruction": "For NSX-T Distributed Firewall, retrieve the default policy section action via API to confirm deny_all posture on east-west traffic.",
+        "command": "curl -sku admin:password 'https://<nsx-manager>/policy/api/v1/infra/domains/default/security-policies/default-layer3-section' | python3 -m json.tool | grep -E 'action|display_name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The default-layer3-section should return action='DROP'. Action='ALLOW' indicates allow_all posture; absence of a default section indicates not_configured."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "deny_all",
+      "allow_all",
+      "mixed",
+      "not_configured"
+    ]
+  },
+  {
+    "option_name": "authorized_segment_destinations",
+    "option_description": "An explicit enumeration of all network segment identifiers (VLAN IDs, subnet CIDRs, zone labels, or workload group labels) that this host or segment is permitted to communicate with, derived directly from the enforced allow rules in the active segmentation policy.",
+    "security_impact": "Used alongside `segmentation_policy_enforced` and `default_deny_posture` in the `lateral_movement_containment` Rego rule. An empty list with deny_all is valid full isolation. A populated list represents the minimum authorized reachability scope. If this list is overly broad (e.g., contains large supernet CIDRs or entire zones) it signals that least-privilege has not been applied even though enforcement exists, increasing blast radius in a compromise scenario.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Linux host, extract all permitted outbound destination networks from the active iptables or nftables ruleset to enumerate authorized segment destinations.",
+        "command": "iptables -L OUTPUT -n --line-numbers | grep ACCEPT | awk '{print $5}' | sort -u",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of specific CIDR ranges representing authorized segment destinations. Overly broad entries like '0.0.0.0/0' indicate the authorized destinations list is not scoped to specific segments."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Windows host, list all outbound firewall allow rules and extract the RemoteAddress scope to enumerate which segment CIDRs are authorized.",
+        "command": "Get-NetFirewallRule | Where-Object {$_.Direction -eq 'Outbound' -and $_.Action -eq 'Allow'} | Get-NetFirewallAddressFilter | Select-Object RemoteAddress | Sort-Object RemoteAddress -Unique",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of specific RemoteAddress entries (CIDRs or IP ranges). Entries of 'Any' or '0.0.0.0/0' indicate no destination scoping and must be flagged as not meeting least-privilege requirements."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Illumio PCE API to retrieve all outbound allow rules for a specific workload and extract the destination provider labels or CIDRs.",
+        "command": "curl -sku api_user:api_key 'https://<pce-host>:8443/api/v2/orgs/1/workloads/<workload-href>/rules' | python3 -m json.tool | grep -E 'resolve_labels|ip_list|value'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each rule entry should list specific destination labels (e.g., role:database, env:prod) or IP list CIDRs. Open-ended rules without scoped destinations indicate authorized_segment_destinations is effectively unrestricted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Parse the microsegmentation platform policy export or firewall ruleset backup to build a deduplicated list of all destination segments referenced in permit/allow rules.",
+        "command": "grep -E '^permit|^allow' /opt/firewall/policy_export.txt | awk '{print $4}' | sort -u > /tmp/authorized_destinations.txt && cat /tmp/authorized_destinations.txt",
+        "file_path": "/opt/firewall/policy_export.txt",
+        "navigation": null,
+        "expected_output": "A deduplicated list of destination CIDRs, VLAN IDs, or zone labels. This becomes the input array for the authorized_segment_destinations attribute."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"10.10.20.0/24\", \"10.10.30.0/24\"]",
+      "[]",
+      "[\"vlan-100\", \"zone-dmz\"]"
+    ]
+  },
+  {
+    "option_name": "inter_segment_logging_enabled",
+    "option_description": "Indicates whether active logging is configured and operational for all inter-segment traffic flows at the enforcement point, capturing both permitted and denied connection attempts including source IP, destination IP, port, protocol, and the policy decision applied.",
+    "security_impact": "Required by the `cross_segment_traffic_logging` Rego rule. Without this enabled, there is no forensic record of lateral movement attempts, policy violations, or unauthorized access patterns crossing segment boundaries. Logging only denied traffic (a common misconfiguration) misses allowed flows that may indicate policy abuse or insider threats. Full bi-directional logging is required for the countermeasure to be credited.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Cisco IOS/IOS-XE firewall, verify that the ACLs applied to inter-segment interfaces include the 'log' keyword on all relevant permit and deny entries.",
+        "command": "show ip access-lists | grep -v 'matches\\|sequence\\|Extended' | grep -E 'permit|deny' | grep -v ' log'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should be empty — meaning all permit and deny lines include the 'log' keyword. Any rules returned by this command are inter-segment rules without logging enabled and must be remediated."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Linux host using iptables, verify that LOG target rules are present before DROP/ACCEPT rules for inter-segment traffic on the FORWARD chain.",
+        "command": "iptables -L FORWARD -n -v --line-numbers | grep -E 'LOG|DROP|ACCEPT'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "LOG rules should appear before DROP and ACCEPT terminal rules for inter-segment chains. ACCEPT or DROP rules with no preceding LOG rule for that traffic class indicate logging is not enabled for those flows."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Networks Panorama or local NGFW, verify that the security policy rules applied to inter-segment zones have logging enabled at both session-start and session-end.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama > Policies > Security > [Inter-Segment Policy] > each rule > Actions tab > Log at Session Start = Yes, Log at Session End = Yes, Log Forwarding Profile = [defined profile]",
+        "expected_output": "Both 'Log at Session Start' and 'Log at Session End' should be enabled with a Log Forwarding Profile pointing to a syslog server or Panorama. Rules with logging disabled or no forwarding profile mean inter_segment_logging_enabled is effectively false."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify that inter-segment traffic log entries are actually appearing in the SIEM or log collector by querying for recent firewall logs from segment boundary enforcement points.",
+        "command": "grep -E 'FORWARD|inter-zone|security-policy' /var/log/firewall.log | tail -50 | awk '{print $1,$2,$3,$5,$7,$9}'",
+        "file_path": "/var/log/firewall.log",
+        "navigation": null,
+        "expected_output": "Recent log entries should show timestamped records with source IP, destination IP, port, and action (ACCEPT/DROP) for inter-segment traffic. Absence of recent entries despite known inter-segment traffic activity indicates logging is misconfigured or not forwarding correctly."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logged_fields",
+    "option_description": "Defines the set of data fields captured in inter-segment traffic logs, including source IP, destination IP, port, protocol, and policy decision (allow/deny). This attribute controls the informational completeness of each log entry generated at segment boundary enforcement points.",
+    "security_impact": "The Rego rule `cross_segment_traffic_logging` requires that all five fields—source_ip, destination_ip, port, protocol, and policy_decision—are present in `input.logged_fields`. If any field is missing, the countermeasure will not be credited, leaving forensic reconstruction and audit trails incomplete. Missing fields such as policy_decision make it impossible to distinguish allowed from denied flows during incident investigations.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Cisco ASA firewall, display the current logging configuration to review which fields are included in syslog output format.",
+        "command": "show running-config logging | include format|facility|timestamp",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show 'logging emblem' or custom format directives; cross-reference with a live log sample via 'show log | head' to confirm all five required fields appear."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Pull a sample log entry from the SIEM or syslog server for inter-segment traffic and manually verify the presence of source_ip, destination_ip, port, protocol, and policy_decision fields.",
+        "command": "grep -i 'DENY\\|ALLOW\\|PERMIT' /var/log/firewall/intersegment.log | head -20",
+        "file_path": "/var/log/firewall/intersegment.log",
+        "navigation": null,
+        "expected_output": "Each log line should contain identifiable fields such as src=<IP>, dst=<IP>, dport=<number>, proto=<TCP/UDP>, action=<DENY/ALLOW> or equivalent vendor-specific field names."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Networks Panorama or firewall web UI, navigate to the Traffic log viewer and inspect the column configuration to confirm all required fields are captured.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama > Monitor > Logs > Traffic > Customize Columns — verify Source Address, Destination Address, Destination Port, Protocol, and Action columns are present and populated.",
+        "expected_output": "All five field columns are visible and populated with data for inter-segment traffic log entries."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the firewall or SIEM API to retrieve a recent log entry and parse the field set programmatically.",
+        "command": "curl -sk -H 'X-PAN-KEY: <api_key>' 'https://<firewall>/api/?type=log&log-type=traffic&nlogs=5' | python3 -c \"import sys,xml.etree.ElementTree as ET; [print(e.tag, e.text) for e in ET.parse(sys.stdin).findall('.//entry/')]\" ",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response XML or JSON contains entries with src, dst, dport, proto, and action fields for each log record."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"source_ip\", \"destination_ip\", \"port\", \"protocol\", \"policy_decision\"]",
+      "[\"source_ip\", \"destination_ip\", \"port\", \"protocol\"]",
+      "[\"source_ip\", \"destination_ip\", \"policy_decision\"]",
+      "[\"source_ip\", \"destination_ip\", \"port\", \"protocol\", \"policy_decision\", \"timestamp\", \"interface\"]"
+    ]
+  },
+  {
+    "option_name": "log_coverage_scope",
+    "option_description": "Specifies the breadth of inter-segment traffic logging, determining whether all traffic (both allowed and denied) crossing segment boundaries is logged, only denied traffic is logged, only a subset of segment boundaries is covered, or logging is entirely absent.",
+    "security_impact": "The Rego rule `cross_segment_traffic_logging` explicitly requires `input.log_coverage_scope == 'all_traffic'` for the countermeasure to be credited. Scopes of 'deny_only' or 'partial' mean that allowed cross-segment flows—which may indicate lateral movement by an attacker using valid credentials or stolen sessions—go unrecorded, severely limiting forensic reconstruction capability.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Cisco router or ASA, review ACL and security policy logging configuration to determine if 'log' keyword is appended to permit rules in addition to deny rules.",
+        "command": "show running-config | include access-list|permit|deny|log",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If only 'deny ... log' entries appear without 'permit ... log', coverage scope is 'deny_only'. Both permit and deny rules with 'log' indicate 'all_traffic'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Check Point SmartConsole, review each inter-segment security policy rule to check whether Track is set to 'Log' for all rules including Accept rules, or only Reject/Drop rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SmartConsole > Security Policies > Access Control > [Policy Layer] — inspect 'Track' column for each rule; rules with Track='None' on Accept actions indicate partial or deny_only coverage.",
+        "expected_output": "All rules (both Accept and Drop) should have Track set to 'Log' for 'all_traffic' coverage scope."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the iptables or nftables configuration file to determine if logging rules (-j LOG) are placed before both ACCEPT and DROP target rules at segment boundary chains.",
+        "command": "iptables -L FORWARD -v -n | grep -E 'LOG|DROP|ACCEPT'",
+        "file_path": "/etc/iptables/rules.v4",
+        "navigation": null,
+        "expected_output": "LOG rules appearing before both ACCEPT and DROP targets in the FORWARD chain indicate 'all_traffic' scope; LOG only before DROP indicates 'deny_only'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security team to document which firewall zones and inter-segment rules have logging enabled, and map coverage against the full segment boundary inventory.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented matrix showing each segment pair and its logging status; any gaps confirm 'partial' or 'deny_only' scope rather than 'all_traffic'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "deny_only",
+      "all_traffic",
+      "partial",
+      "none"
+    ]
+  },
+  {
+    "option_name": "log_forwarding_destination",
+    "option_description": "Identifies where inter-segment traffic logs are forwarded after local generation, controlling whether logs are sent to a SIEM platform, a log aggregator, retained locally only on the device, or not forwarded at all.",
+    "security_impact": "Two Rego rules depend on this attribute. `cross_segment_traffic_logging` requires any non-null value for `input.log_forwarding_destination`, while `unauthorized_access_attempt_detection` requires the value to be either 'siem' or 'log_aggregator'. A value of 'local_only' or 'none' means denied traffic events cannot be correlated, alerted upon, or retained beyond device log buffer limits, effectively nullifying detection capability for cross-segment access attempts.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the syslog forwarding configuration on the network device to identify remote log destinations.",
+        "command": "show running-config | include logging host|logging server|syslog",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines such as 'logging host <SIEM_IP>' or 'logging server <aggregator_IP> udp/514' confirm forwarding to a remote destination; absence of such lines indicates 'local_only' or 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On a Linux-based firewall or log relay host, inspect the rsyslog or syslog-ng configuration to verify forwarding rules targeting a SIEM or aggregator.",
+        "command": "grep -rE 'omfwd|@@|@[0-9]|ForwardTo' /etc/rsyslog.conf /etc/rsyslog.d/ /etc/syslog-ng/",
+        "file_path": "/etc/rsyslog.conf",
+        "navigation": null,
+        "expected_output": "Entries like '@@siem.internal:514' (TCP) or '@aggregator.internal:514' (UDP) confirm remote forwarding; missing entries indicate 'local_only'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Panorama, verify syslog server profile assignment to the device log forwarding profile used by traffic log policies.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama > Device > Server Profiles > Syslog — confirm a syslog profile exists with the SIEM/aggregator IP; then Policies > Security > Log Forwarding — verify the profile is assigned to inter-segment rules.",
+        "expected_output": "A syslog profile with a valid SIEM or aggregator IP is assigned to all inter-segment security policy rules."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the firewall management API to retrieve the log forwarding profile configuration and confirm external destination assignment.",
+        "command": "curl -sk -H 'X-PAN-KEY: <api_key>' 'https://<panorama>/api/?type=config&action=get&xpath=/config/devices/entry/vsys/entry/log-settings/syslog' | xmllint --format -",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "XML response includes syslog server entries with remote IP addresses, confirming 'siem' or 'log_aggregator' destination."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "siem",
+      "log_aggregator",
+      "local_only",
+      "none"
+    ]
+  },
+  {
+    "option_name": "denied_traffic_logging_enabled",
+    "option_description": "A boolean flag indicating whether the network segmentation policy is configured to log inter-segment connection attempts that are explicitly denied by the access control policy, capturing evidence of policy violations and unauthorized access attempts.",
+    "security_impact": "This is a primary input to the `unauthorized_access_attempt_detection` Rego rule, which requires `input.denied_traffic_logging_enabled == true`. Without this enabled, denied connection attempts—the primary indicator of reconnaissance, lateral movement, and policy bypass attempts—leave no log trace, making it impossible to generate alerts or conduct post-incident forensic analysis of cross-segment intrusion attempts.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Cisco ASA, check whether the deny action in the access-list is configured with the 'log' keyword, which enables logging of denied packets.",
+        "command": "show running-config access-list | grep deny",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Entries such as 'access-list OUTSIDE_IN extended deny ip any any log' confirm denied traffic logging is enabled; absence of 'log' keyword means it is disabled (false)."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux iptables, verify that DROP rules have a corresponding LOG rule immediately preceding them in the FORWARD chain for inter-segment traffic.",
+        "command": "iptables -L FORWARD -v -n --line-numbers | grep -E 'LOG|DROP'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each DROP rule should be immediately preceded by a LOG rule matching the same criteria; if DROP rules appear without preceding LOG rules, denied_traffic_logging_enabled is false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Fortinet FortiGate, review the firewall policy configuration for inter-segment policies to confirm that 'Log Violation Traffic' or 'Log All Sessions' is enabled on deny policies.",
+        "command": null,
+        "file_path": null,
+        "navigation": "FortiGate Web UI > Policy & Objects > Firewall Policy > [inter-segment policy] > Edit — check that 'Log Allowed Traffic' is set to 'All Sessions' and 'Log Security Events' is enabled.",
+        "expected_output": "Logging options are toggled on for the deny policy; 'Security Events' or 'All Sessions' logging confirmed as enabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On a pfSense firewall, inspect the configuration XML to verify that the 'log' attribute is set on deny rules in the inter-segment interface filter section.",
+        "command": "grep -A10 '<rule>' /cf/conf/config.xml | grep -E 'block|reject|log'",
+        "file_path": "/cf/conf/config.xml",
+        "navigation": null,
+        "expected_output": "XML rule elements containing both '<type>block</type>' and '<log/>' tags confirm denied traffic logging is enabled; missing '<log/>' tags indicate it is disabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "alert_generation_on_deny_configured",
+    "option_description": "A boolean flag indicating whether the SIEM, IDS, or centralized policy management platform has active correlation rules or alert policies that trigger notifications when denied inter-segment connection attempts are detected in the log stream.",
+    "security_impact": "This is a required input for the `unauthorized_access_attempt_detection` Rego rule alongside `denied_traffic_logging_enabled` and `log_forwarding_destination`. Even if logs are forwarded to a SIEM, the absence of active alert rules means that denied access events accumulate silently without triggering analyst response, converting a detection capability into a passive logging exercise and allowing lateral movement probing to go unnoticed in real time.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Splunk, navigate to the Alerts section and search for alert rules that reference firewall deny or drop events from inter-segment sources.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk Web > Alerts > Search for alerts with names containing 'deny', 'drop', 'block', or 'firewall' — verify at least one alert is enabled and not throttled to 'Never'.",
+        "expected_output": "One or more active alert rules appear that trigger on firewall deny events, with a schedule or real-time trigger configured and alert status showing 'Enabled'."
+      },
+      {
+        "type": "command",
+        "instruction": "On an Elastic Stack deployment with Kibana SIEM, query the detection rules API to check for active rules targeting denied firewall events.",
+        "command": "curl -sk -u elastic:<password> 'https://kibana:5601/api/detection_engine/rules/_find?filter=alert.attributes.tags:firewall+AND+alert.attributes.enabled:true' -H 'kbn-xsrf: true' | python3 -m json.tool | grep -E 'name|enabled|query'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response lists detection rules with 'enabled: true' and queries referencing firewall deny or drop action fields."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Sentinel, review Analytics rules to confirm an active rule exists that triggers on network deny events from connected firewall data connectors.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Microsoft Sentinel > Analytics > Active Rules — filter by 'Firewall' or search for 'deny' in rule names; confirm at least one rule shows Status='Enabled' and is not in 'Paused' state.",
+        "expected_output": "An active Sentinel analytics rule is visible that queries firewall log tables (e.g., CommonSecurityLog) for denied connection events with alerting configured."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request documentation of SIEM alert rules from the SOC team, specifically identifying any rules targeting inter-segment denied traffic, and verify the last time each rule triggered.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of active alert rules with names, trigger conditions referencing deny actions, and recent trigger timestamps confirming the rules are operational and not suppressed."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "centralized_policy_management_enabled",
+    "option_description": "A boolean flag indicating whether all network segmentation policies across the environment are managed through a single centralized system—such as a firewall management platform, SDN controller, or cloud-native policy engine—rather than being configured independently on each individual network device.",
+    "security_impact": "This is the primary input to the `policy_consistency_enforcement` Rego rule, which also requires `policy_sync_status == 'synced'` and `policy_drift_detected == false`. Without centralized management, policy rules are applied device-by-device, creating high risk of configuration drift where segment boundaries on different devices diverge over time, leaving gaps that attackers can exploit. Centralized management is the technical prerequisite for achieving and demonstrating uniform policy enforcement across all segment boundaries.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Verify whether a centralized firewall management console such as Palo Alto Panorama, Cisco Firepower Management Center (FMC), Check Point SmartConsole, or Fortinet FortiManager is actively connected to and managing all inter-segment firewall devices.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama > Managed Devices > Summary — all inter-segment firewalls should appear in the device list with a 'Connected' status and policies pushed from Panorama rather than configured locally.",
+        "expected_output": "All network segmentation enforcement devices appear as managed and synchronized in the central management console, with no devices in 'local override' or 'unmanaged' state."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco FMC, use the REST API to retrieve the list of managed devices and verify all inter-segment firewalls are registered under centralized management.",
+        "command": "curl -sk -H 'X-auth-access-token: <token>' 'https://<fmc>/api/fmc_config/v1/domain/<domain_uuid>/devices/devicerecords' | python3 -m json.tool | grep -E 'name|healthStatus|sw_version'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response lists all registered FTD devices with health status; cross-reference against the full device inventory to confirm no segmentation enforcement devices are absent (indicating local-only management)."
+      },
+      {
+        "type": "command",
+        "instruction": "In an SDN environment using NSX-T or similar, verify that all distributed firewall rules are pushed from the NSX Manager central policy plane rather than being configured per-host.",
+        "command": "nsxcli> get firewall | grep 'Manager\\|Central\\|Sync'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output confirms rules are sourced from NSX Manager with a sync status of 'Success' or 'In Sync', indicating centralized policy management is active."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview network operations staff to determine whether firewall rule changes require submission through a centralized management platform workflow or can be applied directly on individual devices via CLI or local web UI.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Staff confirm that all policy changes are made exclusively through the central management platform, with local device access restricted or audited; any acknowledgment of direct device-level changes indicates centralized management is not fully enforced (false)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "policy_sync_status",
+    "option_description": "Controls the current synchronization state of segment boundary policies across all enforced network devices compared to the centralized policy store. A 'synced' state confirms every boundary device is running the authoritative ruleset, while 'partial' or 'unsynced' expose gaps where devices may have stale or missing policies.",
+    "security_impact": "The Rego rule 'policy_consistency_enforcement' requires policy_sync_status == 'synced' alongside policy_drift_detected == false and centralized_policy_management_enabled == true to award the Policy Consistency Enforcement countermeasure (score 5). Any state other than 'synced' means boundary devices may be operating on outdated rules, creating unguarded inter-segment paths that adversaries can exploit for lateral movement (MITRE M1037 – Filter Network Traffic).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the centralized network policy manager (e.g., Cisco DNA Center, Palo Alto Panorama, or Fortinet FortiManager) and navigate to Dashboard > Policy Sync Status or equivalent panel. Review the last sync timestamp and per-device sync state column.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco DNA Center: Menu > Provision > Network Devices > Configuration Status | Panorama: Dashboard > Managed Devices > Sync Status column | FortiManager: Device Manager > Managed Devices > Config Status",
+        "expected_output": "All devices display 'In Sync' or equivalent; last sync timestamp is recent (within the configured push interval)."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the network controller API for the sync status report across all managed devices.",
+        "command": "curl -sk -X GET 'https://<dnac-host>/dna/intent/api/v1/network-device' -H 'X-Auth-Token: <token>' | jq '[.response[] | {hostname:.hostname, syncStatus:.collectionStatus}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array where every device shows collectionStatus: 'Managed' or 'Sync' with no 'Out of Sync' or 'Unreachable' entries."
+      },
+      {
+        "type": "command",
+        "instruction": "On FortiManager or similar policy orchestrators, use the CLI to pull device synchronization status across all registered managed devices.",
+        "command": "execute fmpolicy print-adom-object <adom> device-sync-status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists each device with status 'synchronized'; no entries flagged as 'modified' or 'out-of-sync'."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the policy manager's sync audit log for failed push events or devices that missed the last synchronization cycle.",
+        "command": "grep -E '(sync_fail|out_of_sync|push_error)' /var/log/policy-manager/sync.log | tail -100",
+        "file_path": "/var/log/policy-manager/sync.log",
+        "navigation": null,
+        "expected_output": "No entries for sync failures within the current sync window; all push operations show status 'success'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "synced",
+      "partial",
+      "unsynced",
+      "unknown"
+    ]
+  },
+  {
+    "option_name": "policy_drift_detected",
+    "option_description": "Indicates whether any segment boundary device has a running configuration that deviates from the centrally defined policy baseline. A 'true' value means at least one device has been modified outside the central management workflow, producing an inconsistent enforcement surface.",
+    "security_impact": "The Rego rule 'policy_consistency_enforcement' requires policy_drift_detected == false. If drift is detected, the countermeasure (score 5) is not awarded, meaning boundary enforcement may be inconsistent. Drifted configurations can contain overly permissive rules introduced manually or by automation errors, opening inter-segment paths that bypass the intended least-privilege posture (MITRE D3-NTPM – Network Traffic Policy Mapping).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Use a CSPM tool or network configuration manager API to compare each device's running ACL/firewall configuration against the stored policy baseline template and return a drift flag.",
+        "command": "curl -sk -X POST 'https://<cspm-host>/api/v1/compliance/drift-check' -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{\"scope\": \"network_segmentation\"}' | jq '.results[] | select(.drift==true)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty array indicates no drift detected; any returned objects identify drifted devices and the differing rule lines."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Ansible with a network compliance playbook to diff running device configurations against the golden-config templates stored in version control.",
+        "command": "ansible-playbook -i inventory/network_devices.ini playbooks/config_compliance_check.yml --extra-vars 'baseline_path=./baselines/segment_policies/' 2>&1 | grep -E '(CHANGED|FAIL|drift)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All tasks return 'ok'; no 'CHANGED' or 'FAIL' results indicate zero configuration drift across managed boundary devices."
+      },
+      {
+        "type": "gui",
+        "instruction": "Within Cisco DNA Center or equivalent, navigate to the Compliance Reports section and run a full compliance audit to identify devices with configurations that differ from their assigned policy template.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco DNA Center: Assurance > Compliance > Run Compliance > Select All Devices > Report | FortiManager: Policy & Objects > Policy Packages > Config Status per Device",
+        "expected_output": "Compliance report shows 0 non-compliant devices; all devices reflect 'Compliant' status against the baseline template."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Run a textual diff between the archived golden-config file and a freshly pulled running-config for each segment boundary device.",
+        "command": "for dev in $(cat device_list.txt); do ssh admin@$dev 'show running-config' > /tmp/${dev}_running.txt; diff baselines/${dev}_golden.txt /tmp/${dev}_running.txt && echo \"$dev: NO DRIFT\" || echo \"$dev: DRIFT DETECTED\"; done",
+        "file_path": "baselines/<device>_golden.txt",
+        "navigation": null,
+        "expected_output": "No diff output for any device; all devices print 'NO DRIFT'. Any printed diff lines indicate specific rule deviations requiring remediation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "segment_access_policy_enforced",
+    "option_description": "Indicates whether a least-privilege inter-segment access policy is actively enforced on boundary devices, restricting communication between network segments to only what is required by each service or host's defined function. A 'true' value confirms that explicit allow rules are active and that no overly broad 'permit any' rules exist.",
+    "security_impact": "The Rego rule 'least_privilege_access_coverage' requires segment_access_policy_enforced == true as a mandatory condition. Without enforcement, the Least Privilege Access Coverage countermeasure (score 5) is not awarded, leaving inter-segment communication unrestricted and enabling unconstrained lateral movement (MITRE D3-NAM – Network Access Mediation, M1035 – Limit Access to Resource Over Network).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the ACL or firewall ruleset on each boundary device to confirm explicit allow rules are present and no 'permit any any' or equivalent wildcard rules exist between segments.",
+        "command": "ssh admin@<firewall-host> 'show access-lists' | grep -E '(permit any|allow any|0.0.0.0/0)' | grep -v 'deny'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero output lines. Any returned lines indicate overly broad permit rules that must be reviewed and tightened."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Linux-based firewall (nftables/iptables), list all FORWARD chain rules between segment interfaces and verify only specific source/destination pairs are permitted.",
+        "command": "nft list ruleset | grep -A5 'chain FORWARD' | grep -E '(accept|drop|reject)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each 'accept' rule is scoped to explicit source/destination IP ranges and ports; a final 'drop' or 'reject' rule covers all unmatched traffic."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Panorama or Firewall GUI, review the Security Policy rulebase for inter-zone rules, confirming all rules specify explicit source/destination addresses, applications, and services with no 'any' in critical fields.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama: Policies > Security > Pre Rules / Post Rules — filter by zone pairs representing segment boundaries; inspect each rule's Source Address, Destination Address, Application, and Service columns.",
+        "expected_output": "No rule has both Source Address and Destination Address set to 'any'; all inter-segment rules specify discrete objects or address groups."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a controlled connectivity test between two hosts in different segments using a port that should NOT be permitted, confirming that the connection is denied.",
+        "command": "nc -zv -w3 <host-in-segment-B> <blocked-port> 2>&1; echo \"Exit: $?\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused or timed out; exit code non-zero, confirming that unauthorized inter-segment traffic is blocked by the enforced policy."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "policy_scope",
+    "option_description": "Describes the breadth of segment pairs covered by the least-privilege access policy — whether every segment pair has an explicit inter-segment access rule ('all'), only high-value or sensitive segments are covered ('critical_only'), coverage is inconsistent ('partial'), or no policy exists ('none'). This attribute reflects how comprehensively the enforcement perimeter has been defined across the network.",
+    "security_impact": "The Rego rule 'least_privilege_access_coverage' accepts policy_scope values of 'all', 'critical_only', or 'partial' when segment_access_policy_enforced and default_deny_between_segments are true. A scope of 'none' disqualifies the countermeasure entirely. Incomplete scope ('partial') allows uncovered segment pairs to communicate without restriction, providing lateral movement paths that bypass the intended isolation (MITRE D3-AMED – Access Mediation, M1035).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Open the policy management console and enumerate all defined network segments. Cross-reference each segment pair against the rule base to identify which pairs have explicit inter-segment policies defined.",
+        "command": null,
+        "file_path": null,
+        "navigation": "FortiManager: Policy & Objects > Policy Packages > view inter-zone rules and map against the segment topology diagram | Panorama: Policies > Security — filter by each source/destination zone combination to verify coverage.",
+        "expected_output": "A coverage matrix showing which segment pairs have rules; 'all' if every pair is covered, 'critical_only' if only sensitive zone pairs are present, 'partial' if gaps exist, 'none' if no inter-segment rules are defined."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the CSPM or network policy API to retrieve the list of segment pairs and their associated policy coverage status.",
+        "command": "curl -sk -X GET 'https://<cspm-host>/api/v1/network/segment-coverage' -H 'Authorization: Bearer <token>' | jq '.segments[] | {pair: .segment_pair, policy_defined: .has_explicit_policy}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON showing each segment pair with has_explicit_policy: true for all pairs indicates 'all' scope; any false entries indicate 'partial' or 'critical_only' coverage."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA or IOS firewalls, extract the ACL configuration and count unique inter-segment access control entries to assess whether all defined segments have dedicated rule groups.",
+        "command": "ssh admin@<asa-host> 'show running-config access-list' | grep -E 'access-list (INTER_SEG|SEGMENT)' | awk '{print $2}' | sort -u",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of ACL names covering each defined segment interface; compare count against the known segment inventory to determine 'all', 'critical_only', or 'partial'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security team to determine whether a formal segment pair coverage matrix has been documented and whether policy coverage was intentionally limited to critical segments or extended to all.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented segment coverage matrix exists that explicitly classifies each segment pair's policy status; the declared scope aligns with what is observed in the rule base."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "all",
+      "critical_only",
+      "partial",
+      "none"
+    ]
+  },
+  {
+    "option_name": "default_deny_between_segments",
+    "option_description": "Indicates whether the inter-segment policy posture defaults to deny-all traffic unless explicitly permitted at each segment boundary. A 'true' value confirms that an implicit or explicit deny-all rule anchors the end of each boundary ruleset, requiring all permitted flows to be specifically whitelisted.",
+    "security_impact": "The Rego rule 'least_privilege_access_coverage' requires default_deny_between_segments == true as a mandatory condition alongside segment_access_policy_enforced. Without a default-deny posture, any traffic not matched by an explicit rule is permitted, creating an open network where compromised hosts can reach arbitrary segments. This directly enables lateral movement (MITRE D3-NI – Network Isolation, M1030 – Network Segmentation). Even with explicit allow rules, the absence of a default deny makes the policy fragile against rule-set gaps.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the tail of each inter-segment ACL or firewall chain to verify a deny-all rule is the final entry, catching all unmatched traffic.",
+        "command": "ssh admin@<router-host> 'show ip access-lists' | awk '/Extended IP access list INTER_SEGMENT/{found=1} found{print}' | tail -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The last ACL entry reads 'deny ip any any' (or equivalent); no 'permit any any' rule appears after the explicit allow entries."
+      },
+      {
+        "type": "command",
+        "instruction": "On an nftables-managed Linux firewall, verify the default policy for the FORWARD chain handling inter-segment traffic is set to drop.",
+        "command": "nft list chain inet filter FORWARD | grep -E '(policy|drop|reject)' | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output includes 'type filter hook forward priority 0; policy drop;' confirming that unmatched inter-segment packets are dropped by default."
+      },
+      {
+        "type": "command",
+        "instruction": "On iptables-based firewalls, verify the FORWARD chain default policy is DROP for traffic traversing inter-segment interfaces.",
+        "command": "iptables -L FORWARD -n -v | head -3",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "First line reads 'Chain FORWARD (policy DROP <n> packets, <n> bytes)', confirming default-deny posture for forwarded (inter-segment) traffic."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Networks Firewall or Panorama, confirm that an explicit 'deny all' rule or that the default inter-zone action is 'deny' at the bottom of the security policy rulebase for each segment zone pair.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama: Policies > Security > scroll to bottom of rulebase — verify a 'deny' rule with Source Zone=any, Destination Zone=any, Action=Deny exists as the final rule; or confirm the intrazone/interzone default action is Deny under Device > Setup > Session.",
+        "expected_output": "A catch-all deny rule is present as the last policy entry, or the default interzone action is confirmed as 'deny', ensuring all unmatched inter-segment traffic is blocked."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "policy_ruleset_versioned",
+    "option_description": "Indicates whether the network segmentation policy ruleset (firewall rules, ACLs, SDN policy definitions) is stored in a version control system with a complete change history. A 'true' value confirms that every policy modification is tracked with author, timestamp, and change description, enabling rollback and audit.",
+    "security_impact": "The Rego rule 'policy_audit_and_review_maintainability' requires policy_ruleset_versioned == true as a prerequisite for the Policy Audit and Review Maintainability countermeasure (score 2). Without versioning, unauthorized or accidental rule changes cannot be detected or reversed, and compliance evidence cannot be produced. Versioning is the foundation of policy hygiene — supporting MITRE M1047 (Audit) and ensuring that drifted configurations can be identified and corrected (D3-ORA – Operational Risk Assessment).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether the policy ruleset directory is initialized as a Git repository and contains recent commits reflecting policy changes.",
+        "command": "cd /opt/network-policies && git log --oneline -10",
+        "file_path": "/opt/network-policies",
+        "navigation": null,
+        "expected_output": "Ten or more commit entries visible with descriptive messages, author names, and timestamps; confirms versioning is active and used."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify that an automated export mechanism pushes device configurations to a Git-backed configuration archive on a scheduled basis.",
+        "command": "crontab -l | grep -E '(git commit|config-backup|policy-export)' ; ls -lt /opt/config-archive/*.cfg | head -5",
+        "file_path": "/opt/config-archive",
+        "navigation": null,
+        "expected_output": "Crontab entry shows a scheduled export job; archive directory contains recently modified .cfg files matching the expected export interval."
+      },
+      {
+        "type": "gui",
+        "instruction": "Log into the network configuration management platform (e.g., NetBrain, Batfish, or Oxidized) and verify that configuration versioning is enabled with a history of prior snapshots for each boundary device.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Oxidized Web UI: Nodes > select device > Version History — confirm multiple dated snapshots exist | NetBrain: Network Change > Change History — verify rule change records with before/after diffs are stored.",
+        "expected_output": "Multiple version snapshots exist per device with dates, committers, and diff views available; history spans at least the last policy review period."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network operations team to confirm whether a formal policy-as-code workflow exists requiring all firewall or ACL changes to be committed to version control before deployment via CI/CD pipeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team confirms a documented change management procedure requiring version control commits; a CI/CD pipeline or automation script enforces that no manual out-of-band changes bypass the repository."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "policy_review_cycle_days",
+    "option_description": "The maximum number of days between formally scheduled policy reviews of the network segmentation ruleset. This integer value defines the review cadence — how often the organization examines its inter-segment access rules for correctness, relevance, and compliance alignment. Values of 90 days or fewer are typical for regulated environments.",
+    "security_impact": "The Rego rule 'policy_audit_and_review_maintainability' evaluates this value against two thresholds: <= 90 days (optimal) and <= 180 days (acceptable), both awarding the countermeasure (score 2) when combined with other conditions. Review cycles exceeding 180 days risk accumulating stale, overly permissive, or orphaned rules that expand the inter-segment attack surface. Regular reviews support MITRE M1047 (Audit) by ensuring policies remain accurate as the network topology and service dependencies evolve.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request and review the organization's documented network security policy or change management procedure to identify the formally mandated policy review interval for firewall and segmentation rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A written policy document specifying the review interval in days (e.g., 'quarterly — every 90 days'); an owner and a sign-off procedure for completed reviews."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the policy management platform's configuration or scheduling settings file for the defined review cycle or review reminder interval.",
+        "command": "grep -Ei '(review_cycle|review_interval|review_period|review_days)' /etc/policy-manager/scheduler.conf",
+        "file_path": "/etc/policy-manager/scheduler.conf",
+        "navigation": null,
+        "expected_output": "A key-value pair such as 'review_cycle_days=90' confirming the programmatically enforced review interval matches the documented policy."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the compliance calendar or scheduled task configuration within the policy management console to find the next and previous policy review dates, and calculate the interval between them.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Tufin SecureTrack: Reports > Policy Review Schedule | AlgoSec FireFlow: Administration > Review Policy > Review Frequency Settings | Skybox: Administration > Task Scheduler > Policy Review Tasks",
+        "expected_output": "A clearly defined review schedule showing periodic events; interval between consecutive review dates matches the documented cycle (e.g., every 90 or 180 days)."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Examine the policy review audit log to calculate the actual elapsed time between completed policy review events and compare to the stated cycle.",
+        "command": "grep 'policy_review_completed' /var/log/policy-manager/audit.log | awk '{print $1}' | tail -5",
+        "file_path": "/var/log/policy-manager/audit.log",
+        "navigation": null,
+        "expected_output": "Timestamps of completed reviews are present; the difference between consecutive entries should not exceed the mandated cycle length (e.g., 90 days = ~7776000 seconds)."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30",
+      "60",
+      "90",
+      "180",
+      "365"
+    ]
+  },
+  {
+    "option_name": "access_matrix_validation_status",
+    "option_description": "The current validation state of the network segmentation policy rules against a formally defined access matrix — a document or system record that specifies which segments, services, and hosts are authorized to communicate with each other. Valid states range from 'validated' (rules confirmed to match the matrix) through 'pending_validation', 'not_validated', to 'no_matrix_defined' (no reference matrix exists).",
+    "security_impact": "The Rego rule 'policy_audit_and_review_maintainability' requires access_matrix_validation_status == 'validated' as a mandatory condition for awarding the countermeasure (score 2). Without a validated access matrix, policy rules may diverge from business intent — either permitting flows that should be blocked or blocking required flows that are later worked around with broad exceptions. This undermines the principle of least privilege and compliance with MITRE M1047 (Audit) and D3-ORA (Operational Risk Assessment).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the organization's network access matrix document and the most recent validation report or sign-off record confirming that firewall/ACL rules were verified against it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A formal access matrix document exists (e.g., spreadsheet or CMDB record) with a dated validation report signed by the network security owner; validation date falls within the current review cycle."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the policy management or compliance tool's validation status file or database record to retrieve the current validation state for the segmentation ruleset.",
+        "command": "cat /opt/policy-manager/validation/access_matrix_status.json | jq '{status: .validation_status, last_validated: .last_validated_date, validator: .validated_by}'",
+        "file_path": "/opt/policy-manager/validation/access_matrix_status.json",
+        "navigation": null,
+        "expected_output": "JSON output shows validation_status: 'validated', a recent last_validated_date, and a named validator; any other status requires remediation."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the compliance management system API for the access matrix validation status associated with the network segmentation control.",
+        "command": "curl -sk -X GET 'https://<compliance-host>/api/v1/controls/network_segmentation/validation' -H 'Authorization: Bearer <token>' | jq '{matrix_status: .access_matrix_validation_status, validated_on: .last_validation_date}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response shows matrix_status: 'validated' with a recent validated_on date; 'pending_validation' or 'not_validated' requires immediate follow-up with the policy owner."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the GRC or policy management platform's compliance dashboard to view the access matrix validation status for the network segmentation control.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Tufin SecureTrack: Policy > Access Verification > Matrix Compliance Report | ServiceNow GRC: Compliance > Controls > Network Segmentation > Evidence tab — review validation attestation records | AlgoSec: Reports > Access Compliance > Access Matrix Validation",
+        "expected_output": "Dashboard shows status 'Validated' with a recent validation date and linked evidence artifact; 'Not Validated' or 'No Matrix Defined' statuses require the team to define or complete the validation process."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "validated",
+      "pending_validation",
+      "not_validated",
+      "no_matrix_defined"
+    ]
+  },
+  {
+    "option_name": "compliance_report_generated",
+    "option_description": "Controls whether a formal compliance or rule hygiene report (covering orphaned rules, shadow rules, and overlap analysis) has been produced within the defined policy review cycle, providing evidence of active policy maintainability.",
+    "security_impact": "The Rego policy for `policy_audit_and_review_maintainability` requires `compliance_report_generated == true` alongside versioned rulesets and validated access matrices. Without a recent compliance report, the policy audit countermeasure fails entirely, leaving rule hygiene unverified and potentially masking stale or conflicting rules that could create unauthorized access paths.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the network policy management platform (e.g., AlgoSec, Tufin, FireMon, Palo Alto Panorama) and navigate to Reports > Compliance or Policy Optimization. Verify the most recent rule hygiene or compliance report and check its generation timestamp against the review cycle.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Policy Management Platform → Reports → Compliance / Policy Optimization → Most Recent Report → Check Date",
+        "expected_output": "A report entry with a generation date within the defined review period (e.g., within 90 or 180 days), covering orphaned rules, shadow rules, and overlap analysis."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the policy management platform API for the most recently generated compliance report. For AlgoSec, use the REST API; for FireMon, use the Security Manager REST API to retrieve the latest report metadata.",
+        "command": "curl -s -u admin:password -X GET 'https://<policy-mgmt-host>/api/v1/reports?type=compliance&limit=1' -H 'Accept: application/json' | jq '.reports[0].generated_at'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON response containing a report object with a `generated_at` timestamp within the review cycle and a status of 'completed'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security team or review ticketing/change management systems (e.g., ServiceNow, Jira) for closed tasks or recurring scheduled jobs associated with policy compliance review. Confirm a recurring task exists and was completed within the review period.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A closed ticket or scheduled job record demonstrating a compliance report was generated and reviewed within the last 90–180 days."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check the policy management platform's audit log or report export directory for timestamped compliance report files generated within the review cycle.",
+        "command": "find /var/log/policy-mgmt/reports/ -name '*compliance*' -newer $(date -d '90 days ago' +%Y-%m-%d) -type f | sort -r | head -5",
+        "file_path": "/var/log/policy-mgmt/reports/",
+        "navigation": null,
+        "expected_output": "One or more compliance report files with modification timestamps within the defined review period."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "siem_forwarding_enabled",
+    "option_description": "Controls whether the network segmentation enforcement device (e.g., firewall, microsegmentation platform) is actively forwarding inter-segment access events to a SIEM or centralized log aggregation platform via syslog, CEF, or API-based connectors.",
+    "security_impact": "The Rego policy for `siem_integration_depth` requires `siem_forwarding_enabled == true` as a prerequisite for all SIEM integration depth countermeasures. Without active forwarding, no inter-segment traffic events reach the SIEM, completely disabling correlation-based detection and violating the NTSA and PA defend technique mappings. It is also a dependency for `unauthorized_access_attempt_detection` via `log_forwarding_destination`.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On the segmentation enforcement device (e.g., Palo Alto firewall, Cisco FTD), display the current syslog server configuration to confirm a SIEM destination is defined and the profile is active.",
+        "command": "show logging | grep -E '(Syslog|CEF|SIEM|forwarding|server)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing a configured syslog server IP/hostname pointing to the SIEM, with an active status and the correct port (typically UDP/TCP 514 or TCP 6514 for TLS syslog)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the segmentation enforcement device's logging configuration file or exported running configuration for syslog/CEF forwarding stanzas targeting the SIEM.",
+        "command": "grep -A5 'logging host\\|syslog-server\\|log-forwarding\\|CEF' /etc/firewall/running-config.txt",
+        "file_path": "/etc/firewall/running-config.txt",
+        "navigation": null,
+        "expected_output": "A syslog host entry with the SIEM destination IP, port, and protocol (TCP/UDP/TLS), with the forwarding profile applied to relevant interfaces or zones."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the firewall or segmentation platform management console, navigate to Device > Server Profiles > Syslog (Palo Alto) or Platform > Logging > Log Forwarding (generic). Verify a SIEM destination is listed and the forwarding rule is enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console → Device → Server Profiles → Syslog → Verify SIEM Destination is listed and profile is active",
+        "expected_output": "A syslog server profile entry with the SIEM IP, port, and facility configured, and the profile referenced in an active log forwarding policy."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From the segmentation enforcement device, test connectivity to the SIEM syslog listener on the configured port to confirm the forwarding path is reachable.",
+        "command": "nc -vz <siem-ip> 514 && echo 'SIEM syslog port reachable' || echo 'Connection failed'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Successful TCP/UDP connection to the SIEM syslog port with a confirmation message indicating the destination is reachable."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_event_types_forwarded",
+    "option_description": "Defines the specific inter-segment access event categories (e.g., 'allow', 'deny', 'policy_violation', 'authentication_failure') that are included in the log forwarding rule set sent from the segmentation enforcement device to the SIEM.",
+    "security_impact": "The Rego policy for `siem_integration_depth` evaluates whether `deny` or `policy_violation` are present in `log_event_types_forwarded`. If neither is included, the SIEM integration depth countermeasure fails even when forwarding is enabled, because the events critical for detecting unauthorized lateral movement attempts will not reach the SIEM for correlation with EDR, identity, or application telemetry.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On the segmentation enforcement device, display the log forwarding profile or syslog filter configuration to enumerate which traffic event types (allow, deny, drop, policy_violation) are included in the forwarding ruleset.",
+        "command": "show log-forwarding profile all | grep -E '(event-type|severity|traffic|threat|deny|allow|policy)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of event categories included in the forwarding profile, expected to include at minimum 'deny' and 'policy_violation'. Alert if only 'allow' is listed or the list is empty."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the exported device configuration or SIEM connector configuration file for the event type filter applied to the log forwarding rule targeting the SIEM.",
+        "command": "grep -A10 'log-forwarding\\|event-filter\\|syslog-filter' /etc/firewall/running-config.txt | grep -E 'type|event|severity'",
+        "file_path": "/etc/firewall/running-config.txt",
+        "navigation": null,
+        "expected_output": "Configuration entries listing the event types included in the forwarding filter — at minimum 'deny' and 'policy_violation' must appear."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the policy management or firewall console, navigate to Log Forwarding Profiles and inspect the event type filter for the SIEM-targeted profile. Verify 'deny' and 'policy_violation' categories are checked.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console → Objects → Log Forwarding Profile → [SIEM Profile] → Traffic → Review Log Types (Allow/Deny/Drop/Threat/Policy Violation)",
+        "expected_output": "The forwarding profile shows 'deny' and 'policy_violation' (or equivalent 'threat'/'violation') as selected event types, confirming these categories are sent to the SIEM."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM for the distinct event types received from the segmentation enforcement device source to confirm which categories are actually arriving.",
+        "command": "curl -s -u admin:password -X POST 'https://<siem-host>/api/search' -H 'Content-Type: application/json' -d '{\"query\": \"source=<firewall-ip> | stats count by event_type\", \"timerange\": \"last_24h\"}' | jq '.results'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A result set showing distinct event_type values received from the firewall, with 'deny' and 'policy_violation' present in the list."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"deny\"]",
+      "[\"deny\", \"policy_violation\"]",
+      "[\"allow\", \"deny\", \"policy_violation\", \"authentication_failure\"]",
+      "[\"allow\", \"deny\"]"
+    ]
+  },
+  {
+    "option_name": "telemetry_correlation_configured",
+    "option_description": "Controls whether the SIEM platform has active correlation rules, use cases, or dashboards that join inter-segment access events with at least one additional telemetry source such as EDR alerts, identity provider logs, or application logs to enable holistic threat detection.",
+    "security_impact": "The Rego policy for `siem_integration_depth` requires `telemetry_correlation_configured == true` in addition to `siem_forwarding_enabled` and valid `log_event_types_forwarded`. Without cross-telemetry correlation, inter-segment deny events exist in isolation in the SIEM, making it impossible to correlate a network access violation with a concurrent endpoint compromise or credential abuse, defeating the integration depth countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the SIEM platform (e.g., Splunk, Microsoft Sentinel, IBM QRadar, Elastic SIEM) and navigate to Correlation Rules or Analytics Rules. Search for rules that reference both a network/firewall data source and at least one of: EDR, identity provider, or application log source.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM Platform → Analytics / Correlation Rules → Search for rules referencing firewall + (EDR OR identity OR application) data sources → Verify rule is Enabled",
+        "expected_output": "At least one active correlation rule or analytic with logic that joins inter-segment traffic events (e.g., firewall deny logs) with endpoint telemetry, identity provider logs, or application events."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SIEM API for active correlation rules that reference both network segmentation (firewall/NAC) log sources and secondary telemetry sources to confirm cross-telemetry correlation is configured.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://<siem-host>/api/v1/correlation-rules?status=active' | jq '[.rules[] | select(.data_sources | contains([\"firewall\"]) and (contains([\"edr\"]) or contains([\"identity\"]) or contains([\"application\"])))]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-empty JSON array of active correlation rules that reference both network/firewall telemetry and at least one additional telemetry source."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search the SIEM for correlation alert events generated from rules that join inter-segment traffic data with endpoint or identity telemetry, confirming the rules are firing on real data.",
+        "command": "curl -s -u admin:password -X POST 'https://<siem-host>/api/search' -H 'Content-Type: application/json' -d '{\"query\": \"index=notable_events OR index=alerts rule_type=correlation data_sources=*firewall* AND data_sources=*endpoint* OR data_sources=*identity*\", \"timerange\": \"last_7d\"}' | jq '.total_results'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-zero result count indicating cross-telemetry correlation alerts have fired within the past week, confirming the rules are active and processing real event data."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the SOC or SIEM engineering team to identify whether documented use cases or runbooks exist for inter-segment traffic correlated with EDR or identity telemetry, and verify the corresponding SIEM rules are in active/enabled state.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation of at least one use case with an active SIEM rule that correlates firewall deny events with endpoint or identity provider events, confirmed as enabled by the team."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "automated_policy_update_enabled",
+    "option_description": "Controls whether the network segmentation policy enforcement system supports and has enabled programmatic or API-driven updates to segment access rules, allowing policies to be modified without manual administrator intervention in response to security events.",
+    "security_impact": "The Rego policy for `dynamic_policy_response_automation` requires `automated_policy_update_enabled == true` as a hard prerequisite. Without this enabled, the system cannot respond to orchestration triggers (SOAR, SIEM, XDR) to block emerging threats, meaning all policy changes require manual intervention and dwell time of policy violations will be dictated by human response speed rather than automated enforcement.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the network policy management platform (e.g., Palo Alto Panorama, Cisco DNA Center, Illumio PCE, VMware NSX), navigate to Settings > Automation or API > Policy Push and verify that automated rule deployment or API-triggered policy updates are enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Policy Management Platform → Settings → Automation / API → Policy Update / Rule Push → Verify 'Enable Automated Policy Updates' or 'API-Driven Push' is toggled ON",
+        "expected_output": "The automated policy update or API-driven push feature is shown as enabled/active, with at least one configured trigger endpoint or automation profile."
+      },
+      {
+        "type": "api",
+        "instruction": "Test whether the policy management API accepts a policy update request by issuing a dry-run or read-only API call to the policy management endpoint, confirming the API is operational and accepting programmatic requests.",
+        "command": "curl -s -X GET 'https://<policy-mgmt-host>/api/v1/policies/automation/status' -H 'Authorization: Bearer <token>' | jq '{automation_enabled: .automation_enabled, api_access: .api_access_enabled}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response with `automation_enabled: true` and `api_access_enabled: true`, indicating the system is configured to accept and process automated policy update requests."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the policy management platform configuration file for API server settings, automation flags, or programmatic push configurations indicating automated updates are enabled.",
+        "command": "grep -E '(automation|auto_push|api_enabled|programmatic|auto_deploy)' /etc/policy-mgmt/config.yaml",
+        "file_path": "/etc/policy-mgmt/config.yaml",
+        "navigation": null,
+        "expected_output": "Configuration entries showing `automation: true`, `api_enabled: true`, or `auto_push: enabled` confirming the feature is active."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the change management system for recent policy updates that were applied programmatically (automated source) rather than manually, confirming the automated update capability is both configured and in active use.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Change records within the past 30 days showing policy updates with a source of 'automated', 'API', 'SOAR', or similar non-manual origin, confirming the feature is operationally active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "orchestration_trigger_source",
+    "option_description": "Identifies the external system (SOAR, SIEM, XDR, custom API, or SDN controller) that is integrated with the policy enforcement platform to send automated triggers that update segmentation policies in response to detected threats or security events.",
+    "security_impact": "The Rego policy for `dynamic_policy_response_automation` explicitly requires `orchestration_trigger_source` to not be 'none'. When set to 'none', the dynamic policy response automation countermeasure fails regardless of other settings, because there is no integrated system capable of programmatically triggering policy changes. The specific source type also determines the response fidelity — SOAR and XDR integrations typically provide richer context than custom API integrations.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the policy management platform, navigate to Integrations or Automation > Orchestration Connectors. Identify which external system (SOAR, SIEM, XDR, SDN controller) is configured as a trigger source with an active connection.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Policy Management Platform → Integrations → Orchestration / Automation → Active Connectors → Identify source type (SOAR/SIEM/XDR/SDN Controller/Custom API)",
+        "expected_output": "An active integration listed with source type other than 'none', showing connection status as 'connected' or 'active' with a last-heartbeat timestamp."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the policy management platform API for configured orchestration integrations to retrieve the active trigger source type and its connection status.",
+        "command": "curl -s -X GET 'https://<policy-mgmt-host>/api/v1/integrations/orchestration' -H 'Authorization: Bearer <token>' | jq '[.integrations[] | select(.status==\"active\") | {source_type: .type, status: .status, last_trigger: .last_trigger_timestamp}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON array with one or more active integration entries, each with a `source_type` value of 'soar', 'siem', 'xdr', 'custom_api', or 'sdn_controller' and a non-null `last_trigger` timestamp."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the policy management platform's integration configuration file for defined webhook endpoints, API keys, or connector configurations associated with SOAR, SIEM, XDR, or SDN controller systems.",
+        "command": "grep -E '(soar|siem|xdr|sdn|webhook|trigger_source|orchestration)' /etc/policy-mgmt/integrations.yaml | grep -v '#'",
+        "file_path": "/etc/policy-mgmt/integrations.yaml",
+        "navigation": null,
+        "expected_output": "Configuration entries showing a defined integration type (e.g., `type: soar`, `trigger_source: xdr`) with a target URL or API endpoint and an enabled/active flag."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the policy management platform audit logs for recent policy update events triggered by an external source, identifying the originating system to confirm the trigger source type.",
+        "command": "grep -E '(trigger|orchestration|automated|soar|siem|xdr|api_push)' /var/log/policy-mgmt/audit.log | tail -20",
+        "file_path": "/var/log/policy-mgmt/audit.log",
+        "navigation": null,
+        "expected_output": "Audit log entries showing automated policy updates with a source field identifying the trigger origin (e.g., 'source: soar_playbook', 'trigger: xdr_alert', 'origin: siem_correlation') within the recent time window."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "soar",
+      "siem",
+      "xdr",
+      "custom_api",
+      "sdn_controller"
+    ]
+  },
+  {
+    "option_name": "policy_propagation_latency_seconds",
+    "option_description": "Measures the maximum observed or configured time in seconds between when an orchestration trigger is received by the policy management system and when full policy enforcement is confirmed across all affected network segment boundary devices.",
+    "security_impact": "The Rego policy for `dynamic_policy_response_automation` requires `policy_propagation_latency_seconds <= 300` (5 minutes) for the countermeasure to succeed when a latency value is present. Latency above 300 seconds means there is a window during which a threat actor can continue lateral movement or unauthorized access after a policy change has been triggered but not yet enforced, directly increasing dwell time and blast radius.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the policy management platform, navigate to Settings > Policy Push / Deployment SLA or Automation Metrics. Review the configured maximum propagation timeout and any reported actual propagation latency from recent deployments.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Policy Management Platform → Settings → Policy Deployment / Push Metrics → SLA Configuration → Review 'Max Propagation Time' and 'Last Deployment Latency'",
+        "expected_output": "A configured SLA value in seconds and actual measured latency from recent deployments, both ideally at or below 300 seconds for the dynamic policy response automation countermeasure to qualify."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the policy management API for the propagation latency metrics from recent automated policy push operations to obtain the observed maximum latency.",
+        "command": "curl -s -X GET 'https://<policy-mgmt-host>/api/v1/deployments?type=automated&limit=10' -H 'Authorization: Bearer <token>' | jq '[.deployments[] | {deployment_id: .id, trigger_time: .triggered_at, enforcement_confirmed: .enforced_at, latency_seconds: (.enforced_at_epoch - .triggered_at_epoch)}] | max_by(.latency_seconds)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON object showing the deployment with the highest propagation latency, including the `latency_seconds` value. Values at or below 300 indicate compliance with the Rego policy threshold."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Trigger a test policy update through the orchestration integration (e.g., a non-impacting rule change) and measure the elapsed time from trigger submission to confirmation of enforcement on all target segment boundary devices using timestamped API or log checks.",
+        "command": "START=$(date +%s); curl -s -X POST 'https://<policy-mgmt-host>/api/v1/policies/test-push' -H 'Authorization: Bearer <token>' -d '{\"rule\": \"test-marker\", \"scope\": \"all\"}'; until curl -s 'https://<policy-mgmt-host>/api/v1/deployments/latest/status' | grep -q '\"status\":\"enforced\"'; do sleep 5; done; echo \"Propagation latency: $(($(date +%s)-START)) seconds\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A measured propagation latency in seconds printed to the terminal. Values of 300 or below meet the Rego policy threshold; values above 300 indicate the dynamic policy response automation countermeasure will not qualify."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the policy management platform configuration for the defined push timeout or deployment SLA setting that governs the maximum allowed propagation latency.",
+        "command": "grep -E '(propagation_timeout|push_timeout|deployment_sla|max_latency|enforcement_timeout)' /etc/policy-mgmt/config.yaml",
+        "file_path": "/etc/policy-mgmt/config.yaml",
+        "navigation": null,
+        "expected_output": "A configuration entry specifying the maximum propagation or push timeout in seconds (e.g., `propagation_timeout: 120`, `push_timeout_seconds: 300`), confirming the system-level SLA is within acceptable bounds."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30",
+      "60",
+      "120",
+      "300",
+      "600",
+      "1800"
+    ]
+  }
+]

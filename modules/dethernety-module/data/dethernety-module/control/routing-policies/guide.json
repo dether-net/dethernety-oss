@@ -1,0 +1,1074 @@
+[
+  {
+    "option_name": "acl_applied_to_interfaces",
+    "option_description": "Controls whether access control lists are bound to all relevant router interfaces in the appropriate direction (inbound and/or outbound), including segment boundary interfaces, enforcing permit/deny rules at the packet level.",
+    "security_impact": "This is a foundational prerequisite in the Rego policy. Both packet_filtering_coverage and network_segmentation_enforcement rules require acl_applied_to_interfaces == true. Without ACLs bound to interfaces, no packet-level enforcement occurs regardless of how well the ACL rules themselves are written. An unbound ACL provides zero enforcement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, display all interfaces and their assigned ACLs to verify binding on every segment boundary interface.",
+        "command": "show ip interface | include (Internet|Inbound|Outbound)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each interface should show 'Inbound access list is <ACL_NAME>' and/or 'Outbound access list is <ACL_NAME>'. Interfaces showing 'not set' at segment boundaries are findings."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, list interface filter assignments across all logical interfaces.",
+        "command": "show interfaces detail | match filter",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each logical interface at a segment boundary should display 'Input Filter' and/or 'Output Filter' with a named policy. Absence indicates an unbound interface."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the running configuration to enumerate all interface blocks and confirm each has an ip access-group directive assigned.",
+        "command": "show running-config | section interface",
+        "file_path": "/etc/network/router.conf (or equivalent platform config export)",
+        "navigation": null,
+        "expected_output": "Every segment-boundary interface block should contain 'ip access-group <NAME> in' and/or 'ip access-group <NAME> out'. Missing directives are non-compliant."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco ASDM or equivalent firewall/router management GUI, navigate to the interface management section and review ACL assignments per interface.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Configuration > Device Setup > Interfaces > (select interface) > Access Rules tab",
+        "expected_output": "Each listed interface should have an associated inbound and/or outbound ACL. Interfaces with 'None' displayed require remediation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "acl_filter_coverage",
+    "option_description": "Defines the scope of traffic attributes used in ACL rules — specifically whether rules filter on all four key attributes (source IP, destination IP, protocol type, and port number) or only a subset of these.",
+    "security_impact": "The Rego packet_filtering_coverage rule achieves full enforcement when acl_filter_coverage is 'full' or 'partial' combined with acl_applied_to_interfaces and default_deny_policy. ACLs covering only source IP without protocol/port controls leave significant bypass opportunities. 'full' coverage closes the most attack surface; 'none' means the ACL provides no meaningful filtering regardless of other settings.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, display all named and numbered ACLs to inspect each rule for the presence of source IP, destination IP, protocol, and port conditions.",
+        "command": "show ip access-lists",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Extended ACL entries should specify protocol (tcp/udp/icmp), source address/wildcard, destination address/wildcard, and port operators (eq/gt/lt/range). Entries reading only 'permit ip any any' or 'deny ip <src> any' without port conditions indicate partial or no coverage."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, review firewall filter terms to confirm match conditions include both from and to address prefixes plus protocol and port.",
+        "command": "show firewall filter",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each term should contain 'source-address', 'destination-address', 'protocol', and 'destination-port' match conditions. Terms missing two or more of these are partial; missing all meaningful conditions is none."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Extract and parse ACL entries from the running configuration, categorizing each rule's match fields to classify overall coverage scope.",
+        "command": "show running-config | section ip access-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All four attributes (src IP, dst IP, protocol, port) present across rules = 'full'. Only src/dst IP without protocol/port = 'partial'. Only 'permit ip any any' type rules = 'none'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview network security staff and request the ACL design documentation to determine whether the policy design standard requires all four filtering attributes and whether implementation matches the standard.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation should specify that extended ACLs are used (not standard ACLs) and that all permit rules include protocol and port qualifiers. Absence of documentation or use of standard ACLs indicates partial or none coverage."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "full",
+      "partial",
+      "none"
+    ]
+  },
+  {
+    "option_name": "default_deny_policy",
+    "option_description": "Controls whether ACLs terminate with an explicit 'deny any any' rule (or rely on a documented implicit deny-all behavior) so that any traffic not matching a permit rule is dropped by default. Applies to both data-plane interface ACLs and management-facing interface ACLs.",
+    "security_impact": "The Rego policy references default_deny_policy in three rules: packet_filtering_coverage, ingress_egress_policy_consistency, and management_plane_access_restriction. All three require this to be true. Without a terminal deny, any traffic not explicitly matched by a permit rule may be allowed (on platforms with implicit permit-all, or misconfigured implicit behavior), completely undermining segmentation and management plane protection.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, display each ACL and inspect the final rule to determine whether it is an explicit deny any any or whether the platform's implicit deny applies.",
+        "command": "show ip access-lists | include deny|permit",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each ACL should end with a line such as '... deny ip any any' (with or without log keyword). ACLs ending with a permit rule (e.g., 'permit ip any any') are non-compliant. Note: IOS implicit deny is present but not shown; confirm no terminal permit-all exists."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, verify that each firewall filter ends with a default-deny term that discards unmatched traffic.",
+        "command": "show firewall filter <filter-name> detail",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The last term in the filter should contain 'then discard' or 'then reject'. Filters ending with 'then accept' or having no explicit default term on platforms without implicit deny are non-compliant."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the router running configuration for every ACL applied to interfaces and confirm the terminal entry is a deny statement covering all unmatched traffic.",
+        "command": "show running-config | section access-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each ACL block should have as its final entry: 'deny ip any any' or 'deny any any'. Presence of 'permit ip any any' as the last rule is a critical finding. Verify management ACLs separately."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's ACL policy standard and change management records to confirm that default-deny is a required design element and that exceptions require documented approval.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy documentation should explicitly state that all ACLs must terminate with deny-all. Change records should not contain approved exceptions for permit-all terminal rules on production interfaces."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "default_inter_segment_policy",
+    "option_description": "Specifies the default action applied to traffic traversing inter-segment or inter-zone interfaces when no explicit ACL rule matches. The secure value is 'deny', enforcing a least-privilege posture at network zone boundaries.",
+    "security_impact": "Directly referenced in the Rego network_segmentation_enforcement rule, which requires default_inter_segment_policy == 'deny' alongside acl_inter_segment_rules_configured and acl_applied_to_interfaces. A value of 'allow' means any traffic not explicitly denied can cross segment boundaries freely, negating the entire segmentation architecture. 'unset' indicates no defined policy exists, which is equally dangerous and often results in platform-default behavior (typically allow).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, inspect the terminal entry of ACLs applied to inter-VLAN routed interfaces or routed sub-interfaces connecting different network zones.",
+        "command": "show ip access-lists | include (permit any|deny any)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Terminal entries of 'deny ip any any' across all inter-segment ACLs = 'deny'. A terminal 'permit ip any any' = 'allow'. No ACL applied at inter-segment interface = 'unset'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS-XE with Zone-Based Firewall, inspect zone-pair policies to determine the default action for unmatched inter-zone traffic.",
+        "command": "show zone-pair security | include (zone-pair|default)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zone-pairs without a service-policy applied default to 'drop' in ZBF (equivalent to 'deny'). Zone-pairs with a policy that ends in 'pass' for unmatched traffic are 'allow'. Document each zone-pair result."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the router running configuration for all inter-VLAN interface ACL assignments and trace each referenced ACL to its terminal rule.",
+        "command": "show running-config | include (ip access-group|interface Vlan|interface GigabitEthernet)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Map each inter-segment interface to its ACL, then verify each ACL's last rule. Consistent 'deny ip any any' terminal rules = 'deny'. Any 'permit ip any any' terminal rule = 'allow'. No ACL assignment = 'unset'."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a controlled traffic test by sending probe packets between two segments using types not explicitly permitted in the ACL, then observe whether the traffic is dropped or forwarded.",
+        "command": "ping <destination-in-other-segment> source <source-in-this-segment> repeat 5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Probe packets that are NOT in any permit rule should result in 'U.U.U' (unreachable) or '.....' (timeout), confirming 'deny' default. Successful pings ('!!!!!') for uncovered traffic indicate 'allow' default."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "deny",
+      "allow",
+      "unset"
+    ]
+  },
+  {
+    "option_name": "acl_inter_segment_rules_configured",
+    "option_description": "Indicates whether ACLs or equivalent packet filtering constructs contain explicit rules that reference and govern traffic flows between distinct network segments or administrative zones, including both permit and deny statements aligned to policy.",
+    "security_impact": "Required in the Rego network_segmentation_enforcement rule alongside default_inter_segment_policy == 'deny' and acl_applied_to_interfaces. Without explicit inter-segment rules, network segmentation is illusory — even if ACLs are bound to interfaces, they may contain only generic rules that do not specifically address cross-zone flows. Explicit inter-segment rules provide the positive evidence that segmentation policy has been intentionally implemented.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, display all ACLs and search for rules that reference specific subnet pairs known to span segment boundaries (e.g., 10.0.1.0/24 to 10.0.2.0/24).",
+        "command": "show ip access-lists",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACL entries should show source and destination addresses corresponding to different network segments with explicit permit or deny actions. Rules using 'any any' exclusively without segment-specific entries indicate absent inter-segment rules."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Parse the router running configuration for ACL entries where both source and destination address fields correspond to subnets in separate defined network zones (cross-reference with network segment IP plan).",
+        "command": "show running-config | section ip access-list extended",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one ACL should contain entries explicitly matching traffic between two or more defined segment subnets with intentional permit or deny decisions. ACLs containing only 'permit any any' or 'deny any any' without segment-specific rules do not qualify."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the network segmentation design documentation and cross-reference it with the current ACL configuration to verify that each defined segment-to-segment traffic flow has a corresponding ACL rule.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A network zone matrix or traffic flow policy document should exist, and each defined allowed or denied flow between zones should have a traceable ACL entry. Gaps between documented policy and ACL content are findings."
+      },
+      {
+        "type": "gui",
+        "instruction": "In a network management platform (e.g., Cisco DNA Center, Fortinet FortiManager, or equivalent), navigate to the ACL or policy management view and filter rules by source/destination segment membership.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Policy > Access Control > ACL Manager > Filter by Source Zone / Destination Zone",
+        "expected_output": "Rules should appear for each defined inter-zone pair. An empty result set for any zone pair that should have traffic controls indicates missing inter-segment rules."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "prefix_lists_configured",
+    "option_description": "Indicates whether named prefix lists are defined on the router and applied to routing protocol neighbor statements or distribution lists to explicitly filter which route prefixes are accepted inbound and advertised outbound during routing protocol exchanges.",
+    "security_impact": "Required as the primary input in the Rego route_advertisement_integrity rule. Without prefix list filtering, routing protocols (BGP, OSPF, EIGRP) can accept maliciously injected routes or leak internal topology information externally. Prefix lists prevent route hijacking, BGP prefix injection attacks, and unintended route leakage. This attribute must be true alongside route_maps_applied and appropriate inbound_filter_direction_coverage for route_advertisement_integrity to activate.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, display all configured prefix lists and verify that at least one is applied under a routing protocol neighbor or distribution list statement.",
+        "command": "show ip prefix-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show one or more named prefix lists with sequence entries specifying permit/deny and IP prefix/length ranges. An empty response indicates no prefix lists are configured."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, verify that defined prefix lists are actively applied to BGP neighbors or OSPF/EIGRP distribution lists rather than just defined but unused.",
+        "command": "show running-config | include prefix-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines should appear both defining prefix lists ('ip prefix-list <NAME> seq <N> permit/deny') AND applying them ('neighbor <IP> prefix-list <NAME> in/out' or 'distribute-list prefix <NAME> in/out'). Prefix lists defined but not applied to any neighbor or process are non-compliant."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, display configured prefix lists and verify their application within routing policy statements applied to protocol neighbors.",
+        "command": "show policy prefix-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Named prefix lists should appear with associated route entries. Cross-reference with 'show policy' to confirm the prefix list is referenced in a policy-statement applied to BGP/OSPF neighbors via 'import' or 'export' policy directives."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the router running configuration for prefix list definitions and their application points within routing protocol configurations to confirm end-to-end deployment.",
+        "command": "show running-config | section (ip prefix-list|router bgp|router ospf|router eigrp)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The router bgp or router ospf section should contain 'prefix-list' references under neighbor or distribute-list commands. BGP neighbor statements specifically should show 'neighbor <IP> prefix-list <NAME> in' for inbound filtering. Absence of these references means prefix_lists_configured = false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "route_maps_applied",
+    "option_description": "Controls whether route maps are attached to BGP or IGP neighbors and redistribution points to enforce policy-based filtering and attribute manipulation of route advertisements. When enabled, route maps provide granular control over which prefixes are accepted or advertised and allow modification of routing attributes such as local-preference, MED, and community values.",
+    "security_impact": "The Rego policy `route_advertisement_integrity` requires `route_maps_applied == true` in combination with prefix lists and inbound filter coverage to activate the Route Advertisement Integrity countermeasure (score 8, high criticality). Without route maps, there is no mechanism to enforce per-peer advertisement policy, leaving the router vulnerable to route injection or hijacking from compromised or malicious peers.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, display all BGP neighbor configurations and grep for route-map statements applied inbound or outbound.",
+        "command": "show running-config | section router bgp",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines containing 'neighbor <ip> route-map <name> in' or 'neighbor <ip> route-map <name> out' for each peer indicate route maps are applied. Absence of these lines means route_maps_applied should be false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, review BGP group export and import policy assignments to determine whether routing policies are applied to neighbors.",
+        "command": "show configuration protocols bgp | display set | match policy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines containing 'import' or 'export' policy references under bgp group or neighbor stanzas confirm route maps (policies) are applied."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, check OSPF or EIGRP redistribution points for route-map references to confirm IGP policy enforcement.",
+        "command": "show running-config | include redistribute",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'redistribute <protocol> route-map <name>' confirms route maps are applied at redistribution boundaries."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the saved router configuration file for route-map attachment statements across all routing protocol sections.",
+        "command": null,
+        "file_path": "/var/running-config or equivalent backup configuration file exported via TFTP/SCP",
+        "navigation": null,
+        "expected_output": "Presence of 'route-map ... in' or 'route-map ... out' attached to neighbor or redistribution statements confirms true; absence confirms false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "default_route_advertisement_control",
+    "option_description": "Describes the policy disposition for the default route (0.0.0.0/0) within routing protocol advertisements. This attribute captures whether the default route is explicitly denied in all cases, conditionally permitted under specific match criteria, or left uncontrolled with no explicit rule governing its advertisement to or from peers.",
+    "security_impact": "The Rego policy `route_advertisement_integrity` activates the Route Advertisement Integrity countermeasure when `default_route_advertisement_control == 'explicitly_denied'` alongside prefix lists and partial or full inbound filter coverage. Uncontrolled default route advertisement can cause traffic black-holing, BGP hijacking, or allow an adversary to redirect all internet-bound traffic through a malicious next-hop by injecting or accepting unauthorized default routes.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, examine all prefix lists for entries explicitly matching 0.0.0.0/0 with a permit or deny action.",
+        "command": "show ip prefix-list | include 0.0.0.0/0",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'deny 0.0.0.0/0' entry indicates 'explicitly_denied'. A 'permit 0.0.0.0/0' with preceding match conditions in a route-map indicates 'conditionally_permitted'. No entry indicates 'uncontrolled'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, inspect route maps referenced by BGP neighbors for any match statements covering the default route.",
+        "command": "show route-map",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Route map sequences containing 'match ip address prefix-list <name>' where the list includes 0.0.0.0/0 with conditional logic confirm 'conditionally_permitted'. A standalone deny covering 0.0.0.0/0 confirms 'explicitly_denied'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, list routing policy terms that match the default route to determine disposition.",
+        "command": "show configuration policy-options | display set | match 0.0.0.0/0",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Terms with 'route-filter 0.0.0.0/0 exact reject' confirm 'explicitly_denied'. Terms with conditional then-accept confirm 'conditionally_permitted'. No match confirms 'uncontrolled'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Parse the router configuration backup for prefix-list or policy entries referencing 0.0.0.0/0 and evaluate the associated action.",
+        "command": null,
+        "file_path": "/var/running-config or TFTP-exported configuration",
+        "navigation": null,
+        "expected_output": "Explicit deny covering 0.0.0.0/0 maps to 'explicitly_denied'; conditional permit maps to 'conditionally_permitted'; no reference maps to 'uncontrolled'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "uncontrolled",
+      "explicitly_denied",
+      "conditionally_permitted"
+    ]
+  },
+  {
+    "option_name": "inbound_filter_direction_coverage",
+    "option_description": "Indicates the breadth of inbound route advertisement filtering across all external BGP or IGP peers. This attribute distinguishes between environments where every external peer has an inbound prefix list or route map applied, only a subset of peers are filtered, or no inbound filtering exists on any peer.",
+    "security_impact": "The Rego policy `route_advertisement_integrity` requires `inbound_filter_direction_coverage == 'all_peers'` for one activation path, and accepts 'all_peers' or 'partial' combined with explicit default route denial for a second path. Coverage gaps ('partial' or 'none') leave unfiltered peers as injection points for unauthorized prefixes, enabling BGP route hijacking, traffic interception, or denial-of-service through route table pollution.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, list all BGP neighbors and check each for an inbound route-map or prefix-list filter statement.",
+        "command": "show bgp neighbors | include BGP neighbor|route-map",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every BGP neighbor entry should show a route-map applied inbound. If all neighbors show an inbound filter, the value is 'all_peers'. If only some do, 'partial'. If none do, 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, use a targeted running-config grep to enumerate neighbor statements and identify those missing inbound filters.",
+        "command": "show running-config | section neighbor",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each 'neighbor <ip> activate' should have a corresponding 'neighbor <ip> route-map <name> in' or 'neighbor <ip> prefix-list <name> in'. Missing entries indicate partial or no coverage."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, enumerate BGP groups and neighbors to verify import policy assignment on each.",
+        "command": "show bgp summary",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Cross-reference the peer list against 'show configuration protocols bgp | display set | match import' to confirm which peers have import policies. Count covered vs. total to determine all_peers, partial, or none."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the network team's peer inventory documentation and compare it against the router configuration to confirm inbound filter assignment for each peer.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A mapping document showing each peer IP alongside its assigned inbound filter name. All peers having entries confirms 'all_peers'; gaps confirm 'partial' or 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "partial",
+      "all_peers",
+      "none"
+    ]
+  },
+  {
+    "option_name": "acl_logging_enabled",
+    "option_description": "Controls whether logging keywords are attached to individual ACL permit and/or deny entries on router interfaces, causing matched packets to generate syslog messages. When enabled, each matching packet flow produces a log entry with source/destination IP, protocol, port, and interface details.",
+    "security_impact": "The Rego policy `traffic_logging_and_visibility` requires `acl_logging_enabled == true` as a mandatory condition in both activation paths. Without this enabled, no ACL match events are recorded regardless of log destination configuration, making it impossible to detect unauthorized access attempts, audit traffic patterns, or support forensic investigations after a security incident.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, list all configured access lists and check for the 'log' or 'log-input' keyword on ACE entries.",
+        "command": "show ip access-lists",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACE entries ending with '(log)' or '(log-input)' confirm logging is enabled. Output showing only packet match counts without log keywords indicates acl_logging_enabled should be false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, search the running configuration for ACL entries containing the log keyword across all access-list definitions.",
+        "command": "show running-config | include access-list.*log",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines containing 'log' at the end of permit or deny statements confirm logging is configured. No output means logging is not enabled on any ACE."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, inspect firewall filter terms for syslog or count actions which serve the equivalent logging function.",
+        "command": "show configuration firewall | display set | match syslog",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Terms containing 'then syslog' confirm the equivalent of acl_logging_enabled. Absence of syslog action in all terms means false."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify that ACL log messages are actually appearing in the local buffer or syslog destination to confirm logging is operationally active and not just configured.",
+        "command": "show logging | include SEC-6-IPACCESSLOG",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of %SEC-6-IPACCESSLOG or %SEC-6-IPACCESSLOGP syslog messages confirms ACL logging is enabled and generating output."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "log_destination_configured",
+    "option_description": "Specifies where ACL-generated log messages are sent for storage and analysis. Options range from no destination configured, to local router buffer only, to a remote syslog server, to a SIEM platform. The destination determines whether log data is available for real-time alerting, long-term retention, and security analysis.",
+    "security_impact": "The Rego policy `traffic_logging_and_visibility` provides full countermeasure activation when `log_destination_configured` is 'remote_syslog' or 'siem', and a reduced-coverage activation path when set to 'local_only'. A value of 'none' means ACL log messages have nowhere to go and are silently dropped, completely negating the value of `acl_logging_enabled` and eliminating all visibility into ACL-matched traffic flows.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, display the logging configuration to identify all configured syslog destinations and their severity levels.",
+        "command": "show logging",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'Logging to <IP address>: active' confirms 'remote_syslog'. Showing only 'Buffer logging: level informational' with no remote host confirms 'local_only'. No logging configured confirms 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, extract logging destination statements from the running configuration.",
+        "command": "show running-config | include ^logging",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'logging host <IP>' confirms remote_syslog or siem (verify IP against known SIEM addresses). 'logging buffered' without a host confirms local_only. Absence of both confirms none."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the organization's SIEM (e.g., Splunk, QRadar, Elastic) to verify it is actively receiving log data sourced from the router's management IP.",
+        "command": "index=network_logs source_ip=<router_mgmt_ip> | head 10",
+        "file_path": null,
+        "navigation": "SIEM console: Search for recent events from router IP to confirm active log ingestion",
+        "expected_output": "Recent ACL log events (within the last hour during active traffic periods) confirm 'siem'. No results suggest logging is not reaching the SIEM."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network operations team to confirm whether a centralized log management platform or SIEM is receiving router syslog data and whether it covers ACL messages specifically.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation from NOC that router syslog data is forwarded to a named SIEM or syslog server, with documented retention policy."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "local_only",
+      "remote_syslog",
+      "siem"
+    ]
+  },
+  {
+    "option_name": "logged_acl_entry_coverage",
+    "option_description": "Describes which categories of ACL entries have logging enabled — whether only deny entries generate log messages, only permit entries, both directions, or no entries at all. This attribute captures the completeness of ACL visibility and determines whether security teams can observe both blocked and allowed traffic events.",
+    "security_impact": "The Rego policy `traffic_logging_and_visibility` requires `logged_acl_entry_coverage` to be 'deny_only' or 'both' in both activation paths. A value of 'permit_only' or 'none' means denied traffic events — which represent active access control enforcement and potential attack activity — are never logged, leaving security teams blind to blocked intrusion attempts, policy violations, and reconnaissance activity.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, display all access lists and categorize which entries (permit vs. deny) include the log keyword.",
+        "command": "show ip access-lists",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Count permit ACEs with '(log)' and deny ACEs with '(log)'. Both types present = 'both'. Only deny with log = 'deny_only'. Only permit with log = 'permit_only'. Neither = 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, search the running configuration to separately count permit-log and deny-log entries across all access lists.",
+        "command": "show running-config | include permit.*log|deny.*log",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines beginning with 'permit' and ending with 'log' alongside lines beginning with 'deny' and ending with 'log' confirm 'both'. Only one type confirms 'permit_only' or 'deny_only'. No output confirms 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Parse the exported router configuration file and programmatically categorize each ACL ACE by action (permit/deny) and whether 'log' appears as the final token on the line.",
+        "command": null,
+        "file_path": "/var/running-config or TFTP-exported ACL configuration",
+        "navigation": null,
+        "expected_output": "Script output categorizing ACEs into permit-with-log, deny-with-log, permit-without-log, deny-without-log. Coverage determination based on which categories contain logged entries."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the syslog or SIEM for ACL log message types to determine whether both permit and deny events are appearing, or only one type.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM query: index=network_logs message_type=IPACCESSLOG* | stats count by permit_or_deny_field | table action count",
+        "expected_output": "Both 'permit' and 'deny' event types present confirms 'both'. Only deny events confirms 'deny_only'. Only permit events confirms 'permit_only'. No ACL log events confirms 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "deny_only",
+      "both",
+      "permit_only"
+    ]
+  },
+  {
+    "option_name": "acl_direction_coverage",
+    "option_description": "Indicates which traffic flow directions have ACL enforcement applied on a given router interface — bidirectional (both inbound and outbound), inbound only, outbound only, or no ACL applied in either direction. This attribute determines whether the interface enforces security policy on traffic entering the router, leaving it, or both.",
+    "security_impact": "The Rego policy `ingress_egress_policy_consistency` activates the Ingress Egress Policy Consistency countermeasure only when `acl_direction_coverage == 'both'` combined with a default deny policy. Inbound-only coverage allows uninspected outbound traffic that could exfiltrate data or propagate lateral movement. Outbound-only allows uninspected ingress that could deliver attacks. No coverage eliminates interface-level enforcement entirely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, display the interface configuration to check for both inbound and outbound access-group statements.",
+        "command": "show running-config interface <interface-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of both 'ip access-group <name> in' and 'ip access-group <name> out' confirms 'both'. Only one direction confirms 'inbound_only' or 'outbound_only'. Absence of both confirms 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, extract all interface sections from running config and grep for access-group assignments to identify coverage across all interfaces.",
+        "command": "show running-config | section interface | include interface|access-group",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each interface entry followed by zero, one, or two access-group lines. Two lines (one 'in', one 'out') per interface = 'both'. One line = directional only. Zero lines = 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, check each interface unit for firewall filter assignments in both input and output directions.",
+        "command": "show interfaces detail | match filter",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'Input Filter' and 'Output Filter' both assigned to an interface confirms 'both'. Only one type confirms directional-only coverage. No filter entries confirms 'none'."
+      },
+      {
+        "type": "gui",
+        "instruction": "On platforms with a management GUI (e.g., Cisco ASDM, Juniper J-Web), navigate to the interface policy assignment screen and verify ACL/filter binding for each direction.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco ASDM: Configuration > Firewall > Access Rules > Interface view; Juniper J-Web: Configure > Interfaces > [Interface] > Firewall Filters",
+        "expected_output": "Interface detail panel showing both input and output filter fields populated confirms 'both'. One field populated confirms directional coverage. Empty fields confirms 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "inbound_only",
+      "both",
+      "none",
+      "outbound_only"
+    ]
+  },
+  {
+    "option_name": "mgmt_acl_applied",
+    "option_description": "A boolean indicating whether an access control list is actively applied to all management-facing interfaces on the router, including VTY lines (SSH/Telnet access), the console port, and any dedicated management loopback or out-of-band interface. This controls whether inbound management-plane connections are subject to source filtering.",
+    "security_impact": "The management_plane_access_restriction rule requires this attribute to be true as a mandatory condition. Without an ACL on management interfaces, any host reachable by the router can attempt to authenticate to the device, dramatically expanding the attack surface for brute-force, credential stuffing, and exploitation of management protocol vulnerabilities. This is rated high criticality because compromise of the management plane grants full device control.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, inspect VTY line configuration to verify that an 'access-class' ACL is applied inbound on all VTY lines.",
+        "command": "show running-config | section line vty",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show 'access-class <ACL-name-or-number> in' within each 'line vty 0 4' and 'line vty 5 15' block. Absence of this statement means mgmt_acl_applied should be false."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the management interface (or Loopback0 used for management) for an applied ip access-group inbound, which restricts which hosts can initiate connections to management services.",
+        "command": "show running-config interface loopback0",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Interface configuration should contain 'ip access-group <name> in'. If absent, the management interface is unprotected."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco DNA Center or Cisco Security Manager, navigate to the device's policy view and inspect management access policies applied to VTY and management interfaces.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DNA Center → Provision → Devices → [Select Router] → Configuration → Line/Interface Policies → Verify ACL applied to VTY and Management Interface",
+        "expected_output": "A named ACL is shown as bound to VTY lines and management interface in the inbound direction. If no ACL is listed, set mgmt_acl_applied to false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network operations team or review the device hardening runbook to confirm whether management ACLs are part of the standard build template and applied during device commissioning.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirms ACL application to VTY lines and management interfaces as a mandatory build step. Cross-reference against actual device config to validate."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (hardened environments with CIS or DISA STIG compliance)",
+      "false (default in many out-of-box configurations and legacy deployments)"
+    ]
+  },
+  {
+    "option_name": "permitted_source_scope",
+    "option_description": "Captures the broadest scope of source IP addresses that the management-plane ACL permits to reach the router's management interfaces. The four enumerated values reflect a spectrum from completely open ('any') to maximally restrictive ('explicit_hosts'), allowing the security assessment to quantify the granularity of management access control.",
+    "security_impact": "The management_plane_access_restriction Rego rule only activates countermeasure credit when this attribute is 'specific_subnet' or 'explicit_hosts'. A scope of 'any' or 'broad_internal' means that a large or unlimited population of hosts can reach management services, negating much of the value of having an ACL at all. Overly permissive source scopes are exploited in attacks originating from compromised internal hosts targeting router management planes.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Display the ACL applied to VTY lines and review permit entries to determine the broadest source address range allowed.",
+        "command": "show ip access-lists <mgmt-acl-name-or-number>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACL entries are listed with source address and wildcard. 'permit tcp any any eq 22' = scope 'any'. 'permit tcp 10.0.0.0 0.255.255.255' = 'broad_internal'. 'permit tcp 10.1.2.0 0.0.0.255' = 'specific_subnet'. 'permit tcp host 10.1.2.5' = 'explicit_hosts'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Extract the running configuration and examine the ACL referenced in 'access-class' and 'ip access-group' statements on management interfaces to identify the least-restrictive permit source.",
+        "command": "show running-config | section ip access-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Full ACL definitions are shown. Evaluate the widest permit entry — if any permit uses wildcard 0.0.0.0 or keyword 'any' as source, scope is 'any'. Classify accordingly."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the change management records or ACL design documentation to understand the intended source scope and compare it against the actual ACL configuration for drift.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation should specify allowed management source ranges (e.g., NOC subnet 10.1.2.0/24). If actual ACL is broader than documented, flag as a finding."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "any (common in poorly hardened or legacy routers)",
+      "broad_internal (e.g., permit entire RFC1918 space — common in enterprise networks)",
+      "specific_subnet (e.g., permit management VLAN subnet — target state for most organizations)",
+      "explicit_hosts (e.g., permit only named jump-host IPs — high-security environments)"
+    ]
+  },
+  {
+    "option_name": "allowed_mgmt_protocols",
+    "option_description": "An array listing all protocols and services explicitly permitted by the management-plane ACL to reach router management interfaces. This includes both secure protocols (SSH, HTTPS, SNMPv3, NETCONF) and insecure protocols (Telnet, HTTP, SNMPv1/v2c) that may be present in ACL permit rules or active service configurations.",
+    "security_impact": "The management_plane_access_restriction rule explicitly checks that 'Telnet' and 'HTTP' are NOT present in this array before granting countermeasure credit. Telnet and HTTP transmit credentials and configuration data in cleartext, making them trivially exploitable via network sniffing. Even if source-restricted by ACL, the presence of insecure protocols degrades the overall management plane security posture and can expose authentication material during interception attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect ACL permit entries for management interfaces, specifically looking for destination port numbers that correspond to management protocols (22=SSH, 443=HTTPS, 23=Telnet, 80=HTTP, 161=SNMP, 830=NETCONF).",
+        "command": "show ip access-lists <mgmt-acl-name> | include permit",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permit statements list destination ports. Map port numbers to protocol names: eq 22 → SSH, eq 23 → Telnet, eq 443 → HTTPS, eq 80 → HTTP, eq 161 → SNMP, eq 830 → NETCONF. Record all identified protocols."
+      },
+      {
+        "type": "command",
+        "instruction": "Check which management services are actively running on the device in addition to ACL review, since an active service without a deny rule may still be reachable.",
+        "command": "show control-plane host open-ports",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lists active listening ports on the control plane. Cross-reference against ACL permits. Ports listening but not denied by ACL should be included in allowed_mgmt_protocols."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, verify whether Telnet and HTTP services are explicitly disabled to complement ACL enforcement.",
+        "command": "show running-config | include (service telnet|ip http server|ip http secure|transport input)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'no ip http server' confirms HTTP is disabled. 'transport input ssh' on VTY confirms Telnet is blocked at line level. 'ip http secure-server' confirms HTTPS is enabled. Presence of 'ip http server' without a no-statement means HTTP is active."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a test host, attempt connection to the router management interface on ports 22, 23, 80, 443, and 161 to empirically verify which protocols are reachable and should be included in the allowed list.",
+        "command": "nmap -p 22,23,80,443,161,830 --open <router-mgmt-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only secure management ports (22, 443, 830) should appear as open. Ports 23 and 80 appearing open indicates Telnet and HTTP must be added to allowed_mgmt_protocols and flagged for remediation."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"SSH\", \"HTTPS\", \"SNMPv3\"]",
+      "[\"SSH\", \"NETCONF\", \"HTTPS\"]",
+      "[\"SSH\", \"Telnet\", \"SNMP\", \"HTTP\"] (insecure — legacy deployments)",
+      "[\"SSH\", \"HTTPS\", \"SNMP\", \"NETCONF\"] (well-managed enterprise)"
+    ]
+  },
+  {
+    "option_name": "qos_policy_configured",
+    "option_description": "A boolean indicating whether a Quality of Service policy is actively configured and applied on at least one network interface on the router, with priority or weighted queuing enabled for at least one critical traffic class such as management traffic, routing protocol updates, or VoIP signaling.",
+    "security_impact": "The traffic_prioritization_and_qos_control rule requires this attribute to be true alongside at least 2 traffic classes defined to activate countermeasure credit. Without QoS, an adversary flooding the network with high-volume bulk traffic (e.g., DDoS or data exfiltration) can starve management-plane and routing-protocol traffic of bandwidth, causing routing instability, loss of device management access, and enabling secondary attacks during the resulting network disruption.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, check for defined policy-maps and verify whether they are applied to any interface using the service-policy command.",
+        "command": "show policy-map interface",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists all interfaces with applied service-policies and their traffic statistics. If no output is returned or 'no policy-map' messages appear, qos_policy_configured is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify that policy-maps with priority queuing or CBWFQ are defined in the running configuration.",
+        "command": "show running-config | section policy-map",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "policy-map definitions appear with class entries containing 'priority', 'bandwidth percent', or 'fair-queue' statements. An empty output or only default-class entries without queuing parameters means qos_policy_configured should be false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, display applied firewall policers and class-of-service configurations to verify QoS enforcement.",
+        "command": "show class-of-service interface",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Interfaces show assigned forwarding classes, schedulers, and drop profiles. If all interfaces show default or empty CoS assignments, qos_policy_configured is false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco DNA Center, navigate to QoS policy management to verify applied policies and their interface scope.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DNA Center → Policy → Application Policy → [Select Site/Device] → View Applied Policies → Verify at least one policy is deployed with priority queuing",
+        "expected_output": "At least one QoS policy appears as deployed with status 'Success' on one or more interfaces. Absence of deployed policies means qos_policy_configured is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in enterprise LAN switches and branch routers without explicit QoS design)",
+      "true (service provider edge routers, MPLS networks, campus cores with voice/video requirements)"
+    ]
+  },
+  {
+    "option_name": "traffic_classes_defined",
+    "option_description": "An integer representing the count of distinct traffic classification entries (class-maps or equivalent constructs) defined within the active QoS policy on the router. Each class-map represents a categorized set of traffic that receives specific queuing, bandwidth, or priority treatment.",
+    "security_impact": "The traffic_prioritization_and_qos_control Rego rule requires traffic_classes_defined to be >= 2 before the QoS countermeasure is recognized. A single traffic class (or zero) typically means only a catch-all 'class-default' exists without meaningful differentiation, providing no protection against resource starvation of critical control-plane or management-plane traffic. Meaningful classification requires at minimum separating critical traffic (routing protocols, management) from best-effort bulk traffic.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, count the number of class-map definitions in the running configuration to determine how many distinct traffic classes are defined.",
+        "command": "show running-config | include class-map",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each line beginning with 'class-map' represents one traffic class. Count total lines excluding 'class-default'. Example: 4 class-map lines = traffic_classes_defined of 4. Only 'class-default' present = 0 or 1."
+      },
+      {
+        "type": "command",
+        "instruction": "Display the full QoS policy including all class entries to verify each class has meaningful match criteria and is not merely a placeholder.",
+        "command": "show policy-map",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy-map output shows each class with its match criteria (e.g., match dscp ef, match protocol ssh, match access-group). Count classes with explicit match statements. Classes with only 'match any' are equivalent to class-default."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, count the number of firewall filters or schedulers used for traffic classification in the class-of-service configuration.",
+        "command": "show class-of-service forwarding-class",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lists all defined forwarding classes. Count entries — typical well-configured deployment has 4–8 classes (e.g., Network-Control, Expedited-Forwarding, Assured-Forwarding, Best-Effort). Record the count as traffic_classes_defined."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Export and parse the router configuration file, counting unique class-map blocks within policy-map definitions to get an accurate class count.",
+        "command": "show running-config | section class-map",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each 'class-map [match-all|match-any] <name>' block represents one class. Total block count equals traffic_classes_defined. Verify each has meaningful match criteria beyond just 'match any'."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (no QoS configured)",
+      "1 (only class-default, effectively no classification)",
+      "3-5 (typical enterprise QoS: management, voice, video, data, default)",
+      "6-12 (service provider or complex enterprise with granular DSCP marking)"
+    ]
+  },
+  {
+    "option_name": "blackhole_routing_enabled",
+    "option_description": "A boolean indicating whether null-route or blackhole routing capability is configured and operational on the router, allowing the network team to drop traffic destined for specified IP prefixes at the routing layer by forwarding matched packets to a Null0 interface (Cisco), discard interface (Juniper), or equivalent. This includes both static null routes and dynamic RTBH configurations.",
+    "security_impact": "The null_route_and_blackhole_response rule requires this attribute to be true as a prerequisite for countermeasure recognition. Blackhole routing is a critical rapid-response capability — when an attack is detected (DDoS, scanning campaign, C2 communication), the ability to null-route attacker prefixes at the routing layer provides near-instantaneous traffic drop without requiring firewall policy changes, which may have higher latency or bureaucratic overhead. Without this capability, response options are limited to slower firewall-based controls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS, search the routing table for routes with a Null0 next-hop, which are the canonical indicator of active blackhole routing.",
+        "command": "show ip route null0",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Routes pointing to Null0 are listed (e.g., 'S 192.0.2.0/24 is directly connected, Null0'). Any route present confirms blackhole_routing_enabled is true. An empty output or 'no routes' message means it is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the running configuration for static routes to Null0 or RTBH BGP community configuration to assess whether the blackhole capability is set up.",
+        "command": "show running-config | include (null0|Null0|blackhole|discard)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'ip route 0.0.0.0 255.255.255.255 Null0' or similar entries confirm static blackhole. BGP community maps referencing Null0 confirm RTBH. No matching output means blackhole_routing_enabled is false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, check for discard routes in the routing table which serve the same function as Cisco's Null0 routes.",
+        "command": "show route protocol static | match discard",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Routes marked as 'Discard' appear in the output. Presence of any discard route confirms blackhole routing is enabled. Empty output indicates the capability is not configured."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security or NOC team to determine whether a blackhole routing runbook or incident response procedure exists, even if no static routes are currently active.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team confirms documented procedure for activating null routes during an incident, with RTBH trigger communities defined or API integration available. Confirm by cross-referencing BGP community configuration or automation scripts."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in smaller enterprise environments without formal DDoS response procedures)",
+      "true (ISPs, large enterprise networks, organizations with documented DDoS response playbooks)"
+    ]
+  },
+  {
+    "option_name": "blackhole_trigger_mechanism",
+    "option_description": "An enumerated value describing how blackhole routes are activated on the router. 'static' means manually configured null routes persisted in the configuration. 'rtbh_bgp' means routes are injected dynamically via BGP communities triggering Remotely Triggered Black Hole filtering at edge routers. 'automated_api' means route injection is scripted or API-driven (e.g., via SIEM integration, NOC tooling, or a network orchestration platform). 'none' means no blackhole capability exists.",
+    "security_impact": "The null_route_and_blackhole_response rule grants countermeasure credit regardless of trigger mechanism (static, rtbh_bgp, or automated_api), but the mechanism significantly impacts response latency and operational effectiveness. 'rtbh_bgp' and 'automated_api' enable faster, scalable response compared to 'static' which requires manual CLI intervention. In DDoS scenarios, automated mechanisms can trigger blackholing in seconds, while static routes may require minutes of human intervention — a critical difference during volumetric attacks. Mechanism 'none' blocks countermeasure credit entirely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for BGP RTBH configuration by examining BGP community maps and route-maps that reference Null0 or a trigger community, indicating dynamic blackhole capability.",
+        "command": "show running-config | section route-map",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Route-map entries matching a BGP community (e.g., 'community 65000:666') and setting next-hop to Null0 or a trigger loopback confirm 'rtbh_bgp'. Absence of such entries with only static Null0 routes present indicates 'static'."
+      },
+      {
+        "type": "command",
+        "instruction": "Review BGP neighbor configuration for RTBH-specific community advertisement or receive configurations that indicate dynamic blackhole triggering capability.",
+        "command": "show bgp neighbors | include (community|RTBH|blackhole)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "BGP neighbor configuration referencing blackhole communities (e.g., RFC 7999 community 65535:666 or operator-specific values) confirms 'rtbh_bgp'. No community references with only static Null0 routes confirms 'static'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview network security operations staff to determine if any API-driven or scripted automation exists for blackhole route injection (e.g., integration with SIEM, Flowspec controller, or NOC orchestration platform).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team identifies a script, API call, or SIEM playbook action that injects routes into the router or route reflector. Confirm by requesting a demonstration or reviewing the script/playbook. Presence confirms 'automated_api'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Search the router configuration for RTBH-specific loopback interfaces used as trigger points (typically with /32 addresses and Null0 static routes), which are the hallmark of a configured RTBH architecture.",
+        "command": "show running-config | section ip route",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Static routes to Null0 for the RTBH trigger loopback (e.g., 'ip route 192.0.2.1 255.255.255.255 Null0 tag 666') confirm RTBH architecture. Absence of tag-based or community-based null routes with only destination-specific static routes present confirms 'static' mechanism."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (organizations without a DDoS response capability)",
+      "static (small enterprise or branch — operator manually configures null routes during incidents)",
+      "rtbh_bgp (ISPs and large enterprise networks with edge routers and route reflectors)",
+      "automated_api (mature SOC environments with SIEM/SOAR-integrated network response playbooks)"
+    ]
+  },
+  {
+    "option_name": "blackhole_scope",
+    "option_description": "Controls the reach of blackhole/null-route enforcement — whether traffic destined for blocked prefixes is dropped only on the local device (local_only), propagated to all internal edge routers (internal_edge), or signaled upstream to ISP/transit providers via BGP RTBH communities (upstream_isp). A value of 'none' means no blackhole capability is configured.",
+    "security_impact": "The Rego policy for null_route_and_blackhole_response activates the countermeasure only when blackhole_scope is 'internal_edge' or 'upstream_isp'. A 'local_only' or 'none' value means the policy yields no credit, because traffic dropped on a single device can still consume upstream bandwidth or reach other internal routers before being discarded. Upstream RTBH with ISP cooperation provides the strongest DDoS absorption by dropping attack traffic before it enters the network, while 'internal_edge' at minimum prevents intra-AS forwarding of attack flows.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE routers, inspect the routing table for Null0 routes and identify where they are redistributed or summarized. Check if a BGP community is tagged for RTBH signaling.",
+        "command": "show ip route null0 | include Null\nshow running-config | include rtbh|blackhole|community\nshow bgp neighbors | include community",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Null0 routes present; BGP RTBH community strings (e.g., 65000:666) visible in route-map or neighbor configuration if upstream_isp scope is in use."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS devices, check static routes pointing to discard/reject and inspect policy-statements advertising RTBH communities to transit peers.",
+        "command": "show route protocol static | match discard|reject\nshow configuration policy-options | match blackhole|rtbh|community",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Discard or reject next-hop static routes present; policy-statement exporting RTBH community visible if upstream_isp scope applies."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview network operations staff and review ISP peering agreements or NOC runbooks to confirm whether RTBH BGP signaling agreements exist with upstream transit providers. Request copies of any signed peering templates or LOAs that include community-based RTBH terms.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written agreement or runbook section confirming ISP accepts RTBH communities from this AS; or confirmation that blackhole is internal-only or absent."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review exported router configurations or CMDB/NMS repository for route-map and BGP neighbor configuration blocks containing blackhole-related community values or null-route redistribution statements.",
+        "command": null,
+        "file_path": "/etc/oxidized/configs/<router-hostname> or network_configs/<router>.txt",
+        "navigation": null,
+        "expected_output": "Presence of 'ip route <prefix> Null0' with redistribution into BGP and community tagging confirms internal_edge or upstream_isp; absence confirms local_only or none."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "local_only",
+      "internal_edge",
+      "upstream_isp"
+    ]
+  },
+  {
+    "option_name": "acl_rules_have_comments",
+    "option_description": "Indicates whether every ACL rule entry and routing policy term is accompanied by a meaningful inline remark, description, or comment field that documents the business purpose, owning team, or associated change ticket. This excludes blank fields or generic placeholders such as 'rule1' or 'permit any'.",
+    "security_impact": "The Rego acl_rule_maintainability_and_audit countermeasure requires acl_rules_have_comments == true as a mandatory condition in both evaluation branches. Without descriptive comments, ACL rules accumulate over time with no auditable context, making it impossible for reviewers to distinguish active business rules from stale or orphaned entries. Undocumented rules are the primary cause of over-permissive access persisting through security reviews because auditors cannot safely remove rules of unknown purpose.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, extract all ACL definitions and count lines that lack a 'remark' statement. Every permit/deny sequence should be preceded by at least one remark.",
+        "command": "show ip access-lists | include permit|deny|remark\nshow running-config | section ip access-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each permit/deny line is immediately preceded by a 'remark' line containing non-generic text. If any permit/deny appears without a preceding remark, the attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper JunOS, inspect firewall filter terms and policy-statement terms for the 'then comment' or description fields being populated.",
+        "command": "show configuration firewall | display set | match term\nshow configuration policy-options | match term|description",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every 'term <name>' block includes a non-empty description field. Terms named 'term-1', 'default', or similar generic strings without descriptions indicate false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Parse exported device configurations from version control or configuration backup tools (e.g., Oxidized, RANCID, Netbox) and apply a grep/script to identify ACL or policy blocks missing remark/description lines.",
+        "command": "grep -E '(permit|deny)' router_config.txt | grep -v -i remark\ngrep -c 'remark' router_config.txt",
+        "file_path": "/var/lib/oxidized/repo/<device>.git or /usr/local/rancid/configs/<device>",
+        "navigation": null,
+        "expected_output": "Zero lines match permit/deny without an adjacent remark; remark count approximates or exceeds permit/deny count."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cisco DNA Center or Juniper Apstra, navigate to the policy management section and review ACL rule sets. Inspect the description column for each rule entry to verify non-blank, meaningful text is present.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco DNA Center: Policy > IP Based Access Control > Select ACL > Review Rule Descriptions | Juniper Apstra: Policies > Routing Policies > Select Policy > Terms > Description column",
+        "expected_output": "All rows in the description/comment column display substantive text referencing a ticket number, team name, or functional purpose."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "stale_rule_review_age_days",
+    "option_description": "Represents the number of days elapsed since the last documented formal review of ACL and routing policy rules specifically aimed at identifying and removing stale, redundant, expired, or orphaned entries. This is distinct from general configuration change dates and must reference a deliberate audit activity.",
+    "security_impact": "The Rego acl_rule_maintainability_and_audit policy requires stale_rule_review_age_days <= 180 when change_tracking_mechanism is 'version_control' or 'itsm_integrated', and <= 90 when using 'manual_log'. Exceeding these thresholds causes the countermeasure to fail. Stale ACL rules represent accumulated technical debt: temporary firewall exceptions that were never removed, rules for decommissioned systems, or overly broad permits added during incidents. These entries expand the attack surface without providing any operational benefit.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request change management records, network operations runbooks, or security review tickets from the ITSM system that document the most recent ACL cleanup or audit activity. Identify the completion date and calculate elapsed days to today.",
+        "command": "python3 -c \"from datetime import date; last_review = date(2024, 8, 15); print((date.today() - last_review).days)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A ticket or record with a close date representing the last completed ACL staleness review. Integer day count calculated from that date."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check ITSM or change management systems (ServiceNow, Jira, Remedy) for closed change requests or problem tickets with categories indicating ACL audit, rule cleanup, or access control review. Filter by completion date.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ServiceNow: Change Management > All Changes > Filter: Category='Network ACL' AND State='Closed' > Sort by Closed At DESC | Jira: project=NETOPS AND labels=acl-review ORDER BY resolved DESC",
+        "expected_output": "Most recent closed ticket referencing ACL stale rule review with a completion date, from which elapsed days can be calculated."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review version control commit history (Git) for the network configuration repository. Look for commits with messages indicating an ACL cleanup, audit pass, or rule expiry review rather than operational changes.",
+        "command": "git log --all --oneline --grep='acl.*review\\|stale.*rule\\|cleanup\\|audit' -- configs/\ngit log --format='%ai %s' -- configs/acls/ | head -20",
+        "file_path": ".git/logs/HEAD or network-configs/.git/",
+        "navigation": null,
+        "expected_output": "Commit entry with a timestamp and message indicating deliberate ACL review activity. The commit date is used to calculate stale_rule_review_age_days."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network engineering or security operations team to determine whether a formal ACL review process exists, its scheduled cadence, and when it was last executed. If no formal process exists, the value should be set to the maximum (3650) or the age since the device was initially deployed.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmed date of last review with supporting evidence (meeting notes, email, ticket), or acknowledgment that no formal review has occurred."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90",
+      "180",
+      "365",
+      "730"
+    ]
+  },
+  {
+    "option_name": "change_tracking_mechanism",
+    "option_description": "Identifies the method used to record and track changes made to ACL rules and routing policy configurations over time. Options range from automated version control integration (Git-based), ITSM ticketing workflow integration (ServiceNow, Remedy), manual change logs maintained by engineers, to no tracking at all. The highest applicable method should be selected when multiple mechanisms exist.",
+    "security_impact": "The Rego acl_rule_maintainability_and_audit countermeasure scores higher when change_tracking_mechanism is 'version_control' or 'itsm_integrated' — these values allow a stale rule review window of up to 180 days. A 'manual_log' value still satisfies the policy but requires a tighter 90-day review cycle. A value of 'none' causes the countermeasure to fail entirely regardless of other attributes, because untracked changes make it impossible to audit what was changed, by whom, and whether it was authorized — a fundamental requirement for both security governance and incident forensics.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview network engineering and operations staff to identify what systems are used when a router ACL or routing policy change is made. Determine whether changes require a ServiceNow/Jira ticket, are committed to a Git repository, are entered in a spreadsheet/wiki, or are made ad hoc without documentation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Clear identification of the primary tracking mechanism with examples: a Git repo URL, ITSM project key, shared drive location for manual logs, or confirmation that no mechanism exists."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether network configuration management tools such as Oxidized, RANCID, Batfish, or Netbox are deployed and whether they store configuration history in a Git backend, indicating version_control is in use.",
+        "command": "git -C /var/lib/oxidized/repo log --oneline -10\nrancid-run -l\ncurl -s http://netbox/api/extras/config-contexts/ -H 'Authorization: Token <token>' | python3 -m json.tool",
+        "file_path": "/var/lib/oxidized/repo/ or /usr/local/rancid/",
+        "navigation": null,
+        "expected_output": "Git commit history containing router configuration snapshots confirms version_control. RANCID diffs directory with timestamped entries also confirms version_control."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the ITSM platform (ServiceNow, Jira Service Management), navigate to the change management module and search for recent network change requests related to ACL or routing policy modifications to confirm ITSM integration is enforced.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ServiceNow: Change Management > All Changes > Filter: Assignment Group='Network Engineering' AND Short Description contains 'ACL' | Jira: project=CHG AND component=routing-policy ORDER BY created DESC",
+        "expected_output": "Closed change tickets exist for recent router ACL modifications, with approval workflows and implementation notes, confirming itsm_integrated."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review router syslog or AAA accounting logs to identify configuration change events (config-change traps, NETCONF commits, or CLI session logs). If changes appear in logs without corresponding ITSM tickets or Git commits, this indicates manual_log or none.",
+        "command": "grep -i 'SYS-5-CONFIG_I\\|PARSER-5-CFGLOG\\|commit' /var/log/syslog | tail -50\nshow archive log config all | tail -20",
+        "file_path": "/var/log/syslog or /var/log/network/router-audit.log",
+        "navigation": null,
+        "expected_output": "Configuration change events are present in syslog. Cross-referencing against ITSM tickets or Git commits determines whether the mechanism is integrated or manual."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "manual_log",
+      "itsm_integrated",
+      "version_control"
+    ]
+  }
+]

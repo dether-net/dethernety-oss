@@ -1,0 +1,624 @@
+[
+  {
+    "option_name": "hostname_verification_enabled",
+    "option_description": "Controls whether the database driver validates that the server certificate's Common Name (CN) or Subject Alternative Name (SAN) matches the hostname used in the connection string, preventing certificate impersonation attacks where a valid certificate issued to a different host is presented.",
+    "security_impact": "The Rego policy triggers the tls_certificate_validation_bypass finding when both certificate_authority_validation_enforced and hostname_verification_enabled are false. Even if CA validation is present, omitting hostname verification allows an attacker with a CA-signed certificate for any host to impersonate the database server via MitM (MITRE T1553.004, T1649). High criticality.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the PostgreSQL connection string or driver configuration for the sslmode parameter. The value 'verify-full' enforces both CA and hostname verification; 'verify-ca' skips hostname; 'require' skips both.",
+        "command": "grep -rE 'sslmode|ssl_mode' /etc/app/ /opt/app/ ~/.env /app/config/ 2>/dev/null",
+        "file_path": "/app/config/database.yml or .env or application.properties",
+        "navigation": null,
+        "expected_output": "sslmode=verify-full indicates hostname verification is enabled; any other value indicates it is not."
+      },
+      {
+        "type": "command",
+        "instruction": "For JDBC-based applications, search for the checkHostName or hostnameVerifier properties in application configuration or system properties passed at JVM startup.",
+        "command": "grep -rE 'checkHostName|hostnameVerifier|verifyServerCertificate|trustServerCertificate' /opt/app/ /etc/app/ /srv/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "checkHostName=true or absence of a no-op HostnameVerifier override indicates verification is enabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For MySQL/MariaDB drivers, check the connection URL or YAML config for verifyServerCertificate=true combined with sslMode=VERIFY_IDENTITY (full hostname check) vs VERIFY_CA (CA only).",
+        "command": "grep -rE 'sslMode|verifyServerCertificate|ssl-mode' /opt/app/ /etc/ 2>/dev/null",
+        "file_path": "/etc/mysql/mysql.conf.d/ or application datasource configuration",
+        "navigation": null,
+        "expected_output": "sslMode=VERIFY_IDENTITY with verifyServerCertificate=true confirms hostname verification is active."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client to connect to the database port and manually verify the certificate CN/SAN matches the hostname used by the application, simulating what a correct driver would check.",
+        "command": "openssl s_client -connect <db-host>:5432 -starttls postgres 2>/dev/null | openssl x509 -noout -subject -ext subjectAltName",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The CN or a SAN DNS entry should match the hostname string used in the application connection string exactly."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "plaintext_fallback_permitted",
+    "option_description": "Controls whether the database server or application driver allows the connection to silently downgrade to an unencrypted session when TLS negotiation fails or is not offered by the peer, applicable to PostgreSQL (sslmode=allow/prefer), MySQL (require_secure_transport), and MSSQL (Encrypt=False).",
+    "security_impact": "The Rego policy fires the database_wire_protocol_plaintext_fallback finding when plaintext_fallback_permitted is true. An active attacker on the application-database network segment can intercept or strip the TLS handshake, forcing both sides into a plaintext session (MITRE T1040). Medium criticality but directly enables credential and query interception.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the PostgreSQL pg_hba.conf for 'hostnossl' entries and review client connection strings for sslmode=allow or sslmode=prefer, both of which permit plaintext fallback.",
+        "command": "grep -E 'hostnossl|sslmode=(allow|prefer|disable)' /etc/postgresql/*/main/pg_hba.conf /etc/postgresql/*/main/postgresql.conf 2>/dev/null",
+        "file_path": "/etc/postgresql/<version>/main/pg_hba.conf",
+        "navigation": null,
+        "expected_output": "Absence of hostnossl lines and no sslmode=allow/prefer/disable confirms fallback is not permitted."
+      },
+      {
+        "type": "command",
+        "instruction": "Check MySQL server variable require_secure_transport; if OFF, plaintext connections are allowed. Also check client option files for ssl-mode not set to REQUIRED or VERIFY_CA/VERIFY_IDENTITY.",
+        "command": "mysql -u root -p -e \"SHOW VARIABLES LIKE 'require_secure_transport';\"",
+        "file_path": "/etc/mysql/my.cnf or /etc/my.cnf",
+        "navigation": null,
+        "expected_output": "require_secure_transport=ON confirms plaintext fallback is not permitted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For MSSQL, locate the JDBC or ODBC connection string and check for Encrypt=False or TrustServerCertificate=True, both of which weaken or bypass TLS enforcement and effectively permit plaintext-equivalent sessions.",
+        "command": "grep -rE 'Encrypt=|TrustServerCertificate=|encrypt=false' /opt/app/ /etc/app/ /srv/ 2>/dev/null",
+        "file_path": "application.properties or web.config or connection string files",
+        "navigation": null,
+        "expected_output": "Encrypt=True with TrustServerCertificate=False confirms encrypted-only connections without fallback."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a plaintext connection to the database port using the native client without TLS flags to verify whether the server accepts or rejects the unencrypted session.",
+        "command": "PGSSLMODE=disable psql -h <db-host> -U <app-user> -d <db-name> -c '\\conninfo' 2>&1 | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A rejection message such as 'SSL connection is required' confirms plaintext fallback is blocked."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "app_layer_query_signing_enabled",
+    "option_description": "Controls whether the application computes and attaches a cryptographic HMAC or digital signature to SQL queries prior to transmission, providing an integrity guarantee that is independent of the TLS transport layer and survives proxy or pooler TLS termination.",
+    "security_impact": "The Rego policy triggers the missing_query_message_integrity finding when app_layer_query_signing_enabled is false AND TLS terminates before the database (intermediate_proxy or load_balancer) without internal segment encryption, or when TLS termination is 'none'. Application-layer signing is the only integrity control that protects queries on internal segments beyond TLS (MITRE T1040). Medium criticality.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review ORM and database middleware configuration files for HMAC, signing_key, query_signature, or MAC-related settings that indicate application-layer integrity is being applied to outbound queries.",
+        "command": "grep -rE 'hmac|query_sign|mac_key|message_auth|signing_secret' /opt/app/ /etc/app/ /srv/ /app/config/ 2>/dev/null",
+        "file_path": "Application config directory (e.g., /app/config/, /etc/app/)",
+        "navigation": null,
+        "expected_output": "A non-empty signing key or enabled HMAC configuration confirms application-layer query signing is active."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the development or architecture team to determine whether a custom middleware layer, database proxy SDK, or security library enforces query-level MACs before the driver transmits the SQL string. Request architecture documentation or security design records.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written evidence of a signing mechanism in the data flow architecture or a confirmed 'not implemented' response."
+      },
+      {
+        "type": "command",
+        "instruction": "Search application source code and dependency manifests for libraries that implement query signing or transport MACs, such as custom security wrappers around database drivers.",
+        "command": "grep -rE 'QuerySigner|HmacQuery|signQuery|computeMac|MessageAuthCode' /opt/app/src/ /srv/app/ 2>/dev/null; grep -E 'hmac|crypto|signing' /opt/app/requirements.txt /opt/app/pom.xml /opt/app/package.json 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Matching source code or dependency entries indicate the feature exists; absence strongly suggests it is not implemented."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Examine application debug logs or audit logs around database query dispatch to determine whether signed headers or MAC tokens are being attached to query payloads.",
+        "command": "grep -iE 'hmac|signature|mac_token|query_integrity' /var/log/app/*.log /var/log/app/debug.log 2>/dev/null | tail -20",
+        "file_path": "/var/log/app/ or application-specific log directory",
+        "navigation": null,
+        "expected_output": "Log entries referencing HMAC generation or signature attachment per query confirm the feature is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "tls_termination_point",
+    "option_description": "Identifies where in the data flow path the TLS session ends before reaching the database engine itself: at the application process, at an intermediate connection pooler or proxy (e.g., PgBouncer, ProxySQL, RDS Proxy), at a load balancer, or not at all. This determines whether an unencrypted internal segment exists between the TLS terminator and the database.",
+    "security_impact": "The Rego policy uses this value in the missing_query_message_integrity rule: when termination is at intermediate_proxy or load_balancer and internal_segment_encryption_enforced is false and app_layer_query_signing_enabled is false, a finding is raised. When value is 'none', a finding always fires. The internal unencrypted segment created by proxy or LB termination is a lateral movement target (MITRE T1040). Medium criticality.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect network topology documentation and connection pooler configuration files to determine whether PgBouncer, ProxySQL, HaProxy, or an AWS/GCP load balancer sits between the application and the database and whether TLS is re-established on the server-facing side.",
+        "command": "grep -E 'client_tls_sslmode|server_tls_sslmode|ssl_ca_file|server_tls_ca_file' /etc/pgbouncer/pgbouncer.ini 2>/dev/null",
+        "file_path": "/etc/pgbouncer/pgbouncer.ini or /etc/proxysql/proxysql.cnf",
+        "navigation": null,
+        "expected_output": "server_tls_sslmode=verify-full indicates TLS continues to the DB (application termination); client_tls only with no server_tls indicates intermediate termination."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to RDS > Databases > [instance] > Connectivity & Security to check if SSL is enforced. For load balancers, review EC2 > Load Balancers > [LB] > Listeners to identify which listener terminates TLS and whether a re-encryption target group is used.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > EC2 > Load Balancers > [LB Name] > Listeners tab; AWS Console > RDS > [DB Instance] > Connectivity & Security",
+        "expected_output": "A re-encryption target group forwarding to the DB on port 5432/3306 with TLS indicates application-level or end-to-end; passthrough or no backend TLS indicates intermediate termination."
+      },
+      {
+        "type": "command",
+        "instruction": "Use sslyze or openssl to probe the database port directly from the application host and compare with a probe from outside any proxy to determine if TLS is negotiated end-to-end or only to an intermediate.",
+        "command": "sslyze --starttls postgres <db-host>:5432 2>/dev/null | grep -E 'TLS|Certificate'; openssl s_client -connect <db-host>:5432 -starttls postgres 2>/dev/null | grep -E 'subject|issuer|Protocol'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A valid certificate presented directly by the database process confirms application-level termination; a proxy/LB certificate CN confirms intermediate termination."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a traceroute or packet capture between the application and database to identify intermediate hosts, then test TLS negotiation against each hop to determine the actual termination point.",
+        "command": "traceroute <db-host>; sudo tcpdump -i eth0 -nn 'host <db-host> and port 5432' -c 50 -w /tmp/db_traffic.pcap && tshark -r /tmp/db_traffic.pcap -Y 'tls.handshake.type==2' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS ServerHello packets originating from the database IP confirm end-to-end TLS; from a proxy IP confirm intermediate termination."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "application",
+      "intermediate_proxy",
+      "load_balancer",
+      "none"
+    ]
+  },
+  {
+    "option_name": "internal_segment_encryption_enforced",
+    "option_description": "Controls whether a separate TLS session or encrypted network tunnel (e.g., IPsec, WireGuard, mTLS) is enforced on the internal network segment between a connection pooler or proxy and the database server, ensuring that traffic is not exposed in plaintext even after the client-facing TLS session is terminated.",
+    "security_impact": "The Rego missing_query_message_integrity rule requires this to be true when tls_termination_point is intermediate_proxy or load_balancer and app_layer_query_signing_enabled is false. Without it, a lateral movement onto the pooler-to-DB segment exposes all queries in plaintext (MITRE T1040). Medium criticality that becomes high in environments with flat internal networks.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check PgBouncer's server-side TLS configuration parameters to confirm it re-establishes TLS when connecting upstream to the database. Look for server_tls_sslmode=verify-full and a server_tls_ca_file path.",
+        "command": "grep -E 'server_tls|server_ssl' /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/*.ini 2>/dev/null",
+        "file_path": "/etc/pgbouncer/pgbouncer.ini",
+        "navigation": null,
+        "expected_output": "server_tls_sslmode=verify-full and a valid server_tls_ca_file confirm the internal segment is encrypted."
+      },
+      {
+        "type": "command",
+        "instruction": "Check ProxySQL's mysql_servers table for the use_ssl column to confirm TLS is enforced on server-facing connections, and review global variables for mysql-connect_timeout_server_max.",
+        "command": "mysql -u admin -padmin -h 127.0.0.1 -P 6032 -e \"SELECT hostgroup_id, hostname, port, use_ssl FROM mysql_servers;\" 2>/dev/null",
+        "file_path": "/etc/proxysql/proxysql.cnf",
+        "navigation": null,
+        "expected_output": "use_ssl=1 for all database server entries confirms encrypted internal segment connections."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify network-layer encryption between the proxy and database hosts using IPsec or WireGuard policy listings, which would encrypt the segment regardless of application-layer TLS.",
+        "command": "ip xfrm policy list 2>/dev/null; wg show 2>/dev/null; ipsec status 2>/dev/null | grep -E 'ESTABLISHED|db-host'",
+        "file_path": "/etc/wireguard/wg0.conf or /etc/ipsec.conf",
+        "navigation": null,
+        "expected_output": "Active IPsec SA or WireGuard peer covering the DB host IP range confirms network-layer encryption of the internal segment."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From the proxy/pooler host, use a packet capture to verify that traffic to the database port is TLS-encapsulated rather than plaintext SQL protocol frames.",
+        "command": "sudo tcpdump -i eth0 -nn 'dst host <db-host> and dst port 5432' -c 30 -w /tmp/internal_seg.pcap && tshark -r /tmp/internal_seg.pcap -Y 'pgsql' 2>/dev/null | wc -l",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero plaintext PostgreSQL protocol frames (pgsql dissector matches) confirms the segment is encrypted; non-zero indicates plaintext traversal."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "connection_rate_limiting_enabled",
+    "option_description": "Controls whether a maximum rate of new connection requests per unit time from the application to the database is enforced, either at the connection pooler, database listener, network layer, or firewall, preventing connection flood attacks, runaway processes, and brute-force attempts against the database authentication endpoint.",
+    "security_impact": "The Rego absent_connection_rate_and_query_throttling rule fires when connection_rate_limiting_enabled is false AND either query_throttling_enabled or max_connections_per_client_configured is also false. Without rate limiting, a compromised application tier or runaway process can exhaust database connection slots causing denial of service (MITRE T1499.003, T1499.002). Medium criticality.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check PgBouncer configuration for max_client_conn and any rate-limiting options, and review ProxySQL settings for mysql-max_connections and connection throttling variables.",
+        "command": "grep -E 'max_client_conn|connection_limit|rate_limit|max_connections' /etc/pgbouncer/pgbouncer.ini /etc/proxysql/proxysql.cnf 2>/dev/null",
+        "file_path": "/etc/pgbouncer/pgbouncer.ini or /etc/proxysql/proxysql.cnf",
+        "navigation": null,
+        "expected_output": "A specific numeric limit on connection rate or maximum connections confirms rate limiting is configured; absent entries indicate it is not."
+      },
+      {
+        "type": "command",
+        "instruction": "Query PostgreSQL for per-role connection limits and check pg_hba.conf for any connection throttling directives applied to the application database user.",
+        "command": "psql -U postgres -c \"SELECT rolname, rolconnlimit FROM pg_roles WHERE rolname = '<app-db-user>';\" 2>/dev/null",
+        "file_path": "/etc/postgresql/*/main/pg_hba.conf",
+        "navigation": null,
+        "expected_output": "A rolconnlimit value greater than -1 (unlimited) confirms a per-user connection ceiling is set."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect firewall or security group rules for connection rate limiting controls applied to the database port using iptables hashlimit or cloud security group rate rules.",
+        "command": "iptables -L -n -v 2>/dev/null | grep -E 'hashlimit|5432|3306|1433'; aws ec2 describe-security-groups --filters Name=ip-permission.from-port,Values=5432 --query 'SecurityGroups[*].{ID:GroupId,Rules:IpPermissions}' 2>/dev/null",
+        "file_path": "/etc/iptables/rules.v4 or cloud provider security group config",
+        "navigation": null,
+        "expected_output": "hashlimit rules on the database port or restrictive security group ingress rules with a small CIDR confirm rate-limiting controls are in place."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS RDS Console, review the parameter group associated with the database instance for max_connections and connection throttling settings. For Aurora, check the cluster parameter group.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > RDS > Parameter Groups > [associated parameter group] > Filter by 'connection'",
+        "expected_output": "max_connections set to a bounded value appropriate for the instance class; absence of per-source rate controls indicates the gap."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "query_throttling_enabled",
+    "option_description": "Controls whether limits on queries per second or query concurrency are enforced on the application-to-database channel, preventing denial-of-service through query flooding from a compromised application tier, whether via ORM configuration, connection pooler query rate controls, or database resource governance policies.",
+    "security_impact": "The Rego absent_connection_rate_and_query_throttling rule fires when query_throttling_enabled is false alongside connection_rate_limiting_enabled being false, or alongside max_connections_per_client_configured being false. An attacker who compromises the application can issue unbounded query volume to exhaust database CPU and I/O (MITRE T1499.003). Medium criticality.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review ORM configuration files (e.g., Django settings, Spring DataSource, ActiveRecord configuration) for query rate limiting middleware, circuit breakers, or connection pool queue limits that indirectly throttle query throughput.",
+        "command": "grep -rE 'query_limit|max_queries|throttle|circuit_breaker|pool_timeout|leaky_bucket' /opt/app/ /etc/app/ /srv/ 2>/dev/null",
+        "file_path": "Application config directory",
+        "navigation": null,
+        "expected_output": "Non-empty throttle or query limit configuration confirms query throttling is active at the application layer."
+      },
+      {
+        "type": "command",
+        "instruction": "Check MySQL or MariaDB for Resource Groups or MAX_QUERIES_PER_HOUR user-level limits applied to the application database account.",
+        "command": "mysql -u root -p -e \"SELECT user, max_queries_per_hour, max_updates_per_hour, max_connections_per_hour FROM mysql.user WHERE user='<app-db-user>';\" 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-zero values for max_queries_per_hour or max_updates_per_hour confirm query throttling is configured at the database user level."
+      },
+      {
+        "type": "command",
+        "instruction": "Query PostgreSQL for pg_stat_activity and check whether a connection pooler like PgBouncer has pool_mode=statement or query-level limits configured that effectively throttle query volume.",
+        "command": "grep -E 'pool_mode|max_db_connections|query_timeout|max_client_conn' /etc/pgbouncer/pgbouncer.ini 2>/dev/null; psql -U postgres -c \"SHOW max_connections;\" 2>/dev/null",
+        "file_path": "/etc/pgbouncer/pgbouncer.ini",
+        "navigation": null,
+        "expected_output": "pool_mode=statement with bounded max_db_connections and a query_timeout enforces effective query throttling."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the database administrator or application team to determine whether a WAF, API gateway, or middleware layer applies query rate limits before requests reach the database driver, and request runbook or configuration evidence.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented query throttling policy with configuration references, or confirmed absence requiring remediation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "max_connections_per_client_configured",
+    "option_description": "Controls whether a hard ceiling on the number of simultaneous database connections from a single application client or user account is explicitly configured, preventing resource exhaustion on the database from a single compromised, misconfigured, or runaway client process by enforcing limits at the database user, connection pooler, or network layer.",
+    "security_impact": "The Rego absent_connection_rate_and_query_throttling rule fires when max_connections_per_client_configured is false alongside either connection_rate_limiting_enabled or query_throttling_enabled also being false, requiring at least two of three controls to be present. Without a per-client ceiling, a single compromised application instance can consume all available database connection slots (MITRE T1499.002, T1499.003). Medium criticality.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the database directly for the CONNECTION LIMIT set on the application database role in PostgreSQL, which enforces a per-user simultaneous connection ceiling.",
+        "command": "psql -U postgres -c \"SELECT rolname, rolconnlimit FROM pg_roles WHERE rolname NOT IN ('postgres') ORDER BY rolname;\" 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A rolconnlimit value greater than -1 (where -1 means unlimited) confirms a per-client max connections ceiling is configured."
+      },
+      {
+        "type": "command",
+        "instruction": "Check MySQL/MariaDB user account resource limits for max_user_connections applied to the application database user, and also inspect the global max_user_connections server variable.",
+        "command": "mysql -u root -p -e \"SELECT user, host, max_user_connections FROM mysql.user WHERE user='<app-db-user>'; SHOW VARIABLES LIKE 'max_user_connections';\" 2>/dev/null",
+        "file_path": "/etc/mysql/my.cnf",
+        "navigation": null,
+        "expected_output": "max_user_connections > 0 at either the user account level or global variable confirms a per-client connection ceiling is enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the application connection pool configuration for maximum pool size settings (e.g., HikariCP maximumPoolSize, c3p0 maxPoolSize, SQLAlchemy pool_size + max_overflow) which act as a client-side ceiling on simultaneous connections.",
+        "command": "grep -rE 'maximumPoolSize|max_pool_size|pool_size|max_overflow|maxPoolSize|minIdle|maxActive' /opt/app/ /etc/app/ /srv/ 2>/dev/null",
+        "file_path": "Application datasource or pool configuration files",
+        "navigation": null,
+        "expected_output": "A bounded maximumPoolSize (e.g., 10-50) without an unbounded max_overflow confirms a per-client connection ceiling at the pool layer."
+      },
+      {
+        "type": "gui",
+        "instruction": "In PgBouncer or ProxySQL admin interfaces, review per-database or per-user connection limits to confirm a ceiling is applied to the application's database account.",
+        "command": "psql -p 6432 -U pgbouncer pgbouncer -c 'SHOW DATABASES;' 2>/dev/null; mysql -u admin -padmin -h 127.0.0.1 -P 6032 -e 'SELECT * FROM stats_mysql_users;' 2>/dev/null",
+        "file_path": null,
+        "navigation": "PgBouncer admin console: SHOW DATABASES to view max_connections per database entry; ProxySQL admin: stats_mysql_users for per-user connection counts vs limits",
+        "expected_output": "Non-zero max_connections value per database or user entry in the pooler confirms a per-client connection ceiling is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "pooler_to_db_tls_enabled",
+    "option_description": "Controls whether TLS encryption is enforced on the server-facing leg of the connection pooler (PgBouncer, ProxySQL, or RDS Proxy) when establishing connections to the backend database server. When disabled, all queries, result sets, and credentials traverse the pooler-to-database segment in plaintext.",
+    "security_impact": "The Rego rule `unencrypted_connection_pooler_segment` fires immediately when `not input.pooler_to_db_tls_enabled` evaluates true, regardless of other settings. This is the highest-priority condition in that rule set. An unencrypted pooler-to-database segment means that even if the application-to-pooler leg uses TLS, an attacker with lateral movement onto the internal network can capture all database traffic in plaintext, including credentials and sensitive result sets.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For PgBouncer, inspect the server_tls_sslmode directive in the pgbouncer.ini configuration file. A value of 'disable' or 'allow' indicates TLS is not enforced toward the database server.",
+        "command": "grep -i 'server_tls_sslmode' /etc/pgbouncer/pgbouncer.ini",
+        "file_path": "/etc/pgbouncer/pgbouncer.ini",
+        "navigation": null,
+        "expected_output": "server_tls_sslmode = require (or verify-ca / verify-full for a secure state)"
+      },
+      {
+        "type": "command",
+        "instruction": "For ProxySQL, query the mysql_servers table to check the use_ssl column for all backend database server entries.",
+        "command": "mysql -u admin -p -h 127.0.0.1 -P 6032 -e \"SELECT hostgroup_id, hostname, port, use_ssl FROM mysql_servers;\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "use_ssl column should show 1 for all backend database hosts"
+      },
+      {
+        "type": "gui",
+        "instruction": "For RDS Proxy, navigate to the AWS Console under RDS > Proxies, select the target proxy, and review the 'TLS' section of the proxy endpoint configuration to confirm TLS enforcement is enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → RDS → Proxies → [Select Proxy] → Connectivity & security → TLS enforcement setting",
+        "expected_output": "TLS enforcement toggle is enabled / 'Require TLS' is set to Yes"
+      },
+      {
+        "type": "api",
+        "instruction": "For RDS Proxy, use the AWS CLI to describe proxy details and check the RequireTLS property of each proxy endpoint.",
+        "command": "aws rds describe-db-proxies --query 'DBProxies[*].{ProxyName:DBProxyName,RequireTLS:RequireTLS}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RequireTLS column shows True for all proxies"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "pooler_server_tls_certificate_validation",
+    "option_description": "Specifies the certificate validation mode the connection pooler applies when verifying the backend database server's TLS certificate. Modes range from no validation ('none') through encryption-only without verification ('require_no_verify') to full CA chain and hostname verification ('verify_full'). Controls whether the pooler can be deceived by a rogue certificate on a MITM-intercepted connection.",
+    "security_impact": "The Rego rule `unencrypted_connection_pooler_segment` has two conditions referencing this attribute. First, if the value is 'none' or 'prefer' combined with `internal_network_segment_access_control` of 'none' or 'subnet_only', the exposure fires. Second, if the value is 'none', 'prefer', or 'require_no_verify' with no network access control, it also fires. Even with TLS enabled, weak validation modes like 'prefer' or 'require_no_verify' allow a MITM attacker on the internal segment to present any certificate and intercept the plaintext database session.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For PgBouncer, read the server_tls_sslmode value from pgbouncer.ini. Values of 'disable', 'allow', 'prefer', or 'require' without a server_tls_ca_file indicate weak or no certificate validation.",
+        "command": "grep -E 'server_tls_sslmode|server_tls_ca_file|server_tls_cert_file' /etc/pgbouncer/pgbouncer.ini",
+        "file_path": "/etc/pgbouncer/pgbouncer.ini",
+        "navigation": null,
+        "expected_output": "server_tls_sslmode = verify-full and a valid server_tls_ca_file path present"
+      },
+      {
+        "type": "command",
+        "instruction": "For ProxySQL, query the global_variables and mysql_servers tables to check if an SSL CA certificate is configured, which is required for certificate validation.",
+        "command": "mysql -u admin -p -h 127.0.0.1 -P 6032 -e \"SELECT variable_name, variable_value FROM global_variables WHERE variable_name LIKE 'mysql-ssl%';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "mysql-ssl_p_cert and mysql-ssl_p_ca should reference valid certificate file paths"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For RDS Proxy, examine the proxy configuration via AWS CLI to check whether certificate verification is specified in the endpoint TLS settings.",
+        "command": "aws rds describe-db-proxy-endpoints --query 'DBProxyEndpoints[*].{Name:DBProxyEndpointName,TLSMode:TargetRole}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS configuration shows full verification mode enabled at the proxy endpoint"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client to test the TLS handshake from the pooler host to the database port and verify the presented certificate chain is validated against the expected CA.",
+        "command": "openssl s_client -connect <db_host>:5432 -starttls postgres -CAfile /etc/ssl/certs/db-ca.crt -verify_return_error 2>&1 | grep -E 'Verify return|subject|issuer'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verify return code: 0 (ok) with correct subject and issuer chain"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "prefer",
+      "require_no_verify",
+      "verify_ca",
+      "verify_full"
+    ]
+  },
+  {
+    "option_name": "internal_network_segment_access_control",
+    "option_description": "Describes the level of network-layer access control enforced between the connection pooler and the backend database. 'none' means any host on the network can reach the database port; 'subnet_only' restricts access to hosts within the same subnet via network ACLs; 'strict_host_based' enforces per-host firewall rules or security group policies that allow only the pooler's specific IP or identity to connect to the database port.",
+    "security_impact": "This attribute compounds with `pooler_server_tls_certificate_validation` in the Rego `unencrypted_connection_pooler_segment` rule. Weak certificate validation (none/prefer) combined with 'none' or 'subnet_only' network access control triggers the exposure. Even 'require_no_verify' mode triggers the rule when network access control is 'none'. Without strict host-based controls, any host that achieves lateral movement onto the subnet can directly connect to the database port and attempt to intercept or forge the pooler session.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS deployments, retrieve the security group rules attached to the database instance to determine which source IP ranges or security group IDs are permitted to access the database port.",
+        "command": "aws ec2 describe-security-groups --group-ids $(aws rds describe-db-instances --query 'DBInstances[*].VpcSecurityGroups[*].VpcSecurityGroupId' --output text) --query 'SecurityGroups[*].IpPermissions' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ingress rules on the database port (3306/5432/1433) should reference only the pooler's security group ID, not broad CIDR ranges like 10.0.0.0/8"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to EC2 > Security Groups, find the security group associated with the database, and inspect inbound rules for the database port. In Azure, check Network Security Groups in the Virtual Network blade.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → EC2 → Security Groups → [DB Security Group] → Inbound rules; or Azure Portal → Virtual Networks → [VNet] → Subnets → NSG → Inbound security rules",
+        "expected_output": "Inbound rule for database port allows only the pooler host's specific IP or security group, not broad subnet ranges"
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based database or pooler hosts, inspect iptables or nftables rules to verify host-based firewall restrictions on the database port.",
+        "command": "iptables -L INPUT -n -v --line-numbers | grep -E '5432|3306|1433'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACCEPT rules for the database port should source from only the pooler's specific IP address; all other sources should be DROPped or REJECTed"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review infrastructure-as-code (Terraform, CloudFormation, Pulumi) repository for security group or firewall rule definitions governing the database subnet, and confirm micro-segmentation policies are applied between pooler and database hosts.",
+        "command": "grep -r 'ingress\\|inbound\\|security_group' infrastructure/ | grep -E '5432|3306|1433'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IaC definitions should show database port ingress rules scoped to specific pooler resource identifiers, not open subnet CIDRs"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "subnet_only",
+      "strict_host_based"
+    ]
+  },
+  {
+    "option_name": "multi_datacenter_or_cloud_peered",
+    "option_description": "Indicates whether the application-to-database data flow traverses infrastructure that spans multiple physical datacenters or uses cloud network peering constructs (e.g., AWS VPC Peering, Transit Gateway, Azure VNet Peering, Direct Connect, or ExpressRoute). When true, database traffic may pass through dynamic routing infrastructure including BGP-speaking routers or cloud gateway devices that are susceptible to route injection attacks.",
+    "security_impact": "All three conditions in the Rego `bgp_route_injection_for_traffic_interception` rule require `input.multi_datacenter_or_cloud_peered == true` as a prerequisite. If this attribute is true and either `tls_certificate_validation_enforced` or `bgp_route_filtering_configured` is absent, the BGP route injection exposure is triggered. Multi-datacenter deployments inherently expand the BGP attack surface because database traffic traverses more routing hops, increasing the number of network devices that could be compromised or misconfigured to redirect traffic.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review architecture documentation, network diagrams, and cloud infrastructure designs to determine whether the application and database tiers are co-located in a single VPC/datacenter or span multiple sites connected via peering or dedicated interconnects.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture diagram shows either single-site deployment (false) or cross-site connectivity via VPC peering, Transit Gateway, VPN, or Direct Connect (true)"
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS, list VPC peering connections and Transit Gateway attachments to determine if the application VPC is peered with other networks that host the database.",
+        "command": "aws ec2 describe-vpc-peering-connections --query 'VpcPeeringConnections[*].{Status:Status.Code,Requester:RequesterVpcInfo.VpcId,Accepter:AccepterVpcInfo.VpcId}' --output table && aws ec2 describe-transit-gateway-attachments --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active peering connections between application and database VPCs confirm multi-datacenter or cloud-peered topology"
+      },
+      {
+        "type": "command",
+        "instruction": "On network routers or cloud gateway devices, review BGP neighbor configurations to identify if any BGP peering sessions carry routes for the database subnet.",
+        "command": "show ip bgp neighbors | grep -E 'BGP neighbor|BGP state|prefixes'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of BGP neighbors with database subnet prefixes in their advertised routes confirms BGP-routed multi-site topology"
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to VPC > Peering Connections and VPC > Transit Gateways to visually confirm whether cross-VPC or cross-region connectivity exists for database traffic paths.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → VPC → Peering Connections (check Status = active); AWS Console → VPC → Transit Gateways → Attachments",
+        "expected_output": "Active peering connections or Transit Gateway attachments spanning regions or accounts indicate true for this attribute"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "tls_certificate_validation_enforced",
+    "option_description": "Controls whether the application's database driver or ORM enforces strict TLS certificate validation when connecting to the database, including full CA chain validation and hostname verification. Covers driver-level settings such as sslmode=verify-full in libpq, verify_ssl=True in Python drivers, ssl.check_hostname=True in JDBC configurations, and equivalent settings in other database clients.",
+    "security_impact": "The Rego `bgp_route_injection_for_traffic_interception` rule fires when `multi_datacenter_or_cloud_peered == true` and `not input.tls_certificate_validation_enforced`. Without strict certificate validation, a BGP route injection attack that redirects database traffic to an attacker-controlled host succeeds even if TLS is nominally enabled, because the application will accept a rogue certificate presented by the attacker's server. This is the primary defense against traffic interception via routing attacks in multi-site deployments.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect application connection string configuration files, environment variable definitions, or ORM configuration files for TLS-related settings. Look for sslmode, ssl_mode, verify_ssl, sslVerify, or TrustServerCertificate parameters.",
+        "command": "grep -rE 'sslmode|ssl_mode|verify_ssl|sslVerify|TrustServerCertificate|check_hostname|ssl=false' /app/config/ /etc/app/ .env* --include='*.conf' --include='*.yaml' --include='*.env' --include='*.properties'",
+        "file_path": "/app/config/",
+        "navigation": null,
+        "expected_output": "sslmode=verify-full, verify_ssl=True, or TrustServerCertificate=False with a CA certificate path configured"
+      },
+      {
+        "type": "command",
+        "instruction": "For Python applications using psycopg2 or asyncpg, search the application codebase for connection parameter definitions that might disable or weaken certificate verification.",
+        "command": "grep -rn 'sslmode\\|ssl_context\\|check_hostname\\|verify_mode\\|CERT_NONE\\|CERT_OPTIONAL' /app/src/ --include='*.py'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No occurrences of CERT_NONE or check_hostname=False; sslmode should be verify-full with a valid CA certificate path"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a TLS connection to the database using a self-signed or invalid certificate to verify the application rejects it. Use openssl to present a rogue certificate and confirm the client-side connection is refused.",
+        "command": "openssl s_client -connect <db_host>:5432 -starttls postgres -CAfile /dev/null 2>&1 | grep -E 'verify error|Verify return code'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If validation is enforced, the connection should fail with 'verify error' or a non-zero verify return code; application logs should show connection rejection"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For JDBC-based applications (Java), inspect JDBC URL strings and datasource configuration files for ssl=true combined with sslmode=verify-full or absence of trustServerCertificate=true.",
+        "command": "grep -rE 'jdbc:|trustServerCertificate|sslmode|requireSSL' /app/ /config/ --include='*.xml' --include='*.properties' --include='*.yaml'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JDBC URLs should contain sslmode=verify-full and reference a valid truststore; trustServerCertificate should not be true"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "bgp_route_filtering_configured",
+    "option_description": "Indicates whether BGP prefix filters, route-maps, route policies, or RPKI-based Route Origin Validation (ROV) are configured on BGP peering sessions that carry routes for the application-to-database traffic path. These controls prevent unauthorized parties from injecting forged BGP route advertisements that could redirect database traffic through attacker-controlled network segments.",
+    "security_impact": "The Rego `bgp_route_injection_for_traffic_interception` rule fires independently when `multi_datacenter_or_cloud_peered == true` and `not input.bgp_route_filtering_configured`. BGP route filtering is the network-layer defense that prevents the route injection attack itself, complementing TLS certificate validation which defends against successful interception after a redirect. Without route filtering, an attacker with access to a BGP-speaking device can announce more-specific prefixes for the database subnet, attracting traffic before it reaches the legitimate destination.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE routers, inspect BGP neighbor configuration for inbound prefix-list or route-map assignments on peering sessions that advertise database subnet routes.",
+        "command": "show ip bgp neighbors <peer_ip> | include prefix-list|route-map|filter-list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each BGP peer should have an inbound prefix-list or route-map applied; absence of these indicates no filtering"
+      },
+      {
+        "type": "command",
+        "instruction": "For cloud deployments using AWS Transit Gateway, check route table propagation policies and inspect for explicit allow/deny prefix configurations. Also verify RPKI validator status if used.",
+        "command": "aws ec2 describe-transit-gateway-route-tables --query 'TransitGatewayRouteTables[*].{RouteTableId:TransitGatewayRouteTableId,State:State}' --output table && aws ec2 search-transit-gateway-routes --transit-gateway-route-table-id <rtb-id> --filters Name=type,Values=propagated --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Route tables should show only explicitly permitted prefixes propagated; absence of specific prefix policies indicates permissive routing"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review BGP daemon configuration files (BIRD, FRRouting, Quagga) for prefix-list or route-map definitions applied to peering sessions carrying database subnet routes.",
+        "command": "grep -A 20 'neighbor.*route-map\\|prefix-list\\|filter' /etc/frr/frr.conf /etc/bird/bird.conf 2>/dev/null",
+        "file_path": "/etc/frr/frr.conf",
+        "navigation": null,
+        "expected_output": "Explicit inbound prefix-lists or route-maps attached to all external BGP peers; RPKI statements (validate protocol) present if RPKI ROV is used"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview network operations staff or review change management records to confirm whether RPKI ROA validation is enabled on cloud provider BGP sessions (e.g., AWS Direct Connect, Azure ExpressRoute) and whether prefix-filters are documented in runbooks.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirms explicit prefix-filter policies are applied on all external and peering BGP sessions; RPKI ROV is enabled and ROAs cover database subnet prefixes"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

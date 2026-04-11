@@ -1,0 +1,326 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "secrets_stored_in_plaintext": {
+        "type": "boolean",
+        "title": "Secrets Stored in Plaintext",
+        "description": "Indicates whether the configuration file contains credentials, API keys, tokens, or database passwords stored directly as plaintext values rather than references to a secret manager, environment variables, or encrypted values.",
+        "default": false
+      },
+      "secret_manager_integration": {
+        "type": "boolean",
+        "title": "Secret Manager Integration Configured",
+        "description": "Indicates whether the application or configuration file is integrated with a dedicated secret management system (e.g., HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, GCP Secret Manager) so that secrets are retrieved at runtime rather than embedded in the file.",
+        "default": false
+      },
+      "file_encryption_at_rest": {
+        "type": "boolean",
+        "title": "Configuration File Encrypted at Rest",
+        "description": "Indicates whether the configuration file itself is encrypted at rest using filesystem-level encryption, an encrypted secrets file format (e.g., SOPS, Ansible Vault), or a similar mechanism that prevents plaintext exposure of embedded values if the file is accessed directly.",
+        "default": false
+      },
+      "classification_label_assigned": {
+        "type": "boolean",
+        "title": "Data Classification Label Assigned",
+        "description": "Indicates whether the configuration file (or the directory/repository containing it) has been assigned a formal data sensitivity classification label (e.g., Public, Internal, Confidential, Restricted) via metadata, extended attributes, a manifest, or a classification registry entry.",
+        "default": false
+      },
+      "contains_sensitive_values": {
+        "type": "boolean",
+        "title": "File Contains Sensitive Values",
+        "description": "Indicates whether the configuration file contains one or more sensitive values such as credentials, API keys, database connection strings, tokens, or private certificates — determined by static scanning or manual review.",
+        "default": false
+      },
+      "classification_enforcement_mechanism": {
+        "type": "string",
+        "enum": [
+          "automated",
+          "manual",
+          "none"
+        ],
+        "title": "Classification Enforcement Mechanism",
+        "description": "Describes the mechanism used to enforce downstream handling controls derived from the classification label, such as access restrictions, encryption mandates, or retention schedules.",
+        "default": "none"
+      },
+      "world_readable": {
+        "type": "boolean",
+        "title": "World-Readable Permission Bit Set",
+        "description": "Whether the configuration file has the world (other) read bit set, making it readable by any user on the system regardless of group membership.",
+        "default": false
+      },
+      "group_readable_by_non_operational_group": {
+        "type": "boolean",
+        "title": "Group-Readable by Non-Operational Group",
+        "description": "Whether the file's group-read bit is set AND the owning group includes users beyond those with a legitimate operational need (i.e., the group is not tightly scoped to the service). True indicates overly broad group read access.",
+        "default": false
+      },
+      "file_owner_matches_service_account": {
+        "type": "boolean",
+        "title": "File Owner Matches Service Account",
+        "description": "Whether the file's owning user is the dedicated service account or process account with operational need for the configuration file. True means ownership is correctly scoped.",
+        "default": false
+      },
+      "file_permission_mode": {
+        "type": "string",
+        "title": "File Permission Mode (Octal)",
+        "description": "The octal permission string of the configuration file (e.g., '644', '640', '600'). Reflects read/write/execute bits for owner, group, and others."
+      },
+      "stale_config_files_present": {
+        "type": "boolean",
+        "title": "Stale Configuration Files Present",
+        "description": "Whether the filesystem contains superseded, deprecated, or backup configuration files (e.g., .env.old, config.bak, settings.bak, .env.backup, web.config.bak) that are no longer operationally active.",
+        "default": false
+      },
+      "retention_policy_defined": {
+        "type": "boolean",
+        "title": "Configuration File Retention Policy Defined",
+        "description": "Whether a formal, documented retention and expiry policy exists for configuration files — including backup and superseded copies — specifying maximum retention periods and disposal procedures.",
+        "default": false
+      },
+      "stale_config_contains_secrets": {
+        "type": "boolean",
+        "title": "Stale Configuration Files Contain Active Secrets",
+        "description": "Whether any of the identified stale or backup configuration files contain credentials, API keys, database connection strings, or other secrets that are still valid or reusable.",
+        "default": false
+      },
+      "secure_deletion_method_applied": {
+        "type": "boolean",
+        "title": "Secure Deletion Method Applied",
+        "description": "Indicates whether a secure deletion or cryptographic erasure method (e.g., shred, srm, cryptographic erase) was applied to retired or decommissioned configuration files rather than standard filesystem deletion.",
+        "default": false
+      },
+      "retired_config_files_recoverable": {
+        "type": "boolean",
+        "title": "Retired Config Files Are Recoverable",
+        "description": "Indicates whether retired or replaced configuration files remain recoverable from the filesystem, recycle bin, volume snapshots, or backup stores — meaning they were not securely purged from all storage locations.",
+        "default": true
+      },
+      "disposal_procedure_documented": {
+        "type": "boolean",
+        "title": "Formal Disposal Procedure Documented",
+        "description": "Indicates whether a formal, enforced disposal procedure exists specifically covering configuration files, requiring secure deletion or cryptographic erasure steps before files are considered retired.",
+        "default": false
+      },
+      "environment_type": {
+        "type": "string",
+        "enum": [
+          "production",
+          "staging",
+          "development",
+          "test"
+        ],
+        "title": "Environment Type",
+        "description": "The classification of the environment where the configuration file resides (production, staging, development, test)."
+      },
+      "contains_production_secrets": {
+        "type": "boolean",
+        "title": "Contains Production Secrets",
+        "description": "Whether the configuration file contains live production credentials, API keys, database connection strings, or other production-environment secrets rather than placeholder or masked values.",
+        "default": false
+      },
+      "secrets_masked_or_sanitized": {
+        "type": "boolean",
+        "title": "Secrets Masked or Sanitized",
+        "description": "Whether all sensitive fields in the configuration file have been replaced with placeholder values, environment variable references, or vault references rather than literal secret values.",
+        "default": false
+      },
+      "access_control_equivalent_to_production": {
+        "type": "boolean",
+        "title": "Access Control Equivalent to Production",
+        "description": "Whether file-system and application-level access controls on the configuration file in the lower environment are as restrictive as those applied in production.",
+        "default": false
+      }
+    },
+    "required": [
+      "secrets_stored_in_plaintext",
+      "secret_manager_integration",
+      "file_encryption_at_rest",
+      "classification_label_assigned",
+      "contains_sensitive_values",
+      "classification_enforcement_mechanism",
+      "world_readable",
+      "group_readable_by_non_operational_group",
+      "file_owner_matches_service_account",
+      "file_permission_mode",
+      "stale_config_files_present",
+      "retention_policy_defined",
+      "stale_config_contains_secrets",
+      "secure_deletion_method_applied",
+      "retired_config_files_recoverable",
+      "disposal_procedure_documented",
+      "environment_type",
+      "contains_production_secrets",
+      "secrets_masked_or_sanitized",
+      "access_control_equivalent_to_production"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/contains_production_secrets"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/detected_secret_types"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/file_encryption_at_rest"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_manager_integration"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_masked_or_sanitized"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_stored_in_plaintext"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_control_equivalent_to_production"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/file_owner_matches_service_account"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/file_permission_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/group_readable_by_non_operational_group"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/world_readable"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/classification_label_assigned"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/contains_sensitive_values"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/environment_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/classification_enforcement_mechanism"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/retention_policy_defined"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/retired_config_files_recoverable"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secure_deletion_method_applied"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/stale_config_contains_secrets"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/stale_config_files_present"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/disposal_procedure_documented"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

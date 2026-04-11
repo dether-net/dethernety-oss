@@ -1,0 +1,8 @@
+{
+  "name": "NAS Appliance",
+  "classType": "component",
+  "type": "STORE",
+  "description": "NAS appliances expose network-accessible storage with broad attack surfaces including unauthenticated shares, weak encryption, insecure management interfaces, and excessive privilege grants. Misconfiguration is the dominant risk class, as NAS devices are frequently deployed with default credentials, overly permissive share policies, and unpatched firmware, making them high-value targets for ransomware, data exfiltration, and lateral movement.",
+  "category": "Network Storage",
+  "status": "reviewed"
+}

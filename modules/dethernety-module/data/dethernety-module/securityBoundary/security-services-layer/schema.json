@@ -1,0 +1,473 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "log_ingestion_flow_enforcement": {
+        "type": "string",
+        "enum": [
+          "data_diode",
+          "unidirectional_proxy",
+          "firewall_acl_only",
+          "none"
+        ],
+        "title": "Log Ingestion Flow Enforcement Mechanism",
+        "description": "Indicates the mechanism enforcing unidirectional data flow on log collection channels entering the security management zone.",
+        "default": "none"
+      },
+      "siem_ingestion_endpoint_directly_reachable": {
+        "type": "boolean",
+        "title": "SIEM Ingestion Endpoint Directly Reachable from Production Zone",
+        "description": "Indicates whether production zone hosts can establish direct network connections to SIEM ingestion endpoints without traversing a dedicated log forwarder or proxy in a DMZ/intermediate segment.",
+        "default": false
+      },
+      "log_payload_validation_enforced": {
+        "type": "boolean",
+        "title": "Log Payload Validation Enforced at Ingestion",
+        "description": "Indicates whether structured input validation or schema enforcement is applied to incoming log payloads before they are processed by SIEM components.",
+        "default": false
+      },
+      "log_source_authentication_required": {
+        "type": "boolean",
+        "title": "Log Source Authentication Required at Ingestion Endpoint",
+        "description": "Indicates whether SIEM ingestion endpoints require cryptographic authentication from log sources before accepting log data.",
+        "default": false
+      },
+      "credential_scope_enforcement": {
+        "type": "string",
+        "enum": [
+          "least_privilege",
+          "broadly_scoped",
+          "shared_across_zones"
+        ],
+        "title": "Credential Scope Enforcement",
+        "description": "Indicates whether service accounts and API keys used by the security layer are scoped with least-privilege permissions or are broadly scoped/shared across zones."
+      },
+      "credentials_shared_across_zones": {
+        "type": "boolean",
+        "title": "Credentials Shared Across Zone Boundaries",
+        "description": "Whether the same service account credentials or API keys are reused across the security management zone and one or more adjacent/managed zones.",
+        "default": false
+      },
+      "zone_boundary_egress_credential_controls": {
+        "type": "boolean",
+        "title": "Zone Boundary Egress Credential Controls Enforced",
+        "description": "Whether explicit controls are in place to prevent credentials originating in the security management zone from being usable outside their intended zone boundary.",
+        "default": false
+      },
+      "credential_rotation_period_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Credential Rotation Period (Days)",
+        "description": "The maximum number of days between mandatory rotation of service account credentials and API keys used by the security layer. A value of 0 means rotation is not enforced.",
+        "default": 0
+      },
+      "egress_destination_allowlist_configured": {
+        "type": "boolean",
+        "title": "Egress Destination Allowlist Configured",
+        "description": "Whether outbound traffic from the security zone is restricted to an explicit allowlist of approved destination IPs, FQDNs, or CIDR ranges.",
+        "default": false
+      },
+      "egress_port_restriction_enforced": {
+        "type": "boolean",
+        "title": "Egress Port Restriction Enforced",
+        "description": "Whether outbound connections from the security zone are restricted to specific, approved ports rather than allowing all ports.",
+        "default": false
+      },
+      "egress_tls_inspection_enabled": {
+        "type": "boolean",
+        "title": "Egress TLS Inspection Enabled",
+        "description": "Whether outbound encrypted traffic from the security zone is subject to TLS inspection or a forward proxy, enabling detection of covert C2 channels or data exfiltration.",
+        "default": false
+      },
+      "action_channel_zone_authorization_scoped": {
+        "type": "boolean",
+        "title": "Action Channel Zone Authorization Scoped",
+        "description": "Whether automated response action channels enforce per-destination-zone authorization, preventing the SIEM from executing privileged operations in zones beyond its defined scope.",
+        "default": false
+      },
+      "alert_action_integrity_verification": {
+        "type": "boolean",
+        "title": "Alert-Triggered Action Integrity Verification",
+        "description": "Whether the SIEM validates the authenticity and integrity of alert data before executing automated response actions, guarding against forged or replayed alerts triggering privileged operations.",
+        "default": false
+      },
+      "action_credential_isolation_model": {
+        "type": "string",
+        "enum": [
+          "per_zone_isolated",
+          "shared",
+          "unmanaged"
+        ],
+        "title": "Action Credential Isolation Model",
+        "description": "The isolation model used for credentials that the SIEM uses to execute automated response actions across zones."
+      },
+      "internal_vlan_segmentation_enforced": {
+        "type": "boolean",
+        "title": "Internal VLAN/Segment Isolation Enforced",
+        "description": "Indicates whether distinct VLANs or network segments are enforced between SIEM sub-components within the security layer, preventing flat-network lateral movement.",
+        "default": false
+      },
+      "inter_component_acl_policy": {
+        "type": "string",
+        "enum": [
+          "strict",
+          "partial",
+          "none"
+        ],
+        "title": "Inter-Component ACL Policy",
+        "description": "Describes the level of access control list enforcement between SIEM sub-components within the security layer boundary."
+      },
+      "management_interface_isolated": {
+        "type": "boolean",
+        "title": "Privileged Management Interface Network-Isolated",
+        "description": "Indicates whether the highest-privilege management interfaces are placed on a dedicated, separately controlled management VLAN not reachable directly from collector or data-plane segments.",
+        "default": false
+      },
+      "security_zone_traffic_excluded_from_siem": {
+        "type": "boolean",
+        "title": "Security Zone Traffic Excluded from SIEM",
+        "description": "Indicates whether ingress and egress traffic originating from or destined to the security management zone is excluded from SIEM ingestion rules, filters, or collection scopes.",
+        "default": false
+      },
+      "boundary_ingress_egress_alerts_configured": {
+        "type": "boolean",
+        "title": "Boundary Ingress/Egress Alerts Configured for Security Zone",
+        "description": "Indicates whether alerting rules exist in the SIEM or a compensating control to detect anomalous ingress or egress traffic at the security zone boundary, independent of SIEM self-logging.",
+        "default": false
+      },
+      "api_endpoints_bypass_zone_gateway": {
+        "type": "boolean",
+        "title": "API Endpoints Bypass Zone Gateway",
+        "description": "Indicates whether third-party integration API endpoints are reachable without traversing the primary SIEM zone gateway, bypassing centralized ingress filtering.",
+        "default": false
+      },
+      "integration_api_ingress_filtering_enforced": {
+        "type": "boolean",
+        "title": "Integration API Ingress Filtering Enforced",
+        "description": "Indicates whether the same ingress filtering policies applied to the primary zone boundary are also applied to third-party integration API endpoints.",
+        "default": false
+      },
+      "integration_credential_isolation_enforced": {
+        "type": "boolean",
+        "title": "Integration Credential Isolation Enforced",
+        "description": "Indicates whether API credentials used for third-party integrations are isolated so that compromise of an integration credential cannot be used to access the broader SIEM management plane."
+      },
+      "boundary_rule_validation_enforced": {
+        "type": "boolean",
+        "title": "Boundary Rule Validation Enforced Pre/Post Deployment",
+        "description": "Whether the change management process mandates automated or manual validation of firewall and segmentation rules both before and after deployment windows affecting the security management zone.",
+        "default": false
+      },
+      "transient_permissive_rules_detected": {
+        "type": "boolean",
+        "title": "Transient Permissive Firewall Rules Detected",
+        "description": "Whether overly permissive or temporary firewall/segmentation rules are currently present on the security management zone boundary that were introduced or left over from a recent deployment window.",
+        "default": false
+      },
+      "deployment_window_recency_hours": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 8760,
+        "title": "Hours Since Last Deployment Window",
+        "description": "Number of hours elapsed since the most recent deployment or reconfiguration activity affecting the security management zone boundary."
+      },
+      "post_deployment_boundary_audit_status": {
+        "type": "string",
+        "enum": [
+          "passed",
+          "failed",
+          "not_performed"
+        ],
+        "title": "Post-Deployment Boundary Audit Status",
+        "description": "The outcome of the most recent post-deployment boundary audit for the security management zone.",
+        "default": "not_performed"
+      },
+      "oob_network_ingress_egress_filtering_enforced": {
+        "type": "boolean",
+        "title": "OOB Network Ingress/Egress Filtering Enforced",
+        "description": "Indicates whether the out-of-band management network has dedicated ingress and egress ACLs or firewall rules enforced independently from the primary security zone boundary controls.",
+        "default": false
+      },
+      "oob_network_segmentation_consistency": {
+        "type": "string",
+        "enum": [
+          "consistent",
+          "partial",
+          "inconsistent",
+          "absent"
+        ],
+        "title": "OOB Network Segmentation Consistency",
+        "description": "Describes whether OOB management network segmentation controls are consistently applied, partially applied, or absent relative to the primary security zone."
+      },
+      "oob_lateral_movement_paths_identified": {
+        "type": "boolean",
+        "title": "OOB Lateral Movement Paths Identified",
+        "description": "Indicates whether network path analysis or penetration testing has identified reachable routes from monitored production networks into the OOB management network without traversing an enforced security control.",
+        "default": false
+      }
+    },
+    "required": [
+      "log_ingestion_flow_enforcement",
+      "siem_ingestion_endpoint_directly_reachable",
+      "log_payload_validation_enforced",
+      "log_source_authentication_required",
+      "credential_scope_enforcement",
+      "credentials_shared_across_zones",
+      "zone_boundary_egress_credential_controls",
+      "credential_rotation_period_days",
+      "egress_destination_allowlist_configured",
+      "egress_port_restriction_enforced",
+      "egress_tls_inspection_enabled",
+      "action_channel_zone_authorization_scoped",
+      "alert_action_integrity_verification",
+      "action_credential_isolation_model",
+      "internal_vlan_segmentation_enforced",
+      "inter_component_acl_policy",
+      "management_interface_isolated",
+      "security_zone_traffic_excluded_from_siem",
+      "boundary_ingress_egress_alerts_configured",
+      "api_endpoints_bypass_zone_gateway",
+      "integration_api_ingress_filtering_enforced",
+      "integration_credential_isolation_enforced",
+      "boundary_rule_validation_enforced",
+      "transient_permissive_rules_detected",
+      "deployment_window_recency_hours",
+      "post_deployment_boundary_audit_status",
+      "oob_network_ingress_egress_filtering_enforced",
+      "oob_network_segmentation_consistency",
+      "oob_lateral_movement_paths_identified"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/api_endpoints_bypass_zone_gateway"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_destination_allowlist_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_port_restriction_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_tls_inspection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/integration_api_ingress_filtering_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/inter_component_acl_policy"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/internal_vlan_segmentation_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_ingestion_flow_enforcement"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_interface_isolated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/oob_lateral_movement_paths_identified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/oob_network_ingress_egress_filtering_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/oob_network_segmentation_consistency"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/siem_ingestion_endpoint_directly_reachable"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/action_channel_zone_authorization_scoped"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/action_credential_isolation_model"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/alert_action_integrity_verification"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_rotation_period_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_scope_enforcement"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/credentials_shared_across_zones"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_source_authentication_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/zone_boundary_egress_credential_controls"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/integration_credential_isolation_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_payload_validation_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/boundary_ingress_egress_alerts_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/security_zone_traffic_excluded_from_siem"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/boundary_rule_validation_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/post_deployment_boundary_audit_status"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/transient_permissive_rules_detected"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/deployment_window_recency_hours"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

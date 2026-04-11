@@ -1,0 +1,1434 @@
+[
+  {
+    "option_name": "continuous_reauthentication_enabled",
+    "option_description": "Controls whether the ZTNA solution enforces periodic re-authentication challenges or triggers step-up authentication upon detected trust score changes or context anomalies, rather than treating initial login as sufficient for the full session lifetime.",
+    "security_impact": "This is a required condition in the continuous_identity_verification_coverage Rego rule. Without this enabled, a hijacked session token remains valid indefinitely after initial authentication, allowing attackers to persist inside a network segment even after credentials are rotated. The rule requires this to be true alongside a bounded session duration and a credential-change revocation policy to award coverage credit.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the ZTNA admin console (e.g., Zscaler ZPA, Palo Alto Prisma Access, Cloudflare Access). Navigate to Settings > Authentication Policies or Access Policies > Session Controls and look for a toggle labeled 'Continuous Authentication', 'Step-Up Authentication', or 'Re-authentication Interval'. Record whether it is enabled and the interval configured.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Settings > Authentication Policies > Session Controls",
+        "expected_output": "A toggle in 'On/Enabled' state with an associated interval value (e.g., 60 minutes) or a trigger condition such as 'on trust score change'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the ZTNA platform REST API to retrieve authentication policy settings. For Zscaler ZPA, use the API endpoint to list application segment policies and check for reauthentication fields.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://<zpa-tenant>.zscaler.net/mgmtconfig/v1/admin/customers/<customer_id>/authProfile' | jq '.continuousAuth, .reauthInterval'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response showing 'continuousAuth: true' and a non-null 'reauthInterval' value in minutes."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If the ZTNA platform is self-hosted or exports policy-as-code (e.g., HashiCorp Boundary, or Teleport), inspect the exported YAML or JSON policy files for session configuration blocks containing 'continuous_auth', 'reauth_interval', or 'step_up_auth' fields.",
+        "command": "grep -ri 'continuous_auth\\|reauth_interval\\|step_up' /etc/ztna/policies/",
+        "file_path": "/etc/ztna/policies/",
+        "navigation": null,
+        "expected_output": "Lines such as 'continuous_auth: true' and 'reauth_interval: 60' within the relevant policy block."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the identity/network security team to confirm whether a formal policy document mandates continuous re-authentication and whether the ZTNA platform has been formally configured and validated to enforce it. Request screenshots or configuration exports as evidence.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written confirmation or screenshot evidence that continuous re-authentication is enabled in production access policies."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "credential_change_session_revocation",
+    "option_description": "Defines the behavior of the ZTNA or Identity Provider (IdP) when a credential change event occurs — such as a password reset, MFA device modification, or token revocation — with respect to all currently active authenticated sessions for the affected user.",
+    "security_impact": "The continuous_identity_verification_coverage Rego rule requires this attribute to be set to either 'immediate_revocation' or 'revocation_on_next_request'. A value of 'none' (the insecure default) means that an attacker who has captured a valid session token continues to maintain access even after the legitimate user resets their compromised credentials. Immediate revocation provides the strongest protection by invalidating all sessions the moment a credential event fires.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In your IdP console (Okta, Azure AD/Entra ID, Ping Identity) navigate to Security > Session Management or Authentication Policies. Look for settings labeled 'Revoke sessions on password change', 'Force re-authentication on credential update', or 'Token revocation on MFA change'. Note the configured option.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP Admin Console > Security > Session Management or Authentication Policies",
+        "expected_output": "A radio button or dropdown showing 'Revoke all sessions immediately' or 'Revoke on next request', rather than 'Do not revoke sessions'."
+      },
+      {
+        "type": "api",
+        "instruction": "For Azure Entra ID, query the Conditional Access policies and token lifetime configurations using Microsoft Graph API to verify session revocation settings.",
+        "command": "az rest --method GET --url 'https://graph.microsoft.com/v1.0/policies/tokenLifetimePolicies' | jq '.value[].definition'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy definitions showing 'RevokeSessionsOnPasswordChange': true or equivalent token invalidation settings."
+      },
+      {
+        "type": "api",
+        "instruction": "For Okta, retrieve the session policy settings via the Okta API to check whether sessions are revoked upon credential changes.",
+        "command": "curl -s -H 'Authorization: SSWS <API_TOKEN>' 'https://<okta-domain>/api/v1/policies?type=SESSION' | jq '.[].settings.session.usePersistentCookie, .[].settings.session.maxSessionLifetimeMinutes'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Session policy settings indicating active session invalidation is configured upon password or MFA change events."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Conduct a controlled test: create a test user, authenticate and obtain an active session token, then reset the test user's password and attempt to use the old session token. Verify whether access is denied immediately, denied on next request, or still permitted.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation that the pre-change session token is rejected, with the timing matching the configured revocation policy (immediately vs. on next request)."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "immediate_revocation",
+      "revocation_on_next_request",
+      "none"
+    ]
+  },
+  {
+    "option_name": "max_session_duration_minutes",
+    "option_description": "Sets the absolute maximum lifetime in minutes for any authenticated session before mandatory re-authentication is enforced, regardless of user activity. A null or zero value means sessions can persist indefinitely without re-authentication.",
+    "security_impact": "The continuous_identity_verification_coverage Rego rule requires this value to be greater than 0 and no more than 480 minutes (8 hours). Unlimited session durations are a primary enabler of session hijacking and insider threat persistence — a stolen token remains exploitable for as long as the session lives. Capping sessions at or below 480 minutes bounds the attacker's window and forces periodic identity re-assertion.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In your ZTNA admin console or IdP, navigate to Access Policies > Session Settings or Security > Global Session Policy. Locate the field labeled 'Maximum Session Lifetime', 'Session Timeout', 'Absolute Timeout', or 'Max Session Duration' and record the value in minutes.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Access Policies > Session Settings > Maximum Session Lifetime",
+        "expected_output": "A numeric value in minutes, such as 480. A blank or 0 value indicates no enforced maximum."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve session policy configuration from the ZTNA or IdP API. For Okta, query the global session policy to obtain the maxSessionLifetimeMinutes value.",
+        "command": "curl -s -H 'Authorization: SSWS <API_TOKEN>' 'https://<okta-domain>/api/v1/policies?type=SESSION' | jq '.[].settings.session.maxSessionLifetimeMinutes'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer value representing minutes, e.g., 480. A value of 0 or null means no enforced maximum."
+      },
+      {
+        "type": "api",
+        "instruction": "For Azure Entra ID Conditional Access, query token lifetime policies to identify configured access token and session token lifetimes.",
+        "command": "az rest --method GET --url 'https://graph.microsoft.com/v1.0/policies/tokenLifetimePolicies' | jq '.value[].definition[] | fromjson | .TokenLifetimePolicy.AccessTokenLifetime'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ISO 8601 duration string (e.g., '08:00:00' for 8 hours / 480 minutes) or a policy indicating bounded token lifetime."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For self-hosted ZTNA solutions such as Teleport, inspect the Teleport configuration file for session lifetime settings.",
+        "command": "grep -E 'max_session_ttl|session_timeout|session_lifetime' /etc/teleport/teleport.yaml",
+        "file_path": "/etc/teleport/teleport.yaml",
+        "navigation": null,
+        "expected_output": "A duration value such as 'max_session_ttl: 8h' indicating a bounded maximum session lifetime."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "480",
+      "720",
+      "1440",
+      "0",
+      "null"
+    ]
+  },
+  {
+    "option_name": "posture_assessment_enabled",
+    "option_description": "Controls whether the ZTNA or Network Access Control (NAC) platform actively evaluates the security posture of connecting devices before granting access to protected resources, checking endpoint compliance state such as patch status, certificate validity, and security software presence.",
+    "security_impact": "This is a prerequisite condition in both branches of the device_posture_validation_accuracy Rego rule — if posture assessment is not enabled, the rule cannot fire regardless of other settings. Without posture checks, unmanaged, compromised, or non-compliant endpoints can authenticate successfully and gain the same access as healthy corporate devices, defeating zero-trust principles at the device layer.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In your ZTNA or NAC admin console (e.g., Zscaler ZPA, Crowdstrike Falcon Identity, Jamf Connect, Cisco ISE), navigate to Endpoint Compliance > Device Posture Policies or Access Policies > Device Trust. Confirm that posture assessment is toggled on and applied to all access policies, not scoped to a subset.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Endpoint Compliance > Device Posture Policies",
+        "expected_output": "Posture assessment toggle in 'Enabled' state with at least one active policy applied globally."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the ZTNA platform API to retrieve posture policy configuration. For Zscaler ZPA, check the posture profile endpoint.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://<zpa-tenant>.zscaler.net/mgmtconfig/v1/admin/customers/<customer_id>/postureProfile' | jq '.[] | {name: .name, enabled: .enabled}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON list of posture profiles with 'enabled: true' confirming at least one active posture profile is configured."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Attempt to connect to a protected resource from a device that has a known compliance failure (e.g., outdated OS patch, disabled AV). Confirm that access is assessed and action taken rather than silently permitted.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The non-compliant device is assessed during the connection attempt and receives either a block, quarantine, or remediation prompt depending on enforcement mode."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review ZTNA access logs or NAC audit logs to confirm posture check events are recorded for connection attempts. The presence of posture assessment log entries confirms the feature is active.",
+        "command": "grep -i 'posture\\|compliance\\|device_check' /var/log/ztna/access.log | tail -50",
+        "file_path": "/var/log/ztna/access.log",
+        "navigation": null,
+        "expected_output": "Log entries containing posture assessment results (e.g., 'posture_status: compliant', 'device_check: passed') for recent connection events."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "posture_checks_enforced",
+    "option_description": "Specifies the list of posture check categories that are actively configured to block or deny access when a device fails the check, as opposed to categories that are only monitored or logged without enforcement action.",
+    "security_impact": "The device_posture_validation_accuracy Rego rule requires either at least 3 check types in this array (first branch) or specifically 'patch_level', 'certificate_validity', and 'antivirus_presence' must all be present (second branch). An empty or minimal list means most compliance failures are not actionable, allowing unpatched, uncertified, or unprotected endpoints to gain full network access even when posture assessment is technically enabled.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the posture policy definition in your ZTNA or NAC console. For each check type (patch level, certificate validity, antivirus presence, EDR presence, disk encryption), confirm the action is set to 'Block' or 'Deny' rather than 'Audit', 'Alert', or 'Monitor Only'. Record each check type that is in enforcement mode.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Device Posture Policies > [Policy Name] > Check Actions",
+        "expected_output": "A list of check categories where the action column shows 'Block' or 'Enforce', not 'Monitor'."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve posture policy details via API and filter for checks where the action is block/deny. For Zscaler ZPA posture profiles, inspect each rule's action field.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://<zpa-tenant>.zscaler.net/mgmtconfig/v1/admin/customers/<customer_id>/postureProfile' | jq '[.[] | select(.enabled==true) | {name: .name, checks: .devicePostureRules}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response listing each posture rule with its action type. Look for rules with 'action: block' or equivalent enforcement action."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For policy-as-code ZTNA deployments, inspect the exported posture policy YAML/JSON for check categories and their configured actions.",
+        "command": "cat /etc/ztna/posture-policy.yaml | grep -A 5 'checks:'",
+        "file_path": "/etc/ztna/posture-policy.yaml",
+        "navigation": null,
+        "expected_output": "YAML blocks listing each check category (patch_level, certificate_validity, etc.) with associated action set to 'block' or 'deny'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request a posture policy report or configuration export from the security team documenting each check type and its enforcement status. Validate that each listed check results in an access block rather than a passive alert.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented list showing check categories and confirming each is set to block non-compliant devices. Minimum expectation: patch_level, certificate_validity, and antivirus_presence are all in enforcement mode."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"patch_level\", \"antivirus_presence\", \"edr_presence\"]",
+      "[\"patch_level\", \"certificate_validity\", \"antivirus_presence\", \"edr_presence\", \"disk_encryption\"]",
+      "[]",
+      "[\"antivirus_presence\"]"
+    ]
+  },
+  {
+    "option_name": "posture_enforcement_mode",
+    "option_description": "Determines whether posture assessment results actively block non-compliant devices from gaining access ('enforce'), generate alerts without preventing access ('monitor'), or are entirely inactive ('disabled'). This is the master enforcement switch for posture-based access control.",
+    "security_impact": "Both branches of the device_posture_validation_accuracy Rego rule require this value to be exactly 'enforce'. When set to 'monitor', posture checks run but non-compliant devices are still granted full access — making the assessment purely observational and providing no actual security enforcement. Organizations frequently deploy in 'monitor' mode during rollout and fail to transition to 'enforce', leaving the control ineffective indefinitely.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the ZTNA or NAC admin console, navigate to Access Policies > Posture Settings or Endpoint Compliance > Enforcement Mode. Locate the global or per-policy enforcement mode toggle and record whether it is set to 'Enforce/Block', 'Monitor/Alert Only', or 'Disabled'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Access Policies > Posture Settings > Enforcement Mode",
+        "expected_output": "Enforcement mode set to 'Enforce' or 'Block', not 'Monitor' or 'Audit Only'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the ZTNA platform API to retrieve the policy enforcement setting. For Cisco ISE, use the ERS API to retrieve authorization policy enforcement configuration.",
+        "command": "curl -s -k -u '<admin>:<password>' -H 'Accept: application/json' 'https://<ise-host>:9060/ers/config/authorizationprofile' | jq '.SearchResult.resources[] | {name: .name, href: .href}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authorization profile list. Follow up with individual profile GETs to confirm the access type is 'ACCESS_ACCEPT' only for compliant profiles, with 'ACCESS_REJECT' for non-compliant results."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review access logs for connection attempts from known non-compliant devices. If all non-compliant devices show 'access_granted' or 'allowed' outcomes, the mode is monitor-only or disabled. Block entries for posture failures confirm enforce mode is active.",
+        "command": "grep -i 'posture_fail\\|non_compliant\\|posture_status: fail' /var/log/ztna/access.log | awk '{print $0}' | grep -i 'action\\|result\\|outcome'",
+        "file_path": "/var/log/ztna/access.log",
+        "navigation": null,
+        "expected_output": "Log entries for posture failures showing 'action: blocked' or 'result: denied'. If all show 'allowed', enforcement mode is not active."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Perform a deliberate posture failure test: disable antivirus on a test endpoint, attempt to access a protected resource, and verify whether access is blocked or permitted. This confirms the actual enforcement behavior regardless of UI settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Access is denied or quarantined for the non-compliant test device, confirming 'enforce' mode is operationally active."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "enforce",
+      "monitor",
+      "disabled"
+    ]
+  },
+  {
+    "option_name": "posture_assessment_max_age_minutes",
+    "option_description": "Defines the maximum age in minutes that a cached posture assessment result can be used before the platform requires a fresh re-evaluation of the device's compliance state. Lower values ensure the assessment reflects the device's current security posture rather than a potentially stale historical snapshot.",
+    "security_impact": "Both branches of the device_posture_validation_accuracy Rego rule require this value to be 60 minutes or less. A high cache TTL (e.g., 24 hours or 480 minutes) means a device that passes posture in the morning can lose its antivirus protection or fall behind on patches later in the day while retaining full network access until the next assessment cycle. An attacker who disables security controls on a device after initial connection gains an extended window of undetected access.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In your ZTNA or NAC console, navigate to Device Posture Policies > Advanced Settings or Posture Check Intervals. Look for fields labeled 'Posture Cache TTL', 'Re-evaluation Interval', 'Check Frequency', or 'Max Assessment Age' and record the configured value in minutes.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Device Posture Policies > Advanced Settings > Posture Cache TTL",
+        "expected_output": "A numeric value in minutes at or below 60 (e.g., 30 or 60). Values above 60 or a blank/null field indicate stale assessment risk."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the ZTNA or NAC API for posture policy configuration including cache or re-evaluation interval settings. For Zscaler ZPA, retrieve posture profile details.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://<zpa-tenant>.zscaler.net/mgmtconfig/v1/admin/customers/<customer_id>/postureProfile/<profile_id>' | jq '{name: .name, checkInterval: .checkInterval, cacheValidityMinutes: .cacheValidityMinutes}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response with 'cacheValidityMinutes' or 'checkInterval' at or below 60. A null or missing value may indicate the platform default is applied."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For self-hosted NAC or ZTNA platforms, inspect the posture policy configuration files for cache TTL or re-evaluation frequency settings.",
+        "command": "grep -Ei 'cache_ttl|recheck_interval|posture_max_age|assessment_interval' /etc/ztna/posture-policy.conf /etc/nac/policy.yaml 2>/dev/null",
+        "file_path": "/etc/ztna/posture-policy.conf",
+        "navigation": null,
+        "expected_output": "Configuration lines such as 'cache_ttl: 60' or 'recheck_interval: 30m' confirming the maximum age does not exceed 60 minutes."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Coordinate with the security engineering team to test cache behavior: have a device pass posture assessment, immediately disable a required control (e.g., AV), wait varying intervals, then attempt a new connection and record when the system detects and acts on the posture failure. This empirically determines the actual cache TTL in effect.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The system detects the posture failure and blocks or alerts within 60 minutes of the compliance change, confirming the effective cache age is within policy."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "15",
+      "30",
+      "60",
+      "120",
+      "480",
+      "null"
+    ]
+  },
+  {
+    "option_name": "microsegmentation_policy_enforced",
+    "option_description": "Indicates whether per-workload and per-user micro-segmentation policies are actively deployed in enforcement mode, creating granular network boundaries that prevent unrestricted lateral movement between application segments, workloads, and user groups.",
+    "security_impact": "The micro_segmentation_enforcement Rego rule includes a branch requiring this attribute to be true (combined with policy_enforcement_mode being 'enforced'). Without active micro-segmentation enforcement, a compromised user account or endpoint can move laterally across the entire network flat plane to reach any resource, exponentially increasing the blast radius of any single breach. Enforcement mode is critical — monitor-only micro-segmentation provides visibility but no containment.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the ZTNA or micro-segmentation platform admin console (e.g., Illumio, Guardicore, VMware NSX, Cloudflare Zero Trust), navigate to Policy Management > Segmentation Policies or Network Policies. Confirm that policies are shown in 'Enforced' or 'Active' state, not 'Test/Monitor/Audit' mode. Verify that both east-west and north-south policies are in enforcement.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Policy Management > Segmentation Policies > Enforcement Status",
+        "expected_output": "All applicable segmentation policies show 'Enforcement Mode: Enforced' or 'Status: Active', with no policies stuck in 'Test Mode' or 'Monitor Only'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the micro-segmentation platform API to retrieve the enforcement status of all active policies. For Illumio PCE, use the REST API to list rulesets and their enforcement modes.",
+        "command": "curl -s -u '<api_user>:<api_key>' 'https://<illumio-pce>:8443/api/v2/orgs/<org_id>/sec_policy/draft/rule_sets' | jq '[.[] | {name: .name, enforcement_mode: .enforcement_mode}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON list of rulesets with 'enforcement_mode: full' or 'enforcement_mode: selective', confirming enforcement rather than 'visibility' or 'idle' modes."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Conduct a lateral movement test between two workloads that should be segmented (e.g., a web server attempting to connect directly to a database server on a port not in the allowed policy). Confirm the connection is blocked by the micro-segmentation policy.",
+        "command": "nc -zv <database-ip> 1433 2>&1 || echo 'Connection blocked'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused or timed out, confirming the micro-segmentation policy is blocking unauthorized lateral traffic between segments."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review micro-segmentation platform logs or SIEM for policy enforcement events. The presence of 'blocked' or 'denied' events from policy enforcement (not just monitoring alerts) confirms enforcement mode is active.",
+        "command": "grep -i 'policy_action: block\\|enforcement: deny\\|segment_blocked' /var/log/microseg/policy.log | tail -100",
+        "file_path": "/var/log/microseg/policy.log",
+        "navigation": null,
+        "expected_output": "Log entries showing connection attempts between segments being actively blocked by policy enforcement, not just flagged or alerted."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "policy_enforcement_mode",
+    "option_description": "Controls the active enforcement mode of micro-segmentation policies on the ZTNA platform. In 'enforced' mode, non-permitted traffic is actively blocked at workload boundaries. In 'monitor' mode, violations are logged but traffic is not blocked. In 'disabled' mode, no policy is applied and all traffic flows freely.",
+    "security_impact": "The Rego rule 'micro_segmentation_enforcement' requires policy_enforcement_mode == 'enforced' to activate micro-segmentation countermeasures. Without enforced mode, lateral movement between workloads is unrestricted regardless of how granular the policy rules are written. A monitor or disabled setting means the segmentation exists only on paper, providing zero active prevention against credential compromise blast radius expansion.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the ZTNA or micro-segmentation platform console (e.g., Illumio PCE, Cisco ACI, VMware NSX, Zscaler Private Access). Navigate to Policy > Enforcement Settings or Segmentation > Policy Mode and inspect the current enforcement state for each policy scope or workload group.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA Console > Policy > Enforcement Settings > Global Policy Mode",
+        "expected_output": "Policy mode displayed as 'Enforced', 'Monitor/Test', or 'Disabled' per workload ring or policy scope"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the ZTNA or micro-segmentation platform REST API to retrieve current enforcement mode settings for all policy scopes. Replace <HOST> and <TOKEN> with your environment values.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' -H 'Content-Type: application/json' https://<HOST>/api/v1/security-policy/enforcement-mode | jq '.enforcement_mode'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response containing enforcement_mode field with value 'enforced', 'monitor', or 'disabled'"
+      },
+      {
+        "type": "command",
+        "instruction": "For NSX-T environments, use the NSX CLI or PowerCLI to inspect the distributed firewall enforcement mode across all transport nodes.",
+        "command": "Get-NsxtFirewallSection | Select-Object DisplayName, EnforcementMode | Format-Table -AutoSize",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table listing firewall sections with EnforcementMode column showing ENFORCE, MONITOR, or DISABLED"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For agent-based micro-segmentation platforms (e.g., Illumio VEN), inspect the agent configuration file on a representative workload to determine the locally applied policy mode.",
+        "command": "cat /etc/illumio/illumio-ven-config.json | python3 -m json.tool | grep -i 'enforcement_mode\\|policy_mode'",
+        "file_path": "/etc/illumio/illumio-ven-config.json",
+        "navigation": null,
+        "expected_output": "Field showing enforcement_mode value as enforced, idle (monitor), or visibility_only"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "monitor",
+      "enforced",
+      "disabled"
+    ]
+  },
+  {
+    "option_name": "default_deny_policy_applied",
+    "option_description": "Determines whether a deny-all baseline rule is applied at the workload boundary so that only explicitly defined allow rules permit traffic flow. When true, any traffic not matching an explicit allow rule is blocked by default, enforcing an allowlist posture for inter-segment communication.",
+    "security_impact": "The Rego rule 'micro_segmentation_enforcement' requires both policy_enforcement_mode == 'enforced' AND default_deny_policy_applied == true to activate the micro-segmentation countermeasure. If default_deny is false, even an enforced policy may have implicit allow gaps permitting unauthorized lateral movement. A permissive default posture negates the value of granular allow rules because unmatched traffic still flows freely.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the ZTNA or micro-segmentation console, navigate to Policy > Rule Sets or Firewall Rules and inspect the lowest-priority rule. Verify that a catch-all 'deny all' or 'block all' rule exists at the bottom of every policy scope applied to workloads.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA Console > Policy > Rule Sets > [Select Scope] > Default Rule",
+        "expected_output": "Bottom-of-ruleset entry showing Action: Deny, Source: Any, Destination: Any, with no expiration"
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the rule set from the policy engine API and inspect for the presence of a deny-all rule at the lowest priority level.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' https://<HOST>/api/v1/firewall/rules?scope=workload | jq '[.rules[] | select(.action==\"deny\" and .priority==\"lowest\")]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one rule object with action 'deny', source '*', destination '*', at lowest priority or max priority integer"
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes environments using network policies, check that a default-deny NetworkPolicy exists in each namespace to confirm deny-all baseline.",
+        "command": "kubectl get networkpolicies --all-namespaces -o json | jq '.items[] | select(.spec.podSelector=={}) | {namespace: .metadata.namespace, name: .metadata.name, ingress: .spec.ingress, egress: .spec.egress}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NetworkPolicy entries with empty podSelector and no ingress/egress rules, confirming deny-all for each namespace"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network or platform security team to confirm whether the platform was deployed using a default-deny template or whether explicit deny rules were manually added post-deployment. Review change management records for initial policy baseline configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation or confirmation that initial deployment applied deny-all baseline before any allow rules were written"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "contextual_signals_enabled",
+    "option_description": "Controls whether the ZTNA or IAM policy engine incorporates dynamic contextual inputs such as user location, time of access, risk score, and behavioral baseline into access authorization decisions, rather than relying solely on static role membership to grant or deny access.",
+    "security_impact": "The Rego rule 'context_aware_authorization_precision' requires contextual_signals_enabled == true as a prerequisite condition. Without contextual signals, the authorization system cannot adapt to anomalous access patterns, meaning a compromised credential with valid role membership will receive full access regardless of behavioral or environmental risk indicators. Enabling this is foundational to adaptive zero trust access.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the ZTNA platform's access policy or conditional access settings (e.g., Azure AD Conditional Access, Okta Adaptive MFA, Zscaler ZPA Policy). Inspect whether conditions such as user risk, sign-in risk, device compliance, or location are configured and active on policies that protect critical resources.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA Console > Access Policies > Conditions tab > [Inspect User Risk / Sign-in Risk / Location conditions]",
+        "expected_output": "Conditions section shows at least one contextual signal type configured with a non-zero scope (e.g., User Risk: High, Location: Named Locations)"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the identity platform API for conditional access policy definitions to confirm contextual conditions are configured and enabled.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' | jq '.value[] | {displayName: .displayName, state: .state, conditions: .conditions}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy objects showing state 'enabled' with conditions populated including userRiskLevels, signInRiskLevels, or locations fields"
+      },
+      {
+        "type": "command",
+        "instruction": "For Okta environments, use the Okta CLI or API to list authentication policies and verify that risk-based or contextual conditions are present in policy rules.",
+        "command": "curl -s -H 'Authorization: SSWS <API_TOKEN>' 'https://<OKTA_DOMAIN>/api/v1/policies?type=ACCESS_POLICY' | jq '.[] | {name: .name, status: .status, conditions: .conditions}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy entries with status 'ACTIVE' and conditions block containing network, riskScore, or behavioral fields"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review recent access event logs from the ZTNA or identity platform to confirm that authorization decisions reference contextual attributes. The presence of fields like risk_score, location_match, or device_compliance_state in decision logs confirms signals are actively evaluated.",
+        "command": "grep -i 'risk_score\\|contextual\\|behavioral\\|device_posture' /var/log/ztna/access-decisions.log | tail -50",
+        "file_path": "/var/log/ztna/access-decisions.log",
+        "navigation": null,
+        "expected_output": "Log entries showing authorization decisions with contextual fields populated and influencing the decision outcome"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "contextual_signal_types",
+    "option_description": "Specifies the list of contextual signal categories that are actively integrated and evaluated during authorization decisions. Valid signal types include user_location, time_of_access, risk_score, behavioral_baseline, device_posture, and network_context. This attribute determines the breadth of contextual awareness available to the policy engine.",
+    "security_impact": "The Rego rule 'context_aware_authorization_precision' requires count(contextual_signal_types) >= 2, meaning at least two distinct signal categories must be actively evaluated. A single signal type provides narrow coverage and can be evaded; for example, location alone does not detect credential stuffing from a known region. A richer signal set (device_posture + risk_score + behavioral_baseline) substantially increases detection precision for anomalous access.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the ZTNA or adaptive access policy engine to enumerate all active signal integrations. Confirm each listed integration is configured with a live data source and not merely declared.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' https://<HOST>/api/v1/policy/signal-integrations | jq '[.integrations[] | select(.status==\"active\") | .signal_type]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Array of active signal types such as ['user_location', 'device_posture', 'risk_score', 'behavioral_baseline']"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the ZTNA or identity platform admin console, navigate to Settings > Integrations or Policy > Signal Sources. List all connected signal providers (e.g., threat intelligence feeds for risk score, MDM for device posture, UEBA for behavioral baseline) and confirm their connection status is active.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA Console > Settings > Integrations > Signal Sources > [Review Active Sources]",
+        "expected_output": "Each signal type listed with integration status 'Connected' or 'Active', not 'Disconnected' or 'Error'"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the ZTNA policy engine configuration file for declared signal source definitions. Verify that each declared source has an active endpoint and credentials configured.",
+        "command": "grep -A 5 'signal_sources\\|contextual_inputs\\|risk_signals' /etc/ztna/policy-engine.yaml",
+        "file_path": "/etc/ztna/policy-engine.yaml",
+        "navigation": null,
+        "expected_output": "YAML block listing signal sources with endpoint URLs and enabled: true, covering multiple signal type categories"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search access decision logs for the contextual fields present in authorization events to empirically determine which signal types are actually contributing to decisions versus which are configured but not used.",
+        "command": "cat /var/log/ztna/access-decisions.log | python3 -c \"import sys,json; [print(set(json.loads(l).get('signals_evaluated',{}).keys())) for l in sys.stdin if l.strip()]\" | sort | uniq -c | sort -rn | head -20",
+        "file_path": "/var/log/ztna/access-decisions.log",
+        "navigation": null,
+        "expected_output": "Frequency-sorted set of signal keys appearing in evaluated decisions, revealing which types are actively influencing outcomes"
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['device_posture']",
+      "['user_location', 'device_posture']",
+      "['user_location', 'time_of_access', 'risk_score', 'device_posture']",
+      "[]"
+    ]
+  },
+  {
+    "option_name": "adaptive_policy_enforcement_mode",
+    "option_description": "Sets the enforcement behavior of context-aware and adaptive authorization policies. In 'enforced' mode, the policy engine actively blocks or adjusts access based on contextual decision outcomes. In 'audit' mode, decisions are computed and logged but access is not actually restricted. In 'disabled' mode, no adaptive policy processing occurs.",
+    "security_impact": "The Rego rule 'context_aware_authorization_precision' requires adaptive_policy_enforcement_mode == 'enforced'. If the mode is 'audit', contextual signal evaluation occurs but does not protect the environment — high-risk sessions that should be blocked will instead be logged and allowed. This provides a false sense of zero trust maturity. Only 'enforced' mode translates adaptive decisions into actual access control outcomes.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Access the ZTNA or conditional access policy console and navigate to the global enforcement settings or per-policy enforcement toggle. Confirm policies protecting sensitive resources are set to 'Enforce' rather than 'Report-only' or equivalent audit mode.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA Console > Conditional Access > Policies > [Select Policy] > Enable Policy: [On / Report-only / Off]",
+        "expected_output": "Policies covering sensitive resource access show 'On' (enforced) rather than 'Report-only' (audit) or 'Off' (disabled)"
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the list of adaptive access policies and their enforcement state via the management API. Identify any policies in non-enforced state that cover critical access paths.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' | jq '.value[] | {name: .displayName, state: .state}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy list where all entries protecting critical resources show state 'enabled' rather than 'enabledForReportingButNotEnforced'"
+      },
+      {
+        "type": "command",
+        "instruction": "For Zscaler ZPA, use the ZPA API to retrieve access policy rule sets and confirm enforcement action is set to block rather than allow or monitor for contextual policy rules.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://config.private.zscaler.com/mgmtconfig/v1/admin/customers/<CUSTOMER_ID>/policySet/rules?policyType=ACCESS_POLICY' | jq '.list[] | {name: .name, action: .action, conditions: .conditions}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy rules with contextual conditions showing action 'DENY' or 'BLOCK' for high-risk signals, not 'ALLOW'"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the ZTNA or identity platform administrator to determine if any policies were intentionally left in audit/report-only mode and for what duration. Review change records to identify policies that were moved to audit mode during testing and never returned to enforced.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirming all production policies protecting sensitive resources have been moved to enforced mode, with no indefinite audit-mode exceptions"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "audit",
+      "disabled",
+      "enforced"
+    ]
+  },
+  {
+    "option_name": "static_role_only_fallback",
+    "option_description": "Determines the system behavior when contextual signals are unavailable or the signal evaluation service is unreachable. When true, the system falls back to granting access based solely on static role assignments, bypassing adaptive authorization. When false, the system fails closed, denying or restricting access when contextual evaluation cannot be completed.",
+    "security_impact": "The Rego rule 'context_aware_authorization_precision' requires static_role_only_fallback == false to activate the countermeasure. A fail-open fallback to static RBAC creates a predictable bypass path: an attacker who can disrupt the signal evaluation service (or who accesses from a context where signals are unavailable) will receive full role-based access without adaptive scrutiny. This undermines the entire zero trust model during outages, which may be exactly when targeted attacks occur.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the ZTNA or policy engine's resilience or fallback settings. Look for configuration options labeled 'Fail behavior', 'Signal unavailability policy', 'Fallback mode', or 'Default access on signal failure'. Confirm the configured behavior denies or restricts access rather than permitting based on role alone.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA Console > Settings > Resilience > Signal Failure Behavior > [Fail Closed / Fail Open]",
+        "expected_output": "Fallback setting shows 'Deny access' or 'Fail Closed' rather than 'Allow with role' or 'Fail Open'"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the policy engine or identity provider configuration file for fallback behavior settings. Look for parameters controlling behavior when upstream signal sources are unreachable.",
+        "command": "grep -i 'fallback\\|fail_open\\|fail_closed\\|static_role\\|signal_unavailable' /etc/ztna/policy-engine.yaml /etc/ztna/idp-config.yaml 2>/dev/null",
+        "file_path": "/etc/ztna/policy-engine.yaml",
+        "navigation": null,
+        "expected_output": "Configuration showing fallback_behavior: deny or fail_mode: closed, not fallback_behavior: allow or fail_mode: open"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the ZTNA management API for the global fallback policy configuration to confirm the fail behavior when contextual signal evaluation fails.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' https://<HOST>/api/v1/policy/fallback-configuration | jq '{fallback_mode: .fallback_mode, static_role_fallback: .static_role_only_on_signal_failure}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response showing fallback_mode: 'deny' or static_role_fallback: false"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Conduct a controlled test by temporarily blocking connectivity to the contextual signal evaluation endpoint (e.g., UEBA service, risk scoring API) from the policy engine and attempting access with a test account that has a valid role. Verify the system denies rather than permits access during signal unavailability.",
+        "command": "# Block signal evaluation endpoint temporarily (test environment only)\niptables -I OUTPUT -d <SIGNAL_SERVICE_IP> -j DROP\n# Attempt access with test credentials and observe result\ncurl -v -H 'Authorization: Bearer <TEST_TOKEN>' https://<RESOURCE_ENDPOINT>/protected\n# Restore connectivity\niptables -D OUTPUT -d <SIGNAL_SERVICE_IP> -j DROP",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Access attempt returns 403 Forbidden or similar denial, confirming fail-closed behavior during signal unavailability"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "access_log_fields_captured",
+    "option_description": "Specifies the list of data fields recorded in each access request log entry generated by the ZTNA platform. Essential fields include user_id, device_id, timestamp, source_ip, destination_resource, policy_rule_applied, decision_outcome, and session_context. The completeness of this field set determines the forensic and compliance value of the audit trail.",
+    "security_impact": "The Rego rule 'access_request_logging_completeness' requires 'user_id', 'decision_outcome', and 'timestamp' to all be present in access_log_fields_captured. Missing any of these fields creates forensic blind spots: without user_id, events cannot be attributed to an identity; without decision_outcome, allowed and denied events are indistinguishable; without timestamp, event sequencing for incident reconstruction is impossible. Incomplete logs also fail most compliance frameworks requiring attributable access audit trails.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Retrieve a sample of recent access log entries from the ZTNA platform log store and inspect the field schema. Enumerate which fields are present in at least 95% of entries to distinguish consistently captured fields from occasionally populated ones.",
+        "command": "tail -100 /var/log/ztna/access.log | python3 -c \"import sys,json; fields=set(); [fields.update(json.loads(l).keys()) for l in sys.stdin if l.strip()]; print(sorted(fields))\"",
+        "file_path": "/var/log/ztna/access.log",
+        "navigation": null,
+        "expected_output": "Sorted list of field names present across log entries, expected to include user_id, device_id, timestamp, source_ip, destination, policy_rule_applied, decision_outcome"
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the ZTNA platform's logging configuration section. Inspect the log format or schema settings to see which fields are enabled for capture. Some platforms allow per-field toggle for access event logging.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA Console > Logging & Monitoring > Access Logs > Log Schema / Fields Configuration",
+        "expected_output": "Field list showing user_id, device_id, timestamp, source_ip, destination_resource, policy_rule_id, decision_outcome all enabled/checked"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the ZTNA platform logging API for the current log schema or field configuration to programmatically enumerate captured fields.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' https://<HOST>/api/v1/logging/access-log-schema | jq '[.fields[] | select(.enabled==true) | .name]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Array of enabled field names confirming presence of user_id, decision_outcome, timestamp, and supplementary context fields"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the ZTNA logging configuration file for the access event log format definition. Verify the format string or field list includes all required attributes.",
+        "command": "grep -A 30 'access_log\\|log_fields\\|log_format\\|event_schema' /etc/ztna/logging.conf /etc/ztna/logging.yaml 2>/dev/null",
+        "file_path": "/etc/ztna/logging.conf",
+        "navigation": null,
+        "expected_output": "Log format definition listing user_id, device_id, timestamp, source_ip, destination, policy_rule_applied, and decision_outcome fields"
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['timestamp', 'user_id', 'source_ip']",
+      "['timestamp', 'user_id', 'device_id', 'source_ip', 'destination_resource', 'decision_outcome']",
+      "['timestamp', 'user_id', 'device_id', 'source_ip', 'destination_resource', 'policy_rule_applied', 'decision_outcome', 'session_context']"
+    ]
+  },
+  {
+    "option_name": "log_storage_destination_configured",
+    "option_description": "Specifies the persistent storage destination to which ZTNA access logs are forwarded for retention and analysis. Options include 'siem' (forwarding to a Security Information and Event Management system), 'immutable_store' (write-once storage with tamper protection), 'local_only' (logs retained only on the ZTNA platform with no external forwarding), or 'none' (no persistent storage configured).",
+    "security_impact": "The Rego rule 'access_request_logging_completeness' requires log_storage_destination_configured to be either 'siem' or 'immutable_store'. Local-only storage is insufficient because ZTNA platform compromise, failure, or decommission would result in log loss precisely when forensic reconstruction is most needed. A SIEM enables correlation across other event sources, while an immutable store ensures logs cannot be tampered with by an attacker who gains administrative access to the ZTNA platform.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the ZTNA platform admin console, navigate to Settings > Logging > Log Export or Integrations > SIEM Integration. Confirm a forwarding destination is configured, the connection status shows active, and test events are being received at the destination.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA Console > Settings > Logging > Log Export > [SIEM / Syslog / Cloud Storage Configuration]",
+        "expected_output": "Integration entry showing destination type (SIEM endpoint, S3 bucket, syslog server), connection status 'Connected', and last event timestamp within recent minutes"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify network connectivity from the ZTNA platform to the configured SIEM or log destination and confirm events are flowing by checking the destination's intake log count for recent ZTNA events.",
+        "command": "# Test syslog forwarding to SIEM\nnc -zv <SIEM_HOST> 514 2>&1\n# Check if events are arriving at SIEM (Splunk example)\ncurl -s -k -H 'Authorization: Splunk <TOKEN>' 'https://<SPLUNK_HOST>:8089/services/search/jobs/export?search=index%3Dztna+earliest%3D-15m&output_mode=json' | jq '.result.count'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Network connectivity confirmed to SIEM port and Splunk query returns non-zero event count for ZTNA source in last 15 minutes"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the ZTNA platform management API to retrieve the current log forwarding configuration and confirm destination type and active status.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' https://<HOST>/api/v1/logging/destinations | jq '.destinations[] | {type: .destination_type, endpoint: .endpoint, status: .status, last_event_sent: .last_event_sent}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Destination entries showing type 'siem' or 'immutable_store' with status 'active' and last_event_sent timestamp within the past hour"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the ZTNA logging configuration file for syslog, SIEM, or cloud storage forwarding directives. Confirm that a remote destination is defined with valid endpoint and credentials.",
+        "command": "grep -A 10 'syslog\\|siem\\|log_destination\\|log_forwarding\\|remote_log' /etc/ztna/logging.conf /etc/rsyslog.d/ztna.conf 2>/dev/null",
+        "file_path": "/etc/ztna/logging.conf",
+        "navigation": null,
+        "expected_output": "Configuration block containing remote host endpoint (siem_host, syslog_server), port, protocol (TLS preferred), and confirmed not pointing to localhost or 127.0.0.1"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "local_only",
+      "siem",
+      "immutable_store"
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Controls the number of days that access request logs are retained in the ZTNA platform or connected SIEM/log store before deletion or archival. This setting determines how far back forensic investigations, compliance audits, and threat-hunting activities can reach into historical access data.",
+    "security_impact": "The Rego policy for access_request_logging_completeness requires log_retention_days >= 90 before the countermeasure is credited. Retention periods below 90 days leave gaps in forensic reconstruction capability and typically violate regulatory compliance frameworks such as SOC 2, PCI-DSS, and HIPAA. At default value 0, no logs are retained at all, completely nullifying audit trail integrity.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the ZTNA platform's logging or audit settings panel. Common paths include Settings > Logging > Retention Policy or Monitoring > Log Management > Retention. Look for a field labeled 'Retention Period', 'Log Lifetime', or 'Data Retention (Days)' and record the numeric value.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA Admin Console > Settings > Logging & Audit > Retention Policy",
+        "expected_output": "A numeric value representing the number of days logs are retained, e.g., 365."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the ZTNA platform's management API for the logging configuration. For Zscaler ZPA, use the ZIA API; for Palo Alto Prisma Access, query the Panorama REST API. Replace <platform-api-base> and <auth-token> with your environment values.",
+        "command": "curl -s -H 'Authorization: Bearer <auth-token>' -H 'Content-Type: application/json' 'https://<platform-api-base>/api/v1/logging/config' | jq '.retentionDays // .log_retention_days // .retentionPeriod'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON field showing retention period in days, e.g., {\"retentionDays\": 365}."
+      },
+      {
+        "type": "command",
+        "instruction": "If logs are forwarded to a SIEM such as Splunk or Elastic, query the index retention policy directly to confirm the effective retention window matches the ZTNA platform setting.",
+        "command": "curl -s -u 'admin:<password>' 'https://<splunk-host>:8089/services/data/indexes/<ztna-index>?output_mode=json' | python3 -c \"import sys,json; d=json.load(sys.stdin); print('frozenTimePeriodInSecs:', d['entry'][0]['content'].get('frozenTimePeriodInSecs','N/A'))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "frozenTimePeriodInSecs value; divide by 86400 to convert to days. Should be >= 7776000 (90 days)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If the ZTNA solution uses a locally deployed log collector or forwarder (e.g., Fluentd, Logstash), inspect the output plugin configuration for retention or rotation settings.",
+        "command": "grep -rE 'retention|rotate|max_age|keep_days' /etc/fluentd/ /etc/logstash/conf.d/ /opt/ztna/config/ 2>/dev/null",
+        "file_path": "/etc/fluentd/fluent.conf",
+        "navigation": null,
+        "expected_output": "A directive such as 'keep_days 365' or 'retention_period 90d' in the log forwarder configuration."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90",
+      "180",
+      "365",
+      "730",
+      "0 (misconfigured/default)"
+    ]
+  },
+  {
+    "option_name": "policy_rule_id_logged",
+    "option_description": "Indicates whether the specific ZTNA policy rule that produced an allow or deny decision is recorded as a field in each access log entry. When enabled, each log event carries the rule identifier that was evaluated, making it possible to forensically reconstruct exactly which policy clause governed an authorization decision.",
+    "security_impact": "The Rego access_request_logging_completeness rule requires policy_rule_id_logged == true alongside other log fields (user_id, decision_outcome, timestamp) and a configured log destination. Without this field, incident responders cannot determine whether access was granted via an overly permissive rule, making post-breach analysis and policy tuning significantly harder.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Retrieve a sample of recent access request log entries from the ZTNA platform or SIEM and inspect the event schema for a field containing the policy rule reference. Look for fields named 'rule_id', 'policy_id', 'matched_rule', or 'policy_name'.",
+        "command": "curl -s -H 'Authorization: Bearer <auth-token>' 'https://<platform-api-base>/api/v1/logs/access?limit=5' | jq '.[].policyRuleId // .[].rule_id // .[].matchedRule'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each log entry should contain a non-null policy rule identifier such as 'rule_id: \"POL-0042\"'."
+      },
+      {
+        "type": "gui",
+        "instruction": "Open the ZTNA admin console and navigate to Logs & Reports > Access Logs. Select any recent log entry and expand the full event detail. Verify that a field explicitly identifying the matched policy rule is present in the event payload.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA Admin Console > Logs & Reports > Access Logs > [Select Event] > Event Detail",
+        "expected_output": "A field such as 'Policy Rule: Block-Unmanaged-Devices (ID: POL-0042)' visible in the event detail pane."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the ZTNA platform's logging schema or log field configuration endpoint to confirm that policy rule ID is listed as a captured field. For SIEM integrations, query the index mapping.",
+        "command": "curl -s -H 'Authorization: Bearer <auth-token>' 'https://<platform-api-base>/api/v1/logging/schema' | jq '.fields[] | select(.name | test(\"rule|policy\"; \"i\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Schema entry for a policy rule field, e.g., {\"name\": \"policy_rule_id\", \"type\": \"string\", \"enabled\": true}."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If the ZTNA platform uses a log format configuration file or CEF/JSON template, inspect it to confirm that the policy rule identifier token is included in the output format string.",
+        "command": "grep -rEi 'rule_id|policy_id|matched_rule|policy_name' /opt/ztna/config/log_format.conf /etc/ztna/logging/ 2>/dev/null",
+        "file_path": "/opt/ztna/config/log_format.conf",
+        "navigation": null,
+        "expected_output": "A log format token such as '%{policy_rule_id}' or 'field: rule_id' present in the configuration file."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (compliant)",
+      "false (default/misconfigured)"
+    ]
+  },
+  {
+    "option_name": "automated_response_actions_enabled",
+    "option_description": "Controls whether the ZTNA platform is configured to automatically execute policy enforcement responses — including session termination, privilege reduction, and quarantine — when anomaly detection fires or a risk threshold is breached, without requiring a human operator to manually trigger the action.",
+    "security_impact": "The Rego policy_automation_and_response_integration rule requires automated_response_actions_enabled == true as a prerequisite before any automated response countermeasure is credited. With this set to false (the default), even a correctly configured risk threshold and anomaly trigger action list will produce no automated enforcement, leaving the platform in a detect-only posture that requires manual intervention during active attacks.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the ZTNA admin console, navigate to Policy > Automation or Security > Automated Responses. Look for a master toggle or enable switch for automated enforcement actions and record its state.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA Admin Console > Policy > Automation & Response > Automated Enforcement > Enable Toggle",
+        "expected_output": "Toggle state showing 'Enabled' or 'Active'. If greyed out or set to 'Manual Mode', automated response is disabled."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the ZTNA platform's automation configuration endpoint to programmatically retrieve the current state of automated response enforcement.",
+        "command": "curl -s -H 'Authorization: Bearer <auth-token>' 'https://<platform-api-base>/api/v1/automation/config' | jq '.automatedResponseEnabled // .automated_response_actions_enabled // .autoEnforce'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Boolean true indicates automated response is active; false or null indicates it is disabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For self-hosted or on-premises ZTNA deployments, inspect the platform's main policy engine configuration file for the automated response setting.",
+        "command": "grep -rEi 'automated_response|auto_enforce|auto_remediat' /opt/ztna/config/ /etc/ztna/ 2>/dev/null | grep -v '#'",
+        "file_path": "/opt/ztna/config/policy_engine.yaml",
+        "navigation": null,
+        "expected_output": "A line such as 'automated_response_actions_enabled: true' in the configuration file."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the ZTNA platform administrator or security operations team to confirm whether automated response actions are operationally active. Ask whether the system requires SOC analyst approval before executing session termination or quarantine, which would indicate the feature is not fully automated.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation that no manual approval step is required for session kill, privilege reduction, or quarantine actions triggered by risk threshold breaches."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default — manual-only mode)",
+      "true (automated enforcement active)"
+    ]
+  },
+  {
+    "option_name": "anomaly_trigger_actions",
+    "option_description": "Defines the list of automated enforcement actions that are bound to anomaly detection events or risk score threshold breaches in the ZTNA policy engine. Expected values include 'session_termination' (immediately kills the active session), 'privilege_reduction' (downgrades permissions to a lower access tier), and 'quarantine' (isolates the device or user from the network segment).",
+    "security_impact": "The Rego policy_automation_and_response_integration rule has two satisfying conditions: either session_termination AND quarantine must both be present in this array, or privilege_reduction must be present AND the array must contain at least 2 total actions. An empty array or an array missing these key actions means that even when automated_response_actions_enabled is true and a risk threshold fires, no meaningful enforcement action occurs.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Retrieve the full automation policy configuration from the ZTNA platform API and extract the list of configured trigger actions.",
+        "command": "curl -s -H 'Authorization: Bearer <auth-token>' 'https://<platform-api-base>/api/v1/automation/policies' | jq '[.[] | {policy_name: .name, trigger_actions: (.actions // .triggerActions // .responseActions)}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Array entries per policy showing bound actions, e.g., [{\"policy_name\": \"High Risk Response\", \"trigger_actions\": [\"session_termination\", \"quarantine\"]}]."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the ZTNA admin console automation or playbook section. Open each anomaly response rule or playbook and enumerate the actions listed under the 'Then' or 'Response Actions' section of the rule editor.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA Admin Console > Policy > Automation Rules > [Select Rule] > Response Actions",
+        "expected_output": "A list of enforcement actions associated with each anomaly trigger, such as 'Terminate Session', 'Quarantine Device', 'Reduce Privilege to Read-Only'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For on-premises deployments, inspect the automation policy configuration files or playbook definitions for the actions array.",
+        "command": "grep -A 10 -rEi 'trigger_actions|response_actions|anomaly_actions|enforcement_actions' /opt/ztna/config/automation/ /etc/ztna/playbooks/ 2>/dev/null",
+        "file_path": "/opt/ztna/config/automation/anomaly_response.yaml",
+        "navigation": null,
+        "expected_output": "YAML or JSON block listing actions such as: 'actions: [session_termination, quarantine, privilege_reduction]'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the runbook or incident response playbook documentation from the security operations team and verify which automated actions are mapped to ZTNA anomaly events. Confirm that documented actions match what is actually configured in the platform.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented and platform-configured actions align and include at minimum session_termination and quarantine, or privilege_reduction with at least one additional action."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"session_termination\", \"quarantine\"]",
+      "[\"session_termination\", \"privilege_reduction\", \"quarantine\"]",
+      "[\"session_termination\"]",
+      "[] (empty — misconfigured)"
+    ]
+  },
+  {
+    "option_name": "risk_threshold_configured",
+    "option_description": "Indicates whether a numeric risk score threshold is defined within the ZTNA adaptive access or continuous authentication engine such that when a user's or device's computed risk score exceeds the threshold value, one or more automated policy enforcement responses are automatically triggered.",
+    "security_impact": "The Rego policy_automation_and_response_integration rule requires risk_threshold_configured == true alongside automated_response_actions_enabled == true and the presence of specific anomaly trigger actions. Without a defined risk threshold, the automated enforcement pipeline has no trigger condition — anomaly scoring may run but will never fire enforcement actions, rendering the automation capability inert.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the adaptive access, continuous authentication, or risk engine settings in the ZTNA admin console. Look for a risk score threshold slider, numeric input field, or policy condition referencing a score value. Confirm a threshold is set (non-null) and linked to an enforcement action.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA Admin Console > Security > Risk Engine > Risk Score Thresholds OR Adaptive Access > Policy Conditions > Risk Score Trigger",
+        "expected_output": "A configured threshold value such as 'Trigger enforcement when risk score > 75' with linked actions. An empty or unset threshold indicates this is not configured."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the risk engine or adaptive policy configuration API endpoint to retrieve the current threshold values.",
+        "command": "curl -s -H 'Authorization: Bearer <auth-token>' 'https://<platform-api-base>/api/v1/risk-engine/thresholds' | jq '{risk_threshold_configured: (if .triggerThreshold != null then true else false end), threshold_value: .triggerThreshold, linked_policy: .enforcementPolicy}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "{\"risk_threshold_configured\": true, \"threshold_value\": 80, \"linked_policy\": \"High-Risk-Enforcement\"}"
+      },
+      {
+        "type": "config_file",
+        "instruction": "On self-hosted ZTNA deployments, search configuration files for risk threshold definitions and verify they reference an enforcement action.",
+        "command": "grep -rEi 'risk_threshold|risk_score_threshold|anomaly_threshold|trigger_score' /opt/ztna/config/ /etc/ztna/ 2>/dev/null | grep -v '#'",
+        "file_path": "/opt/ztna/config/risk_engine.yaml",
+        "navigation": null,
+        "expected_output": "A line such as 'risk_threshold: 75' or 'trigger_score: 80' in the risk engine configuration, paired with an enforcement action reference."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default — no threshold set)",
+      "true (threshold configured and linked to enforcement)"
+    ]
+  },
+  {
+    "option_name": "mfa_coverage_scope",
+    "option_description": "Defines the breadth of access paths protected by MFA enforcement within the ZTNA deployment. 'none' means MFA is not enforced on any path; 'partial' means only some access paths (such as remote VPN or administrative portals) require MFA while others like internal access or APIs do not; 'all' means MFA is uniformly enforced across every access vector including API access, remote access, internal lateral access, and administrative interfaces.",
+    "security_impact": "The Rego multi_factor_authentication_integration_depth rule flags a misconfiguration when mfa_coverage_scope != 'all', meaning any value other than 'all' (including 'none' and 'partial') triggers the high-criticality finding. Partial MFA coverage creates exploitable authentication gaps — adversaries will enumerate and target the unprotected paths. Full coverage ('all') is required, and even then, bypass paths and binding method must also pass.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Review the identity provider and ZTNA conditional access policy configurations. Navigate to each access policy type (remote access, API gateway, internal application, administrative console) and confirm whether MFA is listed as a required authentication step. Document which access categories enforce MFA and which do not.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP Admin Console > Security > Conditional Access Policies > [Each Policy] > Authentication Requirements > MFA",
+        "expected_output": "All policies show MFA as 'Required' with no access path exempted. If any policy shows 'Optional' or 'Not Required', coverage is partial."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the identity provider (Okta, Entra ID, Ping) MFA policy API to retrieve enforcement settings across all application and access profiles.",
+        "command": "curl -s -H 'Authorization: SSWS <okta-api-token>' 'https://<okta-domain>/api/v1/policies?type=MFA_ENROLL' | jq '[.[] | {policy_name: .name, status: .status, mfa_required: .conditions}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All returned policies show status: ACTIVE and MFA enforcement conditions covering all application types."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test MFA enforcement on each access path type by attempting authentication from a test account to: (1) a remote-access application, (2) an internal application, (3) an API endpoint using a service token, and (4) the administrative console. Confirm MFA challenge is presented on all four paths.",
+        "command": "curl -v -X POST 'https://<ztna-api-gateway>/api/v1/test-resource' -H 'Authorization: Bearer <test-token>' 2>&1 | grep -E 'HTTP|mfa|challenge|401|403'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "MFA challenge or step-up authentication requirement returned for every tested access path. A 200 OK without MFA challenge on any path indicates partial or no coverage."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IAM or ZTNA platform administrator and request documentation showing which application categories and access methods are enrolled in MFA enforcement policies. Ask specifically about service accounts, legacy protocol endpoints, and break-glass access procedures.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirms all access paths (remote, internal, API, admin) require MFA, with no categorical exemptions granted."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "partial (most common — remote access covered, internal/API exempted)",
+      "all (compliant target state)",
+      "none (critically misconfigured)"
+    ]
+  },
+  {
+    "option_name": "authentication_bypass_paths_exist",
+    "option_description": "Indicates whether any authentication bypass paths have been identified — either formally documented or discovered through testing — that allow users or services to gain access without completing the full MFA flow. Common bypass paths include legacy protocol endpoints (IMAP, SMTP, POP3 using basic authentication), IP address allowlist exceptions that skip MFA challenges, service or break-glass accounts configured without MFA enrollment, and conditional access exclusion groups.",
+    "security_impact": "The Rego multi_factor_authentication_integration_depth rule flags authentication_bypass_paths_exist == true as a high-criticality misconfiguration, directly triggering the countermeasure regardless of the mfa_coverage_scope setting. Even when mfa_coverage_scope is 'all', a single bypass path undermines the entire MFA posture because attackers actively enumerate these paths using credential stuffing and legacy protocol abuse.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Test legacy protocol endpoints for basic authentication acceptance, which bypasses modern MFA flows. Attempt IMAP, SMTP, and POP3 authentication using valid credentials against the organization's mail infrastructure. Any successful basic auth connection represents a bypass path.",
+        "command": "curl -v --url 'imaps://<mail-server>:993' --user '<test-user>:<password>' --request 'LIST \"\" *' 2>&1 | grep -E 'OK|AUTH|LOGIN|connected'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection should be refused or return an authentication failure requiring modern auth. A successful IMAP LOGIN response confirms a bypass path exists."
+      },
+      {
+        "type": "gui",
+        "instruction": "Audit the identity provider and ZTNA conditional access policies for exclusion groups, IP-based trust exceptions, and service account MFA exemptions. Navigate to Conditional Access > Policies and examine each policy's exclusion list and named location trust configurations.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Entra ID / Okta Admin Console > Security > Conditional Access > Policies > [Each Policy] > Exclude > Users/Groups/Locations",
+        "expected_output": "No users, groups, or IP ranges should be listed in exclusions that allow access without MFA. Any entry in the exclusion list represents a potential bypass path."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the identity provider API for service accounts and break-glass accounts that are not enrolled in MFA or are excluded from MFA enforcement policies.",
+        "command": "curl -s -H 'Authorization: SSWS <okta-api-token>' 'https://<okta-domain>/api/v1/users?filter=status+eq+\"ACTIVE\"&limit=200' | jq '[.[] | select(.type == \"SERVICE\" or (.profile.userType == \"BreakGlass\")) | {login: .profile.login, mfa_enrolled: (.credentials.provider.type != \"PASSWORD\")}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All service and break-glass accounts show mfa_enrolled: true. Any showing false indicates a bypass path exists."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the list of documented MFA exceptions and break-glass procedures from the IAM team. Ask whether any IP ranges are trusted unconditionally, whether any legacy protocols are enabled on mail or file servers, and whether any service accounts use password-only authentication for accessing ZTNA-protected resources.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No undocumented or uncontrolled bypass paths exist. Any documented exceptions should have compensating controls, time limits, and monitoring alerts."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common — legacy protocols or service account exemptions present)",
+      "false (target state — no bypass paths)"
+    ]
+  },
+  {
+    "option_name": "identity_assertion_binding_method",
+    "option_description": "Specifies the cryptographic mechanism used to bind identity tokens and assertions to the authenticated session, preventing token theft and replay attacks. 'none' means standard bearer tokens with no cryptographic binding; 'mtls_bound' means tokens are bound to the client's mTLS certificate per RFC 8705; 'dpop_bound' means Demonstration of Proof of Possession per RFC 9449 is used; 'hardware_key_bound' means tokens are bound to hardware-backed keys such as FIDO2/WebAuthn platform authenticators or TPM-protected keys.",
+    "security_impact": "The Rego multi_factor_authentication_integration_depth rule includes a condition that flags identity_assertion_binding_method == 'none' even when mfa_coverage_scope == 'all', meaning that full MFA coverage alone is insufficient if tokens are bearer tokens with no cryptographic binding. Unbound bearer tokens can be stolen from memory, network interception, or log exposure and replayed from an attacker-controlled device without triggering re-authentication — a critical token theft vector that hardware or protocol binding eliminates.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect token issuance configuration by requesting a token from the IdP and examining the JWT header and claims for DPoP binding claims ('cnf' claim with 'jkt' thumbprint) or mTLS binding claims ('cnf' with 'x5t#S256'). Absence of a 'cnf' claim confirms bearer token with no binding.",
+        "command": "curl -s -X POST 'https://<idp-domain>/oauth2/v1/token' -d 'grant_type=client_credentials&client_id=<test-client>&client_secret=<secret>' | python3 -c \"import sys,json,base64; t=json.load(sys.stdin).get('access_token',''); parts=t.split('.'); payload=json.loads(base64.b64decode(parts[1]+'==').decode()) if len(parts)>1 else {}; print('cnf_claim:', payload.get('cnf', 'NOT PRESENT - bearer token, no binding'))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "cnf_claim containing jkt (DPoP), x5t#S256 (mTLS), or a hardware key thumbprint. 'NOT PRESENT' confirms identity_assertion_binding_method is 'none'."
+      },
+      {
+        "type": "gui",
+        "instruction": "Inspect the identity provider and API gateway token issuance settings. For Okta, navigate to Security > API > Authorization Servers > [Server] > Access Policies. For Azure AD, check App Registrations > Authentication > Token Configuration. Look for DPoP, mTLS certificate binding, or FIDO2 token binding toggles.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IdP Admin Console > Security > API > Authorization Servers > [Server] > Token Binding OR App Registrations > Authentication > Token Configuration > Binding Method",
+        "expected_output": "Token binding method set to 'mTLS', 'DPoP', or 'Hardware Key'. If the setting is absent or set to 'None / Bearer', binding is not configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For API gateways and reverse proxies handling token validation (e.g., nginx with OAuth2 proxy, Envoy, Kong), inspect the configuration for mTLS or DPoP validation directives.",
+        "command": "grep -rEi 'dpop|mtls|token_binding|cnf|certificate_bound|proof_of_possession|fido2|webauthn' /etc/nginx/ /etc/envoy/ /etc/kong/ /opt/ztna/config/ 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/envoy/envoy.yaml",
+        "navigation": null,
+        "expected_output": "Directives such as 'require_client_certificate: true' (mTLS), 'dpop_validation: enabled', or 'token_binding_method: hardware_key' present in gateway configuration."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform or IAM engineering team to determine which token binding standard has been implemented. Request architecture documentation showing how tokens are bound to sessions and ask whether the solution has been validated against RFC 8705 (mTLS), RFC 9449 (DPoP), or FIDO2/WebAuthn specifications.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Engineering team can cite a specific RFC or standard in use, point to implementation documentation, and confirm the binding method is enforced at both token issuance and validation layers."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (most common — standard bearer tokens)",
+      "mtls_bound (common in enterprise API gateway deployments)",
+      "dpop_bound (emerging — modern OAuth2 implementations)",
+      "hardware_key_bound (strongest — FIDO2/WebAuthn-backed deployments)"
+    ]
+  },
+  {
+    "option_name": "jit_access_provisioning_enabled",
+    "option_description": "Controls whether the PAM or identity governance platform enforces just-in-time provisioning for all privileged roles, granting elevated access on-demand and automatically revoking it after use to eliminate persistent standing permissions.",
+    "security_impact": "The Rego policy `privileged_access_scope_limitation` requires this to be `true` as a mandatory condition in both evaluation branches. Without JIT provisioning, users retain standing elevated permissions that expand the attack surface and privilege abuse exposure window. Enabling JIT directly activates the Privileged Access Scope Limitation countermeasure worth 5 risk score points.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log in to the PAM platform admin console (e.g., CyberArk, BeyondTrust, Delinea). Navigate to Administration > Access Control > JIT Provisioning and verify the toggle or policy flag is set to Enabled for all privileged role groups.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Administration > Access Control > JIT Provisioning",
+        "expected_output": "JIT Provisioning status shows 'Enabled' with no privileged roles excluded from the workflow."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the PAM platform REST API to retrieve JIT policy configuration. For CyberArk Privilege Cloud, use the Platforms API endpoint to check the JIT settings on each platform.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://<pam-host>/passwordvault/api/Platforms?Active=True' | jq '[.Platforms[] | {name: .Name, jitEnabled: .PrivilegedAccessWorkflows.RequireUsersToSpecifyReasonForAccess}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each platform entry returns a JIT-related field set to true or an equivalent enabled state."
+      },
+      {
+        "type": "command",
+        "instruction": "For Delinea Secret Server, use PowerShell to query role workflow configuration and confirm JIT checkout workflows are active on all privileged secret templates.",
+        "command": "Invoke-RestMethod -Uri 'https://<secretserver>/api/v1/secret-templates' -Headers @{Authorization='Bearer <token>'} | Select-Object -ExpandProperty model | Where-Object {$_.requiresCheckOut -ne $true} | Select-Object id, name",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty result set indicates all privileged templates enforce checkout (JIT). Any returned rows indicate templates not enforcing JIT."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the identity governance team and request documentation showing that all privileged role assignments are routed through JIT workflows. Review access certification reports to confirm no privileged accounts bypass JIT controls.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written policy and workflow diagrams confirm 100% of privileged role activations require JIT provisioning with no static assignment exceptions."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "max_privileged_session_duration_minutes",
+    "option_description": "Defines the maximum number of minutes a just-in-time privileged session may remain active before automatic expiration and privilege revocation. Applies globally or per role tier within the PAM or ZTNA platform.",
+    "security_impact": "The Rego policy `privileged_access_scope_limitation` evaluates this value with a condition of `<= 60` minutes in the first evaluation branch. Values exceeding 60 minutes will prevent the countermeasure from triggering via that branch, leaving elevated privileges active for longer than best practice and increasing exposure windows for privilege abuse or session hijacking.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the PAM admin console, navigate to the session policy or checkout policy configuration. Locate the 'Maximum Session Duration' or 'Access Timeout' field applied to privileged roles and record the value in minutes.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Policies > Session Policies > Privileged Role Timeout Settings",
+        "expected_output": "A numeric timeout value displayed in minutes. Target is 60 or less for sensitive privileged sessions."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve session policy settings via the PAM REST API. For CyberArk, query the connection component or platform settings that govern session duration limits.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://<pam-host>/passwordvault/api/Platforms/<platformId>' | jq '.Details.PrivilegedSessionManagement.MaxSSHSessionDuration'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns a numeric value representing session duration in seconds or minutes depending on platform. Convert to minutes and verify it is 60 or less."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For self-hosted PAM solutions, inspect the platform or policy configuration file that governs session timeouts. Locate the session expiry or checkout duration parameter.",
+        "command": "grep -Ei 'session.?duration|checkout.?timeout|max.?session|expir' /etc/pam-platform/policy.conf",
+        "file_path": "/etc/pam-platform/policy.conf",
+        "navigation": null,
+        "expected_output": "A key-value pair such as `maxSessionDurationMinutes=60` or equivalent confirming the timeout is within policy."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the current PAM session policy documentation from the identity and access management team. Verify that session timeout values are defined per role tier and that the most sensitive tiers enforce 60 minutes or less.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirming maximum privileged session duration is set at or below 60 minutes for all high-sensitivity privilege tiers."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30",
+      "60",
+      "120",
+      "480"
+    ]
+  },
+  {
+    "option_name": "standing_privileged_accounts_count",
+    "option_description": "Represents the number of accounts that hold persistent elevated privileges outside JIT workflows or time-bound access controls. A value of zero means full JIT enforcement with no standing privilege exposure. Emergency break-glass accounts with compensating controls and documented exceptions may be excluded.",
+    "security_impact": "Both evaluation branches of the Rego policy `privileged_access_scope_limitation` require `standing_privileged_accounts_count == 0`. Any value greater than zero will block activation of the Privileged Access Scope Limitation countermeasure entirely, regardless of other JIT or approval workflow configurations. Standing accounts represent persistent attack surface for credential theft and privilege abuse.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query Active Directory to enumerate accounts with privileged group membership (Domain Admins, Enterprise Admins, Schema Admins, local admin groups) and cross-reference with PAM JIT enrollment lists to identify those not subject to JIT controls.",
+        "command": "Get-ADGroupMember -Identity 'Domain Admins' -Recursive | ForEach-Object { Get-ADUser $_.SamAccountName -Properties PasswordLastSet, LastLogonDate, adminCount } | Select-Object Name, SamAccountName, adminCount | Export-Csv standing_privileged.csv",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A CSV of privileged accounts. Cross-reference against PAM JIT enrollment. Accounts present in AD groups but absent from JIT workflows are standing privileged accounts."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the identity governance platform API to retrieve accounts with active privileged role assignments that are not flagged as JIT-gated. For SailPoint IdentityNow, query the roles endpoint filtering on entitlements with admin scope.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://<identitynow-tenant>/beta/access-profiles?filters=entitlements.privileged+eq+true' | jq '[.[] | select(.requiresApproval == false) | {id, name, owner}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty array indicates no non-JIT privileged access profiles exist. Non-empty results indicate standing privileged accounts requiring remediation."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the PAM or identity governance console, navigate to the Privileged Accounts or Role Assignment report. Filter to show accounts with active elevated role assignments and exclude those that have an active JIT workflow applied. Count remaining entries.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Reports > Privileged Account Inventory > Filter: Standing Access = True",
+        "expected_output": "Report displays zero accounts with standing elevated privileges outside JIT controls."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review access certification or recertification logs from the identity governance platform over the past 90 days to identify privileged accounts that were never flagged for JIT remediation or time-bound access expiry.",
+        "command": "grep -E 'privileged|elevated|admin' /var/log/iga/access-certification.log | grep -v 'jit_granted\\|jit_revoked\\|time_bound' | awk '{print $5}' | sort | uniq -c | sort -rn",
+        "file_path": "/var/log/iga/access-certification.log",
+        "navigation": null,
+        "expected_output": "No entries, or only documented break-glass accounts appearing in output, confirming zero standing privileged accounts outside approved exceptions."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "1",
+      "3",
+      "10"
+    ]
+  },
+  {
+    "option_name": "privileged_access_approval_workflow",
+    "option_description": "Specifies the type of approval gate required before a JIT privileged access request is activated. Options range from no approval through self-approval, peer review, manager authorization, to fully automated policy-based decisions.",
+    "security_impact": "The second Rego evaluation branch for `privileged_access_scope_limitation` requires this value to be one of `manager_approval`, `peer_approval`, or `automated_policy`. Values of `none` or `self_approval` will fail this branch condition, meaning the countermeasure can only activate via the first branch (which requires session duration <= 60 minutes). Using `none` or `self_approval` removes human or policy oversight from privilege escalation, enabling uncontrolled access grant events.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the PAM or identity governance platform, navigate to Workflow Configuration or Access Request Policies. Locate the privileged access request workflow and identify which approver type is configured for each privileged role tier.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Workflow Configuration > Privileged Access Requests > Approval Settings",
+        "expected_output": "Approval type shows 'Manager Approval', 'Peer Approval', or 'Automated Policy' for all privileged role tiers. No tiers should show 'None' or 'Self Approval'."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve access request workflow configuration from the identity governance API. For Saviynt, query the workflow configuration endpoint to enumerate approver types on privileged entitlement request workflows.",
+        "command": "curl -s -X GET 'https://<saviynt-host>/ECM/api/v5/getWorkflowConfig' -H 'Authorization: Bearer <token>' | jq '[.workflowConfigs[] | select(.entitlementType == \"privileged\") | {workflowName, approverType, approvallevel}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each privileged workflow entry shows an `approverType` of `manager`, `peer`, or `automated_policy`. Values of `none` or `self` indicate a gap."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the PAM platform workflow definition file for approval step configuration. Look for approver role, escalation path, and bypass conditions in the request workflow definition.",
+        "command": "grep -A5 -B2 -Ei 'approval|approver|workflow' /etc/pam-platform/workflows/privileged-access-workflow.yaml",
+        "file_path": "/etc/pam-platform/workflows/privileged-access-workflow.yaml",
+        "navigation": null,
+        "expected_output": "Workflow YAML shows an approver step with a role set to manager, peer_group, or policy_engine. No self-approval or bypass conditions present."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request evidence of recent privileged access approvals from the PAM ticketing or workflow system. Verify that approval records exist for privilege activations over the past 30 days and identify the approver type used.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Approval log entries show manager or peer reviewer sign-offs or automated policy decisions for each privilege activation. No entries approved by the requesting user themselves."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "manager_approval",
+      "automated_policy",
+      "peer_approval"
+    ]
+  },
+  {
+    "option_name": "centralized_policy_management_enabled",
+    "option_description": "Controls whether all ZTNA access policies are authored, stored, versioned, and distributed from a single centralized control plane rather than being configured independently on individual enforcement nodes or devices.",
+    "security_impact": "The Rego policy `policy_consistency_and_maintainability` requires this to be `true` alongside version control, conflict detection, and RBAC for administration. Without centralized management, policy drift across distributed nodes becomes undetectable, enforcement inconsistencies emerge across segments, and configuration auditing becomes unreliable. This attribute is a prerequisite for the Policy Consistency and Maintainability countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the ZTNA platform management console (e.g., Zscaler ZIA/ZPA, Palo Alto Prisma Access, Cloudflare Access). Navigate to the Policy Management or Access Policy section and confirm that all policies are administered from a single pane of glass without per-device overrides.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ZTNA Admin Console > Policy Management > Access Policies > Confirm no per-node local policy overrides",
+        "expected_output": "All access policies are listed centrally with no indication of node-local policy configuration or distributed management mode."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the ZTNA platform API to confirm the policy management mode is set to centralized. For Cloudflare Zero Trust, check account-level policy configuration via the API.",
+        "command": "curl -s -X GET 'https://api.cloudflare.com/client/v4/accounts/<account_id>/gateway/configuration' -H 'Authorization: Bearer <token>' | jq '{policy_mode: .result.settings.policy_management_mode, centralized: .result.settings.centralized_management}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response includes a centralized management indicator set to true or an equivalent enabled state."
+      },
+      {
+        "type": "command",
+        "instruction": "For self-managed ZTNA solutions such as HashiCorp Boundary, verify that the controller is the single authoritative source and that no worker-local access policies exist outside the controller's policy store.",
+        "command": "boundary policies list -recursive -token=<token> -format=json | jq '[.items[] | {id, name, scope_id, type}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All policies are listed under the global or org scope controlled by the central controller. No worker-scope local policies appear."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the ZTNA platform global configuration file for policy source settings to confirm the platform is configured to retrieve and enforce policies only from the central control plane.",
+        "command": "grep -Ei 'policy.?source|central|management.?mode|control.?plane' /etc/ztna/config.yaml",
+        "file_path": "/etc/ztna/config.yaml",
+        "navigation": null,
+        "expected_output": "Configuration shows `policy_source: central` or `management_mode: centralized` with no local policy override directives."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "policy_version_control_enabled",
+    "option_description": "Determines whether the ZTNA or policy management system maintains a full revision history of access policy changes, supporting rollback to previous states and providing an audit trail of who changed what and when.",
+    "security_impact": "The Rego policy `policy_consistency_and_maintainability` requires this attribute to be `true` as part of a four-condition conjunction. Without version control, unauthorized or erroneous policy changes cannot be detected, rolled back, or forensically attributed, undermining the integrity of the zero trust enforcement boundary. This control is essential for detecting policy tampering and enabling rapid incident response.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the ZTNA or policy management admin console, navigate to Policy Settings or Change History and verify that a revision log or policy history feature is active. Confirm that recent changes are recorded with timestamps, authors, and diff views.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Policy Management > Change History or Policy Versions",
+        "expected_output": "A revision log showing previous policy versions, change timestamps, and authoring users is visible and populated."
+      },
+      {
+        "type": "command",
+        "instruction": "If policies are stored in a Git-backed repository (e.g., OPA/Styra, GitOps-managed ZTNA), verify the Git repository contains access policy files with commit history.",
+        "command": "cd /opt/ztna/policies && git log --oneline --follow access-policies/ | head -20",
+        "file_path": "/opt/ztna/policies",
+        "navigation": null,
+        "expected_output": "Git log output shows a list of commits with timestamps and authors corresponding to policy changes. An empty log or missing .git directory indicates version control is absent."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the policy management API for change history or revision endpoints. For Open Policy Agent integrated with Styra DAS, retrieve policy revision history via the API.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://<styra-host>/v1/policies/<policy-id>/revisions' | jq '[.result.revisions[] | {revision_id, author, created_at, message}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Array of revision objects with author and timestamp metadata, confirming version history is tracked."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request evidence from the security operations or platform engineering team showing that a policy change from the past 60 days can be reviewed, diffed, and rolled back. Ask for a demonstration of the rollback procedure.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team can demonstrate retrieval of a prior policy version, show the diff, and initiate a rollback without loss of intermediate states."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "conflict_detection_enabled",
+    "option_description": "Controls whether the ZTNA policy engine actively analyzes new or modified access rules for contradictions, overlaps, or shadowing with existing policies before they are committed to the enforcement plane.",
+    "security_impact": "The Rego policy `policy_consistency_and_maintainability` requires this to be `true` as part of the four-condition requirement. Without conflict detection, contradictory rules can be silently deployed, causing unpredictable access decisions where deny rules are shadowed by permissive rules or vice versa. This creates security gaps that are difficult to detect without systematic testing, potentially granting unintended access across micro-segments.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the ZTNA or policy engine configuration in the admin console. Look for a Policy Validation, Rule Conflict Analysis, or Pre-commit Validation setting and confirm it is toggled on or set to enforcing mode.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Policy Engine Settings > Validation & Conflict Detection > Confirm 'Conflict Detection: Enabled'",
+        "expected_output": "Conflict detection or rule validation shows a status of Enabled or Active, with a note that it applies on all policy saves or commits."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the policy engine feature flags via the management API to confirm conflict detection is active. For Palo Alto Prisma Access, check the policy validation configuration via the API.",
+        "command": "curl -s -X GET 'https://<prisma-host>/api/v1/policy/validation/config' -H 'x-redlock-auth: <token>' | jq '{conflict_detection: .conflictDetectionEnabled, validation_mode: .validationMode}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response shows `conflictDetectionEnabled: true` and a validation mode of `enforcing` or `blocking`."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the policy engine configuration file for conflict detection or rule validation settings to confirm the feature is enabled and configured to block conflicting rule submissions.",
+        "command": "grep -Ei 'conflict.?detect|rule.?valid|policy.?check|overlap.?detect' /etc/ztna/policy-engine.conf",
+        "file_path": "/etc/ztna/policy-engine.conf",
+        "navigation": null,
+        "expected_output": "Configuration entry such as `conflictDetectionEnabled=true` or `ruleValidationMode=enforce` is present and not commented out."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request a demonstration from the platform team of the conflict detection feature by attempting to submit a known conflicting rule pair and verifying the system blocks or warns about the conflict before committing.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The policy engine returns an error or warning identifying the specific conflict (e.g., rule X shadows rule Y) and prevents commit until the conflict is resolved."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "rbac_policy_administration_enabled",
+    "option_description": "Controls whether role-based access control is enforced for all administrative functions within the ZTNA policy management system, ensuring that only users with explicitly assigned roles can create, modify, or delete access rules.",
+    "security_impact": "The Rego policy `policy_consistency_and_maintainability` requires this to be `true` as the final condition of the four-part conjunction. Without RBAC on policy administration, any authenticated administrator can modify any policy regardless of scope or authorization, enabling privilege escalation through policy manipulation. RBAC ensures that changes to access rules require appropriate authority and that actions are attributable to specific administrative roles.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the ZTNA admin console, navigate to Administration > Roles & Permissions or Administrator Management. Verify that distinct administrative roles exist with scoped permissions (e.g., Policy Viewer, Policy Editor, Policy Approver) and that no single role has unrestricted access to all policy functions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Administration > Roles & Permissions > Review admin role definitions and scoped policy permissions",
+        "expected_output": "Multiple distinct roles are defined with granular policy management permissions. No generic 'super-admin' role with blanket access to all policy functions without justification."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the identity provider or ZTNA platform API to retrieve the administrative role assignments and confirm that policy management actions are gated by specific role entitlements.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://<ztna-host>/api/v1/admin/roles' | jq '[.roles[] | {role_name, permissions: [.permissions[] | select(test(\"policy\"; \"i\"))]}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each administrative role has a scoped set of policy permissions (create, read, update, delete) rather than wildcard access. Distinct roles exist for different policy management functions."
+      },
+      {
+        "type": "command",
+        "instruction": "For ZTNA platforms with CLI management, enumerate the defined administrative roles and their policy-related permissions to verify RBAC granularity.",
+        "command": "ztna-cli roles list --output json | jq '[.[] | {role: .name, policy_permissions: [.permissions[] | select(.resource == \"policy\")]}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows multiple roles with differentiated policy permissions. Roles should show specific actions (e.g., read, write, delete) rather than wildcard grants."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the ZTNA platform RBAC matrix documentation from the platform team. Verify that a formal role definition exists for policy administration, that all current admin accounts are assigned to specific roles, and that role assignments have been reviewed in the past 90 days.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirms an RBAC model with at least three distinct administrative roles covering read-only, edit, and approval functions for policy management. Recent access review evidence is provided."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

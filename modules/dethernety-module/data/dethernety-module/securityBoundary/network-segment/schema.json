@@ -1,0 +1,449 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "explicit_deny_default": {
+        "type": "boolean",
+        "title": "Explicit Deny-All Default Policy Enforced",
+        "description": "Indicates whether boundary ACLs or firewall policies enforce a default-deny stance, requiring all cross-segment traffic to be explicitly permitted. When false, traffic not matching an allow rule may pass implicitly.",
+        "default": false
+      },
+      "inter_segment_traffic_inspection": {
+        "type": "string",
+        "enum": [
+          "none",
+          "stateless",
+          "stateful",
+          "deep"
+        ],
+        "title": "East-West Traffic Inspection Level",
+        "description": "Describes the level of inspection applied to traffic traversing internal zone boundaries (east-west). Values range from none (no inspection) to stateful (connection-tracked filtering) to deep (application-layer or IDS/IPS inspection). Also indicates whether IDS/IPS or equivalent inspection is applied to east-west traffic.",
+        "default": "none"
+      },
+      "shared_credentials_across_segments": {
+        "type": "boolean",
+        "title": "Credentials Reused Across Trust Zones",
+        "description": "Indicates whether the same service accounts, API keys, or administrative credentials are used in more than one network trust zone, enabling lateral movement if one zone is compromised.",
+        "default": false
+      },
+      "boundary_monitoring_coverage": {
+        "type": "string",
+        "enum": [
+          "none",
+          "partial",
+          "full"
+        ],
+        "title": "Segment Boundary Monitoring Coverage",
+        "description": "Describes how comprehensively traffic at zone boundary crossing points is logged, monitored, and whether flow telemetry is collected from internal boundary devices.",
+        "default": "none"
+      },
+      "egress_acl_enforced": {
+        "type": "boolean",
+        "title": "Egress ACL Enforced",
+        "description": "Indicates whether outbound traffic from this network segment is subject to rule-based ACL filtering at the segment boundary.",
+        "default": false
+      },
+      "egress_destination_restriction": {
+        "type": "string",
+        "enum": [
+          "none",
+          "partial",
+          "strict"
+        ],
+        "title": "Egress Destination Restriction Policy",
+        "description": "Describes how strictly outbound destination addresses and ports are controlled for hosts in this segment.",
+        "default": "none"
+      },
+      "egress_dns_filtered": {
+        "type": "boolean",
+        "title": "Egress DNS Traffic Filtered",
+        "description": "Indicates whether outbound DNS queries from this segment are intercepted and filtered (e.g., via DNS firewall or RPZ) to block resolution of known-malicious or unauthorized domains.",
+        "default": false
+      },
+      "least_privilege_ingress_rule_set": {
+        "type": "boolean",
+        "title": "Least Privilege Ingress Rule Set",
+        "description": "Indicates whether all ingress ACL rules at this segment boundary are scoped to the minimum necessary source CIDRs, destination ports, and protocols. False means one or more rules are overly broad (broad CIDR or wildcard port).",
+        "default": false
+      },
+      "broad_cidr_permit_present": {
+        "type": "boolean",
+        "title": "Broad CIDR Permit Rule Present",
+        "description": "Indicates whether at least one ingress ACL rule permits traffic from an overly broad source CIDR (e.g., 0.0.0.0/0, or a prefix length shorter than /24 where only specific hosts are required).",
+        "default": false
+      },
+      "wildcard_port_permit_present": {
+        "type": "boolean",
+        "title": "Wildcard Port Permit Rule Present",
+        "description": "Indicates whether at least one ingress ACL rule permits all ports (e.g., port range 0-65535 or protocol any) rather than restricting to specific required destination ports.",
+        "default": false
+      },
+      "credential_isolation_per_zone": {
+        "type": "boolean",
+        "title": "Credential Isolation Per Zone",
+        "description": "Indicates whether administrative and service credentials are unique per network trust zone, preventing credential reuse across segment boundaries.",
+        "default": false
+      },
+      "cross_zone_privilege_escalation_path": {
+        "type": "boolean",
+        "title": "Cross-Zone Privilege Escalation Path Exists",
+        "description": "Indicates whether a credential valid in a lower-trust zone also grants access to a higher-trust zone, creating a lateral movement path without additional authentication.",
+        "default": false
+      },
+      "zone_boundary_mfa_enforced": {
+        "type": "boolean",
+        "title": "MFA Enforced at Zone Boundaries",
+        "description": "Indicates whether multi-factor authentication is required when credentials are used to access resources across different trust zone boundaries.",
+        "default": false
+      },
+      "management_plane_zone_isolated": {
+        "type": "boolean",
+        "title": "Management Plane Zone Isolated",
+        "description": "Indicates whether the management network is fully isolated to its own trust zone with equivalent boundary controls at every crossing point, preventing pivot across segment boundaries.",
+        "default": false
+      },
+      "management_network_scope": {
+        "type": "string",
+        "enum": [
+          "single_zone",
+          "multi_zone_controlled",
+          "multi_zone_uncontrolled"
+        ],
+        "title": "Management Network Scope",
+        "description": "Describes how broadly the management network spans across trust zones and whether equivalent boundary controls are enforced at each crossing point."
+      },
+      "routing_protocol_boundary_filtering_enabled": {
+        "type": "boolean",
+        "title": "Routing Protocol Boundary Filtering Enabled",
+        "description": "Indicates whether ingress/egress filtering is applied at segment boundaries to restrict which routing protocol adjacencies can be formed across trust zone boundaries, and whether cryptographic authentication is configured on routing sessions.",
+        "default": false
+      },
+      "unauthorized_routing_adjacency_detected": {
+        "type": "boolean",
+        "title": "Unauthorized Routing Adjacency Detected",
+        "description": "Indicates whether any routing protocol adjacency has been established across a segment boundary that is not explicitly authorized by network policy.",
+        "default": false
+      },
+      "trunk_port_vlan_controls": {
+        "type": "boolean",
+        "title": "Trunk Port VLAN Controls Properly Configured",
+        "description": "Indicates whether trunk ports at segment boundaries have an explicit permitted VLAN list configured, DTP is disabled, and the native VLAN is changed from the default (VLAN 1), preventing VLAN hopping attacks.",
+        "default": false
+      },
+      "split_tunnel_disabled_for_privileged_segments": {
+        "type": "boolean",
+        "title": "Split Tunnel Disabled for Privileged Segments",
+        "description": "Indicates whether split tunneling is explicitly disabled for VPN clients accessing privileged or sensitive network segments, forcing all traffic through the VPN gateway.",
+        "default": false
+      },
+      "privileged_segments_accessible_via_vpn": {
+        "type": "boolean",
+        "title": "Privileged Segments Accessible via VPN",
+        "description": "Indicates whether the VPN grants access to one or more privileged or sensitive internal network segments (e.g., production, PCI, management networks).",
+        "default": false
+      },
+      "rule_shadowing_audit_performed": {
+        "type": "boolean",
+        "title": "Rule Shadowing Audit Performed",
+        "description": "Indicates whether a formal audit has been conducted to identify shadowed or redundant firewall rules where a permissive earlier rule masks a more restrictive later rule.",
+        "default": false
+      },
+      "shadowed_rule_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 99999,
+        "title": "Shadowed Rule Count",
+        "description": "Number of firewall rules identified as shadowed (masked by a preceding more-permissive rule) in the current rule set. A value greater than zero indicates confirmed shadowing exists."
+      },
+      "protocol_tunneling_inspection_enabled": {
+        "type": "boolean",
+        "title": "Protocol Tunneling Deep Inspection Enabled",
+        "description": "Indicates whether deep packet inspection for encapsulating protocols (e.g., GRE, IP-in-IP, DNS tunneling) is enabled at segment boundaries to detect and control covert channels.",
+        "default": false
+      },
+      "permitted_tunneling_protocols": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Permitted Tunneling Protocols at Zone Boundary",
+        "description": "List of encapsulating or tunneling protocols explicitly permitted to traverse segment boundaries (e.g., GRE, IPIP, L2TP, DNS).",
+        "default": []
+      },
+      "boundary_policy_review_cadence_defined": {
+        "type": "boolean",
+        "title": "Boundary Policy Review Cadence Defined",
+        "description": "Indicates whether a documented, scheduled review process exists for segment boundary policies (ACLs, firewall rules, trust relationships) to account for topology changes.",
+        "default": false
+      },
+      "orphaned_allow_rules_present": {
+        "type": "boolean",
+        "title": "Orphaned Allow Rules Present",
+        "description": "Indicates whether boundary ACLs or firewall rules reference decommissioned services, retired IP ranges, or removed segments that no longer exist in the current topology."
+      },
+      "undocumented_trust_relationships_present": {
+        "type": "boolean",
+        "title": "Undocumented Trust Relationships Present",
+        "description": "Indicates whether any implicit or explicit trust relationships exist between network segments that are not recorded in the current network architecture or security documentation."
+      },
+      "vpn_client_endpoint_posture_check_enforced": {
+        "type": "boolean",
+        "title": "VPN Client Endpoint Posture Check Enforced",
+        "description": "Indicates whether VPN clients are required to pass an endpoint posture/health check (e.g., OS patch level, antivirus, disk encryption) before being granted access to the network segment.",
+        "default": false
+      }
+    },
+    "required": [
+      "explicit_deny_default",
+      "inter_segment_traffic_inspection",
+      "shared_credentials_across_segments",
+      "boundary_monitoring_coverage",
+      "egress_acl_enforced",
+      "egress_destination_restriction",
+      "egress_dns_filtered",
+      "least_privilege_ingress_rule_set",
+      "broad_cidr_permit_present",
+      "wildcard_port_permit_present",
+      "credential_isolation_per_zone",
+      "cross_zone_privilege_escalation_path",
+      "zone_boundary_mfa_enforced",
+      "management_plane_zone_isolated",
+      "management_network_scope",
+      "routing_protocol_boundary_filtering_enabled",
+      "unauthorized_routing_adjacency_detected",
+      "trunk_port_vlan_controls",
+      "split_tunnel_disabled_for_privileged_segments",
+      "privileged_segments_accessible_via_vpn",
+      "rule_shadowing_audit_performed",
+      "shadowed_rule_count",
+      "protocol_tunneling_inspection_enabled",
+      "permitted_tunneling_protocols",
+      "vpn_client_endpoint_posture_check_enforced"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/broad_cidr_permit_present"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_acl_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_destination_restriction"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_dns_filtered"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/explicit_deny_default"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/inter_segment_traffic_inspection"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_ingress_rule_set"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/management_network_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_plane_zone_isolated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/permitted_tunneling_protocols"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_segments_accessible_via_vpn"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/protocol_tunneling_inspection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/routing_protocol_boundary_filtering_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rule_shadowing_audit_performed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/shadowed_rule_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/split_tunnel_disabled_for_privileged_segments"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/trunk_port_vlan_controls"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unauthorized_routing_adjacency_detected"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/wildcard_port_permit_present"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/boundary_zone_classification"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_isolation_per_zone"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cross_zone_privilege_escalation_path"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_credentials_across_segments"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/zone_boundary_mfa_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/boundary_monitoring_coverage"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/boundary_policy_review_cadence_defined"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/orphaned_allow_rules_present"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/undocumented_trust_relationships_present"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "categories": [
+      {
+        "label": "Custom",
+        "attributes": [
+          "vpn_client_endpoint_posture_check_enforced"
+        ]
+      }
+    ]
+  }
+}

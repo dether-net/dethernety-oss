@@ -1,0 +1,994 @@
+[
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Controls the number of days security logs are retained and remain accessible before archival or deletion, as configured in the logging platform or policy settings.",
+    "security_impact": "This is the primary numeric gate in the Rego policy. The forensic_investigation_window rule requires log_retention_days >= 90 when authentication and network logs are present, or >= 365 standalone. The compliance_retention_coverage rule requires >= 365. Insufficient retention days will prevent both countermeasures from activating, leaving the organization without a defined forensic window and out of compliance with mandates such as PCI-DSS (365 days), HIPAA (2190 days), and SOX (2555 days).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Splunk, navigate to Settings > Indexes, select each security-relevant index, and inspect the 'Max Data Retention' field measured in days. In Microsoft Sentinel, go to Settings > Workspace Settings > Retention and review the configured retention period.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk: Settings > Indexes > [index name] > Max Data Retention | Sentinel: Settings > Workspace Settings > Retention",
+        "expected_output": "A numeric value representing days, e.g., 365 or 730, visible per index or workspace."
+      },
+      {
+        "type": "command",
+        "instruction": "Query Splunk REST API to retrieve retention configuration for all indexes.",
+        "command": "curl -k -u admin:password https://splunk-host:8089/services/data/indexes?output_mode=json | python3 -m json.tool | grep -E '\"title\"|\"frozenTimePeriodInSecs\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output listing each index title alongside frozenTimePeriodInSecs; divide by 86400 to convert to days."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the AWS CloudWatch Logs API to retrieve the retention policy for each log group.",
+        "command": "aws logs describe-log-groups --query 'logGroups[*].{name:logGroupName,retentionDays:retentionInDays}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A table listing log group names and their configured retention in days; null values indicate indefinite retention (verify intentionality)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the Elasticsearch ILM (Index Lifecycle Management) policy JSON to determine the delete phase min_age, which defines effective retention.",
+        "command": "curl -s http://elasticsearch-host:9200/_ilm/policy | python3 -m json.tool | grep -A5 'delete'",
+        "file_path": "/etc/elasticsearch/ilm-policy.json",
+        "navigation": null,
+        "expected_output": "A min_age value such as '365d' in the delete phase indicating 365-day retention before deletion."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90",
+      "180",
+      "365",
+      "730",
+      "2190",
+      "2555"
+    ]
+  },
+  {
+    "option_name": "retention_policy_enforced",
+    "option_description": "Indicates whether the log retention policy is actively enforced through automated platform controls such as lifecycle rules or SIEM retention settings, rather than relying on manual administrative action.",
+    "security_impact": "The forensic_investigation_window Rego rule explicitly requires retention_policy_enforced == true as a mandatory condition in both evaluation branches. Without automated enforcement, even a correctly configured retention duration can be undermined by human error, missed manual tasks, or storage exhaustion, causing the countermeasure to fail regardless of the configured log_retention_days value.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Sentinel, navigate to Settings > Workspace Settings > Retention to confirm the platform enforces a retention duration rather than relying on manual deletion schedules. In Splunk, verify that frozen bucket management is automated under Settings > Indexes > [index] > Frozen data path.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Sentinel: Settings > Workspace Settings > Retention | Splunk: Settings > Indexes > [index] > Frozen Data",
+        "expected_output": "A configured, platform-enforced retention value is displayed with no dependency on manual intervention documented."
+      },
+      {
+        "type": "api",
+        "instruction": "Verify AWS S3 lifecycle rules are configured and active on the log storage bucket to confirm automated enforcement.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket <log-bucket-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON response showing at least one lifecycle rule with a transition or expiration action, confirming automated enforcement is active."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Azure Monitor diagnostic settings to confirm logs are being routed to a Log Analytics workspace with a defined, enforced retention policy.",
+        "command": "az monitor diagnostic-settings list --resource <resource-id> --output json | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output listing configured diagnostic settings including destination workspace; cross-reference workspace retention via 'az monitor log-analytics workspace show'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the logging platform administrator to confirm whether retention is enforced by platform configuration or requires periodic manual action. Request a screenshot or export of the retention configuration from the SIEM or log management tool.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence that no manual cron job, scheduled task, or human action is required to maintain the configured retention duration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_types_covered",
+    "option_description": "Defines the categories of security-relevant log sources subject to the retention policy, such as authentication, network, endpoint, application, and access logs.",
+    "security_impact": "The forensic_investigation_window Rego rule checks for the presence of both 'authentication' and 'network' in this array when log_retention_days >= 90. If either is absent, the first rule branch fails and only the higher 365-day branch can satisfy the countermeasure. Incomplete log type coverage creates forensic blind spots, preventing complete reconstruction of authentication events or lateral movement during incident response.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Splunk, navigate to Settings > Data Inputs or Settings > Indexes to enumerate configured data sources and their associated indexes. Categorize sources as authentication (e.g., Windows Security, Okta), network (e.g., firewall, NetFlow), endpoint (e.g., EDR), application, or access.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk: Settings > Data Inputs | Splunk: Settings > Indexes",
+        "expected_output": "A list of active data inputs grouped by log category, confirming which types are ingested and subject to retention."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the SIEM or log platform for distinct source types actively ingesting data to enumerate covered log categories.",
+        "command": "splunk search 'index=* earliest=-1d | stats count by index, sourcetype | sort -count' -auth admin:password",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A table listing active indexes and sourcetypes, which can be mapped to log categories such as authentication (WinEventLog:Security), network (cisco:asa), or endpoint (CrowdStrikeFalconHost)."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the list of configured data connectors in Microsoft Sentinel to identify which log types are being collected and are subject to workspace retention.",
+        "command": "az sentinel data-connector list --workspace-name <workspace> --resource-group <rg> --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of active data connectors (e.g., AzureActiveDirectory, SecurityEvents, CommonSecurityLog) representing the log types covered."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the SIEM data source configuration file or logging agent configuration to enumerate the log types being forwarded and retained.",
+        "command": "grep -E 'source|sourcetype|input' /opt/splunkforwarder/etc/system/local/inputs.conf",
+        "file_path": "/opt/splunkforwarder/etc/system/local/inputs.conf",
+        "navigation": null,
+        "expected_output": "Configuration stanzas listing each log source path and sourcetype, confirming which categories are collected and subject to retention."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"authentication\", \"network\"]",
+      "[\"authentication\", \"network\", \"endpoint\", \"application\", \"access\"]",
+      "[\"authentication\"]"
+    ]
+  },
+  {
+    "option_name": "applicable_compliance_frameworks",
+    "option_description": "Specifies the list of regulatory or contractual frameworks the organization is subject to that mandate specific log retention durations, such as PCI-DSS, HIPAA, SOX, GDPR, and FedRAMP.",
+    "security_impact": "The compliance_retention_coverage Rego rule requires at least one entry in this array (count >= 1) alongside a documented policy and integrity verification. Additionally, this array is the source input for deriving longest_required_retention_days. If the array is empty or inaccurate, the compliance countermeasure cannot activate, and the organization risks configuring insufficient retention without knowing the applicable minimum, exposing it to regulatory violations.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Consult the organization's compliance, legal, or GRC team to enumerate all active regulatory obligations and contractual requirements that mandate log retention. Request the most recent compliance assessment or audit scope document.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented list of applicable frameworks such as PCI-DSS, HIPAA, SOX, GDPR, FedRAMP, ISO 27001, and NIST 800-53 with associated retention requirements per framework."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the organization's GRC platform export or risk register for documented compliance obligations. Common tools include ServiceNow GRC, Archer, or Vanta; export the compliance framework list.",
+        "command": null,
+        "file_path": "/policies/compliance-framework-register.xlsx",
+        "navigation": null,
+        "expected_output": "A spreadsheet or document listing each applicable framework with its retention mandate: PCI-DSS=365 days, HIPAA=2190 days (6 years), SOX=2555 days (7 years), FedRAMP=365 days."
+      },
+      {
+        "type": "gui",
+        "instruction": "In a GRC platform such as Vanta, Drata, or Tugboat Logic, navigate to the Compliance section and review the active frameworks for which the organization is pursuing or maintaining certification.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GRC Platform > Compliance > Active Frameworks",
+        "expected_output": "A list of frameworks with active compliance programs, confirming which regulatory mandates apply to the organization's log retention obligations."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS Security Hub to determine which compliance standards are currently enabled, which indicates applicable regulatory frameworks for AWS-hosted environments.",
+        "command": "aws securityhub list-enabled-products-for-import --output json && aws securityhub describe-standards --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of enabled standards such as PCI DSS, CIS AWS Foundations, or NIST SP 800-53 confirming which frameworks apply to the AWS environment."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"PCI-DSS\"]",
+      "[\"HIPAA\", \"SOX\"]",
+      "[\"PCI-DSS\", \"HIPAA\", \"SOX\", \"FedRAMP\"]",
+      "[\"GDPR\", \"ISO27001\"]"
+    ]
+  },
+  {
+    "option_name": "retention_policy_documented",
+    "option_description": "Indicates whether the log retention policy is formally documented in an approved written policy or configuration file that references specific regulatory retention requirements and is accessible for audit review.",
+    "security_impact": "The compliance_retention_coverage Rego rule requires retention_policy_documented == true as a mandatory gate. Without formal documentation, the compliance countermeasure cannot activate even if retention is technically configured correctly. The retention_policy_auditability rule also requires this attribute to be true alongside versioning and enforcement scope. Absent documentation prevents audit readiness and makes it impossible to demonstrate compliance to regulators or auditors.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the log retention policy document from the IT security or compliance team. Verify it is stored in a version-controlled or auditable system (e.g., SharePoint, Confluence, or a GRC platform), is formally approved with a signature or approval timestamp, and has been reviewed within the past 12 months.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A policy document with a title such as 'Log Retention and Archival Policy', an approval date within 12 months, version number, and explicit references to PCI-DSS, HIPAA, or other applicable mandates."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Locate the policy document or configuration specification in the organization's document management system or source control repository.",
+        "command": "find /policies -name '*retention*' -o -name '*log-policy*' | xargs ls -la",
+        "file_path": "/policies/log-retention-policy.pdf",
+        "navigation": null,
+        "expected_output": "A policy file present with a recent modification date, confirming existence of formal documentation in a discoverable location."
+      },
+      {
+        "type": "gui",
+        "instruction": "In a GRC platform such as ServiceNow, Drata, or Vanta, navigate to the Policies section and search for 'Log Retention' or 'Logging Policy'. Confirm the policy status is 'Approved' and the review date is within the required review cycle.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GRC Platform > Policies > Search: 'Log Retention' > Verify Status = Approved and Review Date",
+        "expected_output": "A policy record with status 'Approved', an owner assigned, and a last-reviewed date within 12 months."
+      },
+      {
+        "type": "api",
+        "instruction": "If using a GRC API such as Vanta or Drata, query the policies endpoint to retrieve the log retention policy status programmatically.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' https://api.drata.com/api/policy | python3 -m json.tool | grep -A5 -i 'retention'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON record showing the log retention policy with fields indicating approval status, version, and last review date."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "archival_integrity_verified",
+    "option_description": "Indicates whether archived logs undergo integrity verification using mechanisms such as checksums, WORM storage, or cryptographic signing to ensure they are tamper-evident and admissible as audit evidence.",
+    "security_impact": "The compliance_retention_coverage Rego rule requires archival_integrity_verified == true alongside documented policy and >= 365 days retention. The archival_integrity_assurance rule uses this attribute to activate integrity-based countermeasures. Without integrity verification, archived logs cannot be trusted as forensic evidence in legal or regulatory proceedings, and tampering with archived logs (e.g., to conceal a breach) would be undetectable, undermining the entire purpose of long-term retention.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Verify that AWS S3 Object Lock is enabled on the log archive bucket, which enforces WORM protection and prevents deletion or modification.",
+        "command": "aws s3api get-object-lock-configuration --bucket <log-archive-bucket>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response showing ObjectLockEnabled: Enabled and a default retention rule with mode COMPLIANCE or GOVERNANCE, confirming WORM enforcement."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify that log files in archival storage have accompanying SHA-256 checksum files and that periodic validation is performed via a scheduled job.",
+        "command": "aws s3 ls s3://<log-archive-bucket>/checksums/ | head -20 && cat /etc/cron.d/log-integrity-check",
+        "file_path": "/etc/cron.d/log-integrity-check",
+        "navigation": null,
+        "expected_output": "Presence of checksum files in the archive bucket and a cron job entry that runs integrity validation on a defined schedule (e.g., nightly or weekly)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Blob Storage, navigate to the storage account and check the 'Immutable blob storage' settings under Data Protection. Verify that a time-based retention policy or legal hold is configured on the log container.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Storage Account > [log container] > Data Protection > Immutable blob storage",
+        "expected_output": "An immutable storage policy is shown as 'Active' or 'Locked' with a defined retention interval, confirming WORM-equivalent protection."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request evidence of integrity check execution from the logging or storage team, such as job execution logs showing successful checksum validation runs for archived log batches.",
+        "command": null,
+        "file_path": "/var/log/log-integrity-validation.log",
+        "navigation": null,
+        "expected_output": "Log entries showing completed integrity checks with pass/fail results for each archived log bundle, with no unresolved failures."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "archival_integrity_mechanism",
+    "option_description": "Defines the technical mechanism used to protect log integrity once logs are moved to archival storage. Options include checksumming (e.g., SHA-256 hash generation), immutable_storage (object-level immutability flags), write_once (WORM media or policy), cryptographic_signing (digital signatures on log bundles), or none (no integrity protection).",
+    "security_impact": "The Rego policy for archival_integrity_assurance grants the countermeasure when this value is 'checksumming' or 'cryptographic_signing' combined with integrity verification enabled, OR when set to 'immutable_storage' or 'write_once' combined with retention lock enforcement. A value of 'none' means archived logs can be silently tampered with, making forensic evidence untrustworthy and failing compliance_retention_coverage which requires archival_integrity_verified.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check AWS S3 bucket Object Lock configuration to determine if immutable storage is in use for log archive buckets.",
+        "command": "aws s3api get-object-lock-configuration --bucket <log-archive-bucket-name> --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response showing ObjectLockConfiguration with Rule containing DefaultRetention mode (COMPLIANCE or GOVERNANCE) indicates immutable_storage or write_once is active."
+      },
+      {
+        "type": "command",
+        "instruction": "Check if checksum generation is configured in a log management pipeline such as Fluentd, Logstash, or a custom archival script.",
+        "command": "grep -rE '(sha256|sha-256|checksum|digest|sign)' /etc/fluentd/ /etc/logstash/ /etc/filebeat/ 2>/dev/null",
+        "file_path": "/etc/fluentd/fluent.conf",
+        "navigation": null,
+        "expected_output": "Matches containing hash function references indicate checksumming or cryptographic_signing is configured in the pipeline."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Azure Blob Storage immutability policy on the log archive container to detect immutable_storage configuration.",
+        "command": "az storage container immutability-policy show --account-name <storage-account> --container-name <log-container> --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'state': 'Locked' with a defined immutabilityPeriodSinceCreationInDays confirms immutable_storage is enforced."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the SIEM or log management platform archival settings to review configured integrity options (e.g., Splunk Index settings, Elastic ILM policy, or vendor-specific archival configuration).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk: Settings > Indexes > [archive index] > Review 'Frozen Path' and any associated integrity scripts. Elastic: Stack Management > Index Lifecycle Policies > [log policy] > Cold/Frozen phase settings.",
+        "expected_output": "Presence of a checksum plugin, signing configuration, or object lock reference in the archival phase confirms the active mechanism."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "checksumming",
+      "immutable_storage",
+      "none"
+    ]
+  },
+  {
+    "option_name": "archival_storage_type",
+    "option_description": "Identifies the physical or logical storage backend technology used to hold archived logs. This determines the native integrity and immutability capabilities available: immutable_object_store (e.g., S3 Object Lock, Azure Immutable Blob), worm_appliance (dedicated hardware WORM device), standard_object_store (S3/GCS/Azure Blob without immutability), filesystem (NFS, local disk), tape, or unknown.",
+    "security_impact": "The Rego archival_integrity_assurance policy contains specific rules for immutable_object_store and worm_appliance: an immutable_object_store with retention lock enforced satisfies the countermeasure directly, as does a worm_appliance with integrity verification enabled. Standard object stores, filesystems, and tape do not provide native immutability guarantees and require additional compensating controls (checksumming or cryptographic signing) to satisfy the policy.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify where archival logs are stored by inspecting log shipping or rotation configuration on log management hosts.",
+        "command": "grep -rE '(archive|cold|frozen|s3|blob|gs://|tape|nfs|worm)' /etc/logrotate.d/ /etc/rsyslog.conf /etc/rsyslog.d/ /etc/syslog-ng/ 2>/dev/null",
+        "file_path": "/etc/logrotate.d/",
+        "navigation": null,
+        "expected_output": "Paths or URIs referencing s3://, wasbs://, or gs:// indicate cloud object storage; tape device paths (/dev/st*) indicate tape; NFS mount points indicate filesystem."
+      },
+      {
+        "type": "api",
+        "instruction": "Enumerate S3 buckets tagged for log archival and check whether Object Lock is enabled to distinguish immutable_object_store from standard_object_store.",
+        "command": "aws s3api list-buckets --query 'Buckets[*].Name' --output text | tr '\\t' '\\n' | while read b; do echo -n \"$b: \"; aws s3api get-object-lock-configuration --bucket $b 2>&1 | grep -c 'ObjectLockEnabled\\|NoSuchObjectLockConfiguration'; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Buckets returning 'ObjectLockEnabled' with mode set classify as immutable_object_store; those returning NoSuchObjectLockConfiguration classify as standard_object_store."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the SIEM or log management platform's archival destination settings to identify the storage backend type.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk: Settings > Indexes > [index] > Frozen archival path. Elastic: Stack Management > Index Lifecycle Policies > Cold/Frozen phase > Searchable snapshot repository. Review the repository type (S3, GCS, HDFS, shared filesystem).",
+        "expected_output": "Repository type labeled 's3' with Object Lock enabled = immutable_object_store; 's3' without Object Lock = standard_object_store; 'fs' type = filesystem."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review infrastructure architecture documentation or interview the storage/infrastructure team to confirm the archival storage technology in use, particularly for WORM appliances or tape systems not discoverable via API.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Request the log retention architecture diagram or data flow documentation from the storage or security architecture team.",
+        "expected_output": "Documentation explicitly naming the storage product (e.g., NetApp SnapLock, Dell EMC DataDomain, IBM TS4500 tape library) allows correct classification."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "standard_object_store",
+      "immutable_object_store",
+      "filesystem",
+      "unknown"
+    ]
+  },
+  {
+    "option_name": "archival_retention_lock_enforced",
+    "option_description": "Indicates whether a hardware or policy-level retention lock is actively enforced on archival storage, preventing any principal (including administrators) from deleting or modifying archived logs before the retention period expires. Examples include S3 Object Lock in COMPLIANCE mode, Azure Immutable Blob Storage in locked state, or WORM appliance hardware locks.",
+    "security_impact": "Two separate Rego rules in archival_integrity_assurance require this to be true: when the mechanism is immutable_storage or write_once, AND when the storage type is immutable_object_store. COMPLIANCE mode locks are critical because GOVERNANCE mode can be bypassed by privileged users, defeating the integrity guarantee. Without a retention lock, a compromised administrator account could delete incriminating logs before investigators access them.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check S3 Object Lock configuration on the log archive bucket and verify the mode is COMPLIANCE (not GOVERNANCE) for strongest enforcement.",
+        "command": "aws s3api get-object-lock-configuration --bucket <log-archive-bucket> --output json && aws s3api get-bucket-policy --bucket <log-archive-bucket> --output json | python3 -c \"import sys,json; p=json.load(sys.stdin); [print(s) for s in p.get('Statement',[]) if 'DeleteObject' in str(s) or 'PutObject' in str(s)]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ObjectLockConfiguration showing Mode: COMPLIANCE with a DefaultRetention period, plus bucket policy denying s3:DeleteObject confirms retention lock is enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Check Azure Blob Storage container immutability policy lock status to determine if the policy is locked (preventing modification) or unlocked (still editable).",
+        "command": "az storage container immutability-policy show --account-name <storage-account> --container-name <log-archive-container> --query '{state: state, period: immutabilityPeriodSinceCreationInDays}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "State 'Locked' with a non-zero period confirms archival_retention_lock_enforced is true. State 'Unlocked' means the policy can still be deleted and should be set to false."
+      },
+      {
+        "type": "command",
+        "instruction": "For on-premise WORM appliances, check the device management interface or CLI for volume lock status.",
+        "command": "# NetApp SnapLock example:\nssh admin@<ontap-cluster> 'volume show -volume <log-archive-vol> -fields snaplock-type,snaplock-expiry-time'\n# Dell EMC DataDomain example:\nssh sysadmin@<datadomain> 'mtree list'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NetApp: snaplock-type showing 'compliance' with an expiry date in the future confirms lock. DataDomain: WORM-enabled mtree with retention policy set confirms lock."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the cloud console to visually verify the lock state of the archival storage container.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console: S3 > [bucket] > Properties > Object Lock > Verify 'Enabled' and note the default retention mode. Azure Portal: Storage Accounts > [account] > Containers > [container] > Access policy > Verify immutability policy shows 'Locked' state.",
+        "expected_output": "UI showing 'Compliance' mode lock with a retention period active, or 'Locked' immutability policy status, confirms the attribute is true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "integrity_failure_alerting",
+    "option_description": "Controls whether automated alerts are configured to notify security teams when archival integrity verification fails (e.g., checksum mismatches, object lock violations, seal breaks) or when anomalous drops in log ingestion volume to archival storage are detected.",
+    "security_impact": "The Rego policy references integrity_failure_alerting in both archival_integrity_assurance and log_tamper_detection_via_retention_gaps. For tamper detection specifically, all four conditions must be true including this attribute. Without alerting, integrity failures discovered during verification jobs are silently discarded — a tampered archive would only be discovered if someone manually reviews verification job output, creating a detection gap that could span weeks or months.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search for alerting rules in common monitoring platforms (CloudWatch, Prometheus Alertmanager, Datadog) that reference log integrity or archival volume metrics.",
+        "command": "# AWS CloudWatch alarms related to S3 log buckets:\naws cloudwatch describe-alarms --output json | jq '.MetricAlarms[] | select(.Namespace == \"AWS/S3\" or (.AlarmDescription // \"\" | test(\"log|archive|integrity\"; \"i\"))) | {name: .AlarmName, state: .StateValue, metric: .MetricName}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Alarms referencing S3 metrics (NumberOfObjects, BucketSizeBytes) or custom integrity check metrics with defined thresholds confirm alerting is configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect SIEM alerting rules or Prometheus alerting rules files for conditions that fire on integrity check job failures or log volume drops.",
+        "command": "grep -rE '(integrity|checksum|tamper|log.volume|archive.fail)' /etc/prometheus/rules/ /etc/alertmanager/ /opt/splunk/etc/apps/*/lookups/ /opt/splunk/etc/apps/*/savedsearches.conf 2>/dev/null",
+        "file_path": "/etc/prometheus/rules/log-integrity.yml",
+        "navigation": null,
+        "expected_output": "Rule definitions containing conditions for integrity check job exit codes, checksum mismatch counts, or log volume below expected threshold confirm alerting is configured."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the SIEM saved searches and alert configurations for integrity-related alert rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk: Settings > Searches, Reports and Alerts > Filter by type 'Alert' and search for 'integrity' or 'archive'. Elastic SIEM: Stack Management > Rules > Filter for rules referencing archive indices. Datadog: Monitors > search 'log integrity' or 'archive volume'.",
+        "expected_output": "Active alert rules with notify actions (email, PagerDuty, Slack) triggered on integrity check failures or volume anomalies confirm the attribute is true."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS EventBridge or SNS for rules/subscriptions tied to S3 Object Lock violation events or CloudTrail integrity validation failure events.",
+        "command": "aws events list-rules --output json | jq '.Rules[] | select(.EventPattern != null) | select(.EventPattern | test(\"integrity|ObjectLock|DeleteObject\"; \"i\")) | {name: .Name, state: .State}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EventBridge rules matching S3 Object Lock events or CloudTrail integrity failure events with active SNS targets confirm alerting is in place."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "storage_tier_transitions_defined",
+    "option_description": "Indicates whether the log management system has explicit, documented rules that govern the movement of log data between storage tiers (hot → warm → cold/frozen), including defined triggers such as age-based conditions (e.g., move to warm after 30 days), size-based rollover, or index-based rollover policies. Without explicit definitions, logs may remain in expensive hot storage indefinitely or be deleted without transitioning to cheaper tiers.",
+    "security_impact": "The Rego log_continuity_across_storage_tiers countermeasure requires this to be true as a prerequisite condition. Undefined transitions create two risks: logs may be purged when hot storage fills up (losing audit trail) rather than transitioning, or conversely, retention budgets are exhausted in hot storage before compliance periods expire. Explicit transitions ensure the full retention period is funded and operationally maintained.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Retrieve Elasticsearch Index Lifecycle Management (ILM) policies to verify hot, warm, cold, and delete phase transitions are explicitly defined.",
+        "command": "curl -s -u elastic:<password> 'https://<elasticsearch-host>:9200/_ilm/policy?pretty' | python3 -c \"import sys,json; policies=json.load(sys.stdin); [print(f'{name}: phases={list(p[\\\"policy\\\"][\\\"phases\\\"].keys())}') for name,p in policies.items()]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policies showing phases containing at minimum 'hot' and one of 'warm', 'cold', or 'frozen' with min_age or rollover conditions confirm transitions are defined."
+      },
+      {
+        "type": "command",
+        "instruction": "Check AWS S3 Lifecycle rules on the log bucket to verify transition rules between storage classes (STANDARD → STANDARD_IA → GLACIER) are explicitly configured.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket <log-bucket-name> --output json | jq '.Rules[] | {id: .ID, status: .Status, transitions: .Transitions, expiration: .Expiration}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules showing Transitions array with Days and StorageClass entries (e.g., to STANDARD_IA at 30 days, GLACIER at 90 days) confirm tier transitions are defined."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Splunk index configuration to check if frozen path and cold-to-frozen thresholds are explicitly set, indicating tiered transition rules.",
+        "command": "grep -E '(coldToFrozenDir|coldToFrozenScript|maxWarmDBCount|frozenTimePeriodInSecs|coldPath|warmPath|homePath)' /opt/splunk/etc/system/local/indexes.conf /opt/splunk/etc/apps/*/local/indexes.conf 2>/dev/null",
+        "file_path": "/opt/splunk/etc/system/local/indexes.conf",
+        "navigation": null,
+        "expected_output": "Stanzas containing coldToFrozenDir with a valid path AND frozenTimePeriodInSecs with a non-zero value confirm tier transitions are explicitly defined."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the Elastic Stack Management interface to visually confirm ILM policy phase configurations.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Elastic: Stack Management > Index Lifecycle Policies > [log policy] > View policy diagram showing hot, warm, cold, and delete phases with min_age conditions populated for each transition.",
+        "expected_output": "ILM policy diagram showing all relevant phases with explicit min_age values and at least one rollover or transition action confirms storage_tier_transitions_defined is true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "tier_overlap_or_continuity_guarantee",
+    "option_description": "Specifies the technical method used to ensure that log data remains continuously queryable with zero downtime during transitions between storage tiers. 'overlap_window' means logs remain accessible in both the source and destination tier for a defined period during migration. 'atomic_cutover' means the transition is instantaneous with no gap. 'none' means no explicit continuity mechanism is defined, creating a risk of query gaps during transitions.",
+    "security_impact": "The Rego log_continuity_across_storage_tiers rule requires this value to be either 'overlap_window' or 'atomic_cutover' — a value of 'none' fails the policy entirely. During an active incident investigation, a transition gap could make critical logs temporarily unavailable exactly when analysts need them. Overlap windows are particularly important for distributed systems where replication to the destination tier may lag behind the source tier deletion.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Check Elasticsearch ILM policy warm phase configuration for a 'min_age' delay that creates an effective overlap window relative to the hot phase rollover condition.",
+        "command": "curl -s -u elastic:<password> 'https://<elasticsearch-host>:9200/_ilm/policy/<policy-name>?pretty' | jq '.[\"|<policy-name>\"].policy.phases | {hot_rollover: .hot.actions.rollover, warm_min_age: .warm.min_age, cold_min_age: .cold.min_age}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A warm phase min_age greater than the hot phase rollover condition (e.g., rollover at 7d, warm starts at 14d) indicates an overlap_window. Matching values with searchable snapshots suggest atomic_cutover."
+      },
+      {
+        "type": "command",
+        "instruction": "Check AWS S3 Lifecycle policy for overlapping transition rules or Replication rules that copy objects to destination before source deletion.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket <log-bucket> --output json | jq '{transitions: .Rules[].Transitions, expiration: .Rules[].Expiration}'; aws s3api get-bucket-replication --bucket <log-bucket> --output json 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lifecycle rules where transition to STANDARD_IA (warm) occurs before expiration from STANDARD, combined with a replication rule, indicates overlap_window. S3 Intelligent-Tiering with no explicit deletion on transition indicates atomic_cutover behavior."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Splunk indexes.conf for warmPath and coldPath settings relative to frozenTimePeriod to determine if warm and cold data coexist during rollover.",
+        "command": "awk '/\\[.*log.*\\]/{idx=$0} /warmPath|coldPath|coldToFrozen|maxWarmDB/{print idx\": \"$0}' /opt/splunk/etc/system/local/indexes.conf /opt/splunk/etc/apps/*/local/indexes.conf 2>/dev/null",
+        "file_path": "/opt/splunk/etc/system/local/indexes.conf",
+        "navigation": null,
+        "expected_output": "Distinct warmPath and coldPath values with maxWarmDBCount > 0 indicates Splunk retains warm buckets while cold tiers are populated (overlap_window). Scripts in coldToFrozenScript performing atomic moves suggest atomic_cutover."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the log platform engineer or review operational documentation to determine if transitions have ever caused query gaps and whether an overlap or atomic mechanism was intentionally designed.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review incident post-mortems or change management tickets referencing log tier transitions. Ask: 'Are logs always accessible during tier transitions, and what mechanism ensures this?'",
+        "expected_output": "Documentation or staff confirmation of a specific overlap duration (e.g., '48-hour overlap window') or atomic snapshot mechanism confirms the continuity method and its classification."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "overlap_window",
+      "atomic_cutover"
+    ]
+  },
+  {
+    "option_name": "minimum_hot_tier_retention_days",
+    "option_description": "Specifies the minimum number of days log data is retained in hot (immediately queryable, lowest-latency) storage before any lifecycle policy triggers a transition to warm or cold storage. A value of 0 means logs could theoretically transition immediately after ingestion, creating operational risk. This is typically defined by ILM rollover minimum age conditions, S3 Lifecycle transition rules, or Splunk bucket age thresholds.",
+    "security_impact": "The Rego log_continuity_across_storage_tiers rule requires minimum_hot_tier_retention_days >= 1 as a necessary condition. If this value is 0 or undefined, logs may be transitioned out of immediately-queryable storage before investigators have had an opportunity to work with them in real time. During fast-moving incidents, analysts rely on hot-tier data for sub-second query response; transitioning logs to cold storage where retrieval may take minutes to hours creates significant investigation delay.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the Elasticsearch ILM policy to extract the minimum age condition for the hot phase rollover or warm phase entry, which defines the effective minimum hot retention.",
+        "command": "curl -s -u elastic:<password> 'https://<elasticsearch-host>:9200/_ilm/policy/<log-policy-name>?pretty' | jq '.[\"|<log-policy-name>\"].policy.phases.hot.actions.rollover, .[\"|<log-policy-name>\"].policy.phases.warm.min_age'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Hot phase rollover with min_age '7d' and warm phase min_age '14d' means minimum hot retention is 7 days. If warm min_age is '0ms' with no rollover min_age, value may effectively be 0."
+      },
+      {
+        "type": "command",
+        "instruction": "Extract S3 Lifecycle transition rules to determine the minimum number of days before log objects transition out of STANDARD storage class.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket <log-bucket-name> --output json | jq '[.Rules[] | select(.Status==\"Enabled\") | .Transitions[] | select(.StorageClass != \"STANDARD\") | .Days] | min'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The minimum Days value returned across all transition rules represents the minimum_hot_tier_retention_days. A value of 0 or 1 indicates near-immediate transition risk."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Splunk index configuration for the minimum bucket age or size conditions that trigger rollover from hot to warm buckets.",
+        "command": "grep -E '(maxHotSpanSecs|maxHotBuckets|maxHotIdleSecs|rotatePeriodInSecs)' /opt/splunk/etc/system/local/indexes.conf /opt/splunk/etc/apps/*/local/indexes.conf 2>/dev/null",
+        "file_path": "/opt/splunk/etc/system/local/indexes.conf",
+        "navigation": null,
+        "expected_output": "maxHotSpanSecs value divided by 86400 gives the maximum days a hot bucket is retained. Default is 7776000 seconds (90 days). A very low maxHotSpanSecs or maxHotIdleSecs indicates short hot retention."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the ILM policy visualization in Kibana to read the configured minimum age for hot-to-warm transition directly from the UI.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Elastic: Stack Management > Index Lifecycle Policies > [log policy] > Click 'Edit' > Hot phase: note the 'Maximum index age' under rollover settings > Warm phase: note the 'Move data into phase when' age value. The smaller of these two determines when data effectively leaves hot tier.",
+        "expected_output": "Numeric age values expressed in days visible in the hot or warm phase configuration confirm the minimum hot tier retention. A blank or '0 milliseconds' entry indicates minimum_hot_tier_retention_days should be recorded as 0."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "7",
+      "14",
+      "30",
+      "90",
+      "0"
+    ]
+  },
+  {
+    "option_name": "retention_policy_defined",
+    "option_description": "Controls whether a formal log retention policy exists with explicitly defined storage durations, archival conditions, and purge schedules, and whether that policy is actively enforced in the logging system configuration rather than existing only as a paper document.",
+    "security_impact": "Required by the storage_capacity_management Rego rule, which checks that retention_policy_defined == true alongside log_retention_days >= 90 and archival_trigger_configured == true. Without this policy, logs may be silently purged or overwritten, destroying forensic evidence during incident response windows. Its absence also blocks compliance_retention_coverage and forensic_investigation_window countermeasures from firing.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the formal log retention policy document from the security or compliance team. Verify it specifies minimum retention periods, archival triggers, and purge schedules, and that it has an effective date and owner signature.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dated policy document (PDF, Word, or wiki page) containing explicit retention durations (e.g., 90 days hot, 1 year archive), archival trigger criteria, and purge schedule definitions."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the logging platform configuration (e.g., Elasticsearch ILM policy, Splunk indexes.conf, or Graylog retention settings) to verify that a retention policy is actively configured and not set to defaults.",
+        "command": "cat /opt/splunk/etc/system/local/indexes.conf | grep -E 'frozenTimePeriodInSecs|maxTotalDataSizeMB|coldToFrozenDir'",
+        "file_path": "/opt/splunk/etc/system/local/indexes.conf",
+        "navigation": null,
+        "expected_output": "Non-default values for frozenTimePeriodInSecs (e.g., 7776000 for 90 days) and configured archival paths, indicating an enforced policy."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Elasticsearch Index Lifecycle Management (ILM) API to confirm a policy is attached to log indices and defines transition phases.",
+        "command": "curl -s -u elastic:$ES_PASS https://localhost:9200/_ilm/policy | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output listing named ILM policies with defined hot, warm, cold, and delete phases including min_age values and actions."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS CloudWatch Logs console, navigate to Log Groups and verify each group has a retention period configured (not 'Never Expire').",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → CloudWatch → Log Groups → inspect 'Retention' column for each log group",
+        "expected_output": "All production log groups display a defined retention period (e.g., 90 days, 1 year) rather than 'Never Expire'."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "archival_trigger_configured",
+    "option_description": "Controls whether automated archival triggers are configured in the logging platform to move logs to archival storage before active storage becomes exhausted. Triggers may be storage-threshold-based (e.g., archive when disk reaches 80% utilization) or time-based (e.g., move logs older than 30 days to cold storage).",
+    "security_impact": "Directly referenced in the storage_capacity_management Rego rule alongside retention_policy_defined and log_retention_days >= 90. Without an archival trigger, log storage exhaustion can cause newer logs to overwrite or drop older logs, creating gaps in the audit trail that prevent forensic reconstruction and break compliance retention requirements.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Check Elasticsearch ILM policies for rollover and transition actions that represent archival triggers.",
+        "command": "curl -s -u elastic:$ES_PASS https://localhost:9200/_ilm/policy?pretty | grep -A5 -E 'rollover|cold|frozen|delete'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy phases contain rollover conditions (e.g., max_size: 50gb) and cold/delete phase transitions with min_age values defined."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Splunk's indexes.conf for maxTotalDataSizeMB and frozenTimePeriodInSecs settings that trigger archival and purge, or review coldToFrozenScript for custom archival logic.",
+        "command": "grep -E 'maxTotalDataSizeMB|frozenTimePeriodInSecs|coldToFrozenDir|coldToFrozenScript' /opt/splunk/etc/system/local/indexes.conf",
+        "file_path": "/opt/splunk/etc/system/local/indexes.conf",
+        "navigation": null,
+        "expected_output": "Lines showing explicit size caps (e.g., maxTotalDataSizeMB = 500000) and freeze period values, plus a configured cold-to-frozen archive destination."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS S3, verify that lifecycle rules are configured on the log storage bucket to transition objects to S3 Standard-IA or Glacier after a defined number of days.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → S3 → [log bucket] → Management tab → Lifecycle rules → verify rules exist with transition actions",
+        "expected_output": "At least one active lifecycle rule transitioning log objects to a cheaper storage tier (Standard-IA, Glacier, or Deep Archive) after a defined period."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the AWS CLI to list S3 lifecycle rules on the primary log archive bucket and confirm transition rules are present and enabled.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket <log-archive-bucket-name> --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output containing 'Rules' array with Status: Enabled entries that include Transitions to Glacier or Standard-IA with defined Days values."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "retention_policy_versioned",
+    "option_description": "Controls whether the retention policy document or its corresponding configuration is stored in a version control system (such as Git) or a document management platform with explicit revision tracking, ensuring that all changes to the policy produce an auditable history with timestamps and author attribution.",
+    "security_impact": "Required by the retention_policy_auditability Rego rule, which checks retention_policy_versioned == true alongside retention_policy_documented == true and enforcement_scope == 'all_sources'. Without version control, it is impossible to demonstrate what the retention policy stated at any historical point in time, undermining audit evidence and creating risk that policy changes are made without accountability.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "If the retention policy is stored as a file in a Git repository, inspect the commit history to verify revision tracking with author and timestamp metadata.",
+        "command": "git log --follow --oneline -- docs/log-retention-policy.md",
+        "file_path": "docs/log-retention-policy.md",
+        "navigation": null,
+        "expected_output": "A list of commits with hashes, dates, and author names showing each change to the policy file over time."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Confluence or SharePoint, open the retention policy page and review the version history panel to confirm multiple revisions exist with editor names and timestamps.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Confluence: Open retention policy page → Page History (top-right '...' menu) → verify revision list with dates and authors",
+        "expected_output": "Version history shows at least one revision beyond the initial creation, each entry displaying editor name, timestamp, and change summary."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the GitHub or GitLab API to confirm the policy file exists in a repository and retrieve its commit history.",
+        "command": "curl -s -H 'Authorization: token $GH_TOKEN' 'https://api.github.com/repos/<org>/<repo>/commits?path=docs/log-retention-policy.md' | python3 -m json.tool | grep -E 'sha|message|date|name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array of commit objects each containing sha, commit.message, commit.author.date, and commit.author.name fields."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the security policy owner to determine where the retention policy document is stored and whether a formal change-control process (requiring approvals and version bumps) is applied to it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation that the document resides in a versioned store and that the last two revisions can be retrieved with their change rationale and approver names."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null"
+    ]
+  },
+  {
+    "option_name": "enforcement_scope",
+    "option_description": "Indicates whether the documented retention policy is consistently applied to all log sources in the environment ('all_sources'), applied only to a subset of log sources ('partial'), or not applied to any log sources ('none'). This is determined by comparing the log sources defined in the retention policy against those actually configured with retention settings in the SIEM, log aggregator, or cloud storage.",
+    "security_impact": "Checked by the retention_policy_auditability Rego rule, which requires enforcement_scope == 'all_sources'. Partial or absent enforcement means some log sources are excluded from retention governance, creating forensic blind spots where logs may be lost before an investigation can access them and creating compliance gaps for regulatory audits.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In Splunk, list all configured indexes and compare their frozenTimePeriodInSecs settings to the policy. Indexes with the default value (188697600) may not have an explicit policy applied.",
+        "command": "curl -s -u admin:$SPLUNK_PASS https://localhost:8089/services/data/indexes?output_mode=json | python3 -c \"import sys,json; [print(i['name'], i['content'].get('frozenTimePeriodInSecs')) for i in json.load(sys.stdin)['entry']]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of index names paired with their retention values. All production indexes should show policy-defined values, not the default 188697600."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Elasticsearch to list all index templates and verify each has an ILM policy assigned, checking for indices that fall outside template coverage.",
+        "command": "curl -s -u elastic:$ES_PASS 'https://localhost:9200/_cat/indices?h=index,ilm.policy&v' | grep -v '^\\.' | sort",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table output where every production index shows a named ILM policy in the ilm.policy column with no blank entries."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS CloudWatch Logs, filter log groups by retention policy to identify any groups set to 'Never Expire', which indicates exclusion from the retention policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → CloudWatch → Log Groups → filter by 'Never Expire' in the Retention column → note all log groups without a defined retention",
+        "expected_output": "Zero log groups in the 'Never Expire' category, or a documented exception list that accounts for each ungoverned group."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the AWS CLI to enumerate all CloudWatch log groups and flag those without a defined retention policy.",
+        "command": "aws logs describe-log-groups --query 'logGroups[?!retentionInDays].[logGroupName]' --output text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty output indicating all log groups have a defined retentionInDays value. Any names returned represent ungoverned log sources."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "all_sources",
+      "partial",
+      "none"
+    ]
+  },
+  {
+    "option_name": "log_integrity_verification_enabled",
+    "option_description": "Controls whether cryptographic integrity mechanisms such as hash-chaining, digital signatures, WORM (Write Once Read Many) storage, or write-once object locking are applied to retained logs. These mechanisms allow detection of unauthorized modification or deletion of log records after they are written.",
+    "security_impact": "Required by the log_tamper_detection_via_retention_gaps Rego rule, which checks log_integrity_verification_enabled == true alongside log_access_control_restricted == true and integrity_failure_alerting == true. Without integrity verification, an attacker who gains access to log storage can delete or modify records without leaving evidence, completely defeating the forensic audit trail.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify that AWS CloudTrail log file validation is enabled for all trails, which applies SHA-256 hash-chaining to delivered log files.",
+        "command": "aws cloudtrail describe-trails --query 'trailList[*].[Name,LogFileValidationEnabled]' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All trails listed show 'True' in the LogFileValidationEnabled column."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether an S3 Object Lock is configured on the log archive bucket in COMPLIANCE or GOVERNANCE mode, enforcing WORM protection.",
+        "command": "aws s3api get-object-lock-configuration --bucket <log-archive-bucket> --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON showing ObjectLockConfiguration.Rule.DefaultRetention with Mode set to 'COMPLIANCE' or 'GOVERNANCE' and a defined Years or Days value."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Elasticsearch to verify that an ILM policy is using frozen tier with searchable snapshot actions, and check if audit logging has write-once characteristics enabled.",
+        "command": "curl -s -u elastic:$ES_PASS 'https://localhost:9200/_ilm/policy/<policy-name>?pretty' | grep -A10 -E 'frozen|searchable_snapshot|read_only'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy definition shows frozen phase with searchable_snapshot action or force_merge/read_only set to true, preventing post-write modification."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Monitor, check that immutability policies are applied to the Log Analytics workspace's linked storage account.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Storage Accounts → [log storage account] → Data protection → Access tier → verify 'Enable immutability policy' is on with a defined retention interval",
+        "expected_output": "Immutability policy shows as 'Locked' status with a defined retention period, preventing blob modification or deletion."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null"
+    ]
+  },
+  {
+    "option_name": "log_access_control_restricted",
+    "option_description": "Controls whether permissions to delete or modify raw log storage (filesystem, S3 bucket, storage account, or database) are limited exclusively to designated log management service accounts or administrators, preventing general users and application accounts from tampering with log records.",
+    "security_impact": "Co-required with log_integrity_verification_enabled in the log_tamper_detection_via_retention_gaps Rego rule. Even with integrity checksumming, if broad write or delete access is permitted an attacker with elevated privileges can modify logs and recalculate hashes. Restricting access enforces a defense-in-depth posture where tampering requires compromising a dedicated, highly-audited account.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the S3 bucket policy for the log archive to confirm that only designated log-writer and log-admin principals have s3:DeleteObject or s3:PutObject permissions, and that a bucket policy Deny statement blocks all other principals.",
+        "command": "aws s3api get-bucket-policy --bucket <log-archive-bucket> --query Policy --output text | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Bucket policy contains an explicit Deny effect on s3:DeleteObject for Principal '*' or contains an Allow limited to specific IAM role ARNs, with no wildcard grants to general accounts."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based syslog servers, verify filesystem permissions on the log directory restrict write and delete access to the syslog service account and root.",
+        "command": "ls -la /var/log/remote/ && getfacl /var/log/remote/",
+        "file_path": "/var/log/remote/",
+        "navigation": null,
+        "expected_output": "Directory owned by syslog:adm with permissions 750 or equivalent; no world-write or broad group-write permissions. ACL output should not show general user entries."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the AWS IAM policy simulator to verify that a standard developer role cannot perform s3:DeleteObject on the log archive bucket.",
+        "command": "aws iam simulate-principal-policy --policy-source-arn arn:aws:iam::<account>:role/developer --action-names s3:DeleteObject --resource-arns arn:aws:s3:::<log-bucket>/* --output json | grep -E 'EvalActionName|EvalDecision'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows EvalDecision: 'implicitDeny' or 'explicitDeny' for the developer role attempting s3:DeleteObject on the log bucket."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure, review the IAM role assignments on the Log Analytics workspace or linked storage account to confirm only the log ingestion managed identity and a break-glass admin group hold Contributor or higher roles.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Log Analytics Workspace → Access control (IAM) → Role assignments → review all principals with Contributor, Owner, or Storage Blob Data Contributor roles",
+        "expected_output": "Only the log pipeline service principal and a named admin group appear with write-level roles. General developer or read-only roles should not be present."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null"
+    ]
+  },
+  {
+    "option_name": "archived_log_retrieval_sla_minutes",
+    "option_description": "Defines the maximum time in minutes within which archived logs must be made available upon request during an incident response engagement. This SLA value is documented in the retention or incident response policy and must account for the retrieval latency of the underlying archive storage tier (e.g., cold storage, tape, or cloud Glacier).",
+    "security_impact": "Referenced by the rapid_retrieval_of_archived_logs Rego rule, which requires this value to be <= 480 minutes (8 hours) for the countermeasure to fire, and also by log_continuity_across_storage_tiers. An undefined or excessively long retrieval SLA means that during an active incident, investigation could be blocked for days waiting on archived evidence, significantly extending mean time to respond (MTTR).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the incident response playbook or log retention policy for a documented retrieval SLA. Look for statements such as 'archived logs must be available within X hours of request' and record the value in minutes.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented numeric SLA value (e.g., 240 minutes for 4-hour SLA) with an associated escalation path if the SLA is missed."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS, review the retrieval tier configured for the Glacier vault or S3 Glacier archive to determine the expected retrieval latency (Expedited: 1-5 min, Standard: 3-5 hours, Bulk: 5-12 hours) and confirm the selected tier meets the policy SLA.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → S3 Glacier → Vaults → [log vault] → review provisioned capacity and note retrieval tier in any restore job configuration",
+        "expected_output": "Retrieval tier is set to 'Expedited' or 'Standard' matching the documented SLA. 'Bulk' retrieval may exceed an 8-hour SLA for large datasets."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the AWS CLI to check if Expedited retrieval provisioned capacity is purchased for Glacier, which guarantees sub-5-minute retrieval and supports aggressive SLAs.",
+        "command": "aws glacier list-provisioned-capacity --account-id - --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON listing one or more provisioned capacity units with ExpirationDate in the future, confirming Expedited retrieval is available on demand."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Locate the incident response runbook or SLA configuration document and extract the retrieval time target defined for archived log requests.",
+        "command": "grep -ri 'retrieval.*sla\\|archive.*minutes\\|archive.*hours\\|log.*retrieval' /etc/ir-runbooks/ /opt/security/policies/",
+        "file_path": "/opt/security/policies/",
+        "navigation": null,
+        "expected_output": "A line containing an explicit time value such as '4 hours', '240 minutes', or 'within 8 hours' describing the expected archived log retrieval window."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "60",
+      "240",
+      "480",
+      "1440",
+      "4320"
+    ]
+  },
+  {
+    "option_name": "retrieval_procedure_documented",
+    "option_description": "Controls whether a formal, written procedure exists that describes the end-to-end process for retrieving archived logs, including the responsible roles (e.g., SOC analyst, cloud admin), step-by-step retrieval instructions, tooling references, escalation contacts, and verification steps to confirm successful retrieval.",
+    "security_impact": "Required by the rapid_retrieval_of_archived_logs Rego rule alongside archived_log_retrieval_sla_minutes <= 480. Without a documented procedure, incident responders under time pressure may not know how to initiate archive retrieval, leading to delays that extend investigation timelines and allow attackers to further entrench or cover tracks during the retrieval gap.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the incident response runbook or log management runbook from the SOC or IT operations team. Verify it contains a section specifically covering archived log retrieval with named responsible roles and step-by-step instructions.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A document containing at minimum: the storage location of archives, authentication steps to access the archive, commands or UI steps to initiate retrieval, expected retrieval time, and a verification step confirming log integrity post-retrieval."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Search the policy and runbook repository for documents containing archived log retrieval instructions.",
+        "command": "find /opt/security/runbooks /etc/ir-procedures -type f -name '*.md' -o -name '*.pdf' | xargs grep -l -i 'archive.*retriev\\|log.*retriev\\|restore.*log' 2>/dev/null",
+        "file_path": "/opt/security/runbooks/",
+        "navigation": null,
+        "expected_output": "One or more files returned whose names suggest runbook content (e.g., 'log-retrieval-runbook.md', 'incident-response-playbook.pdf')."
+      },
+      {
+        "type": "gui",
+        "instruction": "Check the team's Confluence or ServiceNow knowledge base for an article tagged with 'log retrieval' or 'archive restore' to verify an accessible, current procedure exists.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Confluence → Search → 'archived log retrieval' → verify a page exists last modified within the past 12 months with role assignments and procedure steps",
+        "expected_output": "A Confluence page or ServiceNow knowledge article titled something like 'Archived Log Retrieval Procedure' with a last-modified date within the past year, containing step-by-step instructions and named role assignments."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview a SOC analyst or incident responder and ask them to walk through how they would retrieve logs archived more than 90 days ago. Assess whether they can describe the procedure from memory or quickly locate documented steps.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The responder either recites the procedure correctly or immediately navigates to a documented runbook, demonstrating operational awareness. An inability to locate any guidance indicates the procedure is absent or unknown."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null"
+    ]
+  },
+  {
+    "option_name": "retrieval_mechanism_type",
+    "option_description": "Defines the technical mechanism used to retrieve archived logs from long-term or cold storage, capturing the automation level (automated API, self-service portal, manual request, or none) and implying expected retrieval speed and operational friction during incident response.",
+    "security_impact": "The Rego policy evaluates this attribute within the `rapid_retrieval_of_archived_logs` countermeasure. A value of `automated_api` or `self_service_portal` — combined with a documented retrieval procedure and an SLA of 480 minutes or less — satisfies the preferred condition and enables rapid log access during active investigations. A `manual_request` value still satisfies the rule if the SLA is met, but introduces human latency. A value of `none` means no retrieval path is defined, causing the countermeasure to fail entirely. During forensic investigations, an unavailable or slow retrieval path can extend dwell time and delay containment decisions.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In your SIEM or log management platform (e.g., Splunk, Elastic, Microsoft Sentinel, Sumo Logic), navigate to the archive or data tier settings. Look for sections labeled 'Archived Data', 'Frozen Indexes', 'Cold Storage', or 'Data Restore'. Determine whether the UI provides a self-service restore button/workflow (self_service_portal), an API-driven restore option (automated_api), or requires submitting a ticket to a storage or ops team (manual_request).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk: Settings > Indexes > Select Index > Review Archive/Restore options | Elastic: Stack Management > Data > Index Lifecycle Policies > Review restore actions | Sentinel: Azure Portal > Log Analytics Workspace > Tables > Select table > Manage retention",
+        "expected_output": "A visible restore or retrieval workflow that is either self-service (portal button or API endpoint documented) or requires manual ticket submission. No visible option indicates `none`."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the log management platform's API to enumerate available archive retrieval endpoints. For AWS CloudWatch Logs Insights or S3-based archives, check whether an API-driven restore or query mechanism exists. For Splunk, query the search API against frozen indexes. Review API documentation to confirm if retrieval can be triggered programmatically without human intervention.",
+        "command": "# AWS S3 Glacier restore check (replace values as appropriate)\naws s3api restore-object --bucket <your-log-archive-bucket> --key <sample-log-object-key> --restore-request '{\"Days\":1,\"GlacierJobParameters\":{\"Tier\":\"Standard\"}}'\n\n# Splunk: search frozen/archived index via REST API\ncurl -k -u admin:<password> https://<splunk-host>:8089/services/search/jobs -d 'search=search index=_audit earliest=-30d | head 5' -d 'output_mode=json'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful API response initiating or confirming retrieval indicates `automated_api`. A 403, unsupported operation, or documentation gap suggests `manual_request` or `none`."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review log management configuration files or Infrastructure-as-Code (IaC) definitions (Terraform, CloudFormation, Ansible) to identify whether archive retrieval is defined as an automated pipeline, a documented portal workflow, or an undocumented manual process. Look for lifecycle policies, restore job definitions, or Lambda/Function triggers attached to archive buckets.",
+        "command": "# Search Terraform configs for archive retrieval definitions\ngrep -rE 'restore|retrieval|glacier|archive' /path/to/terraform/ --include='*.tf'\n\n# Search CloudFormation templates\ngrep -rE 'RestoreRequest|GlacierJobParameters|LifecycleRule|Transition' /path/to/cloudformation/ --include='*.yaml' --include='*.json'",
+        "file_path": "/path/to/terraform/ | /path/to/cloudformation/ | /etc/logstash/ | /etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "Presence of automated restore triggers, Lambda integrations, or documented API calls confirms `automated_api`. A reference to a runbook or ticket URL indicates `manual_request`. No reference to any retrieval mechanism indicates `none`."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the security operations, log management, or infrastructure team responsible for archived log access. Ask specifically: 'If an incident responder needs logs from 6 months ago at 2 AM, what is the exact process?' Determine whether they use an API/script (automated_api), log into a portal and click restore (self_service_portal), file a ticket to a storage team (manual_request), or have no defined process (none). Also request any runbooks, SOPs, or ticketing system templates related to log retrieval.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented runbook or verbal confirmation of a specific retrieval pathway. The answer should map directly to one of the four enum values. Absence of any documented procedure or knowledge of the process confirms `none`."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "automated_api",
+      "self_service_portal",
+      "manual_request",
+      "none"
+    ]
+  }
+]

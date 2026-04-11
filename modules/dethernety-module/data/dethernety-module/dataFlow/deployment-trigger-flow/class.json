@@ -1,0 +1,8 @@
+{
+  "name": "Deployment Trigger Flow",
+  "classType": "dataFlow",
+  "type": "Deployment Trigger Flow",
+  "description": "Data in transit from the CI/CD Pipeline Engine to the Container Orchestration Platform API server, carrying deployment manifests and image references. High sensitivity as it extends the existing Deployment Updates flow with pipeline-specific trust context. Compromise of this flow allows a pipeline to deploy arbitrary workloads to production.",
+  "category": "Software Supply Chain",
+  "status": "draft"
+}

@@ -1,0 +1,166 @@
+{
+  "exploitedBy": [],
+  "respondsWith": [
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-NTSA",
+      "name": "Network Traffic Signature Analysis",
+      "relevance": "Signature-based analysis directly supports rule-based detection accuracy by matching traffic patterns against known threat signatures."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-FCR",
+      "name": "File Content Rules",
+      "relevance": "File content rules are a core mechanism for rule-based detection, enabling precise identification of malicious content."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "M1038",
+      "name": "Execution Prevention",
+      "relevance": "Execution prevention relies on accurate rule-based detection to block malicious execution attempts."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-PMAD",
+      "name": "Protocol Metadata Anomaly Detection",
+      "relevance": "Anomaly detection in protocol metadata directly identifies deviations from established behavioral baselines."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-ANAA",
+      "name": "Administrative Network Activity Analysis",
+      "relevance": "Analyzing administrative network activity helps detect deviations from normal administrative behavior patterns."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-WSAA",
+      "name": "Web Session Activity Analysis",
+      "relevance": "Web session activity analysis identifies anomalous user behavior deviating from established baselines."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-NTA",
+      "name": "Network Traffic Analysis",
+      "relevance": "Network traffic analysis aggregates data from multiple sources, enabling correlation across logs for threat detection."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-PLA",
+      "name": "Process Lineage Analysis",
+      "relevance": "Process lineage analysis correlates process-related log events across sources to identify attack chains."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "M1047",
+      "name": "Audit",
+      "relevance": "Auditing enables comprehensive log collection across sources, which is foundational for multi-source log correlation."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-ANET",
+      "name": "Authentication Event Thresholding",
+      "relevance": "Thresholding authentication events helps prioritize alerts by identifying anomalous authentication volumes requiring triage."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-AZET",
+      "name": "Authorization Event Thresholding",
+      "relevance": "Authorization event thresholding supports alert prioritization by flagging abnormal authorization patterns."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-AEM",
+      "name": "Application Exception Monitoring",
+      "relevance": "Monitoring application exceptions provides critical signals for triaging and prioritizing security alerts."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-AL",
+      "name": "Account Locking",
+      "relevance": "Account locking is a direct automated response action that can be orchestrated in response to detected threats."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "M1037",
+      "name": "Filter Network Traffic",
+      "relevance": "Filtering network traffic is a common automated response action orchestrated to block malicious activity."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-CAA",
+      "name": "Connection Attempt Analysis",
+      "relevance": "Connection attempt analysis extends detection coverage to network-based intrusion attempts across many techniques."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-SDM",
+      "name": "System Daemon Monitoring",
+      "relevance": "Monitoring system daemons ensures comprehensive log ingestion from critical system-level processes."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "M1029",
+      "name": "Remote Data Storage",
+      "relevance": "Remote data storage ensures logs are completely ingested and preserved even if local systems are compromised."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-FIM",
+      "name": "File Integrity Monitoring",
+      "relevance": "File integrity monitoring rules require regular tuning to maintain accuracy and reduce false positives over time."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "M1016",
+      "name": "Vulnerability Scanning",
+      "relevance": "Regular vulnerability scanning informs rule updates and tuning to address newly discovered threats and maintain coverage."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-IHN",
+      "name": "Integrated Honeynet",
+      "relevance": "Integrated honeynets generate threat intelligence from attacker interactions, directly supporting threat intelligence integration."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "M1019",
+      "name": "Threat Intelligence Program",
+      "relevance": "A threat intelligence program is the foundational mitigation for integrating external threat data into security operations."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "M1053",
+      "name": "Data Backup",
+      "relevance": "Data backup ensures historical logs are preserved and recoverable for forensic querying after incidents."
+    },
+    {
+      "label": "MitreDefendTechnique",
+      "property": "defense_id",
+      "value": "D3-FAPA",
+      "name": "File Access Pattern Analysis",
+      "relevance": "File access pattern analysis supports forensic investigations by enabling historical querying of file access logs."
+    }
+  ]
+}

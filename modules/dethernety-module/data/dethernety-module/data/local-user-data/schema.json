@@ -1,0 +1,331 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "classification_tool_enforced": {
+        "type": "boolean",
+        "title": "Classification Tool Enforced",
+        "description": "Whether a mandatory data classification tool or policy is actively enforced on the local workstation, requiring users to classify files upon creation or save.",
+        "default": false
+      },
+      "sensitive_content_detected_without_label": {
+        "type": "boolean",
+        "title": "Sensitive Content Detected Without Classification Label",
+        "description": "Whether scans of local workstation storage have found files containing sensitive content patterns (PII, financial, health, or confidential business data) that lack required classification labels or metadata.",
+        "default": false
+      },
+      "dlp_policy_scope": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "DLP Policy Scope for Local Storage",
+        "description": "The coverage scope of the Data Loss Prevention policy as applied to local workstation file storage, also governing enforcement on sync paths.",
+        "default": "none"
+      },
+      "file_level_encryption_enforced": {
+        "type": "boolean",
+        "title": "File-Level Encryption Enforced",
+        "description": "Whether a file or folder-level encryption solution is actively applied to sensitive data directories on local workstations. Also reflects enforcement on temporary file locations.",
+        "default": false
+      },
+      "sensitive_data_present_on_workstation": {
+        "type": "boolean",
+        "title": "Sensitive Data Present on Workstation",
+        "description": "Indicates whether sensitive files (PII, regulated data, confidential business data) have been detected or confirmed to exist in local workstation storage through DLP scanning, classification tools, or audit evidence. Used for both current state and historical lifecycle confirmation.",
+        "default": false
+      },
+      "removable_media_encryption_enforced": {
+        "type": "boolean",
+        "title": "Removable Media Encryption Enforced",
+        "description": "Indicates whether policy enforces encryption of data when copied to removable media (USB drives, external drives), preventing cleartext exfiltration of sensitive files.",
+        "default": false
+      },
+      "centralized_retention_enforcement_enabled": {
+        "type": "boolean",
+        "title": "Centralized Retention Enforcement Enabled",
+        "description": "Indicates whether a centralized data retention management system (e.g., DLP, MDM, or endpoint policy) actively enforces retention and deletion schedules on local workstation storage.",
+        "default": false
+      },
+      "local_retention_period_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Maximum Local Retention Period (Days)",
+        "description": "The maximum number of days sensitive or regulated data is permitted to reside on a local workstation before mandatory review or deletion, as defined by applicable policy or regulatory framework."
+      },
+      "scheduled_local_data_review_exists": {
+        "type": "boolean",
+        "title": "Scheduled Local Data Review Process Exists",
+        "description": "Indicates whether a documented, scheduled process exists for reviewing and disposing of locally stored sensitive data in accordance with retention policies.",
+        "default": false
+      },
+      "data_sanitization_standard_applied": {
+        "type": "string",
+        "enum": [
+          "nist_800_88_clear",
+          "nist_800_88_purge",
+          "nist_800_88_destroy",
+          "third_party_certified_wipe",
+          "os_delete_or_format",
+          "none"
+        ],
+        "title": "Data Sanitization Standard Applied",
+        "description": "The data sanitization method applied to the workstation before repurposing, reassignment, or decommissioning. Indicates whether a recognized standard (e.g., NIST 800-88 Clear/Purge/Destroy) was used or only inadequate methods such as standard OS deletion or quick format.",
+        "default": "none"
+      },
+      "workstation_lifecycle_event": {
+        "type": "string",
+        "enum": [
+          "repurposed",
+          "reassigned",
+          "decommissioned",
+          "none"
+        ],
+        "title": "Workstation Lifecycle Event",
+        "description": "The current lifecycle transition event for the workstation that triggers data disposal requirements. Identifies whether the device is being repurposed, reassigned to a different user, or decommissioned.",
+        "default": "none"
+      },
+      "temp_cache_cleanup_policy_enforced": {
+        "type": "boolean",
+        "title": "Temporary and Cache File Cleanup Policy Enforced",
+        "description": "Whether an automated policy (e.g., Group Policy, endpoint management tool, or OS-level scheduled task) is configured to regularly purge temporary files, browser caches, print spools, and similar artifacts from workstations.",
+        "default": false
+      },
+      "crash_dump_sensitive_data_scrubbing_enabled": {
+        "type": "boolean",
+        "title": "Crash Dump Sensitive Data Scrubbing Enabled",
+        "description": "Whether crash dump files generated by the OS or applications are either disabled, encrypted, or processed through a scrubbing/filtering mechanism before retention, to prevent sensitive data capture in memory snapshots.",
+        "default": false
+      },
+      "sync_tool_installation_status": {
+        "type": "string",
+        "enum": [
+          "not_installed",
+          "installed_managed",
+          "installed_unmanaged"
+        ],
+        "title": "Sync Tool Installation Status",
+        "description": "Indicates whether personal or commercial cloud sync clients (e.g., Dropbox, OneDrive Personal, Google Drive, iCloud) or external drive auto-sync tools are installed on the workstation, and whether they are managed.",
+        "default": "not_installed"
+      },
+      "sync_scope_includes_sensitive_paths": {
+        "type": "boolean",
+        "title": "Sync Scope Includes Sensitive Data Paths",
+        "description": "Indicates whether the sync tool is configured to monitor or synchronize directories known to contain sensitive, regulated, or classified data (e.g., Documents, Desktop, project-specific folders).",
+        "default": false
+      },
+      "data_transfer_agreement_in_place": {
+        "type": "boolean",
+        "title": "Cross-Border Data Transfer Agreement in Place",
+        "description": "Indicates whether a valid legal basis or data transfer agreement (e.g., SCCs, BCRs, adequacy decision) has been assessed and documented for the sync destination jurisdiction.",
+        "default": false
+      },
+      "production_data_copied_to_local_workstation": {
+        "type": "boolean",
+        "title": "Production Data Copied to Local Workstation",
+        "description": "Indicates whether users have copied subsets of production data (e.g., customer records, transaction logs, test datasets) to local workstations outside of controlled environments.",
+        "default": false
+      },
+      "data_masking_applied_before_local_copy": {
+        "type": "boolean",
+        "title": "Data Masking Applied Before Local Copy",
+        "description": "Indicates whether anonymization or masking procedures are mandatorily applied to production data before it is copied or transferred to local workstations.",
+        "default": false
+      },
+      "sensitive_data_classifications_present": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Sensitive Data Classifications Present",
+        "description": "List of sensitive data classification labels identified in locally stored or copied production data, and regulated data types found on local workstations (e.g., PII, PCI, PHI, Confidential). Used for rule firing and triage severity.",
+        "default": []
+      }
+    },
+    "required": [
+      "classification_tool_enforced",
+      "sensitive_content_detected_without_label",
+      "dlp_policy_scope",
+      "file_level_encryption_enforced",
+      "sensitive_data_present_on_workstation",
+      "removable_media_encryption_enforced",
+      "centralized_retention_enforcement_enabled",
+      "local_retention_period_days",
+      "scheduled_local_data_review_exists",
+      "data_sanitization_standard_applied",
+      "workstation_lifecycle_event",
+      "temp_cache_cleanup_policy_enforced",
+      "crash_dump_sensitive_data_scrubbing_enabled",
+      "sync_tool_installation_status",
+      "sync_scope_includes_sensitive_paths",
+      "data_transfer_agreement_in_place",
+      "production_data_copied_to_local_workstation",
+      "data_masking_applied_before_local_copy",
+      "sensitive_data_classifications_present"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/crash_dump_sensitive_data_scrubbing_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/data_masking_applied_before_local_copy"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/file_level_encryption_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/removable_media_encryption_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_retention_enforcement_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/classification_tool_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dlp_policy_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sync_scope_includes_sensitive_paths"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sync_tool_installation_status"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/temp_cache_cleanup_policy_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/workstation_lifecycle_event"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_sanitization_standard_applied"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/local_retention_period_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/production_data_copied_to_local_workstation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_content_detected_without_label"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_data_classifications_present"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_data_present_on_workstation"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/scheduled_local_data_review_exists"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_transfer_agreement_in_place"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
