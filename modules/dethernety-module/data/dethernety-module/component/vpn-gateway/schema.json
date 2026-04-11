@@ -1,0 +1,696 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "mfa_enforced": {
+        "type": "boolean",
+        "title": "MFA Enforced for Remote Access",
+        "description": "Indicates whether multi-factor authentication is required for all VPN or remote access sessions, preventing password-only authentication. Also reduces practical impact of brute-force attacks when lockout is absent.",
+        "default": false
+      },
+      "certificate_based_auth_enabled": {
+        "type": "boolean",
+        "title": "Certificate-Based Authentication Enabled",
+        "description": "Indicates whether client certificate authentication is required or accepted as a primary authentication factor for VPN sessions, providing a stronger alternative to password-only access.",
+        "default": false
+      },
+      "authentication_method": {
+        "type": "string",
+        "enum": [
+          "password_only",
+          "password_plus_otp",
+          "certificate_only",
+          "certificate_plus_password",
+          "saml_with_mfa",
+          "hardware_token"
+        ],
+        "title": "Primary Authentication Method",
+        "description": "The authentication mechanism configured for remote access sessions on the VPN gateway.",
+        "default": "password_only"
+      },
+      "enabled_cipher_suites": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Enabled Cipher Suites",
+        "description": "List of encryption cipher suites currently configured and accepted by the VPN gateway."
+      },
+      "minimum_tls_version": {
+        "type": "string",
+        "enum": [
+          "SSLv3",
+          "TLS1.0",
+          "TLS1.1",
+          "TLS1.2",
+          "TLS1.3"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "The lowest TLS protocol version the VPN gateway will accept for SSL-VPN or management connections."
+      },
+      "weak_hmac_algorithms_enabled": {
+        "type": "boolean",
+        "title": "Weak HMAC Algorithms Enabled",
+        "description": "Whether the VPN gateway accepts MD5 or SHA-1 as HMAC integrity algorithms for tunnel authentication.",
+        "default": false
+      },
+      "split_tunneling_enabled": {
+        "type": "boolean",
+        "title": "Split Tunneling Enabled",
+        "description": "Indicates whether split tunneling is active on the VPN gateway, allowing clients to route non-corporate traffic outside the VPN tunnel while simultaneously connected to internal resources.",
+        "default": false
+      },
+      "split_tunnel_policy_enforced": {
+        "type": "boolean",
+        "title": "Split Tunnel Policy Enforced",
+        "description": "Indicates whether an approved, granular access control list or firewall policy restricts which subnets/domains are accessible outside the tunnel when split tunneling is enabled.",
+        "default": false
+      },
+      "endpoint_security_posture_check": {
+        "type": "boolean",
+        "title": "Endpoint Security Posture Check Enforced (Split Tunnel)",
+        "description": "Indicates whether the VPN gateway performs host posture assessment before allowing split tunnel sessions, reducing the risk of compromised endpoints acting as bridges.",
+        "default": false
+      },
+      "network_access_scope": {
+        "type": "string",
+        "enum": [
+          "unrestricted",
+          "role_based",
+          "subnet_restricted"
+        ],
+        "title": "Network Access Scope",
+        "description": "Defines the breadth of internal network access granted to VPN-authenticated users in the access profile."
+      },
+      "role_based_acl_enforced": {
+        "type": "boolean",
+        "title": "Role-Based Network ACL Enforced",
+        "description": "Whether the VPN access profile applies differentiated network ACLs based on user role, group membership, or identity attributes rather than a single permissive policy.",
+        "default": false
+      },
+      "permitted_destination_subnets": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Permitted Destination Subnets",
+        "description": "List of destination subnet CIDRs explicitly allowed in the VPN access profile. Contains overly broad entries if full RFC1918 space or 0.0.0.0/0 is present."
+      },
+      "certificate_type": {
+        "type": "string",
+        "enum": [
+          "trusted_ca",
+          "self_signed",
+          "none"
+        ],
+        "title": "Server Certificate Type",
+        "description": "Indicates whether the VPN gateway's server certificate is issued by a trusted CA, is self-signed, or uses no certificate at all."
+      },
+      "certificate_expired": {
+        "type": "boolean",
+        "title": "Server Certificate Expired",
+        "description": "Indicates whether the VPN gateway's server certificate has passed its NotAfter date and is therefore expired.",
+        "default": false
+      },
+      "client_certificate_validation_enforced": {
+        "type": "boolean",
+        "title": "Client Certificate Validation Enforced",
+        "description": "Indicates whether the VPN gateway is configured to validate the client's certificate chain against a trusted CA store, preventing acceptance of self-signed or invalid client certificates."
+      },
+      "version_has_known_cve": {
+        "type": "boolean",
+        "title": "Version Has Known CVE",
+        "description": "Indicates whether the installed VPN software version is listed in a CVE database or vendor advisory as vulnerable, particularly to pre-authentication RCE or authentication bypass.",
+        "default": false
+      },
+      "patch_lag_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Patch Lag (Days Since Patch Available)",
+        "description": "Number of days elapsed since the vendor released a patch addressing the known CVE(s) affecting the installed version."
+      },
+      "cve_allows_preauthentication_exploit": {
+        "type": "boolean",
+        "title": "CVE Allows Pre-Authentication Exploitation",
+        "description": "True if at least one applicable CVE permits exploitation without valid credentials (e.g., pre-auth RCE, authentication bypass, unauthenticated path traversal).",
+        "default": false
+      },
+      "idle_timeout_minutes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1440,
+        "title": "VPN Session Idle Timeout (Minutes)",
+        "description": "The number of minutes of inactivity after which a VPN session is automatically terminated. A value of 0 means no idle timeout is configured.",
+        "default": 0
+      },
+      "max_session_duration_hours": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 8760,
+        "title": "Maximum VPN Session Duration (Hours)",
+        "description": "The maximum allowed lifetime of a VPN session in hours before mandatory re-authentication is required. A value of 0 means no maximum session duration is enforced.",
+        "default": 0
+      },
+      "session_reauthentication_enforced": {
+        "type": "boolean",
+        "title": "Session Re-authentication Enforced",
+        "description": "Indicates whether VPN sessions require periodic re-authentication (e.g., MFA re-prompt or credential refresh) before the session maximum is reached."
+      },
+      "management_interface_network_exposure": {
+        "type": "string",
+        "enum": [
+          "any",
+          "internet_facing",
+          "internal_only",
+          "restricted"
+        ],
+        "title": "Management Interface Network Exposure",
+        "description": "Indicates which network zones can reach the VPN management interface (SSH, web UI, SNMP). 'any' means no restriction, 'restricted' means limited to management VLAN or bastion host only, 'internal_only' means reachable from internal networks but not a dedicated management segment."
+      },
+      "management_protocols_enabled": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Enabled Management Protocols",
+        "description": "List of management protocols actively enabled on the VPN gateway (e.g., SSH, HTTPS, SNMP, Telnet, HTTP)."
+      },
+      "management_acl_configured": {
+        "type": "boolean",
+        "title": "Management ACL Configured",
+        "description": "Whether an explicit access control list or firewall rule restricts management interface access to trusted source addresses (management VLAN, bastion host IPs).",
+        "default": false
+      },
+      "insecure_protocol_exposed": {
+        "type": "boolean",
+        "title": "Insecure Management Protocol Exposed",
+        "description": "Whether an inherently insecure management protocol (Telnet, HTTP, SNMPv1/v2c) is accessible from untrusted networks, transmitting credentials or configuration in cleartext.",
+        "default": false
+      },
+      "psk_authentication_used": {
+        "type": "boolean",
+        "title": "Pre-Shared Key Authentication Used",
+        "description": "Indicates whether IPsec or other VPN tunnel uses pre-shared key (PSK) authentication rather than certificate-based (PKI) authentication."
+      },
+      "psk_uniqueness": {
+        "type": "string",
+        "enum": [
+          "unique",
+          "shared_across_peers",
+          "default_vendor_key",
+          "unknown"
+        ],
+        "title": "Pre-Shared Key Uniqueness",
+        "description": "Indicates whether the PSK is unique per peer/tunnel, shared across multiple peers, or uses a known default/vendor-supplied value."
+      },
+      "psk_minimum_length": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 256,
+        "title": "Pre-Shared Key Minimum Length (characters)",
+        "description": "The minimum character length of the PSK(s) configured across all tunnel definitions on this gateway. Industry best practice requires at least 20 characters of high entropy."
+      },
+      "auth_event_logging_enabled": {
+        "type": "boolean",
+        "title": "Authentication Event Logging Enabled",
+        "description": "Whether the VPN gateway is configured to log authentication events including failed attempts, successful logins, session initiations, and disconnects.",
+        "default": false
+      },
+      "logged_auth_fields": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Fields Captured in Authentication Logs",
+        "description": "List of data fields recorded per authentication event. Expected values include: timestamp, source_ip, username, device_id, session_id, event_type."
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Authentication Log Retention Period (Days)",
+        "description": "Number of days authentication logs are retained, enabling retrospective investigation of brute-force or credential-stuffing campaigns."
+      },
+      "endpoint_posture_check_enabled": {
+        "type": "boolean",
+        "title": "Endpoint Posture Check Enabled",
+        "description": "Whether the VPN gateway enforces device health/posture assessment (OS patch level, EDR presence, disk encryption state) before granting tunnel access.",
+        "default": false
+      },
+      "posture_enforcement_scope": {
+        "type": "string",
+        "enum": [
+          "all",
+          "partial",
+          "none"
+        ],
+        "title": "Posture Enforcement Scope",
+        "description": "Defines which connection profiles or user groups have endpoint posture checks enforced. 'all' means all profiles enforce posture; 'partial' means only some profiles do; 'none' means no profiles enforce posture.",
+        "default": "none"
+      },
+      "unmanaged_device_access_allowed": {
+        "type": "boolean",
+        "title": "Unmanaged Device Access Allowed",
+        "description": "Whether the VPN gateway explicitly permits connections from devices not enrolled in or recognized by the organization's device management system (MDM/UEM), even when posture checking is nominally configured.",
+        "default": true
+      },
+      "vpn_service_account_privilege_level": {
+        "type": "string",
+        "enum": [
+          "root_or_system",
+          "domain_admin",
+          "local_admin",
+          "least_privilege"
+        ],
+        "title": "VPN Service Account Privilege Level",
+        "description": "The privilege level of the OS account under which the VPN service process runs."
+      },
+      "service_account_is_shared": {
+        "type": "boolean",
+        "title": "VPN Service Account Is Shared With Other Services",
+        "description": "Indicates whether the account used to run the VPN service is also used by other services or applications, increasing lateral movement risk if compromised."
+      },
+      "plaintext_secrets_detected": {
+        "type": "boolean",
+        "title": "Plaintext Secrets Detected in Config Files",
+        "description": "Indicates whether pre-shared keys, private key passphrases, or service account credentials are stored in plaintext within VPN gateway configuration files on disk.",
+        "default": false
+      },
+      "secrets_manager_integrated": {
+        "type": "boolean",
+        "title": "Secrets Manager Integration Enabled",
+        "description": "Indicates whether the VPN gateway is configured to retrieve secrets from a dedicated secrets management solution (e.g., HashiCorp Vault, AWS Secrets Manager, Azure Key Vault) rather than reading them from local config files.",
+        "default": false
+      },
+      "config_file_permission_mode": {
+        "type": "string",
+        "title": "Configuration File Permission Mode",
+        "description": "The filesystem permission mode (octal string) of VPN configuration files containing sensitive credentials, indicating access control strength."
+      },
+      "account_lockout_enabled": {
+        "type": "boolean",
+        "title": "Account Lockout Policy Enabled",
+        "description": "Whether the VPN gateway enforces an account lockout policy after a configurable number of consecutive failed authentication attempts, preventing brute-force attacks.",
+        "default": false
+      },
+      "rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "Authentication Rate Limiting Enabled",
+        "description": "Whether the VPN gateway enforces rate limiting or throttling on authentication attempts per source IP or per user, slowing or blocking sustained brute-force or password-spray attacks.",
+        "default": false
+      },
+      "max_failed_auth_attempts": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Maximum Failed Authentication Attempts Before Lockout",
+        "description": "The configured threshold of consecutive failed authentication attempts before the account or source IP is locked out or rate-limited. A value of 0 indicates no limit is configured.",
+        "default": 0
+      }
+    },
+    "required": [
+      "mfa_enforced",
+      "certificate_based_auth_enabled",
+      "authentication_method",
+      "enabled_cipher_suites",
+      "minimum_tls_version",
+      "weak_hmac_algorithms_enabled",
+      "split_tunneling_enabled",
+      "split_tunnel_policy_enforced",
+      "endpoint_security_posture_check",
+      "network_access_scope",
+      "role_based_acl_enforced",
+      "permitted_destination_subnets",
+      "certificate_type",
+      "certificate_expired",
+      "client_certificate_validation_enforced",
+      "version_has_known_cve",
+      "patch_lag_days",
+      "cve_allows_preauthentication_exploit",
+      "idle_timeout_minutes",
+      "max_session_duration_hours",
+      "session_reauthentication_enforced",
+      "management_interface_network_exposure",
+      "management_protocols_enabled",
+      "management_acl_configured",
+      "insecure_protocol_exposed",
+      "psk_authentication_used",
+      "psk_uniqueness",
+      "psk_minimum_length",
+      "auth_event_logging_enabled",
+      "logged_auth_fields",
+      "log_retention_days",
+      "endpoint_posture_check_enabled",
+      "posture_enforcement_scope",
+      "unmanaged_device_access_allowed",
+      "vpn_service_account_privilege_level",
+      "service_account_is_shared",
+      "plaintext_secrets_detected",
+      "secrets_manager_integrated",
+      "config_file_permission_mode",
+      "account_lockout_enabled",
+      "rate_limiting_enabled",
+      "max_failed_auth_attempts"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/account_lockout_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/authentication_method"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_based_auth_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_expired"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/psk_uniqueness"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_service_account_privilege_level"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/affected_user_count"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/client_certificate_validation_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/max_failed_auth_attempts"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/psk_authentication_used"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/psk_minimum_length"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/service_account_is_shared"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/session_reauthentication_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/enabled_cipher_suites"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/insecure_protocol_exposed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/minimum_tls_version"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_hmac_algorithms_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_protocol_type"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_acl_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/management_interface_network_exposure"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_protocols_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/network_access_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/permitted_destination_subnets"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/role_based_acl_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/split_tunnel_policy_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/split_tunneling_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_internet_exposed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_security_posture_check"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cve_allows_preauthentication_exploit"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_posture_check_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/idle_timeout_minutes"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/max_session_duration_hours"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_lag_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/plaintext_secrets_detected"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/posture_enforcement_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_manager_integrated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unmanaged_device_access_allowed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/version_has_known_cve"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/config_file_permission_mode"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/auth_event_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logged_auth_fields"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

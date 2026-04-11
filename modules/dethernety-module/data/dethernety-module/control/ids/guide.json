@@ -1,0 +1,1540 @@
+[
+  {
+    "option_name": "signature_engine_enabled",
+    "option_description": "Controls whether the signature-based detection engine is actively initialized and processing live traffic. When disabled or in bypass mode, no signature matching occurs and threats pass uninspected regardless of ruleset quality.",
+    "security_impact": "The Rego policy requires `signature_engine_enabled == true` as a mandatory precondition for both signature_based_detection_coverage rules. Without this, the entire signature detection countermeasure is nullified — no signature library updates, protocol coverage breadth, or action mode settings have any effect. A bypass or passive-only configuration with no alerting is functionally equivalent to having no IDS.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Snort/Snort3-based deployments, check the running process and configuration for inline or passive mode flags.",
+        "command": "ps aux | grep snort; grep -E 'daemon|daq|mode|bypass' /etc/snort/snort.conf",
+        "file_path": "/etc/snort/snort.conf",
+        "navigation": null,
+        "expected_output": "Process running without '--disable-detection' flag; config shows '-Q' for inline or '-i' for interface capture mode — not '--pcap-file' replay-only mode."
+      },
+      {
+        "type": "command",
+        "instruction": "On Suricata deployments, inspect the operational mode in the configuration and verify the service is actively running in IDS/IPS mode.",
+        "command": "systemctl is-active suricata; grep -E 'runmode|af-packet|nfqueue|bypass' /etc/suricata/suricata.yaml",
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "Service status: active; runmode shows 'workers' or 'autofp' with af-packet or nfqueue binding, not 'offline' or pcap-only."
+      },
+      {
+        "type": "gui",
+        "instruction": "In commercial IDS/IPS platforms (Cisco FMC, Palo Alto Panorama, Fortinet FortiManager), navigate to the policy or device status dashboard to confirm detection engine state.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco FMC: Devices > Device Management > select device > inline or passive mode indicator; Palo Alto: Panorama > Managed Devices > device row > Threat Prevention status; Fortinet: FortiManager > Policy & Objects > IPS Sensor > Status column",
+        "expected_output": "Engine shows 'Enabled', 'Active', or 'Inline' state — not 'Bypass', 'Tap', 'Disabled', or 'Simulation Only' without alerting."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the IDS platform API to retrieve engine operational state programmatically.",
+        "command": "curl -sk -H 'X-Auth-Token: $TOKEN' 'https://<fmc-host>/api/fmc_config/v1/domain/<domain-uuid>/devices/devicerecords/<device-uuid>' | python3 -m json.tool | grep -i 'mode\\|bypass\\|enabled'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response contains engine mode field set to 'inline' or 'detection' without bypass flags set to true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "signature_library_age_days",
+    "option_description": "Measures the number of days elapsed since the IDS signature library was last successfully updated. This reflects how current the known threat database is relative to the present date.",
+    "security_impact": "The Rego policy enforces two currency thresholds: signatures updated within 7 days satisfy the less-restrictive coverage path (requiring 3+ protocol categories in alert or block mode), while signatures updated within 30 days satisfy the stricter path (requiring 5+ protocol categories but mandating block mode). Libraries older than 30 days fail both rules entirely, meaning newly published CVE exploitation signatures, malware C2 patterns, and lateral movement indicators will not be detected regardless of engine configuration.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Suricata, check the modification timestamp of the rules directory or suricata-update log to calculate days since last update.",
+        "command": "stat /var/lib/suricata/rules/suricata.rules | grep Modify; echo \"Days since update: $(( ( $(date +%s) - $(stat -c %Y /var/lib/suricata/rules/suricata.rules) ) / 86400 ))\"",
+        "file_path": "/var/lib/suricata/rules/suricata.rules",
+        "navigation": null,
+        "expected_output": "Modification date within the last 7 days; computed days value should be ≤ 7 for optimal coverage or ≤ 30 minimum."
+      },
+      {
+        "type": "command",
+        "instruction": "On Snort with PulledPork or similar update tooling, inspect the update log for the last successful pull timestamp.",
+        "command": "tail -20 /var/log/pulledpork.log; ls -la /etc/snort/rules/*.rules | head -5",
+        "file_path": "/var/log/pulledpork.log",
+        "navigation": null,
+        "expected_output": "Log shows a recent successful update run; file timestamps reflect current or near-current dates."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the IDS management console, navigate to the signature/update management section to view the last successful update timestamp.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco FMC: System > Updates > Rule Updates > Last Update column; Palo Alto Panorama: Device > Dynamic Updates > Applications and Threats > Release Date; Fortinet FortiManager: System > FortiGuard > IPS/Application Control > Last Update",
+        "expected_output": "Timestamp displayed in the console; manually compute days elapsed from current date. Value should show update within 7 days."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review scheduled update job logs or cron output to determine when the last automated signature pull completed successfully.",
+        "command": "grep -i 'signature\\|update\\|rules\\|pulled' /var/log/syslog | tail -50; journalctl -u suricata-update --since '30 days ago' | grep -E 'success|complete|error'",
+        "file_path": "/var/log/syslog",
+        "navigation": null,
+        "expected_output": "Log entries showing successful completion of update job dated within the last 7 days with no errors."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1",
+      "3",
+      "7",
+      "14",
+      "30",
+      "90"
+    ]
+  },
+  {
+    "option_name": "covered_protocol_categories",
+    "option_description": "Defines the set of network protocol categories (e.g., HTTP, DNS, SMB, TLS, FTP, SMTP) for which signature inspectors and associated rulesets are actively loaded and applied to traffic.",
+    "security_impact": "The Rego policy requires at minimum 3 covered protocol categories for the standard coverage rule path, and 5 or more for the relaxed-currency path (signatures up to 30 days old with block mode). Protocol gaps directly create blind spots — an IDS inspecting only HTTP will miss DNS tunneling, SMB-based lateral movement (EternalBlue/WannaCry), or SMTP-delivered malware. Each uncovered protocol represents a complete detection gap for threats operating over that channel.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Suricata, enumerate which protocol app-layer parsers and associated rule categories are enabled in the active configuration.",
+        "command": "grep -A2 'app-layer:' /etc/suricata/suricata.yaml | grep -v '#'; ls /var/lib/suricata/rules/ | grep -oP '^[a-z]+(?=-)' | sort -u",
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "List of enabled app-layer protocols (http, dns, smb, tls, smtp, ftp, ssh, etc.) alongside rule files confirming active coverage per protocol."
+      },
+      {
+        "type": "command",
+        "instruction": "On Snort3, inspect the loaded plugin and preprocessor configuration to determine which protocol decoders are active.",
+        "command": "snort --list-plugins 2>/dev/null | grep -i 'inspector\\|codec'; grep -E '^(http_inspect|dns|smtp|ftp|ssh|smb)' /etc/snort/snort.lua",
+        "file_path": "/etc/snort/snort.lua",
+        "navigation": null,
+        "expected_output": "Output lists active protocol inspectors confirming each protocol in scope; cross-reference with loaded rule categories."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the active ruleset manifest or policy file to enumerate which protocol-categorized rule groups are included and enabled.",
+        "command": "grep -E '^include|^var.*RULE_PATH' /etc/snort/snort.conf | head -40; ls /etc/snort/rules/ | grep -v '.back\\|.disabled'",
+        "file_path": "/etc/snort/rules/",
+        "navigation": null,
+        "expected_output": "Directory listing or include statements covering HTTP, DNS, SMB, TLS, FTP, SMTP rule files without .disabled extension."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the IDS management console policy editor, view the active inspection policy to list which protocol decoders and associated rule groups are toggled on.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco FMC: Policies > Intrusion > select policy > Edit > Advanced > Preprocessor/Protocol Decoders tab; Palo Alto: Objects > Security Profiles > Vulnerability Protection > select profile > Application/Protocol Coverage; Fortinet: Security Profiles > Intrusion Prevention > select sensor > Protocol Filters",
+        "expected_output": "Visual checklist or table showing protocol categories with enabled/disabled toggle states — minimum 3 enabled for basic compliance, 5+ preferred."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"HTTP\", \"DNS\", \"SMB\"]",
+      "[\"HTTP\", \"DNS\", \"SMB\", \"TLS\", \"SMTP\"]",
+      "[\"HTTP\", \"DNS\", \"SMB\", \"TLS\", \"FTP\", \"SMTP\", \"SSH\"]"
+    ]
+  },
+  {
+    "option_name": "signature_action_mode",
+    "option_description": "Determines the enforcement action taken when a signature match is detected — 'block' causes inline traffic prevention, 'alert' generates a detection event without blocking (IDS mode), and 'disabled' suppresses all signature-triggered responses.",
+    "security_impact": "The Rego policy accepts either 'block' or 'alert' for the standard 7-day-current path, but requires 'block' exclusively for the relaxed-currency path (signatures up to 30 days old). 'disabled' fails all rules unconditionally. Alert-only mode still satisfies the countermeasure with fresh signatures, but provides detection-only posture — threats are identified but not stopped. Block mode provides active prevention. Organizations in alert-only mode should have compensating controls (SOAR automation, firewall integration) to act on alerts.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Suricata, determine the default rule action mode by checking the configuration file and active rule action order.",
+        "command": "grep -E 'action-order|default-rule-action|drop|alert|reject' /etc/suricata/suricata.yaml | head -20; iptables -L | grep -i 'NFQUEUE\\|DROP' | head -10",
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "Configuration shows action-order with 'drop' or 'reject' first for IPS/block mode, or 'alert' first for IDS/alert mode. NFQUEUE iptables rules confirm inline interception."
+      },
+      {
+        "type": "command",
+        "instruction": "On Snort, identify whether the deployment uses DAQ inline mode (block-capable) or passive/tap mode (alert-only) by inspecting startup flags and configuration.",
+        "command": "ps aux | grep snort | grep -oE '(-Q|--daq-mode=inline|--daq-mode=passive|--daq-mode=read-file)'; grep -i 'config daq' /etc/snort/snort.conf",
+        "file_path": "/etc/snort/snort.conf",
+        "navigation": null,
+        "expected_output": "'-Q' flag or 'daq-mode=inline' confirms block-capable IPS mode; absence or 'passive' confirms alert-only IDS mode."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review individual rule header action keywords in the active ruleset to understand the majority action type configured.",
+        "command": "head -100 /var/lib/suricata/rules/suricata.rules | awk '{print $1}' | sort | uniq -c | sort -rn",
+        "file_path": "/var/lib/suricata/rules/suricata.rules",
+        "navigation": null,
+        "expected_output": "Count of rule action types — 'drop' or 'reject' keywords dominate for block mode; 'alert' keywords dominate for alert-only mode; 'pass' should be limited to whitelists."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the IDS/IPS management console, locate the inspection policy or sensor policy settings to confirm the global or per-rule action mode.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco FMC: Policies > Intrusion > select policy > Edit > Rules tab > filter by Action column; Palo Alto Panorama: Policies > Security > Action tab > Profile Setting; Fortinet: Security Profiles > Intrusion Prevention > Action column (default action dropdown: Allow/Monitor vs Block/Reset)",
+        "expected_output": "Policy shows 'Block and Reset', 'Drop', or 'Inline Blocking' for block mode; 'Alert', 'Monitor', or 'Detect Only' for alert mode."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "alert",
+      "block",
+      "disabled"
+    ]
+  },
+  {
+    "option_name": "baseline_established",
+    "option_description": "Indicates whether the behavioral analytics engine has completed construction of a statistical baseline representing normal traffic patterns and has activated that baseline for live anomaly comparison.",
+    "security_impact": "The Rego policy requires `baseline_established == true` as a prerequisite for the behavioral_anomaly_detection_accuracy countermeasure, alongside trained_active model status and a minimum observation period. Without an established baseline, the anomaly detection engine has no reference point — all traffic deviations appear equivalent and the ML models cannot distinguish normal variation from attack behavior. This means novel threats, zero-days, and insider threats operating without known signatures will go undetected even if models are trained.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the behavioral analytics platform API to retrieve the current baseline profile status and activation state.",
+        "command": "curl -sk -H 'Authorization: Bearer $TOKEN' 'https://<ids-platform>/api/v1/analytics/baseline/status' | python3 -m json.tool | grep -E 'established|active|status|profile'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response field 'baseline_status' or 'profile_state' shows 'established', 'active', or 'complete' — not 'pending', 'building', or 'not_started'."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the behavioral analytics or anomaly detection section of the IDS management console to view baseline profile status.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco Stealthwatch/Secure Network Analytics: Monitor > Host Groups > select scope > Behavioral Baseline status indicator; Darktrace: System Config > Unsupervised Machine Learning > Baseline Status; Vectra AI: Dashboard > Sensors > Baseline Training status panel",
+        "expected_output": "Status indicator shows 'Baseline Established', 'Training Complete', or 'Active Profile' with a completion date — not 'Initializing' or 'Insufficient Data'."
+      },
+      {
+        "type": "command",
+        "instruction": "Check behavioral analytics engine logs for baseline completion events or profile activation records.",
+        "command": "grep -E 'baseline.*complet|profile.*activ|training.*done|baseline.*establish' /var/log/ids-analytics/*.log 2>/dev/null | tail -20",
+        "file_path": "/var/log/ids-analytics/",
+        "navigation": null,
+        "expected_output": "Log entries confirming baseline profile was marked complete and activated, with a timestamp indicating the event occurred."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IDS/network security administrator to confirm whether the system completed its initial learning period and whether the baseline was manually approved or auto-activated.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Administrator can confirm the system completed its observation period, the baseline was reviewed and activated, and is not still in the initial collection phase."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "model_training_status",
+    "option_description": "Reflects the lifecycle state of the machine learning models underpinning anomaly detection — progressing from not_trained through training to trained_inactive (trained but not deployed) to trained_active (trained and actively scoring live traffic).",
+    "security_impact": "The Rego policy mandates `model_training_status == 'trained_active'` for the behavioral anomaly detection countermeasure. The distinction between trained_inactive and trained_active is critical — models may be fully trained but deliberately held offline pending validation, during which live traffic receives no ML-based anomaly scoring. 'not_trained' or 'training' states mean the system cannot yet detect behavioral deviations. Only 'trained_active' confirms the ML pipeline is completing inference on production traffic.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the detection engine's model management API endpoint to retrieve current model lifecycle status.",
+        "command": "curl -sk -H 'Authorization: Bearer $TOKEN' 'https://<ids-platform>/api/v1/analytics/models' | python3 -m json.tool | grep -E 'status|state|trained|active|deployed'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response shows model objects with 'state': 'trained_active' or 'deployment_status': 'active' — not 'training', 'staged', or 'inactive'."
+      },
+      {
+        "type": "gui",
+        "instruction": "Access the ML model management or analytics configuration interface to view model training and deployment status.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Darktrace: Admin > System Configuration > AI Analyst > Model Status; Cisco Secure Network Analytics: Configuration > Detection Engine > ML Models > Status column; ExtraHop Reveal(x): System Settings > Machine Learning > Model Deployment Status",
+        "expected_output": "Model status panel shows 'Deployed', 'Active', or 'Production' state with a last-trained timestamp. Models in 'Draft', 'Inactive', or 'Queued' state require activation."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect behavioral analytics engine configuration or state files to determine model deployment status.",
+        "command": "cat /etc/ids-analytics/model_state.json 2>/dev/null | python3 -m json.tool; ls -la /var/lib/ids-analytics/models/ | grep -v '^total'",
+        "file_path": "/var/lib/ids-analytics/models/",
+        "navigation": null,
+        "expected_output": "State file shows 'active' or 'deployed' status; model files exist with recent modification timestamps indicating trained and loaded state."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review analytics engine startup and operational logs for model loading and activation events.",
+        "command": "grep -E 'model.*load|model.*activ|inference.*start|ML.*deploy|training.*complet' /var/log/ids-analytics/engine.log 2>/dev/null | tail -30",
+        "file_path": "/var/log/ids-analytics/engine.log",
+        "navigation": null,
+        "expected_output": "Log shows model load and activation events with timestamps; absence of 'inference enabled' or presence of 'training in progress' indicates non-active state."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "not_trained",
+      "training",
+      "trained_inactive",
+      "trained_active"
+    ]
+  },
+  {
+    "option_name": "baseline_observation_days",
+    "option_description": "Specifies the number of days of historical traffic data that were used to construct the active behavioral baseline. A longer observation window captures more traffic pattern variability (weekday/weekend cycles, business rhythms) and produces a higher-fidelity baseline.",
+    "security_impact": "The Rego policy requires `baseline_observation_days >= 7` as a minimum threshold for the behavioral anomaly detection countermeasure. Baselines built from fewer than 7 days of data lack sufficient pattern diversity, leading to elevated false positive rates (normal traffic flagged as anomalous) and false negative rates (attack traffic blending into noisy baselines). Industry best practice recommends 14–30 days minimum to capture weekly patterns, and some frameworks recommend 90+ days for complex enterprise environments.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the behavioral analytics platform API to retrieve the baseline profile metadata including observation window duration.",
+        "command": "curl -sk -H 'Authorization: Bearer $TOKEN' 'https://<ids-platform>/api/v1/analytics/baseline/profile' | python3 -m json.tool | grep -E 'observation_days|window|duration|start_date|end_date'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response shows 'observation_window_days' or computable date range (end_date - start_date) ≥ 7 days; ideally ≥ 14 or 30 days."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the behavioral analytics configuration UI, locate the baseline profile details to view the observation window used for baseline construction.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Darktrace: Admin > Network Summary > Baseline Period (shown as days of data learned); Cisco Stealthwatch: Monitor > Baselines > Profile Details > Observation Window; Vectra AI: System > Sensors > Baseline Configuration > Training Window",
+        "expected_output": "Numeric value displayed in days representing the baseline learning period — minimum 7 days required, 14–30 days represents a quality baseline."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the behavioral analytics configuration file for the observation window or learning period parameter.",
+        "command": "grep -E 'observation.window|baseline.period|learning.period|training.days|history.days' /etc/ids-analytics/behavioral.conf 2>/dev/null; cat /var/lib/ids-analytics/baseline_metadata.json 2>/dev/null | python3 -m json.tool",
+        "file_path": "/etc/ids-analytics/behavioral.conf",
+        "navigation": null,
+        "expected_output": "Configuration parameter shows numeric value ≥ 7; baseline metadata file shows observation start and end dates with a span of at least 7 days."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the security operations team to determine when the behavioral baseline was initialized, when it completed, and whether it has been refreshed since major network changes.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Staff can provide the baseline start date and confirm the duration was at least 7 days; ideally they can confirm periodic rebaselining after major topology changes."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "7",
+      "14",
+      "21",
+      "30",
+      "60",
+      "90"
+    ]
+  },
+  {
+    "option_name": "anomaly_detection_sensitivity",
+    "option_description": "Sets the scoring threshold that determines how much deviation from baseline behavior is required to trigger an anomaly alert. 'disabled' turns off anomaly detection entirely; 'low' requires large deviations; 'medium' balances detection rate and false positives; 'high' flags smaller deviations with increased alert volume.",
+    "security_impact": "The Rego policy requires `anomaly_detection_sensitivity in ['low', 'medium', 'high']` — any value other than 'disabled' satisfies this condition. 'disabled' fails the rule unconditionally, rendering all baseline and ML model investments useless regardless of their quality. The choice between low/medium/high involves a trade-off: 'high' sensitivity detects subtle attacks (slow reconnaissance, low-and-slow exfiltration) at the cost of more false positives; 'low' sensitivity reduces noise but may miss stealthy threats. 'medium' is the typical operational starting point with planned tuning.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the anomaly detection or detection tuning section of the IDS management console to view the current sensitivity threshold setting.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco Stealthwatch: Configuration > Alarms > Alarm Configuration > Detection Sensitivity slider; Darktrace: Admin > Anomaly Detection Settings > Sensitivity Threshold; Vectra AI: Manage > Detection Settings > Certainty/Threat Score Thresholds; ExtraHop Reveal(x): System Settings > Detection Sensitivity",
+        "expected_output": "Sensitivity setting displayed as a named level (Low/Medium/High) or numeric score threshold. Confirm the setting is not 'Disabled' or 'Off'."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the anomaly detection policy configuration via the platform API to confirm sensitivity threshold settings.",
+        "command": "curl -sk -H 'Authorization: Bearer $TOKEN' 'https://<ids-platform>/api/v1/detection/policy' | python3 -m json.tool | grep -E 'sensitivity|threshold|anomaly.*mode|detection.*level'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response shows 'anomaly_sensitivity' or 'detection_threshold' field with value 'low', 'medium', or 'high' — not 'disabled', 'off', or null."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the detection policy or analytics configuration file for the anomaly scoring threshold parameter.",
+        "command": "grep -E 'anomaly.sensitivity|detection.threshold|score.threshold|sensitivity.level|anomaly.enabled' /etc/ids-analytics/detection_policy.conf 2>/dev/null; cat /etc/ids-analytics/anomaly_config.yaml 2>/dev/null | grep -A3 'sensitivity'",
+        "file_path": "/etc/ids-analytics/detection_policy.conf",
+        "navigation": null,
+        "expected_output": "Configuration shows a sensitivity parameter set to a non-disabled value; numeric thresholds can be cross-referenced against vendor documentation to map to low/medium/high bands."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review recent anomaly detection alert logs to indirectly validate sensitivity — a high volume of low-severity anomaly alerts suggests high sensitivity, while near-zero anomaly alerts on active networks may indicate disabled or very low sensitivity.",
+        "command": "grep -i 'anomaly\\|behavioral.*alert\\|deviation' /var/log/ids-analytics/alerts.log 2>/dev/null | grep -c ''; grep -i 'anomaly' /var/log/ids-analytics/alerts.log | tail -10",
+        "file_path": "/var/log/ids-analytics/alerts.log",
+        "navigation": null,
+        "expected_output": "Presence of anomaly-type alerts in logs confirms sensitivity is not disabled; zero anomaly alerts over an extended active network period warrants investigation of sensitivity configuration."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "disabled",
+      "low",
+      "medium",
+      "high"
+    ]
+  },
+  {
+    "option_name": "dpi_enabled",
+    "option_description": "Controls whether the DPI engine actively processes traffic payloads beyond layer 3/4 header fields, enabling content-aware inspection of application-layer data, protocol anomalies, and encoded payloads.",
+    "security_impact": "The Rego policy requires dpi_enabled == true as a prerequisite for the deep_packet_inspection_depth countermeasure. Without DPI active, the IDS operates in header-only mode, missing application-layer threats, encoded exploits, and protocol tunneling attacks. Both policy paths for deep_packet_inspection_depth require this flag to be true before evaluating inspection layers and encrypted traffic modes.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the network monitoring platform's engine configuration panel. In Suricata-based platforms, check the Engine Settings or Capture Mode page; in Snort, check the preprocessor configuration dashboard. Look for a toggle or status indicator labeled 'Deep Packet Inspection', 'Payload Inspection', or 'Application Layer Decoding'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Monitoring Platform > Configuration > Engine Settings > Deep Packet Inspection",
+        "expected_output": "A status field showing 'Enabled' or 'Active' for DPI/payload inspection mode."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Suricata-based sensor, check the running configuration and confirm app-layer detection is active by reviewing the suricata.yaml configuration and process output.",
+        "command": "suricata --dump-config 2>/dev/null | grep -E 'app-layer|payload|dpi' && systemctl status suricata | grep -i active",
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "app-layer.enabled: yes and service status showing active (running)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the IDS engine configuration file directly for payload inspection settings. For Suricata, verify the app-layer protocol detection block; for Snort, confirm preprocessor stream5_global and http_inspect are uncommented and enabled.",
+        "command": "grep -E 'app-layer|payload-log|deep.packet|inspect' /etc/suricata/suricata.yaml",
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "Lines showing enabled: yes under app-layer or equivalent payload inspection directives."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the network monitoring platform's management API for the current DPI engine status. For platforms like Cisco Firepower or Palo Alto, use the REST API to retrieve the sensor policy configuration.",
+        "command": "curl -sk -H 'X-auth-token: $TOKEN' https://<fmc-host>/api/fmc_config/v1/domain/$DOMAIN_UUID/policy/intrusionpolicies | python3 -m json.tool | grep -i 'inspection\\|dpi\\|payload'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response containing inspection mode fields with values indicating enabled/active payload inspection."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "inspection_layers",
+    "option_description": "Enumerates the specific application-layer protocols and protocol families that the DPI engine is configured to decode and inspect, such as HTTP, DNS, SMTP, TLS, FTP, SMB, and SSH.",
+    "security_impact": "The Rego policy requires count(input.inspection_layers) >= 3 in the primary path for deep_packet_inspection_depth, meaning fewer than three inspected protocols fails the countermeasure. A broader protocol list increases detection coverage across attack surfaces — HTTP for web exploits, DNS for tunneling, SMTP for phishing payload delivery, SMB for lateral movement. The secondary policy path relaxes this to >= 1 only when full_decryption is active, but breadth still determines detection quality.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Suricata configuration file's app-layer section to enumerate all protocols with detection enabled. Each protocol block with enabled: yes contributes to the inspection_layers list.",
+        "command": "grep -A2 'protocols:' /etc/suricata/suricata.yaml | grep -E '(http|dns|smtp|tls|ftp|smb|ssh|dcerpc|nfs|tftp|rdp|sip|http2):' | grep -v '#'",
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "List of protocol names (e.g., http, dns, smtp, tls) each followed by enabled: yes."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Suricata's built-in config dump to extract active app-layer protocol decoders and filter for enabled entries only.",
+        "command": "suricata --dump-config | grep -E '^app-layer\\.protocols\\.[a-z]+\\.enabled' | grep 'yes'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines like 'app-layer.protocols.http.enabled = yes' for each active protocol decoder."
+      },
+      {
+        "type": "gui",
+        "instruction": "In commercial IDS/IPS platforms (e.g., Cisco Firepower Management Center, Palo Alto Panorama), navigate to the application inspection policy or DPI protocol decoder settings to view the list of enabled application-layer decoders.",
+        "command": null,
+        "file_path": null,
+        "navigation": "FMC: Policies > Intrusion > Network Analysis Policy > Application Layer Preprocessors (view enabled protocols) | Panorama: Objects > Application Filters",
+        "expected_output": "A checklist or table showing which application protocols (HTTP, DNS, FTP, etc.) have inspection enabled."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the IDS management API to retrieve the list of active protocol decoders from the sensor's running policy.",
+        "command": "curl -sk -H 'X-auth-token: $TOKEN' https://<fmc-host>/api/fmc_config/v1/domain/$DOMAIN_UUID/policy/networkanalysispolicies | python3 -m json.tool | grep -i 'preprocessor\\|protocol\\|decoder'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output listing enabled protocol preprocessors/decoders in the active network analysis policy."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"HTTP\", \"DNS\", \"SMTP\"]",
+      "[\"HTTP\", \"DNS\", \"TLS\", \"SMTP\", \"FTP\", \"SMB\", \"SSH\"]",
+      "[\"HTTP\", \"DNS\"]"
+    ]
+  },
+  {
+    "option_name": "encrypted_traffic_inspection_mode",
+    "option_description": "Specifies the method used to analyze encrypted traffic flows — ranging from full TLS decryption/re-encryption (man-in-the-middle interception) to metadata-only approaches such as JA3/JA4 fingerprinting, flow metadata analysis, or certificate field inspection, with 'none' indicating no encrypted traffic visibility.",
+    "security_impact": "This attribute drives two separate Rego countermeasures. For deep_packet_inspection_depth, the primary path requires the value to be 'full_decryption' or 'metadata_fingerprinting'; the secondary path requires 'full_decryption' alone. For encrypted_traffic_analysis_capability, the policy accepts 'tls_interception', 'ja3_fingerprinting', 'metadata_analysis', or 'certificate_inspection' — note the Rego uses slightly different enum labels than the schema, so verify platform-specific mappings. A value of 'none' fails both countermeasures, leaving encrypted C2, exfiltration, and malware delivery channels undetected.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the monitoring platform's SSL/TLS inspection or encrypted visibility settings, confirm which mode is configured. In Cisco Firepower, check SSL Policy status; in Palo Alto, check Decryption Policy; in Suricata/Zeek deployments, check for TLS metadata logging or JA3 module activation.",
+        "command": null,
+        "file_path": null,
+        "navigation": "FMC: Policies > SSL | Palo Alto: Policies > Decryption | Zeek manager: check loaded scripts for ssl and ja3 packages",
+        "expected_output": "A defined SSL/TLS policy showing decryption rules (full_decryption) or metadata/fingerprinting mode selection."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Zeek/Bro sensor, verify if JA3 fingerprinting scripts are loaded and active, indicating metadata_fingerprinting mode.",
+        "command": "zeekctl status && ls /opt/zeek/share/zeek/site/ | grep -iE 'ja3|tls' && grep -r 'ja3\\|JA3' /opt/zeek/share/zeek/site/local.zeek",
+        "file_path": "/opt/zeek/share/zeek/site/local.zeek",
+        "navigation": null,
+        "expected_output": "JA3 or TLS analysis scripts listed as loaded in local.zeek, with zeekctl showing running status."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Suricata TLS configuration section to identify if decryption (ssl-log-ja3, tls-log-extended) or full decryption proxy mode is configured.",
+        "command": "grep -A5 'tls:' /etc/suricata/suricata.yaml | grep -E 'ja3|decrypt|interc|fingerprint|metadata'",
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "Configuration lines indicating ja3-fingerprints: yes (metadata_fingerprinting) or SSL interception proxy settings (full_decryption)."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review IDS alert and telemetry logs to determine what TLS-related fields are present. Presence of ja3 hash fields indicates metadata_fingerprinting; presence of decrypted payload signatures indicates full_decryption; only certificate subject/issuer fields indicate certificate_inspection.",
+        "command": "grep -i 'ja3\\|tls\\|ssl\\|cert' /var/log/suricata/eve.json | python3 -m json.tool | head -50",
+        "file_path": "/var/log/suricata/eve.json",
+        "navigation": null,
+        "expected_output": "JSON events with ja3.hash fields (fingerprinting), decrypted http events over TLS ports (full_decryption), or certificate.subject fields only (certificate_inspection)."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "metadata_fingerprinting",
+      "metadata_analysis",
+      "certificate_inspection",
+      "full_decryption"
+    ]
+  },
+  {
+    "option_name": "inspection_actively_enabled",
+    "option_description": "Indicates whether the configured encrypted traffic inspection mechanism is currently running and actively processing live traffic, as opposed to being configured but inactive, paused, or in a degraded state.",
+    "security_impact": "The Rego policy for encrypted_traffic_analysis_capability requires inspection_actively_enabled == true in addition to a valid inspection mode and sufficient coverage. A platform may have an encrypted traffic inspection mode configured but be non-operational due to certificate issues, service failures, license expiration, or maintenance mode — this attribute captures that operational reality. A false value fails the countermeasure entirely regardless of how well the mode is configured.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Check the monitoring platform's operational status or health dashboard for the encrypted traffic inspection module. Look for active/inactive status indicators, processing statistics (flows analyzed, bytes inspected), or any degraded/error states for the TLS inspection or metadata analysis engine.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Platform Dashboard > System Health > Inspection Engine Status | FMC: System > Health > Health Monitor > SSL Inspection Module",
+        "expected_output": "Status showing 'Active', 'Running', or 'Operational' with non-zero traffic processing counters for the encrypted inspection module."
+      },
+      {
+        "type": "command",
+        "instruction": "Check service status and confirm the encrypted traffic inspection process is running and generating output on a Suricata/Zeek sensor.",
+        "command": "systemctl is-active suricata zeek 2>/dev/null; tail -n 20 /var/log/suricata/stats.log | grep -E 'tls|ja3|ssl'; ls -lt /var/log/zeek/current/ssl.log 2>/dev/null | head -3",
+        "file_path": "/var/log/suricata/stats.log",
+        "navigation": null,
+        "expected_output": "Service status 'active', stats.log showing non-zero TLS decoder counters, and ssl.log with recent timestamps."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify the encrypted traffic inspection module is producing telemetry by checking for recent TLS/SSL log entries or JA3 events in the IDS output logs. Absence of recent entries despite traffic presence indicates the module is not actively processing.",
+        "command": "find /var/log/suricata /var/log/zeek/current -name 'ssl*' -o -name '*tls*' 2>/dev/null | xargs ls -lt | head -5; tail -n 5 /var/log/zeek/current/ssl.log 2>/dev/null",
+        "file_path": "/var/log/zeek/current/ssl.log",
+        "navigation": null,
+        "expected_output": "Log files with modification timestamps within the last few minutes, containing current TLS session records."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the platform management API for the real-time operational status of the encrypted traffic inspection module.",
+        "command": "curl -sk -H 'X-auth-token: $TOKEN' https://<management-host>/api/status/modules | python3 -m json.tool | grep -A3 -i 'tls\\|ssl\\|encrypted\\|inspection'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "API response showing module status as 'active' or 'running' with last-processed timestamps for the TLS inspection component."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "encrypted_traffic_coverage_percentage",
+    "option_description": "Quantifies what percentage of encrypted traffic flows in the environment actually pass through the configured inspection points, accounting for sensor placement gaps, unmonitored network segments, and bypass paths.",
+    "security_impact": "The Rego policy for encrypted_traffic_analysis_capability requires encrypted_traffic_coverage_percentage >= 50, meaning fewer than half of encrypted flows being inspected fails the countermeasure. Attackers deliberately use encrypted channels for C2 and exfiltration; low coverage percentages create known blind spots. Even with a sophisticated inspection mode configured, inadequate tap or span port coverage makes the capability functionally ineffective against threats using unmonitored paths.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the network tap and SPAN port deployment documentation against the total network topology map. Identify all egress points, internal segment boundaries, and cloud interconnects carrying encrypted traffic, then calculate what fraction of those paths have active monitoring sensors.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review: Network Architecture Diagram, Tap/SPAN Port Inventory, Sensor Deployment Map",
+        "expected_output": "A documented coverage ratio — e.g., 8 of 12 encrypted traffic paths monitored = 67% coverage."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use network flow telemetry (NetFlow/IPFIX) to measure total encrypted traffic volume versus the volume seen by IDS sensors. Compare flow counts on port 443, 8443, and other TLS ports at monitored vs. total choke points.",
+        "command": "nfdump -r /var/cache/nfdump/ -A proto,dstport 'dst port 443 or dst port 8443' -s dstport/flows -n 20 2>/dev/null | head -30",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Flow statistics allowing comparison of total encrypted traffic volume against the subset visible to IDS sensors."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the IDS management console, review the sensor traffic statistics page showing bytes/packets processed per sensor, then correlate with network capacity reports to estimate coverage percentage. Many platforms (Darktrace, ExtraHop, Cisco Secure Network Analytics) display coverage metrics directly.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Platform > Sensors > Traffic Statistics | Cisco Secure Network Analytics > Configuration > Sensor Coverage Report",
+        "expected_output": "Per-sensor throughput statistics and a coverage summary or heat map showing monitored vs. total network segments."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Cross-reference firewall or router logs showing total encrypted session counts against IDS logs for the same time period to calculate the inspection coverage ratio.",
+        "command": "echo 'Total TLS sessions (firewall):'; grep 'dst_port=443\\|dport=443' /var/log/firewall.log | wc -l; echo 'TLS sessions seen by IDS:'; grep '\"event_type\":\"tls\"' /var/log/suricata/eve.json | wc -l",
+        "file_path": "/var/log/suricata/eve.json",
+        "navigation": null,
+        "expected_output": "Two counts allowing calculation of (IDS TLS sessions / Total TLS sessions) × 100 = coverage percentage."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "25",
+      "50",
+      "75",
+      "90",
+      "100"
+    ]
+  },
+  {
+    "option_name": "deployment_mode",
+    "option_description": "Defines the physical and logical placement of the network monitoring system — inline mode inserts the sensor into the traffic path enabling active prevention, while passive/tap/span modes provide out-of-band visibility for detection only without the ability to block traffic.",
+    "security_impact": "The Rego policy for automated_response_and_blocking requires deployment_mode == 'inline' in all three policy paths. Passive, tap, and span deployments physically cannot drop or reset traffic — they can only generate alerts. Without inline deployment, automated blocking, quarantine, and session reset actions are unavailable regardless of policy configuration. This is the foundational prerequisite for the IDS to function as an IPS.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Check the sensor's deployment or interface configuration page in the management console. The interface mode (inline pair, passive, SPAN monitor, or tap) is typically displayed in the sensor's network interface settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "FMC: Devices > Device Management > [Sensor] > Interfaces (check for Inline Pair vs. Passive mode) | Snort/Suricata Manager: Sensor Configuration > Interface Mode",
+        "expected_output": "Interface mode labeled as 'Inline', 'Inline Pair', 'Passive', 'SPAN', or 'TAP' for each monitored interface."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Linux-based IDS sensor, check whether the network interface is configured in promiscuous mode only (passive/span) or if traffic normalization/NFQ queue is used (inline IPS mode).",
+        "command": "ip link show | grep -E 'PROMISC|state'; iptables -L -n 2>/dev/null | grep -i 'NFQUEUE\\|queue'; suricata --dump-config | grep -E 'runmode|mode'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Interfaces showing PROMISC flag indicate passive/span; NFQUEUE rules in iptables indicate inline IPS mode. Suricata runmode showing 'workers' with NFQ confirms inline."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the IDS engine configuration file for the capture mode or runmode setting that determines inline vs. passive operation.",
+        "command": "grep -E 'runmode|af-packet|nfq|pcap|inline|passive' /etc/suricata/suricata.yaml | grep -v '#'",
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "Configuration showing nfq or af-packet with copy-mode: ips (inline) versus pcap or af-packet without copy-mode (passive)."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test whether the sensor can actively block traffic by generating a known test signature violation and verifying if packets are dropped (inline) or only alerted on (passive). Use a safe EICAR-equivalent network test.",
+        "command": "curl -s --max-time 5 http://<test-host>/eicar-inline-test 2>&1; grep -i 'blocked\\|dropped\\|action.*block' /var/log/suricata/eve.json | tail -5",
+        "file_path": "/var/log/suricata/eve.json",
+        "navigation": null,
+        "expected_output": "Connection refused or timeout (inline blocking) vs. completed request with only an alert logged (passive detection only)."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "passive",
+      "span",
+      "tap",
+      "inline"
+    ]
+  },
+  {
+    "option_name": "automated_blocking_enabled",
+    "option_description": "Controls whether the IDS/IPS policy enforces active prevention actions (drop, block, reset) upon threat detection, as opposed to operating in monitor-only or alert-only mode where threats are logged but traffic is permitted to continue.",
+    "security_impact": "The Rego policy for automated_response_and_blocking requires automated_blocking_enabled == true in the first and third policy paths. Even with inline deployment, many organizations keep sensors in detect-only mode initially to avoid false-positive-induced outages. This attribute captures whether that safety net has been removed and true prevention is active. Without this enabled, the inline deployment provides no real-time attack disruption, only forensic visibility.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Review the active IPS/IDS policy mode in the management console. Look for a mode selector showing 'Prevention' vs. 'Detection' or 'Inline' vs. 'Tap' policy mode. In Cisco Firepower, check the Intrusion Policy's inspection mode; in Palo Alto, verify the Zone Protection Profile and Security Policy action.",
+        "command": null,
+        "file_path": null,
+        "navigation": "FMC: Policies > Intrusion > [Policy Name] > Policy Information > Inspection Mode (should show 'Prevention') | Palo Alto: Policies > Security > Action column",
+        "expected_output": "Policy mode showing 'Prevention', 'Block', or 'Inline Prevention' rather than 'Detection', 'Alert', or 'Monitor'."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Suricata IPS deployment, verify the default action policy and confirm block/drop rules are active rather than all rules being set to alert-only.",
+        "command": "grep -E 'default-rule-action|action-order' /etc/suricata/suricata.yaml; grep -c '^drop ' /etc/suricata/rules/*.rules 2>/dev/null | grep -v ':0$'",
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "default-rule-action: drop or block, and rule files containing 'drop' action rules (not all converted to alert)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the IDS ruleset action configuration to verify that block/drop/reject actions are present and not overridden to alert-only mode globally.",
+        "command": "grep -r 'PolicyMode\\|inspection-mode\\|action.*drop\\|action.*block' /etc/suricata/ /opt/snort/etc/ 2>/dev/null | grep -v '#' | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Configuration entries showing prevention/block/drop mode is active rather than alert/monitor-only mode."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check recent IDS event logs for the presence of 'blocked' or 'dropped' actions in alert records. Presence of block/drop actions in recent events confirms automated blocking is active; alert-only entries confirm detection-only mode.",
+        "command": "grep -E '\"action\":\"blocked\"\\|\"action\":\"drop\"\\|action.*block\\|action.*drop' /var/log/suricata/eve.json | tail -10",
+        "file_path": "/var/log/suricata/eve.json",
+        "navigation": null,
+        "expected_output": "Recent alert records with action field set to 'blocked' or 'drop' confirming active prevention is operational."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "response_actions_configured",
+    "option_description": "Lists the specific automated response actions defined in the active threat response policy that will execute upon confirmed threat detection, such as blocking the offending connection, quarantining the source host, resetting the TCP session, or applying rate limiting to suspicious flows.",
+    "security_impact": "The Rego policy for automated_response_and_blocking uses this array in two paths: one requiring 'block' in response_actions_configured and another requiring 'quarantine'. The breadth and severity of configured actions determines the IDS's actual containment capability — alert-only configurations with no active response actions provide visibility without disruption. Having at least 'block' or 'quarantine' in this list, combined with inline deployment and an active prevention policy, constitutes a functional automated response capability.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the threat response or prevention policy configuration in the IDS/IPS management console and enumerate all configured actions for confirmed threat events. In Cisco Firepower, review the Intrusion Policy rules' actions; in Palo Alto, review Security Profile actions; in Darktrace, review the Antigena action configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "FMC: Policies > Intrusion > [Policy] > Rules (filter by action: drop/block) | Palo Alto: Objects > Security Profiles > Vulnerability Protection (check action columns) | Darktrace: Admin > Antigena > Actions",
+        "expected_output": "A list of response actions configured per threat category, such as: drop connection, reset-client, reset-server, quarantine host, rate-limit source."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the IDS rule files and configuration to extract all unique action types defined across the active ruleset. This captures the full set of response actions actually in use.",
+        "command": "grep -h '^[a-z]' /etc/suricata/rules/*.rules 2>/dev/null | awk '{print $1}' | sort -u; grep -r 'response\\|action\\|block\\|quarantine\\|reset\\|rate.limit' /etc/snort/snort.conf 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/suricata/rules/",
+        "navigation": null,
+        "expected_output": "Unique action keywords present in the ruleset: alert, drop, reject, pass — with drop/reject confirming block/session_reset actions are configured."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the platform API to retrieve the threat response policy and enumerate all configured response action types for the active policy.",
+        "command": "curl -sk -H 'X-auth-token: $TOKEN' 'https://<fmc-host>/api/fmc_config/v1/domain/$DOMAIN_UUID/policy/intrusionpolicies?expanded=true' | python3 -m json.tool | grep -iE 'action\\|response\\|block\\|quarantine\\|reset\\|drop'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON policy object listing action configurations per rule or threat category, showing values like 'block', 'drop', 'reset-both', 'quarantine'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the security operations team or review the IDS runbook/playbook documentation to confirm which automated response actions are approved, configured, and actively enforced versus which are documented but disabled to prevent operational impact.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review: IDS/IPS Runbook, Prevention Policy Documentation, Change Management Records for response action approvals",
+        "expected_output": "A documented list of approved and active response actions (e.g., block, session_reset, rate_limit) with confirmation they are enforced in production rather than test/monitor mode."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"alert\"]",
+      "[\"block\", \"session_reset\"]",
+      "[\"block\", \"quarantine\", \"rate_limit\"]",
+      "[\"drop\", \"reset-client\", \"reset-server\", \"quarantine\"]"
+    ]
+  },
+  {
+    "option_name": "prevention_policy_status",
+    "option_description": "Controls the operational enforcement mode of the active IPS/IDS prevention policy applied to monitored network segments — determines whether the system actively blocks threats or merely observes and logs them.",
+    "security_impact": "The Rego policy for 'automated_response_and_blocking' requires prevention_policy_status == 'active' in all three of its enforcement branches. Without an 'active' status, inline blocking, response actions, and quarantine capabilities are all disqualified — reducing the system to a passive observer regardless of how blocking rules are configured.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the IPS/NGFW management console, navigate to Policy Management > Active Policies, and locate the policy assigned to the monitored segment. Review the 'Mode' or 'Status' column for the enforcement state.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Policy Management > Active Policies > [Segment Policy] > Mode/Status Column",
+        "expected_output": "Policy mode displayed as 'Active', 'Enforcement', 'Prevention', or equivalent — not 'Simulation', 'Audit', or 'Disabled'."
+      },
+      {
+        "type": "command",
+        "instruction": "For Snort/Suricata-based IDS, check the running configuration to identify whether the engine is operating in IPS (inline/NFQUEUE) or IDS (passive/AF_PACKET) mode, which maps to active vs. audit status.",
+        "command": "sudo suricata --dump-config | grep -E 'runmode|nfqueue|af-packet' && systemctl status suricata | grep -E 'Active|running'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Runmode set to 'workers' or 'autofp' with nfqueue binding visible; service status shows 'active (running)'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the IPS management API (e.g., Cisco FMC, Palo Alto Panorama) to retrieve the policy assignment and enforcement mode for the target device or segment.",
+        "command": "curl -s -X GET 'https://<FMC_HOST>/api/fmc_config/v1/domain/<DOMAIN_UUID>/policy/intrusionpolicies' -H 'X-auth-access-token: <TOKEN>' | python3 -m json.tool | grep -E 'name|mode|status'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response containing policy name with enforcement mode field set to 'active' or equivalent prevention state."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Suricata or Snort configuration file to determine the interface binding mode — 'af-packet' with copy-mode indicates passive IDS, while 'nfqueue' indicates inline IPS (active prevention).",
+        "command": null,
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "Under 'af-packet' or 'nfqueue' section, 'copy-mode: ips' or queue binding present indicates active prevention mode."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "active",
+      "simulation",
+      "audit"
+    ]
+  },
+  {
+    "option_name": "traffic_logging_enabled",
+    "option_description": "Controls whether the network traffic monitoring system actively records flow records, session metadata, and alert events across all monitored interfaces — the master switch governing log data availability.",
+    "security_impact": "The Rego policy for 'traffic_logging_and_retention_completeness' requires traffic_logging_enabled == true as its first condition. If logging is disabled, the entire logging and retention countermeasure is disqualified regardless of retention period or data type configuration, eliminating forensic investigation and compliance reporting capability.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Access the NMS or IDS/IPS management console, navigate to Logging Settings or Monitoring Configuration, and verify logging toggles are enabled for all monitored interfaces including flow logging, session capture, and alert recording.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration > Logging > Interface Logging Settings > [Each Interface] > Logging Enabled",
+        "expected_output": "All monitored interfaces show logging status as 'Enabled' or 'Active' with green indicator."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Suricata's logging output configuration to confirm EVE JSON logging is active and writing to the expected output path.",
+        "command": "sudo suricata --dump-config | grep -A5 'outputs' | grep -E 'enabled|eve-log|filename' && ls -lh /var/log/suricata/eve.json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EVE JSON output shows 'enabled: yes'; eve.json file exists with a recent modification timestamp."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the Suricata or Snort logging configuration section to confirm output modules are enabled and writing to active destinations.",
+        "command": null,
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "Under 'outputs:', the 'eve-log' section shows 'enabled: yes' and 'fast' or 'unified2' outputs are not set to 'enabled: no'."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify active log generation by checking that log files are being updated in real time, confirming the logging pipeline is active end-to-end.",
+        "command": "tail -f /var/log/suricata/eve.json | head -20 && stat /var/log/suricata/fast.log | grep -E 'Modify|Size'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Live JSON events streaming from eve.json; fast.log shows modification timestamp within the last few minutes."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Defines the number of days that traffic logs, flow records, and alert events are retained before automatic deletion or archival — sets the forensic investigation window and compliance reporting horizon.",
+    "security_impact": "The Rego policy for 'traffic_logging_and_retention_completeness' requires log_retention_days >= 90 as a qualifying condition alongside logging being enabled and required data types being present. Organizations retaining fewer than 90 days of logs lose this countermeasure credit and may be unable to satisfy breach investigation timelines required by compliance frameworks (PCI-DSS: 12 months, HIPAA: 6 years).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the SIEM or NMS storage/retention policy settings to find the configured log lifecycle window. In Splunk, check index retention; in Elastic, check index lifecycle management (ILM) policies.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM Admin > Data Management > Index Settings > Retention Policy (or) NMS > Storage > Log Lifecycle",
+        "expected_output": "Retention period displayed in days, e.g., '90 days', '180 days', or a delete phase trigger at a specific age."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Elasticsearch ILM policy to retrieve the configured log retention period for IDS/IPS indices.",
+        "command": "curl -s -X GET 'http://localhost:9200/_ilm/policy/ids-logs-policy' | python3 -m json.tool | grep -E 'min_age|max_age|delete'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ILM policy shows delete phase trigger at the configured retention age, e.g., 'min_age: 90d' in the delete phase."
+      },
+      {
+        "type": "command",
+        "instruction": "Check system-level log rotation configuration to determine how long Suricata/Snort logs are retained before rotation and deletion.",
+        "command": "cat /etc/logrotate.d/suricata && find /var/log/suricata/ -name '*.log*' -printf '%T+ %p\n' | sort | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Logrotate config shows 'rotate N' directive; oldest log file date can be used to calculate effective retention window."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the SIEM or log management platform's storage configuration file for retention period settings.",
+        "command": null,
+        "file_path": "/etc/logstash/conf.d/retention.conf",
+        "navigation": null,
+        "expected_output": "Retention configuration block specifying a delete-after period in days, e.g., 'retention_days: 90' or equivalent directive."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30",
+      "90",
+      "180",
+      "365"
+    ]
+  },
+  {
+    "option_name": "logged_data_types",
+    "option_description": "Specifies the list of data categories actively captured by the traffic monitoring system — determines the forensic richness and investigative depth available from the logging pipeline.",
+    "security_impact": "The Rego policy for 'traffic_logging_and_retention_completeness' explicitly requires all three of 'flow_records', 'session_metadata', and 'alert_events' to be present in logged_data_types. Missing any single category disqualifies the countermeasure even if logging is enabled and retention is adequate — each type serves a distinct forensic purpose for incident reconstruction.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the Suricata EVE JSON output configuration to identify which event types are enabled for capture — each enabled type maps to a logged data category.",
+        "command": null,
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "Under 'eve-log > types:', entries for 'alert', 'flow', 'http', 'dns', 'tls', 'netflow' should be visible and not commented out."
+      },
+      {
+        "type": "command",
+        "instruction": "Query a sample of the EVE JSON log to identify which event types are present in recent records, confirming actual capture rather than just configuration.",
+        "command": "cat /var/log/suricata/eve.json | python3 -c \"import sys,json; types=set(); [types.add(json.loads(l).get('event_type','')) for l in sys.stdin]; print(sorted(types))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output list includes 'alert', 'flow', 'netflow' (alert_events, flow_records, session_metadata equivalents)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the NMS or IDS management console, navigate to Monitoring > Log Configuration and review which data collection categories are toggled on (flow records, session/connection logs, alert events, packet captures).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Monitoring > Log Configuration > Data Collection Categories > [Review Active Toggles]",
+        "expected_output": "Checkboxes or toggle indicators show 'Flow Records', 'Session Metadata', and 'Alert Events' all enabled."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Elasticsearch index for IDS logs to identify distinct event_type values present in stored records, confirming what data categories are actually being ingested.",
+        "command": "curl -s -X GET 'http://localhost:9200/ids-logs-*/_search' -H 'Content-Type: application/json' -d '{\"size\":0,\"aggs\":{\"types\":{\"terms\":{\"field\":\"event_type.keyword\"}}}}' | python3 -m json.tool | grep 'key'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Aggregation buckets showing distinct event_type values including 'alert', 'flow', and 'netflow' or 'http'/'dns' session types."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"flow_records\", \"alert_events\"]",
+      "[\"flow_records\", \"session_metadata\", \"alert_events\"]",
+      "[\"flow_records\", \"session_metadata\", \"alert_events\", \"packet_captures\"]"
+    ]
+  },
+  {
+    "option_name": "siem_export_enabled",
+    "option_description": "Controls whether the IDS/IPS system actively forwards alerts and telemetry to a downstream SIEM or SOAR platform — the master switch for centralized security event correlation and automated response orchestration.",
+    "security_impact": "The Rego policy for 'siem_and_orchestration_integration' requires siem_export_enabled == true as its primary condition. Without active export, all downstream correlation, automated playbook triggering, and threat intelligence enrichment in the SIEM/SOAR are severed — IDS alerts remain siloed in the sensor and unavailable for enterprise-wide response workflows.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Access the IDS/IPS management console and navigate to Integration or Forwarding settings. Check whether SIEM/Syslog/CEF forwarding destinations are configured and show an active/connected status.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration > Integrations > SIEM Forwarding > Status",
+        "expected_output": "At least one forwarding destination shows status 'Connected', 'Active', or 'Sending' with a recent last-sent timestamp."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether Suricata or the log shipper (Filebeat/Logstash) is actively forwarding events to the SIEM by inspecting the output configuration and testing connectivity.",
+        "command": "grep -E 'output|elasticsearch|logstash|syslog' /etc/filebeat/filebeat.yml | grep -v '#' && systemctl status filebeat | grep -E 'Active|running'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Filebeat output section shows a configured SIEM/Elasticsearch endpoint; service status shows 'active (running)'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the log forwarding agent or syslog daemon configuration to confirm an active output destination pointing to the SIEM.",
+        "command": null,
+        "file_path": "/etc/rsyslog.d/ids-siem.conf",
+        "navigation": null,
+        "expected_output": "A forwarding rule present targeting the SIEM host/port, e.g., '*.* @@siem.example.com:514' or Elasticsearch output block with valid host."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Verify active network connectivity from the IDS sensor to the SIEM ingest endpoint to confirm the forwarding path is operational.",
+        "command": "nc -zv <SIEM_HOST> 514 && echo 'Syslog port reachable' || echo 'Connection failed'; curl -s -o /dev/null -w '%{http_code}' https://<SIEM_HOST>:9200/_cluster/health",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "nc reports connection succeeded; curl returns HTTP 200 with cluster health JSON confirming SIEM ingest endpoint is reachable."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "export_format",
+    "option_description": "Specifies the standardized protocol and data format used to export IDS alerts and telemetry to downstream SIEM, SOAR, and threat intelligence platforms — determines parsing fidelity and integration compatibility.",
+    "security_impact": "The Rego policy for 'siem_and_orchestration_integration' requires export_format to be anything other than 'none' (not in ['none']). Using a structured format like CEF, LEEF, or STIX/TAXII ensures downstream platforms can reliably parse, correlate, and enrich events. Generic syslog or raw formats may degrade correlation quality and automated response fidelity compared to structured formats.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the log forwarding agent configuration to identify the output codec or format — Filebeat uses 'codec' settings, rsyslog uses template format strings, and dedicated SIEM connectors specify format explicitly.",
+        "command": null,
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "Output section shows a codec or format specifier such as 'codec: cef', 'format: json', or a CEF template in rsyslog configuration."
+      },
+      {
+        "type": "command",
+        "instruction": "Capture a sample of exported events at the SIEM ingestion point or from the forwarder queue to identify the actual wire format being transmitted.",
+        "command": "head -5 /var/log/suricata/eve.json | python3 -m json.tool | head -10 && sudo tcpdump -A -i any dst port 514 -c 3 2>/dev/null | grep -E 'CEF:|LEEF:|{\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows structured JSON events from EVE log, or tcpdump captures CEF-prefixed syslog messages or JSON payloads confirming the active format."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the IDS/IPS integration settings or the SIEM connector configuration to find the explicitly configured output format selector.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration > Integrations > SIEM Export Settings > Output Format",
+        "expected_output": "A dropdown or field showing the selected format: CEF, LEEF, STIX/TAXII, JSON, Syslog, or None."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the IDS management API to retrieve the configured export destination details including the format specification.",
+        "command": "curl -s -X GET 'https://<IDS_MGMT_HOST>/api/v1/integrations/siem' -H 'Authorization: Bearer <TOKEN>' | python3 -m json.tool | grep -E 'format|protocol|codec'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response includes a 'format' field with value such as 'cef', 'json', 'leef', or 'stix_taxii'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "cef",
+      "json",
+      "syslog",
+      "none"
+    ]
+  },
+  {
+    "option_name": "export_destination_count",
+    "option_description": "Tracks the number of active downstream SIEM, SOAR, or threat intelligence platform destinations configured to receive IDS telemetry — quantifies the breadth of security operations coverage receiving detection data.",
+    "security_impact": "The Rego policy for 'siem_and_orchestration_integration' requires export_destination_count >= 1 as a qualifying threshold. Zero configured destinations means no telemetry is reaching any correlation platform regardless of whether export is enabled. Multiple destinations improve resilience and enable parallel workflows across SIEM correlation, SOAR automation, and threat intelligence enrichment.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Count the number of distinct output destinations configured in the log forwarding agent configuration file — each 'output' block or forwarding rule targeting a unique host represents one destination.",
+        "command": null,
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "Multiple 'hosts:' entries under different output sections, or a single output with multiple host entries — count equals distinct SIEM/SOAR endpoints."
+      },
+      {
+        "type": "command",
+        "instruction": "Count active forwarding rules in rsyslog or syslog-ng targeting remote SIEM destinations.",
+        "command": "grep -rE '@@|@{' /etc/rsyslog.d/ /etc/rsyslog.conf 2>/dev/null | grep -v '#' | wc -l && grep -rE 'destination|destination_driver' /etc/syslog-ng/ 2>/dev/null | grep -v '#' | wc -l",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer count of forwarding rules — each non-local destination represents one configured export endpoint."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the integration or forwarding destinations panel in the IDS/IPS management console and count all entries with an 'Active' or 'Connected' status.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration > Integrations > Forwarding Destinations > [Count Active Entries]",
+        "expected_output": "A list of destination entries (e.g., Splunk HEC, Elastic, QRadar, Cortex XSOAR) each with connection status — count only 'Active'/'Connected' entries."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the IDS management platform API to retrieve the list of configured export destinations and count active ones.",
+        "command": "curl -s -X GET 'https://<IDS_MGMT_HOST>/api/v1/integrations/destinations' -H 'Authorization: Bearer <TOKEN>' | python3 -c \"import sys,json; d=json.load(sys.stdin); active=[x for x in d.get('destinations',[]) if x.get('status')=='active']; print(f'Active destinations: {len(active)}')\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output displays the count of active destinations, e.g., 'Active destinations: 2'."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "1",
+      "2",
+      "3"
+    ]
+  },
+  {
+    "option_name": "last_successful_export_hours_ago",
+    "option_description": "Measures the elapsed time in hours since the last confirmed successful telemetry delivery to a downstream platform — provides a real-time health indicator of the export pipeline's operational continuity.",
+    "security_impact": "The Rego policy for 'siem_and_orchestration_integration' requires last_successful_export_hours_ago <= 24. A gap exceeding 24 hours means SIEM correlation rules, SOAR playbooks, and threat intelligence enrichment have been operating without fresh IDS data, creating a blind period where threats could go undetected and unresponded to in downstream security systems.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Access the integration health dashboard in the IDS/IPS management console or the SIEM connector status panel to find the 'Last Received' or 'Last Successful Export' timestamp, then calculate elapsed hours.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration > Integrations > Forwarding Status > Last Successful Export Timestamp",
+        "expected_output": "Timestamp of last acknowledged export event — subtract from current time to calculate hours elapsed; should be less than 24 hours."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SIEM API for the timestamp of the most recently ingested IDS event, then calculate elapsed hours since that event.",
+        "command": "curl -s -X GET 'http://localhost:9200/ids-logs-*/_search' -H 'Content-Type: application/json' -d '{\"size\":1,\"sort\":[{\"@timestamp\":{\"order\":\"desc\"}}],\"_source\":[\"@timestamp\"]}' | python3 -c \"import sys,json,datetime; d=json.load(sys.stdin); ts=d['hits']['hits'][0]['_source']['@timestamp']; t=datetime.datetime.fromisoformat(ts.replace('Z','+00:00')); now=datetime.datetime.now(datetime.timezone.utc); print(f'Hours since last event: {(now-t).total_seconds()/3600:.1f}')\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Calculated hours since last IDS event in the SIEM index, e.g., 'Hours since last event: 2.3' — values over 24 indicate a forwarding gap."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect the Filebeat or log forwarder internal logs to find the timestamp of the last successful acknowledgement from the downstream SIEM destination.",
+        "command": "grep -E 'publish|acknowledged|events published|bulk indexed' /var/log/filebeat/filebeat | tail -5 && journalctl -u filebeat --since '25 hours ago' | grep -E 'published|acknowledged' | tail -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log entries showing successful publish/acknowledge events with timestamps — most recent entry timestamp used to calculate hours elapsed."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Logstash pipeline metrics or the Filebeat monitoring API to retrieve the last successful output event timestamp.",
+        "command": "curl -s 'http://localhost:5601/api/monitoring/v1/clusters' -H 'kbn-xsrf: true' | python3 -m json.tool | grep -E 'last_seen|timestamp' || curl -s 'http://localhost:9600/_node/stats/pipelines' | python3 -m json.tool | grep -E 'last_processed|timestamp'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Pipeline stats including a last processed or last successful output timestamp that can be compared against current time to determine elapsed hours."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1",
+      "6",
+      "12",
+      "24",
+      "48",
+      "168"
+    ]
+  },
+  {
+    "option_name": "internal_segment_sensor_coverage",
+    "option_description": "Controls the extent to which network sensors are deployed across east-west internal traffic segments, including internal VLANs, lateral segments, server-to-server paths, cloud VPCs, OT/ICS networks, and VPN/remote access gateways — not solely at internet-facing perimeter points.",
+    "security_impact": "Critical for lateral movement detection. The Rego policy grants the 'Lateral Movement Detection Coverage' countermeasure only when this value is 'full' (combined with active signatures and SIEM/automated response integration) or 'partial' (only when combined with automated_response). Perimeter-only coverage creates complete blind spots for internal attacker movement. The 'Sensor Deployment And Coverage Completeness' rule additionally requires this to be 'full' alongside verified sensor health.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the IDS/NDR sensor management console and review the sensor topology map. Identify whether sensors are placed only at internet-facing ingress/egress points or also on internal VLANs, cloud VPC traffic mirrors, OT network taps, and VPN concentrator spans.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IDS Console > Sensors > Topology Map or Deployment Overview",
+        "expected_output": "Sensor list grouped by network segment showing coverage across perimeter, internal VLANs, cloud, OT, and remote access paths"
+      },
+      {
+        "type": "command",
+        "instruction": "Query the IDS management API to enumerate all registered sensors and their assigned network segments, then cross-reference with the network architecture diagram.",
+        "command": "curl -sk -H 'Authorization: Bearer $IDS_API_TOKEN' https://<ids-manager>/api/v1/sensors | jq '[.[] | {name: .name, segment: .network_segment, status: .status, location: .deployment_zone}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON list of sensors with deployment zones including entries for internal, cloud, OT, and remote-access segments beyond just perimeter"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the sensor deployment configuration file or infrastructure-as-code manifests (Terraform, CloudFormation) for VPC traffic mirroring targets or SPAN port configurations spanning internal segments.",
+        "command": "grep -rE '(span_port|mirror_target|vpc_traffic_mirror|internal_vlan|ot_segment)' /etc/ids/sensor_deployment.conf /opt/ids/config/",
+        "file_path": "/etc/ids/sensor_deployment.conf",
+        "expected_output": "Configuration entries referencing internal VLANs, VPC mirror sessions, OT network taps, and VPN gateway segments in addition to perimeter interfaces"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security team and request the sensor deployment topology diagram. Verify documented coverage against the actual network architecture diagram, specifically asking about east-west segment coverage, cloud workload monitoring, OT isolation zones, and VPN ingress points.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented topology showing sensor placement across all critical internal segments with no unexplained gaps"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "perimeter_only",
+      "partial",
+      "full",
+      "none"
+    ]
+  },
+  {
+    "option_name": "lateral_movement_signatures_enabled",
+    "option_description": "Controls whether detection signatures or behavioral rules for lateral movement indicators are active and current in the IDS/NDR ruleset — covering techniques such as Pass-the-Hash (PtH), Pass-the-Ticket (PtT), NTLM relay, internal port scanning, SMB abuse, WMI lateral movement, and RPC protocol abuse.",
+    "security_impact": "Directly gates the 'Lateral Movement Detection Coverage' countermeasure in the Rego policy. Without active, up-to-date lateral movement signatures, even full internal sensor coverage provides no detection value against common post-exploitation techniques. The policy requires this to be true alongside sensor coverage and alert integration to grant the high-criticality score-8 countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Open the IDS/NDR rule management interface and filter enabled rules by categories including 'lateral-movement', 'credential-abuse', 'smb', 'wmi', 'rpc', 'ntlm', and 'internal-recon'. Verify rules are enabled and check the last signature update timestamp.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IDS Console > Rules/Signatures > Filter by Category: lateral_movement, credential_relay, protocol_abuse > Check Status=Enabled and Last Updated",
+        "expected_output": "List of enabled rules covering PtH, PtT, NTLM relay, SMB/WMI/RPC abuse with last update timestamp within 30 days"
+      },
+      {
+        "type": "command",
+        "instruction": "Query the IDS rule API or CLI to list enabled rules matching lateral movement categories and verify the signature library update timestamp.",
+        "command": "suricata-update list-enabled-sources && grep -c 'enabled: true' /etc/suricata/rules/lateral-movement.rules; stat /etc/suricata/rules/ | grep Modify",
+        "file_path": "/etc/suricata/rules/lateral-movement.rules",
+        "expected_output": "Non-zero count of enabled lateral movement rules with a modification date within the last 30 days"
+      },
+      {
+        "type": "api",
+        "instruction": "Use the IDS vendor API to retrieve rule status for lateral movement signature categories and confirm enforcement mode and last update date.",
+        "command": "curl -sk -H 'Authorization: Bearer $IDS_API_TOKEN' 'https://<ids-manager>/api/v1/rules?category=lateral_movement&status=enabled' | jq '{count: length, last_updated: .[0].updated_at, sample_rules: [.[0:3][].name]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response showing enabled rule count > 0 with updated_at timestamp within 30 days for lateral movement category"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the SIEM or IDS alert logs for recent lateral movement alert categories to confirm rules are firing. Absence of any lateral movement alerts in an active environment may indicate signatures are disabled or not tuned.",
+        "command": "grep -E '(pass.the.hash|ntlm.relay|smb.lateral|wmi.exec|internal.scan)' /var/log/ids/alerts.log | tail -50 | awk '{print $1, $2, $NF}'",
+        "file_path": "/var/log/ids/alerts.log",
+        "expected_output": "Recent alert entries matching lateral movement signature names, confirming rules are active and triggering"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "east_west_alert_response_integration",
+    "option_description": "Controls the level of integration between east-west internal traffic detection alerts and active response or ticketing systems — ranging from no integration through logging-only, SIEM forwarding, and full automated response with defined playbooks.",
+    "security_impact": "Required by the Rego 'Lateral Movement Detection Coverage' policy. With full sensor coverage, the policy accepts either 'automated_response' or 'siem_integrated'. With only partial sensor coverage, only 'automated_response' satisfies the rule. 'logging_only' or 'none' means detected lateral movement events have no actionable response pipeline, making detection effectively decorative even when sensors and signatures are in place.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the IDS/NDR alert forwarding or integration configuration. Verify whether east-west alerts are forwarded to a SIEM (Splunk, QRadar, Sentinel), whether a SOAR platform receives them with playbooks, or whether only local logging is configured.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IDS Console > Settings > Integrations > Alert Forwarding > verify SIEM/SOAR connectors are enabled with east-west alert sources included",
+        "expected_output": "Active connector configuration showing SIEM or SOAR destination with east-west sensor alert feeds included in scope"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the IDS output/integration configuration file for syslog, CEF, or API forwarding destinations and confirm east-west segment alerts are included in forwarding rules.",
+        "command": "cat /etc/ids/outputs.conf | grep -A5 -E '(siem|syslog|soar|splunk|sentinel|elastic)'",
+        "file_path": "/etc/ids/outputs.conf",
+        "expected_output": "Configuration block showing active output destination (SIEM/SOAR host, port, format) with no segment exclusions filtering out internal/east-west alerts"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SIEM or SOAR API to confirm recent ingestion of east-west IDS alerts, proving the integration pipeline is active end-to-end.",
+        "command": "curl -sk -H 'Authorization: Bearer $SIEM_TOKEN' 'https://<siem>/api/search?query=sourcetype%3Dids+segment%3Deast_west&earliest=-24h' | jq '{total_events: .count, last_event: .results[0].timestamp}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SIEM search returns recent east-west IDS alert events confirming active ingestion within the last 24 hours"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the incident response playbook inventory from the SOC team and verify existence of documented playbooks or SOAR workflows triggered specifically by east-west IDS alerts. Confirm automated response actions (e.g., host isolation, ACL push) are defined.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented playbooks referencing east-west lateral movement alert sources with defined automated or human-in-loop response steps"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "siem_integrated",
+      "logging_only",
+      "automated_response",
+      "none"
+    ]
+  },
+  {
+    "option_name": "sensor_health_verified",
+    "option_description": "Indicates whether all deployed IDS sensors have been confirmed as operational and actively forwarding traffic to the detection platform within the last monitoring cycle — verified through heartbeat checks, last-seen timestamps, and traffic volume metrics.",
+    "security_impact": "Required by the Rego 'Sensor Deployment And Coverage Completeness' policy alongside full internal segment coverage. A sensor that is deployed but offline, in error state, or silently failing provides zero detection value while appearing in documentation as covered. This attribute confirms operational reality versus theoretical deployment, preventing false assurance of coverage completeness.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Open the IDS sensor management dashboard and review the health status panel for each deployed sensor. Look for any sensors showing status as 'offline', 'error', 'silent', or 'degraded'. Check last-seen timestamps and verify traffic throughput is non-zero.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IDS Console > Sensors > Health Dashboard > filter by Status != Healthy OR Last Seen > 1 hour ago",
+        "expected_output": "All sensors showing 'Healthy'/'Active' status with last-seen timestamps within the current monitoring cycle and non-zero traffic packet counts"
+      },
+      {
+        "type": "command",
+        "instruction": "Use the IDS management CLI or API to retrieve sensor status and identify any sensors not forwarding traffic within the expected heartbeat interval.",
+        "command": "curl -sk -H 'Authorization: Bearer $IDS_API_TOKEN' https://<ids-manager>/api/v1/sensors/health | jq '.[] | select(.status != \"healthy\" or .last_seen_minutes_ago > 15) | {name, status, last_seen_minutes_ago, packets_per_sec}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty result set (no unhealthy sensors) or explicit list of sensors requiring remediation; all healthy sensors show packets_per_sec > 0"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check SIEM or monitoring platform for sensor heartbeat alerts or gaps in telemetry ingestion by querying for sensors with no events in the last monitoring cycle window.",
+        "command": "grep -E '(sensor.down|heartbeat.missed|sensor.offline|no.traffic)' /var/log/ids/sensor-health.log | grep \"$(date +%Y-%m-%d)\"",
+        "file_path": "/var/log/ids/sensor-health.log",
+        "expected_output": "No heartbeat failure entries for today's date, confirming all sensors are actively forwarding"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the monitoring platform's metric store for per-sensor traffic volume over the last hour to confirm each sensor is receiving and forwarding packets.",
+        "command": "curl -sk 'https://<prometheus>/api/v1/query?query=ids_sensor_packets_received_total' | jq '.data.result[] | {sensor: .metric.sensor_name, packets: .value[1]}' | awk '$2 == \"0\" {print \"SILENT SENSOR:\", $0}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All sensors return non-zero packet counts; any sensor showing 0 packets requires immediate investigation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "false_positive_tuning_enabled",
+    "option_description": "Controls whether active false positive tuning mechanisms — including rule suppression, IP/domain whitelisting, and threshold calibration — are configured and operational in the network traffic monitoring system to reduce alert noise.",
+    "security_impact": "Required by the Rego 'False Positive Tuning And Alert Fidelity' policy. Without tuning enabled, analyst alert queues fill with noise, causing alert fatigue that suppresses response to real threats. The policy grants the countermeasure when tuning is enabled alongside either a monthly-or-better review cycle with at least one suppression rule, or a daily/weekly review cycle alone. A default/unconfigured tuning state indicates the detection platform is generating unfiltered raw alerts.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the IDS/NDR rule management or tuning interface and verify whether suppression rules, event filters, or whitelist entries exist. Confirm the tuning feature is not in a factory-default or disabled state.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IDS Console > Tuning > Suppressions / Whitelists / Threshold Rules > verify at least one active entry exists and feature is enabled",
+        "expected_output": "Tuning interface shows active suppression or whitelist entries with non-default configuration, feature toggle is ON"
+      },
+      {
+        "type": "command",
+        "instruction": "Query the IDS rule suppression or whitelist configuration to confirm active tuning entries are present and the feature is enabled.",
+        "command": "curl -sk -H 'Authorization: Bearer $IDS_API_TOKEN' https://<ids-manager>/api/v1/tuning/suppressions?status=active | jq '{tuning_enabled: (length > 0), active_rules: length, sample: [.[0:2][].description]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "tuning_enabled: true with active_rules count > 0, confirming suppression rules are configured"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the IDS suppression or threshold configuration file for active tuning entries that override default detection sensitivity.",
+        "command": "cat /etc/suricata/threshold.conf | grep -v '^#' | grep -E '(suppress|threshold|event_filter)' | wc -l && cat /etc/suricata/threshold.conf | grep -v '^#' | grep -E '(suppress|threshold)' | head -10",
+        "file_path": "/etc/suricata/threshold.conf",
+        "expected_output": "Non-zero count of suppress/threshold entries, with at least one active tuning rule visible in the file"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the IDS management audit log for tuning configuration changes to confirm the feature has been actively used and is not in default state.",
+        "command": "grep -E '(suppression.created|whitelist.added|threshold.modified|tuning.updated)' /var/log/ids/audit.log | tail -20",
+        "file_path": "/var/log/ids/audit.log",
+        "expected_output": "Recent audit log entries showing tuning rule creation or modification, confirming the feature is actively managed"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "alert_fidelity_review_frequency",
+    "option_description": "Controls how frequently tuning rules, whitelists, and detection thresholds are reviewed and updated to maintain alert fidelity — preventing stale suppression rules from hiding real threats and ensuring new legitimate activity patterns are correctly baselined.",
+    "security_impact": "A key condition in the Rego 'False Positive Tuning And Alert Fidelity' policy. The policy grants the countermeasure when false_positive_tuning_enabled is true AND review frequency is 'daily', 'weekly', or 'monthly' (with suppression rules present), OR when review frequency is 'daily' or 'weekly' alone. 'Quarterly' or 'never' review cycles fail the policy, as infrequent review allows stale whitelists to mask active threats or outdated thresholds to generate excessive noise.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IDS/SOC team to determine the documented tuning review cadence. Request the change management runbook, tuning SOP, or recurring calendar invite for tuning review sessions to confirm the stated frequency.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented SOP or recurring calendar event showing tuning review schedule with frequency of daily, weekly, or monthly"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the IDS management audit log or ticketing system for tuning-related change records to empirically determine how frequently reviews actually occur rather than relying on stated policy.",
+        "command": "grep -E '(suppression|whitelist|threshold|tuning)' /var/log/ids/audit.log | awk '{print $1}' | sort | uniq -c | sort -rn | head -30",
+        "file_path": "/var/log/ids/audit.log",
+        "expected_output": "Change records with dates showing consistent review pattern — daily entries for daily cadence, weekly clustering for weekly, etc."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the ticketing or ITSM system API for IDS tuning review tickets to measure actual review frequency from closed ticket timestamps.",
+        "command": "curl -sk -H 'Authorization: Bearer $ITSM_TOKEN' 'https://<itsm>/api/tickets?label=ids-tuning-review&status=closed&limit=20' | jq '[.[] | {id: .id, closed_date: .resolved_at}] | sort_by(.closed_date) | reverse'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of closed tuning review tickets with dates showing consistent intervals matching the claimed review frequency"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check for scheduled cron jobs, automation scripts, or pipeline definitions that execute tuning review processes on a defined schedule.",
+        "command": "crontab -l | grep -i 'ids\\|tuning\\|fidelity'; ls -la /etc/cron.daily/ /etc/cron.weekly/ /etc/cron.monthly/ | grep -i 'ids\\|tuning'",
+        "file_path": null,
+        "expected_output": "Cron job or scheduled task entry referencing IDS tuning review at the expected frequency interval"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "monthly",
+      "weekly",
+      "quarterly",
+      "never",
+      "daily"
+    ]
+  },
+  {
+    "option_name": "suppression_rule_count",
+    "option_description": "Tracks the number of active suppression or whitelist rules currently configured in the monitoring system — representing the scope of false positive reduction work applied to raw detection output. Valid range is 0 to 100,000 rules.",
+    "security_impact": "Used in the Rego 'False Positive Tuning And Alert Fidelity' policy as a supporting condition: when false_positive_tuning_enabled is true and review frequency is monthly-or-better, the policy additionally checks suppression_rule_count >= 1. A count of zero with tuning claimed as enabled indicates the tuning capability is configured but not actually used, leaving alert volumes unmanaged and potentially causing analyst fatigue. Extremely high counts (tens of thousands) without review may indicate over-suppression hiding real threats.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the IDS management API to retrieve the count of active suppression and whitelist rules currently enforced in the detection platform.",
+        "command": "curl -sk -H 'Authorization: Bearer $IDS_API_TOKEN' 'https://<ids-manager>/api/v1/tuning/suppressions?status=active' | jq 'length'; curl -sk -H 'Authorization: Bearer $IDS_API_TOKEN' 'https://<ids-manager>/api/v1/tuning/whitelists?status=active' | jq 'length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer counts for suppression rules and whitelist entries; sum represents total active suppression_rule_count"
+      },
+      {
+        "type": "command",
+        "instruction": "Count active suppression and threshold rules in the IDS configuration files directly on the sensor or management host.",
+        "command": "grep -cE '^(suppress|event_filter|threshold)' /etc/suricata/threshold.conf; wc -l < /etc/snort/rules/local.rules; grep -c 'pass ' /etc/suricata/rules/local.rules",
+        "file_path": "/etc/suricata/threshold.conf",
+        "expected_output": "Non-zero integer counts reflecting actively configured suppression entries; zero indicates no tuning rules are in place"
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the IDS/NDR tuning or suppression management interface and note the total count displayed in the suppression rules and whitelist sections.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IDS Console > Tuning > Suppressions > view total rule count displayed in the list header or pagination summary",
+        "expected_output": "Numeric count of active suppression rules displayed in the UI list view, ideally with breakdown by rule type (suppress, whitelist, threshold)"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM for IDS suppression hit statistics to understand both the count of active suppression rules and their effectiveness in reducing alert volume.",
+        "command": "grep -c 'action=suppress\\|action=whitelist\\|action=threshold' /var/log/ids/tuning-actions.log 2>/dev/null || curl -sk -H 'Authorization: Bearer $SIEM_TOKEN' 'https://<siem>/api/search?query=sourcetype%3Dids_tuning+action%3Dsuppress&earliest=-7d' | jq '.count'",
+        "file_path": "/var/log/ids/tuning-actions.log",
+        "expected_output": "Count of unique suppression rule identifiers referenced in suppression action logs over the trailing 7 days"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "50",
+      "200",
+      "1500",
+      "5000"
+    ]
+  },
+  {
+    "option_name": "threat_feed_integration_enabled",
+    "option_description": "Controls whether external threat intelligence feeds — including IP reputation lists, domain blacklists, and malware hash databases — are actively integrated into the IDS detection engine in enforcement or detection mode, not merely configured as inactive connectors.",
+    "security_impact": "Gates the Rego 'Threat Intelligence Feed Integration' countermeasure. The policy requires this to be true along with feed refresh interval <= 24 hours and at least 2 active feed types (or specifically ip_reputation + domain_blacklist). When false, the detection system operates solely on local signatures and behavioral rules without real-time enrichment against known-bad infrastructure — missing detection opportunities for C2 communication, phishing domains, and known malicious IP ranges. Default value is false, making explicit enablement necessary.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the IDS/NDR threat intelligence integration settings and verify that feed connectors are in active enforcement or detection mode — not merely configured or paused. Check that feed types include IP reputation and domain blacklist at minimum.",
+        "command": null,
+        "file_path": null,
+        "navigation": "IDS Console > Threat Intelligence > Feed Management > verify each feed connector shows Status=Active/Enforcing with last sync timestamp within 24 hours",
+        "expected_output": "Feed connector list showing active status, last successful sync timestamp within 24 hours, and feed categories including IP reputation and domain blacklist"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the IDS management API to retrieve threat feed integration status and confirm feeds are in active enforcement mode with recent sync timestamps.",
+        "command": "curl -sk -H 'Authorization: Bearer $IDS_API_TOKEN' https://<ids-manager>/api/v1/threat-intelligence/feeds | jq '[.[] | {name: .name, type: .feed_type, status: .status, mode: .enforcement_mode, last_sync: .last_successful_sync}] | {total_feeds: length, active_feeds: [.[] | select(.status == \"active\")]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response showing active feed entries with enforcement_mode set to 'detect' or 'block' and last_sync within the last 24 hours"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the IDS threat intelligence configuration file for enabled feed connector entries and verify feed URLs, API keys, and enforcement mode settings are populated and active.",
+        "command": "grep -A10 -E '(threat.feed|ip.reputation|domain.blacklist|ti.integration)' /etc/ids/threat-intel.conf | grep -E '(enabled|mode|url|api_key|status)'",
+        "file_path": "/etc/ids/threat-intel.conf",
+        "expected_output": "Configuration entries showing enabled=true, mode=detect or block, and populated feed URL/API credentials for at least two feed types"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Trigger a test connection to a known threat intelligence feed endpoint from the IDS management host to confirm active connectivity, then verify a known malicious test indicator generates an alert.",
+        "command": "curl -sk -o /dev/null -w '%{http_code}' https://<threat-feed-provider>/api/v1/feed/status -H 'X-API-Key: $FEED_API_KEY' && echo; grep -i 'threatfeed\\|ti.hit\\|reputation.block' /var/log/ids/alerts.log | tail -5",
+        "file_path": "/var/log/ids/alerts.log",
+        "expected_output": "HTTP 200 response from feed provider confirming active connectivity; recent alert log entries with 'ti.hit' or 'reputation' indicators confirming feeds are triggering detections"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "feed_refresh_interval_hours",
+    "option_description": "Controls how frequently the IDS/NIDS pulls updated threat intelligence from upstream feed providers, measured in hours. This determines the maximum age of IOC data (IP reputation lists, domain blacklists, malware hashes) used to enrich detection decisions against live network traffic.",
+    "security_impact": "The Rego policy enforces that feed_refresh_interval_hours must be <= 24 for the threat_intelligence_feed_integration countermeasure to be satisfied. A stale feed means the IDS is matching traffic against outdated IOC data, allowing newly emerged malicious infrastructure (C2 IPs, phishing domains, fresh malware hashes) to pass uninspected. Feeds exceeding 24 hours are operationally stale in most threat environments where adversary infrastructure turns over within hours. Interval values of 0 or null indicate feed automation is not configured at all.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the NIDS daemon configuration directly (Suricata example) to extract the current feed update interval from the threat intelligence provider block.",
+        "command": "grep -E '(update-interval|refresh|poll)' /etc/suricata/suricata.yaml && suricata-update list-sources --enabled | grep -i interval",
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "Output should show a numeric interval value such as 'update-interval: 3600' (seconds) or equivalent hours-based setting. Convert seconds to hours if necessary (3600s = 1h, 86400s = 24h)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the threat intelligence platform (TIP) or SIEM feed connector configuration file for the polling schedule. Applies to Zeek/Bro with intel framework, Snort with PulledPork, or standalone TIP connectors.",
+        "command": "cat /etc/pulledpork/pulledpork.conf | grep -E '(rule_url|update|cron)' && crontab -l -u snort 2>/dev/null || crontab -l -u suricata 2>/dev/null",
+        "file_path": "/etc/pulledpork/pulledpork.conf",
+        "navigation": null,
+        "expected_output": "A cron expression (e.g., '0 */6 * * *' for every 6 hours) or explicit update_interval directive. No cron entry indicates manual or disabled refresh."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the threat feed management panel in the SIEM or dedicated TIP console (e.g., MISP, OpenCTI, ThreatConnect, or vendor NIDS GUI) to review feed synchronization schedules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM Console > Threat Intelligence > Feed Management > [Select Feed] > Sync Schedule / Polling Interval. For Cisco Secure IDS: Configuration > Threat Intelligence > Feed Sources > Edit > Update Frequency. For Palo Alto Panorama: Objects > External Dynamic Lists > [List] > Repeat.",
+        "expected_output": "A numeric interval displayed in hours or minutes alongside a 'Last Synced' timestamp. Compare last sync time to current time to verify the configured interval is actually executing."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SIEM or TIP REST API to retrieve feed source configurations programmatically, including polling interval and last successful pull metadata.",
+        "command": "curl -s -H 'Authorization: Bearer $TIP_API_TOKEN' 'https://<tip-host>/api/v1/feeds' | jq '.[] | {name: .name, refresh_interval_hours: (.refresh_interval_seconds / 3600), last_pull: .last_successful_sync}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response listing each feed with its refresh interval in seconds/hours and last_successful_sync ISO timestamp. Divide seconds by 3600 to normalize to hours."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1 (hourly refresh — high-security or threat-heavy environments)",
+      "6 (every 6 hours — common for commercial TIP integrations)",
+      "12 (twice daily — mid-tier operational deployments)",
+      "24 (daily — minimum acceptable per policy threshold)",
+      "168 (weekly — common in under-resourced or misconfigured environments, fails policy)",
+      "0 (continuous/streaming — TAXII/STIX push models, also acceptable)"
+    ]
+  },
+  {
+    "option_name": "active_feed_types",
+    "option_description": "Defines the set of IOC category types actively ingested from threat intelligence feeds and applied to network traffic inspection. Each element represents a distinct IOC class such as 'ip_reputation', 'domain_blacklist', 'malware_hash', or 'url_blacklist'. Only feed types listed here are parsed, matched, and acted upon by the IDS detection engine.",
+    "security_impact": "The Rego policy requires count(input.active_feed_types) >= 2 for basic countermeasure satisfaction, and specifically checks for both 'ip_reputation' and 'domain_blacklist' as a named passing condition. An empty array (the default) means zero threat intelligence enrichment is applied to network decisions — the IDS operates purely on signatures and behavioral rules with no IOC context. Restricting to a single feed type creates blind spots: an ip_reputation-only configuration will miss domain-fronted C2 traffic; a malware_hash-only configuration provides no network-layer blocking. Breadth of active feed types directly correlates to detection coverage against known-bad infrastructure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate active intel feed source types configured in the IDS engine (Suricata with suricata-update or Zeek Intel Framework) to list which IOC categories are currently loaded and matched.",
+        "command": "suricata-update list-enabled-sources 2>/dev/null && ls -la /var/lib/suricata/rules/ | grep -iE '(reputation|blacklist|hash|ioc|intel)' && zeek -e 'print Intel::read_files' 2>/dev/null || cat /opt/zeek/share/zeek/site/intel/*.dat 2>/dev/null | head -5",
+        "file_path": "/var/lib/suricata/rules/",
+        "navigation": null,
+        "expected_output": "A list of rule/feed files loaded into the engine. Files named 'ip-reputation.rules', 'domain-blacklist.conf', 'malware-hashes.ioc' indicate active feed types. No such files indicate the array is effectively empty."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the IDS/TIP integration configuration to identify which IOC category subscriptions are enabled and parsed. Check both the feed source configuration and the indicator type filter settings.",
+        "command": "grep -rE '(feed_type|ioc_type|indicator_type|category|ip_reputation|domain_blacklist|malware_hash|url_blacklist)' /etc/suricata/ /etc/snort/ /opt/zeek/etc/ 2>/dev/null | grep -v '^Binary'",
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "Configuration entries listing enabled IOC types per feed source. Example: 'indicator_types: [ip_reputation, domain_blacklist]'. An absence of indicator_type filters may indicate all types are accepted or none are explicitly configured."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the active feed subscriptions and IOC type filters in the threat intelligence management interface of the SIEM, TIP, or NIDS console to confirm which categories are being ingested and matched.",
+        "command": null,
+        "file_path": null,
+        "navigation": "For MISP: Administration > Server Settings > MISP > Connected Servers > [Feed] > Enabled Event Types. For Cisco Secure IDS: Configuration > Threat Intelligence > Active Indicators > Filter by Type. For Splunk ES: Configure > Data Enrichment > Threat Intelligence Sources > [Source] > Indicator Types. For Palo Alto: Objects > External Dynamic Lists > Type column (IP List, URL List, Domain List).",
+        "expected_output": "A checklist or tag list showing which IOC types are toggled active. Confirm at minimum 'ip_reputation' and 'domain_blacklist' are enabled and showing a non-zero indicator count."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect IDS alert logs and feed ingestion logs to identify which IOC type categories are generating matches, providing empirical evidence of which feed types are actually active and producing detections.",
+        "command": "grep -E '(ET Intelligence|reputation|blacklist|hash_match|ioc_match|feed_hit)' /var/log/suricata/fast.log /var/log/suricata/eve.json 2>/dev/null | jq -r '.alert.category' 2>/dev/null | sort | uniq -c | sort -rn | head -20",
+        "file_path": "/var/log/suricata/eve.json",
+        "navigation": null,
+        "expected_output": "Alert categories referencing IOC feed types (e.g., 'Misc Attack - IP Reputation', 'DNS Blacklist Hit', 'Malware Hash Match'). Zero results for a given category over a 24-hour window suggests that feed type is not active, misconfigured, or producing no traffic matches."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['ip_reputation', 'domain_blacklist'] (minimum viable per Rego named condition)",
+      "['ip_reputation', 'domain_blacklist', 'url_blacklist', 'malware_hash'] (comprehensive four-type coverage)",
+      "['ip_reputation'] (single-type — fails policy count >= 2 requirement)",
+      "[] (empty default — zero TI enrichment, fails all Rego conditions)",
+      "['ip_reputation', 'domain_blacklist', 'malware_hash', 'url_blacklist', 'file_hash', 'ssl_fingerprint'] (extended coverage in mature SOC environments)",
+      "['domain_blacklist', 'url_blacklist'] (DNS/web-focused deployments, missing IP reputation)"
+    ]
+  }
+]

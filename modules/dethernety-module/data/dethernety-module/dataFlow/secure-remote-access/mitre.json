@@ -1,0 +1,145 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.010",
+      "name": "Downgrade Attack",
+      "relevance": "Weak TLS protocol versions enable downgrade attacks where an adversary forces use of older, weaker protocol versions."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1600",
+      "name": "Weaken Encryption",
+      "relevance": "Using weak TLS protocol versions directly weakens the encryption protecting the channel."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1600.001",
+      "name": "Reduce Key Space",
+      "relevance": "Insufficient cipher suite strength reduces the effective key space, making brute-force or cryptanalytic attacks feasible."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1573",
+      "name": "Encrypted Channel",
+      "relevance": "Missing mutual TLS authentication means only one side is verified, undermining the trust model of encrypted channels."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1573.002",
+      "name": "Asymmetric Cryptography",
+      "relevance": "Mutual TLS relies on asymmetric cryptography for certificate-based authentication; its absence allows impersonation attacks."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1553.004",
+      "name": "Install Root Certificate",
+      "relevance": "Bypassing certificate validation can be achieved by installing rogue root certificates to intercept encrypted traffic."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1649",
+      "name": "Steal or Forge Authentication Certificates",
+      "relevance": "Certificate validation bypass enables or results from forged certificates used to impersonate legitimate endpoints."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1587.003",
+      "name": "Digital Certificates",
+      "relevance": "Adversaries may develop or use fraudulent digital certificates when certificate validation is bypassed."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1558",
+      "name": "Steal or Forge Kerberos Tickets",
+      "relevance": "Session replay attacks share the same conceptual model as ticket/credential replay, reusing captured session tokens to authenticate."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.004",
+      "name": "Private Keys",
+      "relevance": "Without forward secrecy, compromise of a private key allows decryption of all past recorded sessions."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1499.002",
+      "name": "Service Exhaustion Flood",
+      "relevance": "Without rate limiting, encrypted channels are susceptible to service exhaustion floods that overwhelm server resources."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1572",
+      "name": "Protocol Tunneling",
+      "relevance": "Lack of rate limiting on encrypted channels can be exploited for high-volume tunneling of malicious traffic."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1599",
+      "name": "Network Boundary Bridging",
+      "relevance": "BGP route hijacking allows adversaries to bridge network boundaries by redirecting traffic through attacker-controlled infrastructure."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1090.003",
+      "name": "Multi-hop Proxy",
+      "relevance": "BGP hijacking can redirect traffic through adversary-controlled nodes, effectively functioning as a multi-hop interception proxy."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1071.004",
+      "name": "DNS",
+      "relevance": "DNS-based traffic interception exploits the DNS protocol to redirect or intercept communications."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1584.002",
+      "name": "DNS Server",
+      "relevance": "Adversaries compromise DNS servers to perform traffic interception by poisoning DNS responses."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1090.004",
+      "name": "Domain Fronting",
+      "relevance": "Domain fronting abuses DNS and CDN infrastructure to disguise and intercept traffic."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1557",
+      "name": "Adversary-in-the-Middle",
+      "relevance": "Insecure TLS renegotiation can be exploited by an adversary-in-the-middle to inject malicious data into established sessions."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1040",
+      "name": "Network Sniffing",
+      "relevance": "Insecure renegotiation vulnerabilities may expose session data to network sniffing during the renegotiation handshake."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1001",
+      "name": "Data Obfuscation",
+      "relevance": "Timing side-channels leak metadata about obfuscated communications, undermining data obfuscation protections."
+    }
+  ],
+  "respondsWith": []
+}

@@ -1,0 +1,1386 @@
+[
+  {
+    "option_name": "ingress_rule_type",
+    "option_description": "Classifies how ingress rules are specified across NSGs, firewall policies, and cloud-native ingress controllers — whether using strict IP allowlists, broad CIDR ranges, cloud service tags (e.g., 'Internet', 'AzureCloud'), or fully open wildcard rules (0.0.0.0/0 or ::/0). This classification determines the precision of inbound access control at the cloud trust zone boundary.",
+    "security_impact": "The Rego policy fires the 'insufficient_ingress_allowlist_enforcement' exposure whenever ingress_rule_type is 'broad_cidr', 'service_tag', or 'any'. Service tags like 'AzureCloud' or 'Internet' expand the permitted source set far beyond what is operationally necessary, silently including untrusted external networks. The 'any' value represents a complete failure of boundary enforcement and triggers the highest-severity finding regardless of other controls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Azure, list all NSG security rules across your subscription and inspect source address prefixes to classify the ingress rule type.",
+        "command": "az network nsg list --query '[].securityRules[?direction==`Inbound`].[sourceAddressPrefix,sourceAddressPrefixes]' -o table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table showing source prefixes; look for '0.0.0.0/0', 'Internet', 'AzureCloud', '*', or specific CIDRs like '10.0.0.0/24' to classify the rule type."
+      },
+      {
+        "type": "command",
+        "instruction": "On AWS, enumerate all Security Group inbound rules and identify the CIDR or prefix list type used as the source.",
+        "command": "aws ec2 describe-security-groups --query 'SecurityGroups[*].IpPermissions[*].{FromPort:FromPort,IpRanges:IpRanges,Ipv6Ranges:Ipv6Ranges,PrefixListIds:PrefixListIds}' --output json | jq '.[][] | select(.IpRanges[].CidrIp == \"0.0.0.0/0\" or .Ipv6Ranges[].CidrIpv6 == \"::/0\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON showing rules with 0.0.0.0/0 or ::/0 CIDRs — presence indicates type 'any'; prefix list IDs indicate service_tag type."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to VPC > Security Groups, select each security group, and review the Inbound Rules tab. Examine the Source column for '0.0.0.0/0', '::/0', managed prefix lists, or specific CIDRs to determine ingress_rule_type.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Security Groups > [Select Group] > Inbound Rules tab > Source column",
+        "expected_output": "Each rule source is visible; classify as 'any' for 0.0.0.0/0, 'service_tag' for managed prefix list, 'broad_cidr' for /8-/16 ranges, 'strict_allowlist' for /24 or smaller."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If infrastructure is managed via Terraform, inspect .tf files for aws_security_group_rule or azurerm_network_security_rule resources and check the cidr_blocks or source_address_prefix values.",
+        "command": "grep -rE 'cidr_blocks|source_address_prefix|source_ranges' *.tf --include='*.tf' -A2",
+        "file_path": "*.tf / main.tf / network.tf",
+        "navigation": null,
+        "expected_output": "Lines containing '0.0.0.0/0', '::/0', or broad ranges like '10.0.0.0/8' indicate broad_cidr or any; tagged values like 'Internet' indicate service_tag."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "any (common in dev/sandbox environments — NSGs left open for convenience)",
+      "service_tag (common in Azure deployments using 'Internet' or 'AzureCloud' tags)",
+      "broad_cidr (common where corporate ranges like /8 or /16 are used without tightening)",
+      "strict_allowlist (target state — /24 or smaller with named business justification)"
+    ]
+  },
+  {
+    "option_name": "permits_internet_sourced_traffic",
+    "option_description": "A boolean flag indicating whether any currently enabled inbound security rule allows traffic from the public internet by using a source CIDR of 0.0.0.0/0 or ::/0, or a cloud service tag semantically equivalent to 'Any' or 'Internet'. This captures the worst-case ingress exposure for the cloud zone.",
+    "security_impact": "This is an independent trigger in the Rego policy: 'insufficient_ingress_allowlist_enforcement' fires whenever permits_internet_sourced_traffic == true, regardless of the ingress_rule_type value. A single enabled rule with 0.0.0.0/0 is sufficient to expose the entire zone to attack surface from arbitrary internet sources, enabling reconnaissance, brute force, exploitation of unpatched services, and C2 callback paths into the boundary.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, detect any security group inbound rule explicitly allowing 0.0.0.0/0 or ::/0 across the entire account.",
+        "command": "aws ec2 describe-security-groups --query \"SecurityGroups[?IpPermissions[?IpRanges[?CidrIp=='0.0.0.0/0'] || Ipv6Ranges[?CidrIpv6=='::/0']]].{GroupId:GroupId,GroupName:GroupName,Rules:IpPermissions}\" --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-empty JSON array means permits_internet_sourced_traffic = true. Empty array means false."
+      },
+      {
+        "type": "command",
+        "instruction": "On GCP, list all VPC firewall rules with source ranges of 0.0.0.0/0 to identify open internet ingress.",
+        "command": "gcloud compute firewall-rules list --filter='direction=INGRESS AND sourceRanges:0.0.0.0/0' --format='table(name,network,sourceRanges,allowed,targetTags)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any row returned means permits_internet_sourced_traffic = true for that network; empty output means false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Azure, check all NSG rules for 0.0.0.0/0 or the 'Internet' service tag as the source, filtering only Enabled rules.",
+        "command": "az network nsg list --query \"[].securityRules[?direction=='Inbound' && access=='Allow' && (sourceAddressPrefix=='0.0.0.0/0' || sourceAddressPrefix=='Internet' || sourceAddressPrefix=='*')].[name,sourceAddressPrefix,destinationPortRange]\" -o table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any result row confirms permits_internet_sourced_traffic = true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Azure Portal, navigate to Network Security Groups > [select NSG] > Inbound security rules. Filter or sort by Source column and look for '0.0.0.0/0', '*', or 'Internet' in enabled Allow rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Network Security Groups > [NSG Name] > Inbound security rules > Source column",
+        "expected_output": "Any enabled Allow rule with Source = 'Internet', '*', or '0.0.0.0/0' sets permits_internet_sourced_traffic = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (extremely common — found in ~60-70% of cloud assessments on at least one SG or NSG)",
+      "false (target state — requires active deny-all default with explicit allowlisting)"
+    ]
+  },
+  {
+    "option_name": "allowlisted_source_count",
+    "option_description": "An integer representing the count of explicitly defined, narrow inbound source network ranges (CIDR /24 or smaller, or individual IPs) that are permitted across all ingress rules for the cloud zone. This count excludes wildcards (0.0.0.0/0), IPv6 wildcards (::/0), and cloud service tags, measuring only genuinely specific allowlist entries.",
+    "security_impact": "The Rego policy uses allowlisted_source_count == 0 combined with ingress_rule_type != 'strict_allowlist' as a third trigger for 'insufficient_ingress_allowlist_enforcement'. A count of zero means the environment has no specific IP-based access control whatsoever — all ingress is either open or relying on imprecise service tags. Even a low count (1-5) in large environments may indicate insufficient coverage. The count provides quantitative evidence of allowlist adoption.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, count security group inbound rules with specific CIDRs (/24 or smaller), excluding wildcards.",
+        "command": "aws ec2 describe-security-groups --query 'SecurityGroups[*].IpPermissions[*].IpRanges[*].CidrIp' --output text | tr '\\t' '\\n' | grep -vE '^(0\\.0\\.0\\.0/0|::/0)$' | grep -E '/([2][4-9]|[3][0-2])$|/32$' | wc -l",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer count; 0 means no specific allowlist entries exist."
+      },
+      {
+        "type": "command",
+        "instruction": "On Azure, count NSG inbound Allow rules where the source is a specific IP or CIDR /24 or smaller, excluding wildcards and service tags.",
+        "command": "az network nsg list --query \"[].securityRules[?direction=='Inbound' && access=='Allow' && !contains(['*','Internet','AzureCloud','VirtualNetwork','Any'], sourceAddressPrefix)].sourceAddressPrefix\" -o tsv | grep -cE '^([0-9]{1,3}\\.){3}[0-9]{1,3}/([2][4-9]|3[0-2])$|^([0-9]{1,3}\\.){3}[0-9]{1,3}$'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer count of specific allowlist entries; higher is better provided entries are justified and reviewed."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Parse Terraform state or plan output to count specific CIDR blocks in ingress rules, filtering out wildcards and broad ranges.",
+        "command": "terraform show -json | jq '[.. | objects | select(.cidr_blocks?) | .cidr_blocks[] | select(. != \"0.0.0.0/0\" and (split(\"/\")[1] | tonumber) >= 24)] | length'",
+        "file_path": "terraform.tfstate / terraform.tfplan",
+        "navigation": null,
+        "expected_output": "Integer count of /24 or smaller CIDR entries in ingress rules across the Terraform-managed infrastructure."
+      },
+      {
+        "type": "api",
+        "instruction": "Use AWS Config or Security Hub to query the resource configuration inventory and count SG rules with specific source CIDRs, enabling programmatic comparison across accounts.",
+        "command": "aws configservice select-resource-config --expression \"SELECT configuration.ipPermissions WHERE resourceType = 'AWS::EC2::SecurityGroup'\" --output json | jq '[.Results[] | fromjson | .configuration.ipPermissions[] | .ipRanges[] | select(.cidrIp != \"0.0.0.0/0\")] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer representing the count of non-wildcard IPv4 ingress CIDR entries across all security groups."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (common in environments relying entirely on service tags or wildcard rules)",
+      "1-10 (typical in environments with partial allowlisting for VPN egress IPs)",
+      "10-50 (mature environments with defined partner/vendor IP ranges)",
+      "50+ (large enterprises with complex multi-tenant access requirements)"
+    ]
+  },
+  {
+    "option_name": "egress_allowlist_enforcement",
+    "option_description": "An enumerated value describing the extent to which outbound traffic from the cloud zone is restricted to an approved set of destination FQDNs or IP addresses, with a deny-all default. 'full' means every workload has covered outbound restrictions to known-good destinations; 'partial' means some workloads or paths are restricted while others are not; 'none' means outbound traffic is unrestricted and any destination is reachable.",
+    "security_impact": "Multiple Rego conditions for 'missing_egress_traffic_inspection' depend on egress_allowlist_enforcement. When set to 'none', it independently triggers the exposure even if DPI or DNS filtering are present. When 'partial', combined absence of both DPI and DNS filtering also fires the rule. 'none' or 'partial' means compromised workloads can freely beacon to C2 infrastructure, exfiltrate data, or reach attacker-controlled endpoints without any policy enforcement at the zone egress boundary.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, check VPC security group outbound rules for 0.0.0.0/0 destination to identify unrestricted egress.",
+        "command": "aws ec2 describe-security-groups --query \"SecurityGroups[?IpPermissionsEgress[?IpRanges[?CidrIp=='0.0.0.0/0']]].{GroupId:GroupId,GroupName:GroupName}\" --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any result means at least some workloads have unrestricted egress — indicates 'none' or 'partial'. Empty result for all groups indicates potential 'full' enforcement (verify with NACL review)."
+      },
+      {
+        "type": "command",
+        "instruction": "On Azure, review all NSG outbound rules for destination address prefix to assess egress restriction scope.",
+        "command": "az network nsg list --query \"[].{NSG:name, EgressRules:securityRules[?direction=='Outbound'].[destinationAddressPrefix,access,priority]}\" -o json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules with destinationAddressPrefix='*' or '0.0.0.0/0' and access='Allow' indicate 'none'. Specific destination prefixes on all rules indicate 'full'. Mixed results indicate 'partial'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to VPC > Security Groups, select each group used by production workloads, and review the Outbound Rules tab. Determine if all outbound rules restrict destinations to specific IPs/CIDRs or if 0.0.0.0/0 is present.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Security Groups > [Group] > Outbound Rules tab > Destination column",
+        "expected_output": "All rules with specific destinations = 'full'; some with 0.0.0.0/0 = 'partial'; all with 0.0.0.0/0 = 'none'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security or cloud platform team to confirm whether an egress FQDN/IP allowlist policy exists, which workload tiers it covers, and whether enforcement is verified via automated compliance checks.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written policy documentation, firewall rule exports, or CSPM compliance reports showing egress control scope. Absence of documentation typically correlates with 'none' enforcement."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (most common default state — cloud workloads egress unrestricted)",
+      "partial (common after initial security hardening — internet-facing tiers restricted, internal tiers not)",
+      "full (found in regulated environments with formal egress control programs)"
+    ]
+  },
+  {
+    "option_name": "deep_packet_inspection_enabled",
+    "option_description": "A boolean indicating whether egress traffic from the cloud zone passes through a next-generation firewall (NGFW) or DPI-capable appliance that inspects packet payloads for command-and-control (C2) communication patterns, data exfiltration signatures, and application-layer protocol anomalies before traffic exits the trust zone boundary.",
+    "security_impact": "In the Rego policy, absence of DPI combined with absence of DNS filtering and 'none'/'partial' egress allowlist enforcement triggers 'missing_egress_traffic_inspection'. DPI is the primary defense against encrypted C2 channels, protocol smuggling, and data exfiltration disguised as legitimate traffic. Without it, a compromised workload can establish outbound HTTPS or DNS-over-HTTPS tunnels to attacker infrastructure entirely undetected at the network boundary layer.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, check whether a Gateway Load Balancer (GWLB) or Network Firewall with stateful rule groups is deployed in the egress path of the VPC.",
+        "command": "aws network-firewall list-firewalls --output json && aws ec2 describe-gateway-load-balancers --output json | jq '.GatewayLoadBalancers[].GatewayLoadBalancerArn'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-empty output from network-firewall list-firewalls indicates AWS Network Firewall is deployed. Verify stateful rules include IDS/IPS signatures. No output = DPI not present."
+      },
+      {
+        "type": "command",
+        "instruction": "On Azure, verify whether Azure Firewall Premium (which provides IDPS and TLS inspection) is deployed and associated with the hub VNet or UDR for the zone's egress traffic.",
+        "command": "az network firewall list --query \"[].{Name:name, Sku:sku.tier, ThreatIntelMode:threatIntelMode}\" -o table && az network firewall policy list --query \"[].{Name:name, IntrusionDetection:intrusionDetection.mode}\" -o table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sku tier = 'Premium' and IntrusionDetection mode = 'Alert' or 'Deny' confirms DPI-capable IDPS. Standard tier without IDPS = deep_packet_inspection_enabled = false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to VPC > Network Firewall > Firewalls. Select the firewall, review its policy, and confirm that stateful rule groups with IPS/Suricata-compatible signatures are attached and set to DROP or ALERT mode.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Network Firewall > Firewalls > [Firewall] > Associated policy > Stateful rule groups",
+        "expected_output": "Stateful rule groups referencing AWS managed threat signatures or custom Suricata rules confirm DPI. Absence of stateful rules or firewall = false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request architecture documentation from the cloud platform team showing the egress traffic path. Confirm that all workload egress routes (via UDR, route table, or Transit Gateway) are forced through an NGFW or DPI device before reaching the internet gateway.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture diagram or route table exports showing a next-hop of NGFW/NVA/Network Firewall for 0.0.0.0/0 outbound routes. Missing forced routing = DPI not in path."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (predominant default — most cloud deployments use stateful SGs without DPI capability)",
+      "true (found in regulated industry deployments with PCI-DSS, HIPAA, or NIST controls requiring IPS)"
+    ]
+  },
+  {
+    "option_name": "dns_layer_filtering_enabled",
+    "option_description": "A boolean indicating whether all outbound DNS queries from workloads in the cloud zone are intercepted and inspected by a DNS security gateway or recursive resolver with threat-intelligence-based filtering. This includes blocking resolution of known C2 domains, detecting DNS tunneling patterns, and logging all resolution activity for forensic purposes.",
+    "security_impact": "DNS filtering is an independent trigger in the Rego policy: 'missing_egress_traffic_inspection' fires when dns_layer_filtering_enabled is false AND egress_allowlist_enforcement is 'none'. DNS is the most commonly abused egress channel for C2 callbacks and data exfiltration because it is almost universally allowed outbound. Without DNS-layer filtering, an attacker can use DNS tunneling (e.g., iodine, dnscat2) to exfiltrate data or receive C2 instructions even when all other egress is restricted.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, check whether Route 53 Resolver DNS Firewall is associated with the VPC and has rule groups with BLOCK actions for threat intelligence domains.",
+        "command": "aws route53resolver list-firewall-rule-group-associations --query 'FirewallRuleGroupAssociations[*].{VpcId:VpcId,Status:Status,RuleGroupId:FirewallRuleGroupId,MutationProtection:MutationProtection}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Associations with Status='COMPLETE' confirm DNS Firewall is active. Verify rule groups with 'aws route53resolver list-firewall-rules --firewall-rule-group-id <ID>' contain BLOCK actions."
+      },
+      {
+        "type": "command",
+        "instruction": "On Azure, verify that Azure DNS Private Resolver or a third-party DNS security service (e.g., Cisco Umbrella via virtual appliance) is the configured DNS server for VNet workloads, and that direct port 53 UDP/TCP egress to internet is blocked.",
+        "command": "az network vnet show --name <vnet-name> --resource-group <rg-name> --query 'dhcpOptions.dnsServers' -o json && az network nsg list --query \"[].securityRules[?direction=='Outbound' && access=='Allow' && destinationPortRange=='53']\" -o json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "VNet DNS servers pointing to a security resolver IP (not 168.63.129.16 or 8.8.8.8 unfiltered). Outbound port 53 rules to 0.0.0.0/0 indicate workloads can bypass a resolver."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a workload within the zone, attempt to resolve a known malware C2 domain or DNS tunneling test domain (e.g., canary token or internal red team domain). If it resolves, DNS filtering is not active.",
+        "command": "nslookup <test-blocked-domain> && dig @169.254.169.253 <test-blocked-domain> +short",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NXDOMAIN or SERVFAIL for known-bad domains confirms filtering is active. Successful resolution of test C2 domains confirms dns_layer_filtering_enabled = false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Terraform or CloudFormation configurations for Route53 Resolver Firewall resources or VNet DNS server settings to determine if DNS security controls are defined as infrastructure code.",
+        "command": "grep -rE 'aws_route53_resolver_firewall|dns_firewall|dnsServers|umbrella|cisco_dns' . --include='*.tf' --include='*.json' --include='*.yaml' -l",
+        "file_path": "*.tf / cloudformation/*.yaml / *.json",
+        "navigation": null,
+        "expected_output": "Files referencing resolver firewall resources or security DNS server IPs confirm code-defined DNS filtering. No results suggest filtering is absent or undocumented."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default state — most cloud deployments use default cloud resolver without filtering)",
+      "true (found in security-mature environments with explicit DNS security program or SASE deployment)"
+    ]
+  },
+  {
+    "option_name": "workload_types_in_shared_segment",
+    "option_description": "An array listing the distinct trust classifications of workloads co-located within the same VPC or subnet — for example, ['internal', 'external', 'dmz']. This attribute captures whether workloads belonging to different trust tiers (internal user data, external-facing services, DMZ systems) share the same network segment without micro-segmentation controls separating them.",
+    "security_impact": "The Rego policy for 'flat_cloud_network_segmentation' fires when both 'internal' and 'external' are present in this array, combined with either missing subnet_security_group_enforcement, missing distinct subnets per trust tier, or permissive inter-zone routing. Co-location of internal and external workloads without segmentation enables direct lateral movement: an attacker who compromises an external-facing workload can reach internal data stores via the shared network layer without traversing any security control.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, list all EC2 instances in each subnet and extract their resource tags to identify trust classification tags (e.g., 'Tier', 'Environment', 'DataClassification').",
+        "command": "aws ec2 describe-instances --query 'Reservations[*].Instances[*].{InstanceId:InstanceId,SubnetId:SubnetId,Tags:Tags}' --output json | jq '[.[][] | {subnet: .SubnetId, tier: (.Tags[]? | select(.Key==\"Tier\" or .Key==\"Environment\" or .Key==\"DataClassification\") | .Value)}] | group_by(.subnet)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON showing subnets with multiple distinct tier values (e.g., 'internal' and 'external' in same subnet) confirms mixed trust in shared segment."
+      },
+      {
+        "type": "command",
+        "instruction": "On GCP, list all VM instances per VPC subnet and check labels for trust tier classification to identify mixed workload placement.",
+        "command": "gcloud compute instances list --format='json' | jq '[.[] | {name:.name, subnet:.networkInterfaces[0].subnetwork, labels:.labels}] | group_by(.subnet) | .[] | select(length > 1)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Groups containing instances with different trust-tier labels in the same subnet populate this array. Single-tier subnets indicate proper segmentation."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review IaC deployment manifests (Terraform, CloudFormation, or Kubernetes NetworkPolicy YAML) to enumerate workload resource types and their assigned subnet or namespace, then check for mixed trust tier placement.",
+        "command": "grep -rE 'subnet_id|subnetwork|namespace|tier|data_classification' . --include='*.tf' --include='*.yaml' --include='*.json' | grep -v '#' | sort",
+        "file_path": "*.tf / k8s/*.yaml / cloudformation/*.yaml",
+        "navigation": null,
+        "expected_output": "Multiple workloads with different tier designations assigned to the same subnet_id indicate mixed segment membership."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to VPC > Subnets, select each subnet, and view the associated EC2 instances. Cross-reference instance Name tags and Tier tags to determine if both internal and external workloads reside in the same subnet.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Subnets > [Subnet] > Instances tab > Tags column",
+        "expected_output": "Instances with different trust tier tags (e.g., 'web-external' and 'db-internal') in the same subnet populate workload_types_in_shared_segment with ['internal', 'external']."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['internal'] (proper segmentation — only one trust tier per segment)",
+      "['external'] (DMZ or public-facing segment with only external workloads)",
+      "['internal', 'external'] (high-risk finding — mixed trust tiers in flat network)",
+      "['internal', 'external', 'dmz'] (critical finding — all tiers collapsed into single segment)"
+    ]
+  },
+  {
+    "option_name": "subnet_security_group_enforcement",
+    "option_description": "A boolean indicating whether distinct security groups (or network ACLs) are applied at the subnet level to enforce explicit deny-by-default inter-zone traffic restrictions between subnets hosting internal and external workloads. True means each subnet tier has dedicated security policies that prevent unauthorized east-west traffic between zones; false means subnets share policies or have permissive inter-subnet rules.",
+    "security_impact": "The primary Rego condition for 'flat_cloud_network_segmentation' is: internal and external workload types co-located in the same segment AND 'not input.subnet_security_group_enforcement'. This attribute is the direct enforcement mechanism preventing lateral movement between trust tiers. Without it, even if workloads are in separate subnets, the absence of subnet-level security group enforcement means default-allow inter-subnet routing permits an attacker to pivot freely between the external-facing and internal workload tiers.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, verify that subnets housing different trust tiers have different security groups applied, and that those security groups deny traffic from the opposite tier's CIDR range.",
+        "command": "aws ec2 describe-instances --query 'Reservations[*].Instances[*].{SubnetId:SubnetId,SecurityGroups:SecurityGroups[*].GroupId,Tags:Tags[?Key==`Tier`].Value|[0]}' --output json | jq 'group_by(.SubnetId) | .[] | {subnet:.[0].SubnetId, tiers:[.[].Tags], security_groups:[[.[].SecurityGroups[]]] | unique}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each subnet tier (internal vs external) should show distinct security group IDs. Shared SG IDs across trust tiers = subnet_security_group_enforcement = false."
+      },
+      {
+        "type": "command",
+        "instruction": "On AWS, check Network ACL rules for subnets to verify that inter-tier CIDR ranges are explicitly denied in the NACL inbound/outbound rules.",
+        "command": "aws ec2 describe-network-acls --query 'NetworkAcls[*].{AclId:NetworkAclId,Entries:Entries[*].{RuleNumber:RuleNumber,Protocol:Protocol,Action:RuleAction,CIDR:CidrBlock,Egress:Egress},Subnets:Associations[*].SubnetId}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NACLs with explicit DENY rules for adjacent tier CIDR blocks on both ingress and egress confirm enforcement = true. Default ALLOW-ALL or missing inter-tier denies = false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Azure, verify that internal and external subnets have different NSGs assigned and that those NSGs have explicit deny rules for inter-subnet traffic between trust tiers.",
+        "command": "az network vnet subnet list --vnet-name <vnet-name> --resource-group <rg-name> --query '[].{SubnetName:name,AddressPrefix:addressPrefix,NSG:networkSecurityGroup.id}' -o table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each subnet should show a distinct NSG ID matching its trust tier. Subnets with no NSG assigned or sharing the same NSG as another tier = subnet_security_group_enforcement = false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Azure Portal, navigate to Virtual Networks > [VNet] > Subnets. For each subnet, verify a distinct NSG is assigned. Then open each NSG and confirm inbound rules deny traffic originating from adjacent trust-tier subnets with a lower priority deny rule.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Virtual Networks > [VNet] > Subnets > [Subnet] > Network Security Group column; then NSG > Inbound Security Rules",
+        "expected_output": "Each subnet row shows a unique, descriptively named NSG. NSG inbound rules include explicit DENY entries for other trust-tier address prefixes = true. Missing NSG or shared NSG = false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in most cloud deployments — VPCs created with default SGs applied broadly)",
+      "false (common finding even when segmentation is intended but NACLs are left at default-allow)",
+      "true (target state — requires deliberate subnet-tier NSG design with deny-by-default inter-zone rules)"
+    ]
+  },
+  {
+    "option_name": "inter_zone_routing_policy",
+    "option_description": "Controls the routing policy applied between trust zones within a shared cloud network segment. Determines whether traffic between internal and external workload subnets is unrestricted (none), minimally filtered (permissive), explicitly allow-listed with inspection (restrictive), or isolated at the workload level (micro_segmented).",
+    "security_impact": "Directly triggers the flat_cloud_network_segmentation Rego rule. When set to 'none' or 'permissive' and both internal and external workload types exist in the shared segment, the exposure fires with a score of 8. Permissive or absent routing policies allow unrestricted east-west traversal, enabling an attacker who compromises an external-facing workload to reach internal data workloads without passing through any inspection point.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate all VPC route tables and inspect their routes to identify whether cross-subnet routing between internal and external workload subnets is unrestricted or filtered. Use AWS CLI to list route tables and their associations.",
+        "command": "aws ec2 describe-route-tables --query 'RouteTables[*].{RouteTableId:RouteTableId,Routes:Routes,Associations:Associations}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON listing all route tables. Absence of restrictive 0.0.0.0/0 blackhole routes or specific inter-subnet deny routes between trust tiers indicates 'none' or 'permissive' policy."
+      },
+      {
+        "type": "command",
+        "instruction": "Review AWS Transit Gateway route tables to determine whether inter-zone routing policies enforce inspection or allow unrestricted propagation between internal and external VPC attachments.",
+        "command": "aws ec2 describe-transit-gateway-route-tables --query 'TransitGatewayRouteTables[*].{Id:TransitGatewayRouteTableId,State:State}' --output json && aws ec2 search-transit-gateway-routes --transit-gateway-route-table-id <tgw-rtb-id> --filters Name=type,Values=static --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If static blackhole routes are absent between internal and external attachment CIDRs, routing policy is 'none' or 'permissive'. Presence of inspection VPC hops indicates 'restrictive'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to VPC > Route Tables. Select each route table associated with workload subnets and review the Routes tab. Check whether routes to peer subnets of differing trust tiers pass through a Network Firewall, inspection VPC, or are directly routed.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Route Tables > [select route table] > Routes tab",
+        "expected_output": "Direct routes (target: local or subnet gateway) between internal and external subnets indicate 'none' or 'permissive'. Routes targeting an inspection appliance indicate 'restrictive' or 'micro_segmented'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the AWS Network Firewall API to confirm whether a firewall policy with stateful or stateless rules is deployed in the path between internal and external workload subnets.",
+        "command": "aws network-firewall list-firewalls --output json && aws network-firewall describe-firewall-policy --firewall-policy-arn <arn> --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of a firewall with stateful rule groups containing explicit allow-list rules between trust tier CIDRs indicates 'restrictive'. Absence of any firewall in the path indicates 'none' or 'permissive'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "permissive",
+      "restrictive",
+      "micro_segmented"
+    ]
+  },
+  {
+    "option_name": "distinct_subnets_per_trust_tier",
+    "option_description": "Indicates whether separate, non-overlapping subnets are provisioned for each trust tier (internal vs. external workloads). When true, each trust tier has its own dedicated subnet(s) with independent security group and NACL enforcement; when false, workloads of differing trust classifications share the same subnet.",
+    "security_impact": "Directly evaluated in the flat_cloud_network_segmentation Rego rule. If both internal and external workload types exist in the shared segment and this is false, the exposure fires at score 8. Shared subnets eliminate the ability to apply tier-specific security group rules, NACLs, and route table associations, collapsing the trust boundary between workload classifications and allowing any workload in the subnet to communicate with any other by default.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all VPC subnets and their CIDR allocations, then cross-reference subnet IDs against workload instance tags or resource tags to determine whether internal and external workloads are co-located in the same subnet.",
+        "command": "aws ec2 describe-subnets --query 'Subnets[*].{SubnetId:SubnetId,CidrBlock:CidrBlock,Tags:Tags,VpcId:VpcId}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If instances tagged 'trust-tier=internal' and instances tagged 'trust-tier=external' share the same SubnetId, the value is false. Separate subnets per tier indicate true."
+      },
+      {
+        "type": "command",
+        "instruction": "Query EC2 instances grouped by subnet to identify co-mingling of internal and external workload classifications based on instance tags.",
+        "command": "aws ec2 describe-instances --query 'Reservations[*].Instances[*].{InstanceId:InstanceId,SubnetId:SubnetId,Tags:Tags}' --output json | jq '[.[][] | {id:.InstanceId, subnet:.SubnetId, tier: (.Tags[]? | select(.Key==\"trust-tier\") | .Value)}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If multiple trust-tier values appear under the same SubnetId, distinct_subnets_per_trust_tier is false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to VPC > Subnets. Review each subnet's associated EC2 instances or ECS tasks and their application/environment tags. Confirm that subnets hosting internal workloads and those hosting external-facing workloads are distinct CIDR blocks.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Subnets > [select subnet] > Instances tab",
+        "expected_output": "Each subnet should contain workloads of a single trust classification. Mixed classifications in one subnet indicate false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Terraform or CloudFormation IaC templates to inspect subnet resource definitions and workload-to-subnet assignments. Confirm that subnet CIDRs are allocated per trust tier with no cross-tier workload placement.",
+        "command": "grep -rn 'aws_subnet\\|SubnetId\\|subnet_id' ./infrastructure/ | grep -i 'internal\\|external\\|trust'",
+        "file_path": "./infrastructure/terraform/vpc.tf",
+        "navigation": null,
+        "expected_output": "Separate aws_subnet resources for internal and external tiers with no cross-references in compute resource subnet_id assignments indicate true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "mutual_tls_enforced",
+    "option_description": "Controls whether mutual TLS (mTLS) is enforced for all inter-service communication within the service mesh, requiring both the client and server to present and validate X.509 certificates at each communication hop. This applies to east-west traffic between microservices across and within zone boundaries.",
+    "security_impact": "Directly triggers the implicit_trust_propagation_via_service_mesh Rego rule when false. Without mTLS enforcement, a compromised peripheral service can impersonate any other service or accept connections from unauthorized callers, causing trust to propagate transitively across zone boundaries without cryptographic verification at each hop. The rule fires at score 8 regardless of other controls when mutual_tls_enforced is false.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect Istio PeerAuthentication resources across all namespaces to determine whether STRICT mTLS mode is enforced mesh-wide or per namespace. PERMISSIVE mode or absence of a mesh-wide policy indicates false.",
+        "command": "kubectl get peerauthentication --all-namespaces -o json | jq '.items[] | {namespace:.metadata.namespace, name:.metadata.name, mode:.spec.mtls.mode}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All namespaces should show mode: STRICT. Any showing PERMISSIVE or DISABLE, or absence of a mesh-wide PeerAuthentication in the istio-system namespace, indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "For Linkerd service mesh, check the Linkerd mesh policy to confirm mTLS is enforced by default. Review the default policy in the Linkerd configuration.",
+        "command": "kubectl get configmap linkerd-config -n linkerd -o json | jq '.data' && kubectl get server --all-namespaces -o json | jq '.items[] | {name:.metadata.name, namespace:.metadata.namespace, proxyProtocol:.spec.proxyProtocol}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Default policy should be 'deny' or 'all-authenticated'. ProxyProtocol of 'TLS' or 'mTLS' for servers indicates enforcement. HTTP or opaque without mTLS indicates false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the Istio mesh configuration (MeshConfig) and any installed PeerAuthentication manifests to confirm mesh-wide STRICT mTLS policy is present and not overridden by namespace-level PERMISSIVE policies.",
+        "command": "kubectl get configmap istio -n istio-system -o jsonpath='{.data.mesh}' | grep -i 'mtls\\|peerAuthentication'",
+        "file_path": "/etc/istio/config/mesh",
+        "navigation": null,
+        "expected_output": "MeshConfig should not show mtlsMode: PERMISSIVE or DISABLE. Namespace-level overrides to PERMISSIVE indicate partial enforcement (effectively false for those namespaces)."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a connectivity test between two services by attempting a non-TLS plain HTTP connection between sidecar-injected pods to verify whether the mesh rejects non-mTLS connections.",
+        "command": "kubectl exec -n <internal-namespace> <pod-name> -- curl -v http://<external-service>.<external-namespace>.svc.cluster.local:<port> --max-time 5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection should be refused or reset if STRICT mTLS is enforced. A successful plaintext connection indicates mutual_tls_enforced is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "per_hop_authorization_policy",
+    "option_description": "Controls whether explicit authorization policies are configured to re-verify service identity at each zone boundary crossing within the service mesh, rather than inheriting trust transitively from network adjacency. When true, each service-to-service call crossing a zone boundary must match an explicit allow policy naming the permitted source service principal.",
+    "security_impact": "Evaluated in the implicit_trust_propagation_via_service_mesh Rego rule in combination with service_identity_validation_mode. When this is false and service_identity_validation_mode is not 'cryptographic', the exposure fires at score 8. Without per-hop authorization, a compromised peripheral service that has network access to an internal service inherits that access for all downstream services it can reach, creating transitive trust chains that bypass zone boundary enforcement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all Istio AuthorizationPolicy resources across namespaces hosting internal-tier services and verify that each policy explicitly enumerates allowed source service principals (SPIFFE URIs) rather than using wildcard or namespace-only sources.",
+        "command": "kubectl get authorizationpolicy --all-namespaces -o json | jq '.items[] | {namespace:.metadata.namespace, name:.metadata.name, rules:.spec.rules}' | grep -A 20 'principals\\|source\\|from'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policies on internal-zone services should list explicit principals like 'cluster.local/ns/<ns>/sa/<serviceaccount>'. Wildcard (*) principals, missing source blocks, or namespace-only sources without principal scoping indicate false."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for OPA/Gatekeeper policies or Kyverno policies that enforce authorization at zone boundary crossings by reviewing installed policy resources in the cluster.",
+        "command": "kubectl get constrainttemplate --all-namespaces -o json | jq '.items[].metadata.name' && kubectl get clusterpolicy -o json | jq '.items[] | {name:.metadata.name, rules:.spec.rules[].name}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of policies enforcing source service principal validation at zone boundaries with no wildcard allow rules indicates true. Absence of any cross-zone authorization policies indicates false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review AuthorizationPolicy manifests in the IaC or GitOps repository for internal-zone services to confirm that from.source.principals fields are populated with specific service account SPIFFE URIs and not wildcards.",
+        "command": "grep -rn 'AuthorizationPolicy' ./manifests/ | xargs grep -l 'principals' | xargs grep -H 'principals:\\|\"*\"\\|from: {}'",
+        "file_path": "./manifests/istio/authorization-policies/",
+        "navigation": null,
+        "expected_output": "Each policy file for internal-zone services should contain explicit principals entries. Files with wildcard entries or empty from blocks indicate per_hop_authorization_policy is false for those services."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform or service mesh engineering team to determine whether a defined process requires AuthorizationPolicy creation for every new cross-zone service dependency, and whether existing policies are audited for wildcard use.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented policy requiring explicit per-hop authorization for all cross-zone service calls, with evidence of enforcement in CI/CD pipelines, indicates true. Ad-hoc or undocumented processes indicate false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "service_identity_validation_mode",
+    "option_description": "Describes the mechanism used to validate service identities in east-west (inter-service) traffic within the cloud environment. 'cryptographic' means SPIFFE/SPIRE SVIDs or equivalent cryptographic certificates are verified per request; 'network_identity' means identity is inferred from IP address or namespace; 'none' means no identity validation occurs.",
+    "security_impact": "Evaluated in the implicit_trust_propagation_via_service_mesh Rego rule. When not set to 'cryptographic' and per_hop_authorization_policy is also false, the exposure fires at score 8. Network-identity-based validation is trivially bypassed through IP spoofing or namespace compromise, while 'none' provides no service identity assurance at all. Only cryptographic validation ensures that zone boundary crossings are authenticated against a verifiable workload identity regardless of network position.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether SPIFFE/SPIRE is deployed in the cluster and whether workload SVIDs are being issued and rotated for service-to-service calls. Inspect the SPIRE server and agent status.",
+        "command": "kubectl get pods -n spire --show-labels && kubectl exec -n spire spire-server-0 -- /opt/spire/bin/spire-server entry show -socketPath /tmp/spire-server/private/api.sock",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active SPIRE server and agent pods with registered SPIFFE entries per workload service account indicate cryptographic mode. Absence of SPIRE or equivalent (e.g., Istio Citadel/istiod CA) indicates network_identity or none."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the Istio proxy configuration for a sidecar in an internal-zone pod to confirm whether SPIFFE SVIDs are present in the TLS certificate chain used for east-west communication.",
+        "command": "kubectl exec -n <namespace> <pod-name> -c istio-proxy -- openssl s_client -connect <peer-service>:<port> -showcerts 2>/dev/null | openssl x509 -text -noout | grep -A 5 'Subject Alternative Name\\|URI:spiffe'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of URI:spiffe://cluster.local/ns/<ns>/sa/<sa> SANs in the certificate indicates cryptographic validation mode. Absence of SPIFFE URIs or use of CN-based identity indicates network_identity."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the Istio mesh configuration for the CA provider and peer authentication mode, and check whether SPIFFE trust domain is configured to confirm cryptographic identity issuance.",
+        "command": "kubectl get configmap istio -n istio-system -o jsonpath='{.data.mesh}' | grep -E 'trustDomain|caAddress|certProvider|jwtPolicy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "trustDomain set with caAddress pointing to an mTLS CA and certProvider set to 'istiod' or 'custom' with SPIFFE support indicates cryptographic. Default namespace-based trust without SPIFFE indicates network_identity."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform engineering team to determine whether workload identity is provisioned via a PKI (e.g., SPIRE, Vault PKI, cert-manager with SPIFFE) or whether services rely solely on Kubernetes namespace/network policy for identity demarcation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented use of a SPIFFE-compliant workload identity system with certificate rotation indicates cryptographic. Reliance on Kubernetes NetworkPolicy or IP-based ACLs alone indicates network_identity. No controls indicate none."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "network_identity",
+      "cryptographic",
+      "none"
+    ]
+  },
+  {
+    "option_name": "federation_role_mapping_scope",
+    "option_description": "Describes how broadly or narrowly external identity provider (IdP) role mappings are scoped in cloud IAM trust policies. 'wildcard' allows any principal from the IdP to assume the role; 'broad_group' maps to large or loosely defined groups; 'specific_group' maps to a tightly scoped IdP group; 'individual_subject' maps to a named user subject claim.",
+    "security_impact": "Central to the overpermissive_cloud_iam_federation Rego rule. When set to 'wildcard' with an assumed_role_privilege_level of 'admin' or 'elevated', the exposure fires at score 5. When set to 'broad_group' without audience restriction enforcement and with elevated privilege levels, it also fires. Broad mappings mean that any user in a large IdP group, or any authenticated user from the trusted IdP, can assume a privileged cloud role, creating a credential-layer trust boundary violation independent of network controls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all IAM roles with trust policies referencing external identity providers (OIDC or SAML) and inspect the Condition blocks for the specificity of principal constraints.",
+        "command": "aws iam list-roles --query 'Roles[?AssumeRolePolicyDocument.Statement[?Principal.Federated!=null]].{RoleName:RoleName,Arn:Arn}' --output json | jq -r '.[].Arn' | xargs -I{} aws iam get-role --role-name {} --query 'Role.AssumeRolePolicyDocument'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Trust policy Condition blocks should show specific sub or groups claims. Presence of wildcard (*) in Principal or Condition values, or absence of Condition blocks restricting the sub/group claim, indicates 'wildcard' or 'broad_group' scope."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCP Workload Identity Federation, list all workload identity pool providers and attribute conditions to determine how broadly external identities are permitted to impersonate service accounts.",
+        "command": "gcloud iam workload-identity-pools providers list --workload-identity-pool=<pool-id> --location=global --format=json | jq '.[].attributeCondition'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Narrow conditions like 'assertion.sub==\"specific-user@example.com\"' indicate 'individual_subject'. Conditions based on broad group membership or absence of attribute conditions indicate 'broad_group' or 'wildcard'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to IAM > Roles and filter for roles with federated trust. Open each role's Trust Relationships tab and review the Condition element for the specificity of the sts:RoleSessionName, cognito-identity.amazonaws.com:amr, or OIDC sub/groups claim constraints.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > IAM > Roles > [select federated role] > Trust relationships tab > Edit trust policy",
+        "expected_output": "Specific sub or group claim values in Condition keys indicate 'specific_group' or 'individual_subject'. Missing Condition blocks or wildcard values indicate 'wildcard' or 'broad_group'."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the AWS IAM Access Analyzer to identify external access findings on roles configured for federation, which surfaces overly broad trust relationships.",
+        "command": "aws accessanalyzer list-findings --analyzer-arn <analyzer-arn> --filter '{\"resourceType\":{\"eq\":[\"AWS::IAM::Role\"]}}' --output json | jq '.findings[] | {resource:.resource, condition:.condition, principal:.principal}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Findings with public or cross-account access on federated roles indicate broad or wildcard scope. No findings with tightly scoped conditions confirm specific_group or individual_subject."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "wildcard",
+      "broad_group",
+      "specific_group",
+      "individual_subject"
+    ]
+  },
+  {
+    "option_name": "audience_restriction_enforced",
+    "option_description": "Controls whether the IAM federation trust policy enforces a specific audience (aud) claim validation on tokens issued by the external identity provider. When true, the role can only be assumed using tokens explicitly issued for this service's audience, preventing token reuse or misuse of tokens intended for other services.",
+    "security_impact": "Evaluated in the overpermissive_cloud_iam_federation Rego rule in multiple conditions. When false and the assumed_role_privilege_level is 'admin', the exposure fires unconditionally. When false in combination with 'broad_group' federation scope and elevated privileges, it also fires. Without audience restriction, a token issued by the same IdP for any audience (e.g., a CI/CD system or another cloud service) could be replayed to assume the federated cloud role, bypassing the intended trust boundary at the credential layer.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the trust policies of all OIDC-federated IAM roles to confirm that a Condition block is present that restricts the audience (aud) claim to the specific cloud service endpoint.",
+        "command": "aws iam list-roles --output json | jq -r '.Roles[] | select(.AssumeRolePolicyDocument.Statement[].Principal.Federated != null) | .RoleName' | xargs -I{} sh -c 'echo \"=== {} ===\"; aws iam get-role --role-name {} --query \"Role.AssumeRolePolicyDocument.Statement[].Condition\" --output json'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each federated role should show a Condition with a key like 'oidc-provider/<provider>:aud' set to a specific value (e.g., 'sts.amazonaws.com'). Missing aud condition or absent Condition block indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure AD or Entra ID OIDC federation, verify that the app registration's audience is restricted to a specific application ID and not set to 'any organizational directory' or 'any' audiences.",
+        "command": "az ad app show --id <app-id> --query '{signInAudience:signInAudience, identifierUris:identifierUris, audienceRestrictions:api.oauth2PermissionScopes}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "signInAudience should be 'AzureADMyOrg' with specific identifierUris. Values of 'AzureADandPersonalMicrosoftAccount' or 'AzureADMultipleOrgs' with no further restriction indicate false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Terraform or CloudFormation IAM role trust policy definitions to confirm the aud condition is hardcoded to the specific intended audience value.",
+        "command": "grep -rn 'aud\\|audience\\|Audience\\|sts:AudienceArn' ./infrastructure/iam/ | grep -v '.terraform' | head -40",
+        "file_path": "./infrastructure/terraform/iam/federated-roles.tf",
+        "navigation": null,
+        "expected_output": "IAC definitions should contain explicit aud or sts:AudienceArn condition values matching the service's own endpoint. Absent audience conditions in trust policy resources indicate false."
+      },
+      {
+        "type": "api",
+        "instruction": "Use AWS IAM policy simulation to test whether a token with a mismatched or absent aud claim can successfully call sts:AssumeRoleWithWebIdentity for the federated role.",
+        "command": "aws sts assume-role-with-web-identity --role-arn <arn> --role-session-name test --web-identity-token $(cat /tmp/test-token-wrong-aud.jwt) 2>&1 | grep -E 'Error\\|InvalidIdentityToken\\|AccessDenied\\|AssumedRoleUser'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An 'InvalidIdentityToken' or 'AccessDenied' error when using a token with a wrong audience indicates enforcement is true. A successful AssumedRoleUser response indicates audience restriction is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "assumed_role_privilege_level",
+    "option_description": "Describes the privilege level of the IAM role(s) that external federated identities can assume via the federation trust relationship. 'admin' indicates AdministratorAccess or wildcard resource/action permissions; 'elevated' indicates write access to sensitive services; 'read_only' indicates only read operations are permitted; 'none' indicates no roles are assumable via federation.",
+    "security_impact": "Central to all three conditions of the overpermissive_cloud_iam_federation Rego rule. The exposure fires at score 5 when privilege level is 'admin' or 'elevated' in combination with wildcard or broad federation scope, or when audience restriction is absent with admin-level roles. Federated access to admin or elevated roles allows external identity holders to perform destructive operations, exfiltrate data, modify security controls, or escalate privileges within the internal cloud trust zone, representing a complete credential-layer trust boundary breach.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify all IAM roles reachable via federation and evaluate their attached managed and inline policies for admin-level or elevated permissions using the AWS IAM policy evaluation.",
+        "command": "aws iam list-roles --query 'Roles[?contains(AssumeRolePolicyDocument.Statement[].Principal.Federated, `oidc`) || contains(AssumeRolePolicyDocument.Statement[].Principal.Federated, `saml`)].RoleName' --output text | tr '\\t' '\\n' | xargs -I{} sh -c 'echo \"=== {} ===\"; aws iam list-attached-role-policies --role-name {} --output json; aws iam list-role-policies --role-name {} --output json'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AdministratorAccess policy attachment or any managed policy with Action:* and Resource:* indicates 'admin'. Write permissions on services like IAM, S3, EC2 indicate 'elevated'. Only Get*/List*/Describe* indicates 'read_only'."
+      },
+      {
+        "type": "command",
+        "instruction": "Use IAM Access Advisor to review the last-accessed service data for federated roles to understand the actual privilege scope exercised and identify if sensitive service writes have been performed.",
+        "command": "aws iam generate-service-last-accessed-details --arn <federated-role-arn> && sleep 5 && aws iam get-service-last-accessed-details --job-id <job-id> --query 'ServicesLastAccessed[?LastAuthenticated!=null && TotalAuthenticatedEntities>`0`].{Service:ServiceName,LastUsed:LastAuthenticated,EntityCount:TotalAuthenticatedEntities}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Last-accessed data showing IAM management, CloudTrail modification, or S3 PutBucketPolicy services confirms 'elevated' or 'admin' in practice. Only read-plane services accessed indicates 'read_only'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to IAM > Roles, filter for federated roles, select each role, and review the Permissions tab to classify attached policies by their effective permission scope.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > IAM > Roles > [filter for federated roles] > Permissions tab > Expand each policy > Review JSON",
+        "expected_output": "AdministratorAccess or custom policies with wildcard actions indicate 'admin'. Write permissions on data stores, compute, or networking indicate 'elevated'. Describe/List/Get only indicate 'read_only'."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the AWS IAM Policy Simulator to enumerate the effective permissions of each federated role against a set of sensitive actions including iam:CreateUser, s3:PutObject, ec2:RunInstances, and lambda:UpdateFunctionCode.",
+        "command": "aws iam simulate-principal-policy --policy-source-arn <federated-role-arn> --action-names iam:CreateUser s3:PutObject ec2:RunInstances lambda:UpdateFunctionCode cloudtrail:DeleteTrail --output json | jq '.EvaluationResults[] | {Action:.EvalActionName, Decision:.EvalDecision}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All actions returning 'allowed' indicates 'admin'. Subset of write actions allowed indicates 'elevated'. All returning 'implicitDeny' or 'explicitDeny' indicates 'read_only' or 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "admin",
+      "elevated",
+      "read_only",
+      "none"
+    ]
+  },
+  {
+    "option_name": "peering_route_filter_enforced",
+    "option_description": "Controls whether explicit route-level access controls — such as prefix filters, route tables, or Network ACLs — are applied to VPC peering connections, private endpoints, and cloud interconnects to restrict traffic to only intended destination CIDRs, preventing unintended network path propagation.",
+    "security_impact": "The Rego policy triggers 'uncontrolled_cloud_peering_and_private_link_exposure' when 'not input.peering_route_filter_enforced' evaluates true, meaning any absence of this control immediately flags a medium-criticality (score 5) misconfiguration. Without prefix filters, peering connections may propagate 0.0.0.0/0 or overly broad routes, extending the cloud trust zone to unintended networks and bypassing the defined boundary enforcement model.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In AWS, enumerate Transit Gateway route tables and check for 0.0.0.0/0 propagation across peering attachments using the AWS CLI.",
+        "command": "aws ec2 describe-transit-gateway-route-tables --query 'TransitGatewayRouteTables[*].{ID:TransitGatewayRouteTableId,State:State}' --output table && aws ec2 search-transit-gateway-routes --transit-gateway-route-table-id <tgw-rtb-id> --filters Name=type,Values=propagated --query 'Routes[?DestinationCidrBlock==`0.0.0.0/0`]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No routes with DestinationCidrBlock '0.0.0.0/0' should appear in propagated routes across peering attachments. An empty result confirms filtering is in place."
+      },
+      {
+        "type": "command",
+        "instruction": "In Azure, inspect VNet peering settings to verify that 'allowGatewayTransit' and 'useRemoteGateways' are scoped and that no unrestricted route propagation exists via the Azure CLI.",
+        "command": "az network vnet peering list --resource-group <rg-name> --vnet-name <vnet-name> --query '[*].{Name:name,AllowGatewayTransit:allowGatewayTransit,UseRemoteGateways:useRemoteGateways,AllowForwardedTraffic:allowForwardedTraffic}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Gateway transit and forwarded traffic flags should reflect intentional scoping; 'allowForwardedTraffic: false' unless explicitly required with documented justification."
+      },
+      {
+        "type": "command",
+        "instruction": "In GCP, list VPC peering routes and verify custom route export/import flags that control prefix propagation between peered networks.",
+        "command": "gcloud compute networks peerings list --network=<network-name> --format='table(name,exportCustomRoutes,importCustomRoutes,exportSubnetRoutesWithPublicIp)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "exportCustomRoutes and importCustomRoutes should be 'false' unless deliberately required; exportSubnetRoutesWithPublicIp should be 'false' for internal-only peering."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to VPC > Transit Gateway Route Tables, select each route table, and review the Routes tab filtering for any 0.0.0.0/0 or overly broad CIDR entries with 'propagated' state linked to peering attachments.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Transit Gateway Route Tables > [Select Table] > Routes tab > filter State=propagated",
+        "expected_output": "No 0.0.0.0/0 propagated routes visible. Only specific, intentional destination CIDRs are present in peering-attached route tables."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default — many deployments skip explicit prefix filters)",
+      "true (mature environments with documented peering scope)"
+    ]
+  },
+  {
+    "option_name": "third_party_networks_in_peering",
+    "option_description": "Identifies whether any VPC peering connection, private link connection, or cloud interconnect terminates at a network owned by a third-party, partner, or external organization rather than being fully controlled under the same cloud account organization as the trust zone owner.",
+    "security_impact": "The Rego policy evaluates 'input.third_party_networks_in_peering == true' combined with 'not input.private_endpoint_network_policy_enabled' to trigger 'uncontrolled_cloud_peering_and_private_link_exposure'. Third-party peered networks implicitly become zone members, introducing external trust propagation paths that the trust zone boundary model explicitly prohibits. Even with route filters, the identity of the peer changes the risk posture fundamentally.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In AWS, list all VPC peering connections and extract accepter/requester account IDs, then compare against the organization's known account ID list to identify external peers.",
+        "command": "aws ec2 describe-vpc-peering-connections --query 'VpcPeeringConnections[*].{ID:VpcPeeringConnectionId,RequesterAccount:RequesterVpcInfo.OwnerId,AccepterAccount:AccepterVpcInfo.OwnerId,RequesterVPC:RequesterVpcInfo.VpcId,AccepterVPC:AccepterVpcInfo.VpcId,Status:Status.Code}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All RequesterAccount and AccepterAccount values should match known internal AWS account IDs from the organization's account inventory. Any unrecognized account ID indicates a third-party peer."
+      },
+      {
+        "type": "command",
+        "instruction": "In AWS Organizations, retrieve the list of all member account IDs and cross-reference against peering account IDs identified above.",
+        "command": "aws organizations list-accounts --query 'Accounts[*].{Id:Id,Name:Name,Status:Status}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Internal account IDs form the allowlist. Any peering account ID absent from this list is a third-party network and sets this attribute to true."
+      },
+      {
+        "type": "command",
+        "instruction": "In Azure, enumerate Private Endpoint connections and check the 'privateLinkServiceConnectionState' and resource group subscription to determine if the linked service belongs to an external tenant.",
+        "command": "az network private-endpoint list --query '[*].{Name:name,ResourceGroup:resourceGroup,PrivateLinkServiceId:privateLinkServiceConnections[0].privateLinkServiceId,ProvisioningState:provisioningState}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PrivateLinkServiceId subscription segment should match the organization's known subscription IDs. Cross-subscription or cross-tenant links indicate external network involvement."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the GCP Asset Inventory API to enumerate all VPC peering configurations and extract project IDs of peer networks for comparison against the organization's known project list.",
+        "command": "gcloud asset search-all-resources --asset-types='compute.googleapis.com/Network' --query='peerings:*' --format='json' | jq '.[] | {name:.name, peerings:.additionalAttributes.peerings[].network}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All peering network resource paths should contain project IDs belonging to the organization. External project IDs in peer network paths indicate third-party peering."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most controlled environments restrict peering to internal accounts)",
+      "true (common in environments with SaaS integrations, managed service providers, or partner data exchange)"
+    ]
+  },
+  {
+    "option_name": "private_endpoint_network_policy_enabled",
+    "option_description": "Controls whether network policies (security groups, network ACLs, or provider-specific endpoint policies) are applied to private endpoint subnets or endpoint configurations to restrict which source networks and principals can reach the private endpoint, rather than allowing all traffic within the VNet or VPC to access it.",
+    "security_impact": "The Rego policy combines 'input.third_party_networks_in_peering == true' with 'not input.private_endpoint_network_policy_enabled' to trigger 'uncontrolled_cloud_peering_and_private_link_exposure'. Without endpoint network policies, any workload reachable within the VNet — including those from peered third-party networks — can access private endpoints without additional authorization, collapsing the cloud boundary into a flat trust zone.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In Azure, check whether PrivateEndpointNetworkPolicies is set to 'Enabled' on subnets hosting private endpoints using the Azure CLI.",
+        "command": "az network vnet subnet list --resource-group <rg-name> --vnet-name <vnet-name> --query '[*].{Name:name,PrivateEndpointNetworkPolicies:privateEndpointNetworkPolicies,PrivateLinkServiceNetworkPolicies:privateLinkServiceNetworkPolicies}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Subnets hosting private endpoints should show 'privateEndpointNetworkPolicies: Enabled'. A value of 'Disabled' means NSG rules do not apply to the private endpoint, setting this attribute to false."
+      },
+      {
+        "type": "command",
+        "instruction": "In AWS, review VPC endpoint policies for S3, DynamoDB, or interface endpoints to confirm least-privilege principal and condition restrictions are present rather than a wildcard policy.",
+        "command": "aws ec2 describe-vpc-endpoints --query 'VpcEndpoints[*].{ID:VpcEndpointId,Type:VpcEndpointType,Service:ServiceName,PolicyDocument:PolicyDocument}' --output json | python3 -c \"import json,sys; endpoints=json.load(sys.stdin)['VpcEndpoints']; [print(e['ID'], 'WILDCARD' if '\\\"*\\\"' in e.get('PolicyDocument','') else 'RESTRICTED') for e in endpoints]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each endpoint should show 'RESTRICTED', confirming a non-wildcard policy. Any 'WILDCARD' output indicates this attribute is false for that endpoint."
+      },
+      {
+        "type": "command",
+        "instruction": "In GCP, verify Private Service Connect endpoint access scoping by listing forwarding rules and checking associated service attachment consumer accept lists.",
+        "command": "gcloud compute forwarding-rules list --filter='target:serviceAttachments' --format='table(name,region,target,IPAddress,loadBalancingScheme)' && gcloud compute service-attachments list --format='table(name,region,consumerAcceptLists[].projectIdOrNum,connectionPreference)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service attachments should have 'connectionPreference: ACCEPT_MANUAL' with explicit project IDs in consumerAcceptLists. 'ACCEPT_AUTOMATIC' with no allowlist indicates policy is not enabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Portal, navigate to the virtual network containing private endpoints, select each subnet, and verify that 'Network policies for private endpoints' is toggled to Enabled under subnet properties.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Virtual Networks > [VNet Name] > Subnets > [Subnet Name] > Network policies for private endpoints: Enabled/Disabled toggle",
+        "expected_output": "Toggle shows 'Enabled', confirming NSG and route table policies apply to private endpoints in the subnet."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (Azure default is Disabled; many deployments retain this default)",
+      "true (required for compliance-driven environments enforcing least-privilege endpoint access)"
+    ]
+  },
+  {
+    "option_name": "management_plane_network_isolated",
+    "option_description": "Indicates whether cloud management and control plane interfaces — including cloud console APIs, Kubernetes API servers, hypervisor management interfaces, and provider control endpoints — are placed on dedicated network segments that are explicitly isolated from data-plane workload subnets through route table configuration, security group deny rules, or network ACLs.",
+    "security_impact": "The Rego policy directly triggers 'management_plane_not_isolated_from_data_plane' when 'not input.management_plane_network_isolated' evaluates true. This is a standalone triggering condition (score 5, medium criticality), meaning any absence of management plane network isolation immediately creates a flagged exposure. Without isolation, any workload compromise provides a network path to cloud management APIs, enabling privilege escalation from data-plane access to full control plane takeover.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In AWS, identify subnets tagged or designated for management use and verify their route tables do not share routes with data-plane subnets, and that security group rules deny ingress from data-plane CIDRs.",
+        "command": "aws ec2 describe-route-tables --query 'RouteTables[*].{ID:RouteTableId,VPC:VpcId,Associations:Associations[*].SubnetId,Routes:Routes[*].{Dest:DestinationCidrBlock,Target:GatewayId}}' --output json && aws ec2 describe-security-groups --query 'SecurityGroups[?contains(GroupName,`mgmt`) || contains(GroupName,`management`)].{ID:GroupId,Name:GroupName,Ingress:IpPermissions}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Management subnets should reference route tables with no overlap with data-plane destination CIDRs. Security groups should show explicit deny or absence of data-plane CIDR ranges in ingress rules."
+      },
+      {
+        "type": "command",
+        "instruction": "In Azure, verify that management subnets have Network Security Groups attached with inbound deny rules for data-plane subnet address ranges.",
+        "command": "az network nsg list --query '[*].{Name:name,ResourceGroup:resourceGroup}' --output table && az network nsg show --name <mgmt-nsg-name> --resource-group <rg-name> --query 'securityRules[?access==`Deny`].{Name:name,Direction:direction,SourcePrefix:sourceAddressPrefix,DestPrefix:destinationAddressPrefix,Priority:priority}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Management NSG should contain Deny rules with direction 'Inbound' for data-plane subnet CIDRs at a higher priority than any Allow rules permitting workload traffic."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to establish a TCP connection from a data-plane workload to the cloud provider's management API endpoint (e.g., AWS API: 169.254.169.254, or Kubernetes API server IP) to verify network-level blocking.",
+        "command": "# From a data-plane workload instance: nc -zv <management-api-ip> 443 -w 3 || curl -m 5 https://<management-api-endpoint>/healthz --insecure",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection should time out or be refused with no TCP handshake completion, confirming network-level isolation. Any successful connection indicates isolation is not enforced."
+      },
+      {
+        "type": "gui",
+        "instruction": "In GCP Console, review VPC network topology under Network Intelligence Center to visualize whether management-purpose VMs or GKE control plane endpoints share subnets with data workload instances.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GCP Console > Network Intelligence Center > Network Topology > filter by VPC > inspect subnet adjacency between management and data-plane nodes",
+        "expected_output": "Management endpoints and data-plane workloads appear in distinct subnet nodes with no direct peering or shared route shown between them."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "null/false (common in lift-and-shift migrations where network segmentation was not redesigned)",
+      "true (required in CIS Benchmark and NIST-aligned cloud architectures)"
+    ]
+  },
+  {
+    "option_name": "management_api_access_control_scope",
+    "option_description": "Describes the network-level access control model applied to cloud management and administration interfaces, categorized as: access only from a dedicated management network (dedicated_management_network_only), access restricted to specific IP address ranges (ip_allowlist_restricted), access permitted from general workload subnets (workload_segments_accessible), or completely unrestricted access (unrestricted).",
+    "security_impact": "The Rego policy triggers 'management_plane_not_isolated_from_data_plane' when 'input.management_api_access_control_scope in [\"workload_segments_accessible\", \"unrestricted\"]'. Both values represent conditions where any compromised workload within the cloud environment gains a network path to management APIs without traversing an explicit security boundary, enabling lateral movement from data workloads directly to control plane functions.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In AWS, inspect the security group rules applied to instances hosting management APIs (e.g., bastion hosts, SSM endpoints, EKS API server) to determine if source CIDRs are restricted to management networks or broadly open.",
+        "command": "aws ec2 describe-security-groups --query 'SecurityGroups[?contains(GroupName,`mgmt`) || contains(GroupName,`bastion`) || contains(GroupName,`api`)].{Name:GroupName,Ingress:IpPermissions[*].{Ports:FromPort,CIDR:IpRanges[*].CidrIp,IPv6:Ipv6Ranges[*].CidrIpv6}}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Source CIDRs should be limited to known management IP ranges (e.g., 10.mgmt.0.0/24 or VPN egress IPs). Presence of 0.0.0.0/0 or broad VPC CIDRs indicates 'unrestricted' or 'workload_segments_accessible' scope."
+      },
+      {
+        "type": "command",
+        "instruction": "In Azure, check the API Management or AKS API server authorized IP ranges configuration to determine access scope.",
+        "command": "az aks list --query '[*].{Name:name,ResourceGroup:resourceGroup,ApiServerAuthorizedIPRanges:apiServerAccessProfile.authorizedIpRanges}' --output table && az apim list --query '[*].{Name:name,VnetType:virtualNetworkType,PublicAccess:publicNetworkAccess}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AKS should show specific CIDR entries in ApiServerAuthorizedIPRanges. An empty list with publicNetworkAccess enabled indicates 'unrestricted'. Internal VNet type with no authorized IP ranges maps to 'dedicated_management_network_only' if the VNet is isolated."
+      },
+      {
+        "type": "api",
+        "instruction": "Query GCP's Cloud Resource Manager API to check if the Kubernetes Engine API or Cloud Console APIs have VPC Service Controls perimeters enforced, indicating access scope restriction.",
+        "command": "gcloud access-context-manager perimeters list --policy=<policy-id> --format='json' | jq '.[] | {name:.name, resources:.status.resources, restrictedServices:.status.restrictedServices}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "VPC Service Controls perimeters should list management APIs (e.g., container.googleapis.com) in restrictedServices with specific resource scoping. Absence of a perimeter for these APIs indicates broader access scope."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview cloud platform administrators to determine whether a documented network access control policy defines which source networks can reach management APIs, and review associated firewall rule change records.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented policy specifying 'management API access is restricted to CIDR X via VPN Y' confirms 'dedicated_management_network_only' or 'ip_allowlist_restricted'. No documented policy typically correlates with 'workload_segments_accessible' or 'unrestricted' in practice."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "workload_segments_accessible (most common default in cloud environments without explicit management plane design)",
+      "ip_allowlist_restricted (typical in organizations with VPN-based administrative access)",
+      "dedicated_management_network_only (found in financial services, regulated cloud architectures)",
+      "unrestricted (observed in development environments promoted to production without hardening)"
+    ]
+  },
+  {
+    "option_name": "data_plane_to_control_plane_routes_exist",
+    "option_description": "Indicates whether active network routes exist in routing tables, security group egress rules, or network ACLs that would allow workloads running in data-plane subnets to initiate direct TCP/UDP connections to management or control plane endpoints (e.g., Kubernetes API server, cloud provider hypervisor management interfaces, container orchestration control APIs) without being forced through an explicit security inspection boundary.",
+    "security_impact": "The Rego policy triggers 'management_plane_not_isolated_from_data_plane' when 'input.data_plane_to_control_plane_routes_exist == true' combined with 'not input.management_access_requires_dedicated_bastion_or_vpn'. This combination (score 5) represents the highest-risk path for privilege escalation: a compromised data-plane workload with a direct routable path to control plane APIs, with no forced bastion or VPN chokepoint to detect or block the lateral movement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In AWS, use the VPC Reachability Analyzer to test whether a data-plane EC2 instance can reach the EKS API server endpoint or AWS management endpoints and review route tables for explicit control-plane CIDR entries.",
+        "command": "aws ec2 create-network-insights-path --source <data-plane-eni-id> --destination <management-api-eni-id> --protocol TCP --destination-port 443 --output json | jq '.NetworkInsightsPath.NetworkInsightsPathId' && aws ec2 start-network-insights-analysis --network-insights-path-id <path-id> && aws ec2 describe-network-insights-analyses --network-insights-analysis-ids <analysis-id> --query 'NetworkInsightsAnalyses[*].{Status:Status,NetworkPathFound:NetworkPathFound}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NetworkPathFound should be 'false', indicating no reachable network path from the data-plane source to the management destination. 'true' confirms routes exist."
+      },
+      {
+        "type": "command",
+        "instruction": "Audit egress rules in security groups associated with data-plane subnets for any rules permitting TCP 443/6443 traffic to management API CIDRs or wildcard destinations.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:tier,Values=data-plane --query 'SecurityGroups[*].{Name:GroupName,EgressRules:IpPermissionsEgress[*].{Protocol:IpProtocol,FromPort:FromPort,ToPort:ToPort,Destinations:IpRanges[*].CidrIp}}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Egress rules should not contain 0.0.0.0/0 or management-specific CIDRs on ports 443, 6443, or 8443. Presence of broad egress CIDRs covering management ranges confirms routes exist."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a data-plane workload (e.g., application container or VM), attempt TCP connectivity to the Kubernetes API server or cloud provider metadata/management endpoint to validate actual reachability.",
+        "command": "# Execute from within a data-plane workload: timeout 5 bash -c 'cat < /dev/null > /dev/tcp/<k8s-api-server-ip>/6443' && echo 'REACHABLE' || echo 'NOT_REACHABLE'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'NOT_REACHABLE' confirms no routable path exists. 'REACHABLE' indicates data_plane_to_control_plane_routes_exist should be set to true."
+      },
+      {
+        "type": "command",
+        "instruction": "In GCP, use the Connectivity Tests API to verify whether a VM instance in a data workload subnet can reach the GKE master control plane or Cloud API endpoint.",
+        "command": "gcloud network-connectivity locations global connectivity-tests create dp-to-cp-test --source-instance=projects/<proj>/zones/<zone>/instances/<data-plane-vm> --destination-ip-address=<gke-master-ip> --destination-port=443 --protocol=TCP && gcloud network-connectivity locations global connectivity-tests run dp-to-cp-test --format='json' | jq '.result.reachabilityDetails.result'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Result should return 'UNREACHABLE'. A result of 'REACHABLE' confirms direct routes from data plane to control plane exist."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common in flat VPC designs where all subnets share a single route table with full internal routing)",
+      "false (achieved in well-segmented environments with explicit route tables per tier and management-specific NACLs)"
+    ]
+  },
+  {
+    "option_name": "management_access_requires_dedicated_bastion_or_vpn",
+    "option_description": "Indicates whether organizational policy and technical enforcement mandates that all administrative access to cloud management plane interfaces must transit through a dedicated bastion host or management VPN gateway that is separate from data-plane network paths, ensuring a centralized chokepoint for authentication, session logging, and access control before reaching management APIs.",
+    "security_impact": "The Rego policy uses this attribute in combination with 'data_plane_to_control_plane_routes_exist == true': when routes from data plane to control plane exist AND 'not input.management_access_requires_dedicated_bastion_or_vpn', the 'management_plane_not_isolated_from_data_plane' exposure is triggered. The bastion/VPN requirement is the compensating control that limits exploitation of existing routes — its absence removes the last enforcement layer protecting management APIs when network segmentation is incomplete.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In AWS, verify whether AWS Systems Manager Session Manager is the enforced access method (which requires SSM agent and IAM, not direct SSH) and check if any SSH/RDP security group rules allow direct access bypassing a bastion.",
+        "command": "aws ec2 describe-security-groups --query 'SecurityGroups[*].{Name:GroupName,DirectSSH:IpPermissions[?FromPort==`22`].IpRanges[*].CidrIp,DirectRDP:IpPermissions[?FromPort==`3389`].IpRanges[*].CidrIp}' --output json | python3 -c \"import json,sys; sgs=json.load(sys.stdin); [print(sg['Name'],'DIRECT_ACCESS_ALLOWED') for sg in sgs if sg.get('DirectSSH') or sg.get('DirectRDP')]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No security groups should show direct SSH (22) or RDP (3389) access from non-bastion CIDRs. Output of 'DIRECT_ACCESS_ALLOWED' indicates bastion enforcement is bypassed for those groups."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the cloud access policy documentation and privileged access management runbooks to confirm whether a bastion host or management VPN is listed as a mandatory requirement for all administrative sessions, and verify change records show compliance.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Access policy documentation explicitly states 'all management access must route through bastion host [hostname] or management VPN [endpoint]'. Absence of this requirement or exceptions granted to direct access indicates the attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "In Azure, verify that JIT (Just-in-Time) VM access is enforced via Microsoft Defender for Cloud, and that no management ports are permanently open in NSGs for administrative VMs.",
+        "command": "az security jit-policy list --query '[*].{Name:name,ResourceGroup:resourceGroup,VMs:virtualMachines[*].id}' --output table && az network nsg list --query '[*].{Name:name}' --output tsv | xargs -I{} az network nsg show --name {} --resource-group <rg> --query 'securityRules[?destinationPortRange==`22` || destinationPortRange==`3389`].{Name:name,Access:access,Source:sourceAddressPrefix}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JIT policies should cover management VMs. NSG rules for ports 22/3389 should show 'Deny' as permanent rules or no open rules (JIT handles temporary access only). Permanent 'Allow' from broad CIDRs indicates the attribute is false."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review cloud audit logs (AWS CloudTrail, Azure Activity Log, GCP Cloud Audit Logs) to identify management API calls and trace their source IP addresses — confirming whether all administrative sessions originate from bastion or VPN egress IPs.",
+        "command": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=ConsoleLogin --query 'Events[*].{Time:EventTime,User:Username,SourceIP:CloudTrailEvent}' --output json | python3 -c \"import json,sys; events=json.load(sys.stdin); [print(e['Time'],e['User'],json.loads(e['CloudTrailEvent']).get('sourceIPAddress')) for e in events]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All source IP addresses in management API calls should match documented bastion host IP ranges or VPN egress IP pools. Direct connections from workload IP ranges or personal ISP IPs indicate the bastion/VPN requirement is not enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "null/false (common in SMB cloud environments without formal privileged access management)",
+      "true (standard in enterprises following CIS Cloud Benchmarks or PCI-DSS cloud controls)"
+    ]
+  },
+  {
+    "option_name": "inter_zone_flow_logging_enabled",
+    "option_description": "Controls whether network flow logs are actively enabled and capturing traffic at the boundary between internal user data segments and external user data segments within the cloud environment. This includes VPC Flow Logs (AWS), NSG Flow Logs (Azure), or VPC Flow Logs (GCP) on subnets hosting both internal and external workload types, ensuring visibility into cross-boundary traffic patterns.",
+    "security_impact": "The Rego policy triggers 'lack_of_inter_zone_traffic_logging_and_alerting' directly when 'not input.inter_zone_flow_logging_enabled'. Additionally, this attribute is referenced by 'flat_cloud_network_segmentation' where shared internal/external segments without logging represent a compounded risk. Without inter-zone flow logs, lateral movement between internal and external data workloads — the primary attack path in this trust boundary — remains invisible to defenders, negating all detection and incident response capabilities at the zone boundary.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In AWS, verify VPC Flow Logs are enabled for all subnets hosting internal or external workloads and confirm the log destination and traffic-type filter captures cross-boundary traffic.",
+        "command": "aws ec2 describe-flow-logs --query 'FlowLogs[*].{ID:FlowLogId,ResourceID:ResourceId,TrafficType:TrafficType,Status:FlowLogStatus,Destination:LogDestination,DestinationType:LogDestinationType}' --output table && aws ec2 describe-subnets --query 'Subnets[*].{SubnetId:SubnetId,VpcId:VpcId,CIDR:CidrBlock,Tags:Tags}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each subnet used for internal or external workloads should have an associated Flow Log with TrafficType='ALL' and FlowLogStatus='ACTIVE'. Subnets with no matching flow log or TrafficType='ACCEPT' only indicate incomplete logging."
+      },
+      {
+        "type": "command",
+        "instruction": "In Azure, verify NSG Flow Logs version 2 are enabled for Network Security Groups associated with internal and external workload subnets, and confirm logs are routed to a storage account or Log Analytics workspace.",
+        "command": "az network watcher flow-log list --location <region> --query '[*].{Name:name,NSG:storageId,Enabled:enabled,Version:format.version,RetentionDays:retentionPolicy.days,TrafficAnalytics:flowAnalyticsConfiguration.networkWatcherFlowAnalyticsConfiguration.enabled}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All NSGs covering internal and external workload subnets should show Enabled=true, Version=2, and RetentionDays>=30. Disabled flow logs or missing NSG entries indicate inter_zone_flow_logging_enabled is false."
+      },
+      {
+        "type": "command",
+        "instruction": "In GCP, verify VPC Flow Logs are enabled for subnets containing internal and external workload VMs, with aggregation interval and sampling rate configured for boundary traffic visibility.",
+        "command": "gcloud compute networks subnets list --format='table(name,region,enableFlowLogs,logConfig.aggregationInterval,logConfig.flowSampling,logConfig.metadata)' --filter='enableFlowLogs=true'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Subnets hosting boundary workloads should appear in the filtered output with enableFlowLogs=true, flowSampling>=0.5, and aggregationInterval of INTERVAL_5_SEC or INTERVAL_30_SEC. Subnets absent from this output have flow logging disabled."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the flow log destination (S3, Log Analytics, GCS) to confirm recent inter-zone traffic records exist, validating that logs are actively flowing rather than just configured.",
+        "command": "# AWS example - query recent VPC flow logs from S3 or CloudWatch Logs: aws logs filter-log-events --log-group-name <vpc-flow-log-group> --start-time $(date -d '1 hour ago' +%s000) --filter-pattern '[version, account_id, interface_id, srcaddr, dstaddr, srcport, dstport, protocol, packets, bytes, start, end, action, log_status]' --query 'events[0:5].message' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Recent flow log entries should appear showing srcaddr and dstaddr combinations spanning internal and external workload CIDR ranges. An empty result or stale timestamps (>1 hour for active environments) indicates logging is not functioning despite configuration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in most cloud providers; must be explicitly enabled and incurs storage costs)",
+      "true (required in environments subject to SOC 2, PCI-DSS, HIPAA, or internal security monitoring requirements)"
+    ]
+  },
+  {
+    "option_name": "inter_zone_anomaly_detection_enabled",
+    "option_description": "Controls whether automated anomaly detection or alerting rules are actively configured to monitor and alert on traffic crossing the boundary between internal and external user data zones within the cloud environment.",
+    "security_impact": "The Rego policy `lack_of_inter_zone_traffic_logging_and_alerting` fires when `inter_zone_flow_logging_enabled` is true but `inter_zone_anomaly_detection_enabled` is false, meaning an environment can have flow logging in place yet still be flagged as exposed if no detection rules act on that data. Without anomaly detection, lateral movement between internal and external segments remains invisible to defenders even when traffic is technically logged, negating detection and response capability at the zone boundary.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In AWS, navigate to GuardDuty > Findings > Filter by finding types containing 'UnauthorizedAccess' or 'Recon', and verify custom CloudWatch Events rules exist targeting inter-VPC or cross-subnet traffic. In GCP, open Security Command Center > Findings and confirm Event Threat Detection is enabled with findings for lateral movement. In Azure, open Microsoft Sentinel > Analytics and confirm at least one rule covers east-west or cross-zone traffic.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > GuardDuty > Findings; GCP Console > Security Command Center > Findings; Azure Portal > Microsoft Sentinel > Analytics",
+        "expected_output": "At least one active alert or detection rule visible that references inter-zone or lateral movement traffic patterns."
+      },
+      {
+        "type": "command",
+        "instruction": "Query AWS GuardDuty detector configuration and CloudWatch metric alarms to confirm active anomaly rules covering inter-VPC traffic.",
+        "command": "aws guardduty list-detectors --query 'DetectorIds' --output text | xargs -I {} aws guardduty get-detector --detector-id {} && aws cloudwatch describe-alarms --alarm-name-prefix 'interzone' --query 'MetricAlarms[*].{Name:AlarmName,State:StateValue}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Detector status 'ENABLED' and at least one CloudWatch alarm in ALARM or OK state referencing inter-zone traffic metrics."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the AWS Security Hub API to list insight results for custom insights targeting cross-subnet or cross-VPC findings, or query Azure Sentinel analytics rules via REST API.",
+        "command": "aws securityhub get-insights --query 'Insights[?contains(Name, `inter-zone`) || contains(Name, `lateral`)]' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output listing one or more insight definitions with names referencing inter-zone or lateral movement, indicating detection rules are configured."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search SIEM query history or saved searches (e.g., Splunk saved searches, Elastic SIEM detection rules, or Chronicle rules) for queries referencing inter-zone traffic. Look for saved searches filtering on source/destination subnet CIDR ranges belonging to different trust tiers.",
+        "command": "# Splunk example: curl -k -u admin:password https://<splunk>:8089/servicesNS/admin/search/saved/searches?search=interzone",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more saved SIEM searches or detection rules returned that reference traffic between defined internal and external subnet ranges."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "principal_scope",
+    "option_description": "Captures the broadest principal specifier present in a cloud storage bucket's IAM or resource policy, indicating how widely read/write access is granted — from fully public access to any internet user, to only specifically enumerated accounts.",
+    "security_impact": "The Rego rule `transitive_storage_bucket_policy_exposure` fires when `principal_scope` is `any_authenticated_user` or `any_user` AND `cross_zone_workload_access_permitted` is true AND `network_boundary_control_enforced` is false. A value of `any_authenticated_user` means any identity authenticated to the cloud provider platform can access the bucket, which in shared cloud environments effectively bypasses zone segmentation at the resource policy layer. `any_user` is fully public. These conditions allow workloads from adjacent or external trust zones to reach storage without traversing a network boundary.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS S3, retrieve the bucket policy and check for Principal values of '*' (any_user) or {'AWS': '*'} with conditions referencing aws:PrincipalOrgID absence. For GCP, list IAM bindings checking for allUsers or allAuthenticatedUsers members.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket-name> --query 'Policy' --output text | python3 -c \"import sys,json; p=json.load(sys.stdin); [print(s.get('Principal')) for s in p.get('Statement',[])]\" \n# GCP: gsutil iam get gs://<bucket-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "For any_user: Principal is '*'. For any_authenticated_user (AWS): Principal '*' with no org/account condition. For GCP: 'allUsers' or 'allAuthenticatedUsers' member in bindings."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to S3 > select bucket > Permissions tab > Bucket Policy and inspect the Principal field in each statement. In GCP Console, navigate to Cloud Storage > select bucket > Permissions tab and check for 'allUsers' or 'allAuthenticatedUsers' entries.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > S3 > [bucket] > Permissions > Bucket Policy; GCP Console > Cloud Storage > [bucket] > Permissions",
+        "expected_output": "Policy JSON visible with Principal field; absence of wildcard or allUsers entries indicates 'specific_accounts' scope."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Azure Storage REST API or Azure CLI to retrieve container-level access policies and check for public access configuration.",
+        "command": "az storage container show-permission --name <container> --account-name <account> --query 'publicAccess'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output of 'off' indicates specific_accounts scope; 'blob' or 'container' indicates any_user level access."
+      },
+      {
+        "type": "command",
+        "instruction": "Use AWS Config or GCP Asset Inventory to enumerate all buckets with broad principal policies across the environment programmatically.",
+        "command": "aws configservice select-resource-config --expression \"SELECT resourceId, configuration WHERE resourceType='AWS::S3::Bucket' AND configuration.bucketPolicyStatus.isPublic = 'true'\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of bucket resource IDs where the policy is evaluated as public, requiring manual review of specific principal statements."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "specific_accounts",
+      "any_authenticated_user",
+      "none",
+      "any_user"
+    ]
+  },
+  {
+    "option_name": "cross_zone_workload_access_permitted",
+    "option_description": "Indicates whether the bucket's resource policy explicitly permits — or critically, fails to restrict — access from workloads residing in adjacent or external trust zones, through absence of zone-constraining policy conditions such as aws:SourceVpc, aws:PrincipalOrgID, or GCP VPC Service Controls membership.",
+    "security_impact": "The Rego rule `transitive_storage_bucket_policy_exposure` requires `cross_zone_workload_access_permitted == true` as one of three conditions to fire. When this is true alongside a broad principal scope and no network boundary control, workloads from external or adjacent zones can reach internal storage over the cloud resource policy plane without traversing any network boundary, effectively bypassing zone segmentation through IAM rather than network routes.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the S3 bucket policy for the presence of condition keys that restrict access to specific VPCs or organization IDs. Absence of aws:SourceVpc, aws:SourceVpce, or aws:PrincipalOrgID conditions on broad-principal statements means cross-zone access is permitted.",
+        "command": "aws s3api get-bucket-policy --bucket <bucket-name> --output text --query 'Policy' | python3 -c \"import sys,json; p=json.load(sys.stdin); stmts=p.get('Statement',[]); [print('HAS_ZONE_CONDITION' if any(k in str(s.get('Condition',{})) for k in ['SourceVpc','SourceVpce','PrincipalOrgID']) else 'NO_ZONE_CONDITION') for s in stmts]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'NO_ZONE_CONDITION' output for any statement indicates cross_zone_workload_access_permitted = true; 'HAS_ZONE_CONDITION' on all broad statements indicates false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, open S3 > bucket > Permissions > Bucket Policy. Manually review each Statement block: if any statement with Principal '*' or broad AWS principal lacks a Condition block containing aws:SourceVpc, aws:SourceVpce, or aws:PrincipalOrgID, cross-zone access is permitted.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > S3 > [bucket] > Permissions > Bucket Policy",
+        "expected_output": "All broad-principal statements have Condition keys scoping access to defined VPCs or org units; absence of conditions means the attribute is true."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCP, check if the bucket is within a VPC Service Controls perimeter by listing access policies and verifying the bucket's project is included in a restricted perimeter.",
+        "command": "gcloud access-context-manager perimeters list --policy=<policy-id> --format=json | python3 -c \"import sys,json; perims=json.load(sys.stdin); [print(p['name'], p.get('status',{}).get('resources',[])) for p in perims]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The bucket's parent project (projects/<project-number>) appears in a perimeter's resources list, indicating cross-zone access is restricted (false). Absence means true."
+      },
+      {
+        "type": "api",
+        "instruction": "Use Azure CLI to review storage account network rules and confirm that virtual network rules restrict access to specific subnets corresponding to the internal trust zone.",
+        "command": "az storage account show --name <account> --resource-group <rg> --query 'networkRuleSet.{default:defaultAction,vnets:virtualNetworkRules,ipRules:ipRules}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "defaultAction 'Deny' with specific virtualNetworkRules entries for internal subnets only means false; 'Allow' default or no vnet rules means true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "network_boundary_control_enforced",
+    "option_description": "Indicates whether a cloud-native network-layer boundary enforcement mechanism — such as a GCP VPC Service Controls perimeter, an Azure Private Endpoint with public access disabled, or an AWS S3 VPC endpoint policy denying non-VPC traffic — wraps the storage bucket to prevent access from outside the defined trust zone regardless of what IAM policy permits.",
+    "security_impact": "The Rego rule `transitive_storage_bucket_policy_exposure` fires only when this attribute is false alongside a broad principal scope and cross-zone workload access. When network_boundary_control_enforced is true, even if the IAM policy is overly permissive, the network-layer control acts as a compensating control preventing requests originating outside the defined zone from reaching the bucket. Its absence removes this defense-in-depth layer, making the IAM policy the sole enforcement mechanism.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS S3, verify whether a VPC endpoint policy denying non-VPC access exists and whether the bucket policy contains a Deny statement for requests not originating from a specific VPC endpoint.",
+        "command": "aws ec2 describe-vpc-endpoints --filters Name=service-name,Values=com.amazonaws.<region>.s3 --query 'VpcEndpoints[*].{ID:VpcEndpointId,Policy:PolicyDocument}' --output json && aws s3api get-bucket-policy --bucket <bucket-name> --output text --query 'Policy' | python3 -c \"import sys,json; p=json.load(sys.stdin); [print(s) for s in p.get('Statement',[]) if s.get('Effect')=='Deny' and 'vpce' in str(s).lower()]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A Deny statement referencing aws:SourceVpce conditions, or a VPC endpoint policy restricting access to specific buckets, confirms network_boundary_control_enforced = true."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCP, verify the storage bucket's project is enrolled in a VPC Service Controls perimeter by checking the access policy.",
+        "command": "gcloud access-context-manager perimeters describe <perimeter-name> --policy=<policy-id> --format='json(status.resources,status.restrictedServices)' | python3 -c \"import sys,json; d=json.load(sys.stdin); print('STORAGE_RESTRICTED' if 'storage.googleapis.com' in d.get('status',{}).get('restrictedServices',[]) else 'NOT_RESTRICTED')\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'STORAGE_RESTRICTED' confirms network boundary control enforced for GCP Cloud Storage in the perimeter."
+      },
+      {
+        "type": "gui",
+        "instruction": "For Azure, navigate to Storage Account > Networking. Confirm 'Public network access' is set to 'Disabled' or 'Enabled from selected virtual networks and IP addresses' with only internal subnets listed, and that a Private Endpoint is configured.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Storage Accounts > [account] > Networking > Firewalls and virtual networks",
+        "expected_output": "Public access disabled and Private Endpoint connection visible in the Private endpoint connections tab confirms enforcement."
+      },
+      {
+        "type": "api",
+        "instruction": "Check AWS S3 Block Public Access settings at the bucket level and account level as a supplementary signal that network-layer controls are intentionally configured.",
+        "command": "aws s3api get-public-access-block --bucket <bucket-name> && aws s3control get-public-access-block --account-id <account-id>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All four block settings (BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy, RestrictPublicBuckets) returned as true indicates compensating controls, though full VPC endpoint policy review is still required."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "distinct_trust_tiers_sharing_nat_gateway",
+    "option_description": "Indicates whether workloads classified at different trust levels — such as internal-only and external-facing workloads — share a single NAT gateway or common internet egress point, which collapses network-observable separation between trust tiers at the egress layer.",
+    "security_impact": "The Rego rule `shared_nat_gateway_collapsing_zone_boundaries` fires when this is true combined with either `egress_traffic_attribution_mechanism == 'none'` or `flow_log_tagging_only` without an egress firewall policy. Sharing a NAT gateway eliminates the ability to enforce differentiated egress controls per trust tier at the network boundary — all outbound traffic exits through the same IP address, preventing external network controls from distinguishing internal from external workload traffic and enabling compromised workloads to blend into legitimate egress flows.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all NAT gateways in the AWS account and cross-reference the subnets they serve. Identify whether subnets tagged or classified for different trust tiers (e.g., 'internal' vs 'external') share the same NAT gateway via their route table default routes.",
+        "command": "aws ec2 describe-route-tables --query \"RouteTables[*].{RTID:RouteTableId,Assocs:Associations[*].SubnetId,NATRoute:Routes[?NatGatewayId!=null].NatGatewayId}\" --output json | python3 -c \"import sys,json; rts=json.load(sys.stdin); [print(rt) for rt in rts if rt.get('NATRoute')]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Multiple route tables associating subnets from different trust tiers to the same NatGatewayId confirms this attribute is true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to VPC > Route Tables. For each subnet associated with internal workloads and external workloads respectively, click the route table and check the Routes tab for the 0.0.0.0/0 route target. If both point to the same NAT Gateway ID, the attribute is true.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Route Tables > [route table] > Routes",
+        "expected_output": "Distinct NAT Gateway IDs for internal vs external subnet route tables indicates false; same ID indicates true."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCP, list Cloud NAT configurations and identify which subnets each NAT serves. Cross-reference subnet names/tags against workload trust tier classification.",
+        "command": "gcloud compute routers list --format=json | python3 -c \"import sys,json,subprocess; routers=json.load(sys.stdin); [print(subprocess.check_output(['gcloud','compute','routers','get-nat-mapping-info',r['name'],'--region',r['region'].split('/')[-1],'--format=json']).decode()) for r in routers]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NAT configuration showing multiple subnet ranges from different trust classifications sharing a single Cloud NAT confirms the attribute is true."
+      },
+      {
+        "type": "api",
+        "instruction": "Use Azure CLI to review NAT Gateway associations with subnets in a VNet. Identify whether subnets designated for different trust tiers both have the same NAT Gateway association.",
+        "command": "az network vnet subnet list --resource-group <rg> --vnet-name <vnet> --query '[*].{Name:name,NATGateway:natGateway.id}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Multiple subnets (internal and external classification) showing the same natGateway.id confirms distinct trust tiers sharing a NAT gateway."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "egress_traffic_attribution_mechanism",
+    "option_description": "Describes the method in place to distinguish and attribute outbound internet traffic by the trust zone from which it originated — ranging from no attribution mechanism, through flow log tagging (metadata-only), to dedicated per-zone egress infrastructure providing hard network-layer separation.",
+    "security_impact": "The Rego rule `shared_nat_gateway_collapsing_zone_boundaries` fires when `distinct_trust_tiers_sharing_nat_gateway` is true and this attribute is `none` (complete absence), or when it is `flow_log_tagging_only` combined with `zone_egress_firewall_policy_enforced` being false. Flow log tagging alone is a detective-only control with no preventive enforcement — a compromised workload in an internal zone can still use the shared egress path without restriction. Only `dedicated_per_zone_egress` provides enforcement-grade separation. The value directly determines whether the exposure fires and at what remediation priority.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Determine if VPC flow logs are enabled on all subnets and whether they include fields that identify source subnet or workload tags, enabling post-hoc zone attribution.",
+        "command": "aws ec2 describe-flow-logs --query 'FlowLogs[*].{ID:FlowLogId,ResourceID:ResourceId,Status:FlowLogStatus,Fields:LogFormat}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "FlowLogStatus 'ACTIVE' with LogFormat including '${subnet-id}' or '${instance-id}' fields confirms flow_log_tagging_only if a single NAT is shared; absence of flow logs indicates 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify whether each trust tier subnet has its own dedicated NAT Gateway by checking that route tables for internal subnets reference a different NAT Gateway ID than external subnets.",
+        "command": "aws ec2 describe-route-tables --query \"RouteTables[?Routes[?NatGatewayId!=null]].{RTID:RouteTableId,Subnets:Associations[*].SubnetId,NAT:Routes[?NatGatewayId!=null].NatGatewayId}\" --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each trust-tier subnet group having a unique NatGatewayId confirms 'dedicated_per_zone_egress'; overlapping NAT IDs with flow logs active confirms 'flow_log_tagging_only'; no flow logs and shared NAT confirms 'none'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In GCP Console, navigate to VPC Network > Cloud NAT and review each NAT configuration's subnet scope. In the Network Intelligence Center or VPC Flow Logs section, confirm whether flow logs for each subnet include network tags identifying trust tier.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GCP Console > VPC Network > Cloud NAT; GCP Console > Network Intelligence Center > Flow Logs",
+        "expected_output": "Separate Cloud NAT instances per subnet tier confirms dedicated_per_zone_egress; shared NAT with flow logs tagged by network tag confirms flow_log_tagging_only."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Sample recent flow log entries from both internal and external zone subnets and confirm whether each log record contains a field that unambiguously identifies the source trust zone (e.g., subnet ID, workload tag). Absence of distinguishing fields confirms 'none'.",
+        "command": "aws logs filter-log-events --log-group-name <vpc-flow-log-group> --filter-pattern '[version, account, eni, source, destination, srcport, destport, protocol, packets, bytes, windowstart, windowend, action, flowlogstatus, subnetid]' --limit 10 --query 'events[*].message'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log records containing subnet-id or instance-id fields that can be mapped to trust tier labels confirms attribution capability; absence of these fields confirms 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "flow_log_tagging_only",
+      "dedicated_per_zone_egress"
+    ]
+  },
+  {
+    "option_name": "zone_egress_firewall_policy_enforced",
+    "option_description": "Indicates whether distinct, restrictive egress firewall rules or security group outbound policies are applied per trust zone, ensuring that internal-zone workloads have different and more restrictive outbound traffic rules than external-facing workloads before traffic reaches any shared egress infrastructure.",
+    "security_impact": "The Rego rule `shared_nat_gateway_collapsing_zone_boundaries` fires when `distinct_trust_tiers_sharing_nat_gateway` is true, `egress_traffic_attribution_mechanism` is `flow_log_tagging_only`, AND `zone_egress_firewall_policy_enforced` is false. This attribute acts as a partial compensating control: even when a shared NAT gateway collapses network-level separation, per-zone egress firewall policies can prevent internal workloads from initiating arbitrary outbound connections. Without this control, a compromised internal workload can freely exfiltrate data or establish C2 channels through the shared egress path.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List security groups associated with instances in internal-zone subnets and compare their outbound rules against those for external-zone subnets. Confirm that internal zone security groups have restrictive egress rules (specific ports/destinations) rather than 0.0.0.0/0 allow-all.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:TrustZone,Values=internal --query 'SecurityGroups[*].{ID:GroupId,EgressRules:IpPermissionsEgress}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IpPermissionsEgress containing specific port ranges and CIDR destinations (not 0.0.0.0/0 or ::/0 for all ports) for internal-zone security groups confirms zone_egress_firewall_policy_enforced = true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to VPC > Security Groups. Filter by tags identifying internal trust zone workloads. Select each group and review the Outbound rules tab. Compare to security groups tagged for external-facing workloads to confirm differentiated policies exist.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Security Groups > [filter by trust zone tag] > Outbound rules",
+        "expected_output": "Internal-zone security groups showing specific destination CIDRs and limited port ranges (not all-traffic rules) while external-zone groups show broader rules confirms the attribute is true."
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure, list Network Security Groups associated with internal-zone subnets and inspect outbound security rules to confirm they differ from external-zone NSG outbound rules.",
+        "command": "az network nsg list --resource-group <rg> --query '[*].{Name:name,EgressRules:securityRules[?direction==`Outbound`]}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NSGs associated with internal subnets having Deny rules or narrow Allow rules for outbound traffic, distinct from external subnet NSGs, confirms the attribute is true."
+      },
+      {
+        "type": "command",
+        "instruction": "For GCP, list firewall rules filtered by target tags corresponding to internal-zone workloads and confirm egress rules are more restrictive than those applied to external-zone workloads.",
+        "command": "gcloud compute firewall-rules list --filter='direction=EGRESS AND targetTags:internal-zone' --format='table(name,direction,priority,targetTags,denied[].map().firewall_rule().list(),allowed[].map().firewall_rule().list(),destinationRanges)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Egress firewall rules with deny entries or specific allowed destination ranges for internal-zone tags, contrasting with broader rules for external-zone tags, confirms enforcement."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  }
+]

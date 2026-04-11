@@ -1,0 +1,8 @@
+{
+  "name": "Artifact Repository",
+  "classType": "component",
+  "type": "STORE",
+  "description": "Stores built, versioned, non-container artifacts including compiled binaries, libraries, Helm charts, and packages with active package resolution logic and metadata indexing. Distinct from Container Registry because it manages non-OCI artifacts with different integrity models and dependency resolution protocols. Proxying behavior introduces dependency confusion risk not present in cloud storage.",
+  "category": "Software Supply Chain",
+  "status": "draft"
+}

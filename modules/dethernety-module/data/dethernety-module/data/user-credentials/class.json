@@ -1,0 +1,8 @@
+{
+  "name": "User Credentials",
+  "classType": "data",
+  "type": "data",
+  "description": "Authentication data transmitted during VPN connection setup includes credentials (usernames, passwords, pre-shared keys, certificates, tokens) and session negotiation material. This data is among the most sensitive in an enterprise environment, as compromise enables unauthorized network access. Key lifecycle risks include insufficient classification enforcement leading to improper handling, weak or absent encryption during transmission, inadequate retention controls leaving credential artifacts persisted beyond necessity, and poor disposal of cached or logged authentication material.",
+  "category": "Sensitive Information",
+  "status": "reviewed"
+}

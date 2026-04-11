@@ -1,0 +1,8 @@
+{
+  "name": "Shared Network Storage",
+  "classType": "component",
+  "type": "STORE",
+  "description": "Shared Network Storage systems such as NFS servers expose significant attack surface through misconfigured export policies, weak authentication, lack of encryption in transit, excessive privilege grants, and inadequate logging. Because they serve multiple clients and often store critical or backup data, misconfiguration can lead to unauthorized data access, data destruction, or lateral movement across the infrastructure.",
+  "category": "Network Storage",
+  "status": "reviewed"
+}

@@ -1,0 +1,485 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "default_inter_segment_policy": {
+        "type": "string",
+        "enum": [
+          "deny",
+          "permit",
+          "unset"
+        ],
+        "title": "Default Inter-Segment Traffic Policy",
+        "description": "The default action applied to traffic flowing between network segments when no explicit rule matches. Must be 'deny' to enforce least-privilege segmentation."
+      },
+      "explicit_allowlist_rules_configured": {
+        "type": "boolean",
+        "title": "Explicit Allow-List Rules Configured",
+        "description": "Indicates whether explicit, reviewed allow-list rules are in place defining exactly which traffic flows between segments are authorized. True means only whitelisted flows are permitted.",
+        "default": false
+      },
+      "boundary_enforcement_scope": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Boundary Enforcement Scope",
+        "description": "Indicates whether segment boundary enforcement is applied to all inter-segment paths or only partially (e.g., only north-south traffic, missing east-west coverage)."
+      },
+      "segmentation_policy_enforced": {
+        "type": "boolean",
+        "title": "Segmentation Policy Enforced",
+        "description": "Indicates whether a network segmentation policy is actively enforced on the host or network segment, restricting inter-segment communication to only authorized destinations.",
+        "default": false
+      },
+      "default_deny_posture": {
+        "type": "string",
+        "enum": [
+          "deny_all",
+          "allow_all",
+          "mixed",
+          "not_configured"
+        ],
+        "title": "Default Deny Posture",
+        "description": "Describes whether inter-segment traffic is denied by default unless explicitly permitted, as opposed to allow-by-default or mixed posture.",
+        "default": "not_configured"
+      },
+      "authorized_segment_destinations": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Authorized Segment Destinations",
+        "description": "List of network segment identifiers (e.g., VLAN IDs, subnet CIDRs, zone labels) that this host or segment is explicitly permitted to communicate with."
+      },
+      "inter_segment_logging_enabled": {
+        "type": "boolean",
+        "title": "Inter-Segment Traffic Logging Enabled",
+        "description": "Indicates whether logging is actively enabled for all inter-segment traffic flows, capturing both allowed and denied access attempts.",
+        "default": false
+      },
+      "logged_fields": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Captured Log Fields",
+        "description": "List of fields captured in inter-segment traffic logs. Required fields include source IP, destination IP, port, protocol, and policy decision (allow/deny)."
+      },
+      "log_coverage_scope": {
+        "type": "string",
+        "enum": [
+          "all_traffic",
+          "deny_only",
+          "partial",
+          "none"
+        ],
+        "title": "Log Coverage Scope",
+        "description": "Indicates whether logging covers all inter-segment traffic, only denied traffic, or only a subset of segments."
+      },
+      "log_forwarding_destination": {
+        "type": "string",
+        "enum": [
+          "siem",
+          "log_aggregator",
+          "local_only",
+          "none"
+        ],
+        "title": "Log Forwarding Destination",
+        "description": "The destination to which inter-segment logs (including denied traffic) are forwarded for centralized analysis and alerting."
+      },
+      "denied_traffic_logging_enabled": {
+        "type": "boolean",
+        "title": "Denied Traffic Logging Enabled",
+        "description": "Indicates whether the network segmentation policy is configured to log denied inter-segment connection attempts.",
+        "default": false
+      },
+      "alert_generation_on_deny_configured": {
+        "type": "boolean",
+        "title": "Alert Generation on Deny Configured",
+        "description": "Indicates whether the SIEM, IDS, or centralized policy management system is configured to generate alerts when denied inter-segment connection attempts are detected.",
+        "default": false
+      },
+      "centralized_policy_management_enabled": {
+        "type": "boolean",
+        "title": "Centralized Policy Management Enabled",
+        "description": "Indicates whether network segmentation policies are managed through a centralized system rather than per-device configuration.",
+        "default": false
+      },
+      "policy_sync_status": {
+        "type": "string",
+        "enum": [
+          "synced",
+          "partial",
+          "unsynced",
+          "unknown"
+        ],
+        "title": "Policy Synchronization Status",
+        "description": "Current synchronization state of segment boundary policies across all enforced devices compared to the centralized policy store."
+      },
+      "policy_drift_detected": {
+        "type": "boolean",
+        "title": "Configuration Drift Detected",
+        "description": "Indicates whether any segment boundary device has a running configuration that deviates from the centrally defined policy baseline.",
+        "default": false
+      },
+      "segment_access_policy_enforced": {
+        "type": "boolean",
+        "title": "Segment Access Policy Enforced",
+        "description": "Indicates whether a least-privilege inter-segment access policy is actively enforced, restricting communication between network segments to only what is required for each service or host's defined function.",
+        "default": false
+      },
+      "policy_scope": {
+        "type": "string",
+        "enum": [
+          "all",
+          "critical_only",
+          "partial",
+          "none"
+        ],
+        "title": "Policy Scope Coverage",
+        "description": "Describes the breadth of segment pairs covered by the least-privilege access policy — whether it covers all segments, only critical segments, or is partial/incomplete.",
+        "default": "none"
+      },
+      "default_deny_between_segments": {
+        "type": "boolean",
+        "title": "Default Deny Between Segments",
+        "description": "Indicates whether the inter-segment policy posture defaults to deny-all traffic unless explicitly permitted, as opposed to a default-allow posture.",
+        "default": false
+      },
+      "policy_ruleset_versioned": {
+        "type": "boolean",
+        "title": "Policy Ruleset Versioned",
+        "description": "Indicates whether the network segmentation policy rule set is stored under version control with change history."
+      },
+      "policy_review_cycle_days": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 3650,
+        "title": "Policy Review Cycle (Days)",
+        "description": "The maximum number of days between scheduled policy reviews; a value within acceptable bounds indicates an active review cadence."
+      },
+      "access_matrix_validation_status": {
+        "type": "string",
+        "enum": [
+          "validated",
+          "pending_validation",
+          "not_validated",
+          "no_matrix_defined"
+        ],
+        "title": "Access Matrix Validation Status",
+        "description": "The current validation state of the policy rules against the defined access matrix."
+      },
+      "compliance_report_generated": {
+        "type": "boolean",
+        "title": "Compliance Report Generated",
+        "description": "Indicates whether a compliance or rule hygiene report has been generated within the last review cycle."
+      },
+      "siem_forwarding_enabled": {
+        "type": "boolean",
+        "title": "SIEM Log Forwarding Enabled",
+        "description": "Indicates whether inter-segment access events are actively forwarded to a SIEM or centralized log aggregation platform.",
+        "default": false
+      },
+      "log_event_types_forwarded": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Forwarded Inter-Segment Event Types",
+        "description": "List of inter-segment access event categories being forwarded to the SIEM (e.g., 'allow', 'deny', 'policy_violation', 'authentication_failure')."
+      },
+      "telemetry_correlation_configured": {
+        "type": "boolean",
+        "title": "Cross-Telemetry Correlation Configured",
+        "description": "Indicates whether the SIEM has active correlation rules or dashboards that join inter-segment access events with endpoint, identity, or application telemetry.",
+        "default": false
+      },
+      "automated_policy_update_enabled": {
+        "type": "boolean",
+        "title": "Automated Policy Update Enabled",
+        "description": "Indicates whether the policy enforcement system supports programmatic/automated updates to segment access rules without requiring manual intervention.",
+        "default": false
+      },
+      "orchestration_trigger_source": {
+        "type": "string",
+        "enum": [
+          "none",
+          "soar",
+          "siem",
+          "xdr",
+          "custom_api",
+          "sdn_controller"
+        ],
+        "title": "Orchestration Trigger Source",
+        "description": "The source system that sends automated triggers to update segmentation policies in response to detected threats.",
+        "default": "none"
+      },
+      "policy_propagation_latency_seconds": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 86400,
+        "title": "Policy Propagation Latency (Seconds)",
+        "description": "Maximum observed or configured time in seconds between an orchestration trigger and full policy enforcement across all affected network segments."
+      }
+    },
+    "required": [
+      "default_inter_segment_policy",
+      "explicit_allowlist_rules_configured",
+      "boundary_enforcement_scope",
+      "segmentation_policy_enforced",
+      "default_deny_posture",
+      "authorized_segment_destinations",
+      "inter_segment_logging_enabled",
+      "logged_fields",
+      "log_coverage_scope",
+      "log_forwarding_destination",
+      "denied_traffic_logging_enabled",
+      "alert_generation_on_deny_configured",
+      "centralized_policy_management_enabled",
+      "policy_sync_status",
+      "policy_drift_detected",
+      "segment_access_policy_enforced",
+      "policy_scope",
+      "default_deny_between_segments",
+      "siem_forwarding_enabled",
+      "log_event_types_forwarded",
+      "telemetry_correlation_configured",
+      "automated_policy_update_enabled",
+      "orchestration_trigger_source",
+      "policy_propagation_latency_seconds"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/authorized_segment_destinations"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/boundary_enforcement_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_deny_between_segments"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/default_deny_posture"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_inter_segment_policy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/explicit_allowlist_rules_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/segment_access_policy_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/segmentation_policy_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/policy_enforcement_point"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/policy_scope"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/automated_policy_update_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_policy_management_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/orchestration_trigger_source"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/policy_drift_detected"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/policy_sync_status"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/policy_propagation_latency_seconds"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_matrix_validation_status"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/compliance_report_generated"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/policy_review_cycle_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/policy_ruleset_versioned"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/alert_generation_on_deny_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/denied_traffic_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/inter_segment_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_coverage_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_event_types_forwarded"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_forwarding_destination"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/logged_fields"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/siem_forwarding_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/alert_latency_seconds"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/telemetry_correlation_configured"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1040",
+      "name": "Network Sniffing",
+      "relevance": "Plaintext log transport allows attackers to capture log data in transit via network sniffing."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1048.003",
+      "name": "Exfiltration Over Unencrypted Non-C2 Protocol",
+      "relevance": "Unencrypted log transport mirrors the risk of data exfiltration over unencrypted protocols."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1557",
+      "name": "Adversary-in-the-Middle",
+      "relevance": "Without mutual TLS authentication, attackers can intercept and manipulate communications via adversary-in-the-middle attacks."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1001.003",
+      "name": "Protocol or Service Impersonation",
+      "relevance": "Absence of mutual TLS allows attackers to impersonate legitimate services or clients without certificate verification."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1600",
+      "name": "Weaken Encryption",
+      "relevance": "Weak or deprecated cipher suites directly weaken the encryption protecting communications."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1600.001",
+      "name": "Reduce Key Space",
+      "relevance": "Deprecated cipher suites often use reduced key spaces making them vulnerable to cryptanalytic attacks."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1565.002",
+      "name": "Transmitted Data Manipulation",
+      "relevance": "Without integrity controls, log messages in transit can be tampered with or manipulated by attackers."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.011",
+      "name": "Spoof Security Alerting",
+      "relevance": "Replaying old log messages can be used to spoof security alerts or mask current malicious activity."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.006",
+      "name": "Indicator Blocking",
+      "relevance": "Replay attacks on log streams can flood or confuse monitoring systems, effectively blocking legitimate indicators."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1071.002",
+      "name": "File Transfer Protocols",
+      "relevance": "Insecure protocol selection like UDP syslog exposes log data similar to risks from unencrypted application layer protocols."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1499.002",
+      "name": "Service Exhaustion Flood",
+      "relevance": "Without rate limiting, log endpoints are vulnerable to flooding attacks that exhaust service resources."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1020.001",
+      "name": "Traffic Duplication",
+      "relevance": "Absence of bandwidth controls can enable attackers to duplicate and flood log traffic overwhelming the logging infrastructure."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1599",
+      "name": "Network Boundary Bridging",
+      "relevance": "Exposed internal routing paths can enable attackers to bridge network boundaries and access internal segments."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1599.001",
+      "name": "Network Address Translation Traversal",
+      "relevance": "Internal routing path exposure can facilitate NAT traversal attacks to reach otherwise inaccessible network segments."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1587.003",
+      "name": "Digital Certificates",
+      "relevance": "Bypassing certificate validation allows attackers to use forged or self-signed certificates to impersonate log collectors."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1649",
+      "name": "Steal or Forge Authentication Certificates",
+      "relevance": "Certificate validation bypass in log agents enables attackers to use stolen or forged certificates without detection."
+    }
+  ],
+  "respondsWith": []
+}

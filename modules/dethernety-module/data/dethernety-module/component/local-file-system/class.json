@@ -1,0 +1,8 @@
+{
+  "name": "Local File System",
+  "classType": "component",
+  "type": "STORE",
+  "description": "The local file system is a foundational host component responsible for storing, organizing, and retrieving data. Its security posture depends on correct enforcement of access permissions, encryption of sensitive data at rest, controlled privilege usage, and audit logging. Misconfigurations in any of these areas can expose sensitive data, enable privilege escalation, or allow persistence by attackers who have gained local access.",
+  "category": "Data Storage",
+  "status": "reviewed"
+}

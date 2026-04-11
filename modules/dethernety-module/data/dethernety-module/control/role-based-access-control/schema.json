@@ -1,0 +1,402 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "roles_defined_with_scoped_permissions": {
+        "type": "boolean",
+        "title": "Roles Defined with Scoped Permissions",
+        "description": "Indicates whether distinct roles exist in the system with explicitly scoped, limited permission sets rather than broad or wildcard access grants.",
+        "default": false
+      },
+      "users_assigned_least_privilege_role": {
+        "type": "boolean",
+        "title": "Users Assigned Least-Privilege Role",
+        "description": "Indicates whether user-to-role assignments follow least privilege, meaning users are assigned only the minimal role(s) necessary for their job function with no excess permissions.",
+        "default": false
+      },
+      "privileged_role_assignment_review_frequency": {
+        "type": "string",
+        "enum": [
+          "continuous",
+          "quarterly",
+          "semi_annually",
+          "annually",
+          "never"
+        ],
+        "title": "Privileged Role Assignment Review Frequency",
+        "description": "How frequently privileged role assignments are formally reviewed and recertified to ensure continued appropriateness."
+      },
+      "separation_of_duties_enforced": {
+        "type": "boolean",
+        "title": "Separation of Duties Enforced",
+        "description": "Indicates whether the RBAC configuration enforces separation of duties by preventing conflicting high-privilege roles from being assigned to the same user."
+      },
+      "role_permission_enforcement_mode": {
+        "type": "string",
+        "enum": [
+          "strict_role_only",
+          "mixed",
+          "permissive"
+        ],
+        "title": "Role Permission Enforcement Mode",
+        "description": "Indicates whether permissions are enforced strictly through role assignments or allow ad-hoc individual overrides outside of role definitions."
+      },
+      "users_with_direct_permission_grants": {
+        "type": "integer",
+        "minimum": 0,
+        "title": "Users With Direct Permission Grants",
+        "description": "Count of users who have been granted permissions directly (outside of role assignments), indicating ad-hoc privilege grants that bypass role-based consistency.",
+        "default": 0
+      },
+      "role_permission_audit_enabled": {
+        "type": "boolean",
+        "title": "Role Permission Audit Enabled",
+        "description": "Whether periodic or continuous auditing of role-to-permission assignments is enabled to detect drift or inconsistency over time."
+      },
+      "sod_policy_enforced": {
+        "type": "boolean",
+        "title": "Separation of Duties Policy Enforced",
+        "description": "Indicates whether the RBAC system actively enforces a separation of duties policy that prevents conflicting role assignments to a single user.",
+        "default": false
+      },
+      "conflicting_role_pairs_defined": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000,
+        "title": "Number of Conflicting Role Pairs Defined",
+        "description": "The count of explicitly defined mutually exclusive role pairs (e.g., requester/approver, initiator/reviewer) in the SoD policy configuration.",
+        "default": 0
+      },
+      "sod_enforcement_scope": {
+        "type": "string",
+        "enum": [
+          "preventive",
+          "detective",
+          "none"
+        ],
+        "title": "SoD Enforcement Scope",
+        "description": "Describes whether SoD enforcement is applied preventively (blocking assignment at provisioning time), detectivley (alerting after the fact), or is not enforced.",
+        "default": "none"
+      },
+      "role_change_logging_enabled": {
+        "type": "boolean",
+        "title": "Role Change Logging Enabled",
+        "description": "Whether the system is configured to log role assignments, revocations, and modifications as they occur.",
+        "default": false
+      },
+      "permission_change_log_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Permission Change Log Retention (Days)",
+        "description": "Number of days that role and permission change logs are retained, enabling historical forensic reconstruction.",
+        "default": 0
+      },
+      "logged_event_types": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Logged RBAC Event Types",
+        "description": "List of role/permission event types currently captured in audit logs (e.g., role_assigned, role_revoked, permission_modified, role_created, role_deleted).",
+        "default": []
+      },
+      "role_based_permission_assignment": {
+        "type": "boolean",
+        "title": "Role-Based Permission Assignment",
+        "description": "Indicates whether permissions are assigned to users exclusively through roles rather than directly to individual user accounts.",
+        "default": false
+      },
+      "role_definition_review_frequency": {
+        "type": "string",
+        "enum": [
+          "continuous",
+          "quarterly",
+          "annually",
+          "ad_hoc",
+          "never"
+        ],
+        "title": "Role Definition Review Frequency",
+        "description": "How frequently role definitions (memberships, permissions, and scope) are formally reviewed and recertified."
+      },
+      "offboarding_role_revocation_automated": {
+        "type": "boolean",
+        "title": "Automated Role Revocation on Offboarding",
+        "description": "Indicates whether role membership is automatically revoked when a user is offboarded (e.g., account deprovisioned via HR integration or SCIM).",
+        "default": false
+      },
+      "rbac_enforcement_enabled": {
+        "type": "boolean",
+        "title": "RBAC Enforcement Enabled",
+        "description": "Whether role-based access control is actively enforced at the application or system layer to block unauthorized function execution and deny requests that exceed a user's assigned role permissions.",
+        "default": false
+      },
+      "privileged_function_permission_check": {
+        "type": "string",
+        "enum": [
+          "all",
+          "partial",
+          "none"
+        ],
+        "title": "Privileged Function Permission Check Enforcement",
+        "description": "How permission checks are applied to privileged or sensitive functions — whether enforced on all, some, or none of the protected operations.",
+        "default": "none"
+      },
+      "default_deny_policy": {
+        "type": "boolean",
+        "title": "Default Deny Policy Active",
+        "description": "Whether the RBAC system denies access to functions by default unless a role explicitly grants permission (deny-by-default posture).",
+        "default": false
+      },
+      "access_denial_logging_enabled": {
+        "type": "boolean",
+        "title": "Access Denial Event Logging Enabled",
+        "description": "Whether access-denial events generated by RBAC violations are captured in logs or a SIEM for detection and alerting.",
+        "default": false
+      },
+      "least_privilege_policy_applied": {
+        "type": "boolean",
+        "title": "Least Privilege Policy Applied",
+        "description": "Whether roles are scoped to the minimum permissions required for each user group, reducing the blast radius of privilege escalation attempts."
+      },
+      "federated_role_sync_enabled": {
+        "type": "boolean",
+        "title": "Federated Role Synchronization Enabled",
+        "description": "Whether role definitions are actively synchronized across integrated systems (e.g., LDAP/AD directories, cloud IAM, API gateways) so that changes propagate consistently.",
+        "default": false
+      },
+      "role_policy_coverage": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Role Policy Coverage Across Integrated Systems",
+        "description": "Extent to which the federated role policy is enforced across all integrated systems rather than only a subset."
+      },
+      "last_sync_status": {
+        "type": "string",
+        "enum": [
+          "success",
+          "partial_failure",
+          "failure",
+          "never_run"
+        ],
+        "title": "Last Role Synchronization Status",
+        "description": "Outcome of the most recent role synchronization job across federated systems."
+      }
+    },
+    "required": [
+      "roles_defined_with_scoped_permissions",
+      "users_assigned_least_privilege_role",
+      "privileged_role_assignment_review_frequency",
+      "separation_of_duties_enforced",
+      "role_permission_enforcement_mode",
+      "users_with_direct_permission_grants",
+      "role_permission_audit_enabled",
+      "sod_policy_enforced",
+      "conflicting_role_pairs_defined",
+      "sod_enforcement_scope",
+      "role_change_logging_enabled",
+      "permission_change_log_retention_days",
+      "logged_event_types",
+      "role_based_permission_assignment",
+      "role_definition_review_frequency",
+      "offboarding_role_revocation_automated",
+      "rbac_enforcement_enabled",
+      "privileged_function_permission_check",
+      "default_deny_policy",
+      "access_denial_logging_enabled",
+      "least_privilege_policy_applied",
+      "federated_role_sync_enabled",
+      "role_policy_coverage",
+      "last_sync_status"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_deny_policy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/federated_role_sync_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/offboarding_role_revocation_automated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_function_permission_check"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rbac_enforcement_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/role_based_permission_assignment"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/role_permission_enforcement_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/role_policy_coverage"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/roles_defined_with_scoped_permissions"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/users_assigned_least_privilege_role"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/users_with_direct_permission_grants"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/last_sync_status"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_policy_applied"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/conflicting_role_pairs_defined"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_role_assignment_review_frequency"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sod_enforcement_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sod_policy_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/role_definition_review_frequency"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/separation_of_duties_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_denial_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logged_event_types"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/role_change_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/permission_change_log_retention_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/role_permission_audit_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

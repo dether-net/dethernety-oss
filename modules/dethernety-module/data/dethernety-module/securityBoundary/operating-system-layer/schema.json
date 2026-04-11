@@ -1,0 +1,524 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "seccomp_policy_enforced": {
+        "type": "boolean",
+        "title": "Seccomp Policy Enforced",
+        "description": "Indicates whether a seccomp profile is applied and enforced for the process or container, restricting allowable syscalls.",
+        "default": false
+      },
+      "seccomp_profile_mode": {
+        "type": "string",
+        "enum": [
+          "none",
+          "strict",
+          "filter"
+        ],
+        "title": "Seccomp Profile Mode",
+        "description": "The mode of the seccomp filter applied: none means no filtering, strict allows only read/write/exit/_exit/sigreturn, filter applies a BPF-defined allowlist/denylist.",
+        "default": "none"
+      },
+      "privileged_syscalls_accessible": {
+        "type": "boolean",
+        "title": "Privileged Syscalls Accessible to Unprivileged Processes",
+        "description": "Indicates whether unprivileged processes can invoke privileged syscalls (e.g., ptrace, mount, kexec_load, perf_event_open) without restriction due to absent or permissive filtering.",
+        "default": false
+      },
+      "ipc_mandatory_labeling_enforced": {
+        "type": "boolean",
+        "title": "IPC Mandatory Labeling Enforced",
+        "description": "Whether a mandatory access control framework (e.g., SELinux, AppArmor, Smack) is configured to label and enforce policy on IPC channels including pipes, Unix domain sockets, and shared memory segments.",
+        "default": false
+      },
+      "ipc_cross_trust_zone_channels_present": {
+        "type": "boolean",
+        "title": "Cross-Trust-Zone IPC Channels Present",
+        "description": "Whether IPC channels (pipes, Unix domain sockets, shared memory) exist between processes operating in different trust zones (e.g., unprivileged user processes communicating with privileged daemons).",
+        "default": false
+      },
+      "ipc_input_sanitization_policy": {
+        "type": "string",
+        "enum": [
+          "enforced",
+          "partial",
+          "none"
+        ],
+        "title": "IPC Input Sanitization Policy",
+        "description": "The level of input validation and sanitization applied to data received over IPC channels by higher-trust zone processes before acting on it.",
+        "default": "none"
+      },
+      "privileged_process_ipc_socket_permissions": {
+        "type": "string",
+        "enum": [
+          "restricted",
+          "group_accessible",
+          "world_accessible"
+        ],
+        "title": "Privileged Process IPC Socket Permissions",
+        "description": "The filesystem permission model applied to Unix domain sockets or named pipes exposed by privileged processes, indicating whether unprivileged processes can connect or write to them.",
+        "default": "world_accessible"
+      },
+      "namespace_isolation_enabled": {
+        "type": "boolean",
+        "title": "OS Namespace Isolation Enabled",
+        "description": "Indicates whether processes are run with dedicated OS namespaces (PID, network, mount, IPC) isolating them from the host and adjacent processes. True means isolation is enforced; false means processes share the host namespace.",
+        "default": false
+      },
+      "shared_namespaces": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Shared Host Namespaces",
+        "description": "List of namespace types explicitly shared with the host or adjacent trust zones (e.g., pid, network, ipc, mount, uts). An empty array means no namespaces are shared.",
+        "default": []
+      },
+      "privileged_execution_mode": {
+        "type": "boolean",
+        "title": "Privileged Execution Mode",
+        "description": "Indicates whether the process or container runs in privileged mode, which disables namespace isolation and grants full host resource access.",
+        "default": false
+      },
+      "credential_store_access_control_enforced": {
+        "type": "boolean",
+        "title": "Credential Store Access Control Enforced",
+        "description": "Whether mandatory access controls (e.g., DAC/MAC permissions, LSM policies) are enforced on OS credential stores such as /proc memory maps, kernel keyrings, and LSA secrets, preventing unprivileged processes from reading them.",
+        "default": false
+      },
+      "unprivileged_proc_mem_access_enabled": {
+        "type": "boolean",
+        "title": "Unprivileged /proc Memory Access Enabled",
+        "description": "Whether unprivileged users can read /proc/<pid>/mem or /proc/<pid>/maps of other processes (e.g., kernel.yama.ptrace_scope=0 or equivalent permissive setting allowing cross-process memory inspection).",
+        "default": false
+      },
+      "keyring_namespace_isolation_enabled": {
+        "type": "boolean",
+        "title": "Kernel Keyring Namespace Isolation Enabled",
+        "description": "Whether kernel keyrings are scoped to individual user/session namespaces rather than shared at the user or process-session level, preventing credential tokens in keyrings from being accessible to other processes in the same uid.",
+        "default": false
+      },
+      "suid_sgid_binary_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "SUID/SGID Binary Count",
+        "description": "Number of setuid or setgid binaries present on the filesystem outside of expected system paths (e.g., not in /usr/bin, /bin, /sbin).",
+        "default": 0
+      },
+      "suid_binary_argument_sanitization_enforced": {
+        "type": "boolean",
+        "title": "SUID Binary Argument Sanitization Enforced",
+        "description": "Whether custom or third-party SUID/SGID binaries are compiled with input validation and argument sanitization controls (e.g., use of secure_getenv, dropping privileges before processing user input, or wrapper scripts with strict allowlists).",
+        "default": false
+      },
+      "suid_binary_integrity_verification_enabled": {
+        "type": "boolean",
+        "title": "SUID/SGID Binary Integrity Verification Enabled",
+        "description": "Whether a file integrity monitoring or verified boot mechanism (e.g., IMA/EVM, AIDE, dm-verity) actively monitors and verifies the integrity of SUID/SGID binaries on the system.",
+        "default": false
+      },
+      "nosuid_mount_coverage": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "nosuid Mount Option Coverage",
+        "description": "Whether filesystems hosting user-writable or non-OS directories are mounted with the nosuid option, preventing SUID/SGID execution on those paths.",
+        "default": "partial"
+      },
+      "hidepid_mount_option": {
+        "type": "string",
+        "enum": [
+          "0",
+          "1",
+          "2"
+        ],
+        "title": "procfs hidepid Mount Option",
+        "description": "The hidepid option set on the /proc filesystem mount, controlling which processes are visible to unprivileged users. 0=no restriction, 1=hides other users /proc/PID directories, 2=hides existence of other processes entirely.",
+        "default": "0"
+      },
+      "unprivileged_container_proc_access": {
+        "type": "boolean",
+        "title": "Unprivileged Containers Share Host procfs",
+        "description": "Whether unprivileged containers or processes can access the host /proc filesystem without a dedicated namespace or masking, exposing cross-trust-zone process metadata.",
+        "default": false
+      },
+      "proc_gid_restriction_configured": {
+        "type": "boolean",
+        "title": "procfs gid Restriction Configured",
+        "description": "Whether a gid= mount option is set on /proc to restrict access to a specific group, used in conjunction with hidepid=2 for finer-grained control.",
+        "default": false
+      },
+      "cgroup_namespace_isolation_enabled": {
+        "type": "boolean",
+        "title": "cgroup Namespace Isolation Enabled",
+        "description": "Whether processes in separate trust zones are placed in distinct cgroup namespaces, preventing cross-zone visibility of cgroup accounting data.",
+        "default": false
+      },
+      "cgroup_accounting_readable_by_unprivileged": {
+        "type": "boolean",
+        "title": "cgroup Accounting Files World-Readable by Unprivileged Processes",
+        "description": "Whether cgroup resource accounting files (e.g., cpu.stat, memory.stat, blkio.throttle.io_service_bytes) under /sys/fs/cgroup are readable by unprivileged processes outside their own cgroup subtree.",
+        "default": true
+      },
+      "privilege_transition_audit_enabled": {
+        "type": "boolean",
+        "title": "Privilege Transition Audit Logging Enabled",
+        "description": "Indicates whether the OS audit subsystem (e.g., auditd, Linux Audit Framework, Windows Event Auditing) is configured to log privilege escalation events such as setuid/setgid execution, capability grants, and sudo/su invocations.",
+        "default": false
+      },
+      "namespace_crossing_audit_enabled": {
+        "type": "boolean",
+        "title": "Namespace/Zone Crossing Audit Logging Enabled",
+        "description": "Indicates whether audit rules capture namespace transitions such as Linux namespace operations (clone, unshare, setns syscalls), chroot/pivot_root calls, and container breakout-related syscalls that represent zone boundary crossings.",
+        "default": false
+      },
+      "ipc_syscall_audit_coverage": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "IPC and Syscall Audit Coverage Level",
+        "description": "Describes the breadth of audit rule coverage at the syscall/IPC layer for inter-process communication primitives that represent ingress/egress at zone boundaries (e.g., ptrace, process_vm_readv, mmap with PROT_EXEC, socket operations).",
+        "default": "none"
+      },
+      "audit_log_integrity_protection": {
+        "type": "boolean",
+        "title": "Audit Log Integrity Protection Enabled",
+        "description": "Indicates whether audit logs are protected against tampering by unprivileged processes via real-time forwarding to a remote syslog/SIEM, write-once/append-only storage, or mandatory access controls preventing user-space modification.",
+        "default": false
+      },
+      "capability_reset_on_exec_enforced": {
+        "type": "boolean",
+        "title": "Capability Reset on exec() Enforced",
+        "description": "Indicates whether the process execution policy explicitly resets inheritable and ambient Linux capabilities (or Windows privileges) when spawning child processes via exec(), preventing capability propagation across the exec boundary.",
+        "default": false
+      },
+      "no_new_privs_bit_set": {
+        "type": "boolean",
+        "title": "no_new_privs Bit Set on Spawning Process",
+        "description": "Indicates whether the PR_SET_NO_NEW_PRIVS bit is set on the parent process before exec(), preventing child processes from gaining additional privileges through setuid binaries or capability-granting file attributes.",
+        "default": false
+      },
+      "inheritable_capabilities_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 64,
+        "title": "Number of Inheritable Capabilities on Parent Process",
+        "description": "The count of Linux capabilities present in the inheritable capability set of the parent process that would be passed across exec() boundaries to child processes.",
+        "default": 0
+      },
+      "device_file_world_readable_writable": {
+        "type": "boolean",
+        "title": "Device Files World-Readable or World-Writable",
+        "description": "Indicates whether any character or block device files under /dev are accessible (read or write) by unprivileged users without group or ownership restrictions (e.g., permissions o+r or o+w on sensitive device nodes).",
+        "default": false
+      },
+      "sensitive_device_nodes_with_open_acl": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Sensitive Device Nodes with Open ACL",
+        "description": "List of sensitive device node paths (e.g., /dev/mem, /dev/kmem, /dev/port, /dev/kvm) that have no restrictive ACL or udev rule limiting access to privileged groups or root only.",
+        "default": []
+      },
+      "udev_device_acl_enforcement_enabled": {
+        "type": "boolean",
+        "title": "Udev Device ACL Enforcement Enabled",
+        "description": "Indicates whether udev rules or equivalent device manager policies are configured and active to enforce group-based or ACL-based access restrictions on character and block device nodes, preventing unprivileged process access.",
+        "default": false
+      }
+    },
+    "required": [
+      "seccomp_policy_enforced",
+      "seccomp_profile_mode",
+      "privileged_syscalls_accessible",
+      "ipc_mandatory_labeling_enforced",
+      "ipc_cross_trust_zone_channels_present",
+      "ipc_input_sanitization_policy",
+      "privileged_process_ipc_socket_permissions",
+      "namespace_isolation_enabled",
+      "shared_namespaces",
+      "privileged_execution_mode",
+      "credential_store_access_control_enforced",
+      "unprivileged_proc_mem_access_enabled",
+      "keyring_namespace_isolation_enabled",
+      "suid_sgid_binary_count",
+      "suid_binary_argument_sanitization_enforced",
+      "suid_binary_integrity_verification_enabled",
+      "nosuid_mount_coverage",
+      "hidepid_mount_option",
+      "unprivileged_container_proc_access",
+      "proc_gid_restriction_configured",
+      "cgroup_namespace_isolation_enabled",
+      "cgroup_accounting_readable_by_unprivileged",
+      "privilege_transition_audit_enabled",
+      "namespace_crossing_audit_enabled",
+      "ipc_syscall_audit_coverage",
+      "audit_log_integrity_protection",
+      "capability_reset_on_exec_enforced",
+      "no_new_privs_bit_set",
+      "inheritable_capabilities_count",
+      "device_file_world_readable_writable",
+      "sensitive_device_nodes_with_open_acl",
+      "udev_device_acl_enforcement_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cgroup_namespace_isolation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ipc_cross_trust_zone_channels_present"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ipc_input_sanitization_policy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ipc_mandatory_labeling_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/keyring_namespace_isolation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/namespace_isolation_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_execution_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_process_ipc_socket_permissions"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_syscalls_accessible"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/seccomp_policy_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/seccomp_profile_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_namespaces"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unprivileged_container_proc_access"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unprivileged_proc_mem_access_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mixed_trust_workloads_on_host"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/capability_reset_on_exec_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cgroup_accounting_readable_by_unprivileged"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_store_access_control_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/device_file_world_readable_writable"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/hidepid_mount_option"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/inheritable_capabilities_count"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_device_nodes_with_open_acl"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/suid_binary_argument_sanitization_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/suid_binary_integrity_verification_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/suid_sgid_binary_count"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/udev_device_acl_enforcement_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/no_new_privs_bit_set"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/nosuid_mount_coverage"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/proc_gid_restriction_configured"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_framework_active"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/namespace_crossing_audit_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/privilege_transition_audit_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_integrity_protection"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ipc_syscall_audit_coverage"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

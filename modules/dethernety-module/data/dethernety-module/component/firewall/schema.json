@@ -1,0 +1,712 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "default_inbound_policy": {
+        "type": "string",
+        "enum": [
+          "ACCEPT",
+          "DROP",
+          "REJECT"
+        ],
+        "title": "Default Inbound Policy",
+        "description": "The default policy applied to inbound traffic when no explicit rule matches. Should be DROP or REJECT to enforce deny-all baseline."
+      },
+      "default_outbound_policy": {
+        "type": "string",
+        "enum": [
+          "ACCEPT",
+          "DROP",
+          "REJECT"
+        ],
+        "title": "Default Outbound Policy",
+        "description": "The default policy applied to outbound traffic when no explicit rule matches. Should be DROP or REJECT; ACCEPT allows all unchecked egress."
+      },
+      "default_forward_policy": {
+        "type": "string",
+        "enum": [
+          "ACCEPT",
+          "DROP",
+          "REJECT"
+        ],
+        "title": "Default Forward Policy",
+        "description": "The default policy applied to forwarded traffic when no explicit rule matches. Should be DROP or REJECT to prevent unauthorized transit traffic."
+      },
+      "explicit_deny_all_rule_present": {
+        "type": "boolean",
+        "title": "Explicit Deny-All Rule Present",
+        "description": "Whether an explicit deny-all rule exists at the end of each chain to catch unmatched traffic, serving as a safety net even if the default policy is permissive.",
+        "default": false
+      },
+      "management_interface_network_scope": {
+        "type": "string",
+        "enum": [
+          "oob_or_allowlist_only",
+          "broad_internal",
+          "internet_reachable"
+        ],
+        "title": "Management Interface Network Scope",
+        "description": "Describes which network segments can reach the firewall's management interface. Indicates whether access is restricted to a dedicated out-of-band management network, a specific IP allowlist, a broad internal network, or is publicly reachable."
+      },
+      "management_source_ip_allowlist_configured": {
+        "type": "boolean",
+        "title": "Management Source IP Allowlist Configured",
+        "description": "Whether a specific source IP or subnet allowlist is enforced for management interface access, preventing access from arbitrary addresses.",
+        "default": false
+      },
+      "management_interface_bound_to_dedicated_interface": {
+        "type": "boolean",
+        "title": "Management Interface Bound to Dedicated Physical/Logical Interface",
+        "description": "Whether the management service is bound exclusively to a dedicated out-of-band management interface rather than to a data-plane or any-interface binding.",
+        "default": false
+      },
+      "default_credentials_changed": {
+        "type": "boolean",
+        "title": "Default Credentials Changed",
+        "description": "Indicates whether all factory-default usernames and passwords for administrative accounts have been changed from their out-of-box values.",
+        "default": false
+      },
+      "password_complexity_policy_enforced": {
+        "type": "boolean",
+        "title": "Password Complexity Policy Enforced",
+        "description": "Indicates whether the firewall enforces a password complexity policy (minimum length, character classes, expiration) for administrative accounts.",
+        "default": false
+      },
+      "admin_account_lockout_enabled": {
+        "type": "boolean",
+        "title": "Administrative Account Lockout Enabled",
+        "description": "Indicates whether the management plane enforces account lockout or rate-limiting after a configurable number of consecutive failed login attempts, mitigating brute-force attacks.",
+        "default": false
+      },
+      "global_logging_enabled": {
+        "type": "boolean",
+        "title": "Global Logging Enabled",
+        "description": "Indicates whether logging is enabled at the global/system level on the firewall. When disabled, no traffic events are recorded regardless of per-rule settings.",
+        "default": false
+      },
+      "rules_without_logging_count": {
+        "type": "integer",
+        "minimum": 0,
+        "title": "Number of Rules Without Logging Enabled",
+        "description": "The count of firewall rules (particularly ACCEPT/ALLOW rules) that do not have logging flags set, meaning matched traffic will not be recorded."
+      },
+      "log_destination_configured": {
+        "type": "boolean",
+        "title": "Log Destination Configured",
+        "description": "Indicates whether a valid log destination (syslog server, SIEM, local file, or remote collector) is configured to receive firewall log events."
+      },
+      "management_protocols_in_use": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Management Protocols in Use",
+        "description": "List of protocols actively enabled for management plane access (e.g., telnet, http, ssh, https). Used to detect cleartext protocol exposure and enumerate attack surface."
+      },
+      "encrypted_management_enforced": {
+        "type": "boolean",
+        "title": "Encrypted Management Protocol Enforced",
+        "description": "Whether the firewall enforces exclusive use of encrypted management protocols (SSH, HTTPS/TLS) and actively blocks or disables cleartext alternatives.",
+        "default": false
+      },
+      "tls_minimum_version": {
+        "type": "string",
+        "enum": [
+          "none",
+          "tls1.0",
+          "tls1.1",
+          "tls1.2",
+          "tls1.3"
+        ],
+        "title": "Minimum TLS Version for Management",
+        "description": "The minimum TLS version required for HTTPS management sessions. 'none' indicates TLS is not configured or enforced.",
+        "default": "none"
+      },
+      "firmware_version_current": {
+        "type": "boolean",
+        "title": "Firmware/OS Version Is Current",
+        "description": "Indicates whether the firewall firmware or OS is running the latest vendor-supported version with all critical patches applied. False when running a version with known unpatched CVEs.",
+        "default": false
+      },
+      "auto_update_or_patch_compliance_enabled": {
+        "type": "boolean",
+        "title": "Auto-Update or Scheduled Patch Compliance Enabled",
+        "description": "Indicates whether automatic firmware/OS updates or a scheduled patch compliance policy is actively configured and enforced on the firewall.",
+        "default": false
+      },
+      "days_since_last_patch": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Days Since Last Patch Applied",
+        "description": "Number of days elapsed since the last firmware or OS patch was successfully applied to the firewall."
+      },
+      "rule_audit_performed": {
+        "type": "boolean",
+        "title": "Rule Base Audit Performed",
+        "description": "Indicates whether a periodic rule-base audit (for shadowing, redundancy, and conflicts) has been conducted within the required review interval.",
+        "default": false
+      },
+      "shadowed_rules_detected": {
+        "type": "boolean",
+        "title": "Shadowed Rules Detected",
+        "description": "Indicates whether any rules in the rule set are fully shadowed by a preceding broader rule, meaning traffic matching the shadowed rule will never reach it.",
+        "default": false
+      },
+      "redundant_permit_rules_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000,
+        "title": "Redundant Permit Rules Count",
+        "description": "Number of duplicate or redundant permit rules identified in the active rule base that match the same traffic as another permit rule and provide no additional specificity.",
+        "default": 0
+      },
+      "egress_policy_defined": {
+        "type": "boolean",
+        "title": "Egress Policy Defined",
+        "description": "Indicates whether any outbound traffic filtering rules or policies are explicitly configured on the firewall.",
+        "default": false
+      },
+      "default_egress_action": {
+        "type": "string",
+        "enum": [
+          "allow",
+          "deny",
+          "drop"
+        ],
+        "title": "Default Egress Action",
+        "description": "The default action applied to outbound traffic when no specific egress rule matches — typically 'allow', 'deny', or 'drop'.",
+        "default": "allow"
+      },
+      "egress_rule_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000,
+        "title": "Egress Rule Count",
+        "description": "The total number of explicit outbound filtering rules configured on the firewall (excluding default catch-all rules).",
+        "default": 0
+      },
+      "mfa_enabled": {
+        "type": "boolean",
+        "title": "MFA Enabled on Admin Interface",
+        "description": "Whether multi-factor authentication is required for administrative access to the firewall management plane.",
+        "default": false
+      },
+      "admin_auth_method": {
+        "type": "string",
+        "enum": [
+          "local_password",
+          "radius_no_mfa",
+          "tacacs_no_mfa",
+          "ldap_no_mfa",
+          "radius_mfa",
+          "tacacs_mfa",
+          "saml_mfa",
+          "totp",
+          "certificate"
+        ],
+        "title": "Administrative Authentication Method",
+        "description": "The authentication method configured for administrative access to the firewall management interface.",
+        "default": "local_password"
+      },
+      "backup_encryption_enabled": {
+        "type": "boolean",
+        "title": "Backup Encryption Enabled",
+        "description": "Whether configuration backups are encrypted at rest and in transit using a strong encryption algorithm (e.g., AES-256).",
+        "default": false
+      },
+      "backup_integrity_signing_enabled": {
+        "type": "boolean",
+        "title": "Backup Integrity Signing Enabled",
+        "description": "Whether configuration backups are signed with a cryptographic signature (e.g., HMAC or digital signature) to detect tampering before restore.",
+        "default": false
+      },
+      "backup_transfer_protocol": {
+        "type": "string",
+        "enum": [
+          "scp",
+          "sftp",
+          "https",
+          "ftp",
+          "tftp",
+          "http",
+          "smb_unencrypted",
+          "none"
+        ],
+        "title": "Backup Transfer Protocol",
+        "description": "The network protocol used to transfer backup files to a remote storage location."
+      },
+      "log_forwarding_enabled": {
+        "type": "boolean",
+        "title": "Log Forwarding Enabled",
+        "description": "Whether firewall logs are configured to be forwarded to a remote destination such as a SIEM or syslog server.",
+        "default": false
+      },
+      "forwarding_destinations": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Log Forwarding Destinations",
+        "description": "List of configured remote log forwarding destinations (e.g., syslog server IPs or SIEM endpoints).",
+        "default": []
+      },
+      "local_only_log_storage": {
+        "type": "boolean",
+        "title": "Local-Only Log Storage",
+        "description": "Whether firewall logs are stored exclusively on the local filesystem with no forwarding configured.",
+        "default": true
+      },
+      "rbac_enabled": {
+        "type": "boolean",
+        "title": "Role-Based Access Control Enabled",
+        "description": "Indicates whether the firewall management interface enforces role-based access control, allowing differentiated roles such as read-only, rule-editor, and auditor instead of a single super-admin role.",
+        "default": false
+      },
+      "admin_accounts_with_superadmin_role_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Number of Admin Accounts Assigned Super-Admin Role",
+        "description": "The total count of administrative accounts that have been assigned the full super-admin (unrestricted) role on the firewall management platform."
+      },
+      "least_privilege_policy_enforced": {
+        "type": "boolean",
+        "title": "Least Privilege Policy Enforced for Admin Accounts",
+        "description": "Indicates whether a documented and enforced least-privilege policy exists that restricts administrative accounts to only the permissions necessary for their designated function."
+      },
+      "stateful_inspection_enabled": {
+        "type": "boolean",
+        "title": "Stateful Inspection Enabled",
+        "description": "Indicates whether the firewall performs stateful packet inspection, tracking connection state and allowing only packets that match an established session or valid new connection.",
+        "default": true
+      },
+      "invalid_state_packet_action": {
+        "type": "string",
+        "enum": [
+          "accept",
+          "drop",
+          "log_and_drop",
+          "reject"
+        ],
+        "title": "Invalid State Packet Action",
+        "description": "The action taken when packets arrive that do not match any tracked connection state (e.g., TCP packets without a preceding SYN, or mid-session packets with no session record).",
+        "default": "drop"
+      },
+      "asymmetric_routing_bypass_enabled": {
+        "type": "boolean",
+        "title": "Asymmetric Routing Bypass Enabled",
+        "description": "Indicates whether an explicit bypass or exemption from stateful inspection has been configured to accommodate asymmetric routing paths, which disables connection state validation for affected traffic.",
+        "default": false
+      },
+      "ha_peer_configured": {
+        "type": "boolean",
+        "title": "High Availability Peer Configured",
+        "description": "Indicates whether a redundant HA peer or cluster member is configured for the firewall.",
+        "default": false
+      },
+      "failover_mode": {
+        "type": "string",
+        "enum": [
+          "fail_open",
+          "fail_closed",
+          "none"
+        ],
+        "title": "Failover Mode",
+        "description": "The behavior of the firewall upon hardware or software failure — fail-open (traffic passes without inspection), fail-closed (traffic is dropped), or no failover mechanism configured.",
+        "default": "none"
+      },
+      "inbound_icmp_unrestricted": {
+        "type": "boolean",
+        "title": "Inbound ICMP Unrestricted from Untrusted Zones",
+        "description": "Indicates whether ICMP traffic is permitted inbound from untrusted or external zones without source restriction or rate limiting.",
+        "default": false
+      },
+      "inbound_snmp_unrestricted": {
+        "type": "boolean",
+        "title": "Inbound SNMP Unrestricted from Untrusted Zones",
+        "description": "Indicates whether SNMP (UDP/161, UDP/162) is permitted inbound from untrusted or external zones without source IP allowlisting or authentication enforcement at the firewall level.",
+        "default": false
+      },
+      "diagnostic_protocols_exposed": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Diagnostic Protocols Exposed from Untrusted Zones",
+        "description": "List of diagnostic or management protocols (other than ICMP/SNMP) permitted inbound from untrusted zones without restriction, e.g. traceroute, NTP, CDP, LLDP, syslog inbound.",
+        "default": []
+      }
+    },
+    "required": [
+      "default_inbound_policy",
+      "default_outbound_policy",
+      "default_forward_policy",
+      "explicit_deny_all_rule_present",
+      "management_interface_network_scope",
+      "management_source_ip_allowlist_configured",
+      "management_interface_bound_to_dedicated_interface",
+      "default_credentials_changed",
+      "password_complexity_policy_enforced",
+      "admin_account_lockout_enabled",
+      "global_logging_enabled",
+      "rules_without_logging_count",
+      "log_destination_configured",
+      "management_protocols_in_use",
+      "encrypted_management_enforced",
+      "tls_minimum_version",
+      "firmware_version_current",
+      "auto_update_or_patch_compliance_enabled",
+      "days_since_last_patch",
+      "rule_audit_performed",
+      "shadowed_rules_detected",
+      "redundant_permit_rules_count",
+      "egress_policy_defined",
+      "default_egress_action",
+      "egress_rule_count",
+      "mfa_enabled",
+      "admin_auth_method",
+      "backup_encryption_enabled",
+      "backup_integrity_signing_enabled",
+      "backup_transfer_protocol",
+      "log_forwarding_enabled",
+      "forwarding_destinations",
+      "local_only_log_storage",
+      "rbac_enabled",
+      "admin_accounts_with_superadmin_role_count",
+      "least_privilege_policy_enforced",
+      "stateful_inspection_enabled",
+      "invalid_state_packet_action",
+      "asymmetric_routing_bypass_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_egress_action"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/default_inbound_policy"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_outbound_policy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_policy_defined"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_rule_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/explicit_deny_all_rule_present"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/invalid_state_packet_action"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rule_audit_performed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/shadowed_rules_detected"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/stateful_inspection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/asymmetric_routing_bypass_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/default_forward_policy"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/redundant_permit_rules_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/diagnostic_protocols_exposed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/inbound_icmp_unrestricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/inbound_snmp_unrestricted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_account_lockout_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_accounts_with_superadmin_role_count"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_auth_method"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/default_credentials_changed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_interface_bound_to_dedicated_interface"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/management_interface_network_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_source_ip_allowlist_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/password_complexity_policy_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rbac_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_policy_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_encryption_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_integrity_signing_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_management_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/management_protocols_in_use"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_minimum_version"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_transfer_protocol"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/forwarding_destinations"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/global_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_forwarding_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/local_only_log_storage"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_destination_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rules_without_logging_count"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/auto_update_or_patch_compliance_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/days_since_last_patch"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/firmware_version_current"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/failover_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ha_peer_configured"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

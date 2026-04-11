@@ -1,0 +1,8 @@
+{
+  "name": "Data Upload/Download",
+  "classType": "dataFlow",
+  "type": "Data Upload/Download",
+  "description": "Data flows between users and cloud storage represent a significant attack surface for interception, manipulation, and replay attacks. The sensitivity of business data makes transit security paramount, requiring robust encryption, mutual authentication, integrity verification, and routing protections. Key risks include downgrade attacks on TLS, missing certificate validation, unencrypted legacy protocol fallback, and lack of end-to-end integrity guarantees beyond the TLS session.",
+  "category": "Data Transmission",
+  "status": "reviewed"
+}

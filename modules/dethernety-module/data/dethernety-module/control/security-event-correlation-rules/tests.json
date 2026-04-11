@@ -1,0 +1,155 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "rules_deployed_and_enabled": false,
+      "baseline_modeling_enabled": false,
+      "cross_source_correlation_rules_enabled": false,
+      "log_source_types_integrated": [
+        "item_0"
+      ],
+      "severity_scoring_enabled": false,
+      "automated_response_actions_enabled": false,
+      "rules_reviewed_within_90_days": false,
+      "active_detection_rule_count": 149,
+      "critical_sources_onboarded": false,
+      "rule_version_control_enabled": false,
+      "threat_intel_feeds_enabled": false,
+      "log_retention_days": 89,
+      "false_positive_rate_percent": 0,
+      "rule_tuning_status": "fully_tuned",
+      "last_rule_review_days_ago": 0,
+      "deviation_detection_rules_count": 0,
+      "baseline_coverage_scope": "none",
+      "active_cross_source_rule_count": 0,
+      "alert_output_configured": true,
+      "alert_prioritization_workflow_configured": false,
+      "severity_levels_defined": "none",
+      "coverage_percentage_of_rules_with_severity": 0,
+      "response_action_types": [],
+      "rules_with_response_coverage_pct": 0,
+      "mitre_attack_tactic_coverage_count": 0,
+      "log_feed_health_percent": 0,
+      "stale_or_silent_source_count": 0,
+      "rule_review_cycle_days": 1,
+      "rule_testing_process": "none",
+      "deprecated_rules_removed": true,
+      "active_feed_count": 0,
+      "ioc_correlation_rules_status": "disabled",
+      "forensic_query_capability_enabled": false,
+      "log_indexing_status": "healthy"
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "rules_deployed_and_enabled": true,
+      "rule_tuning_status": "fully_tuned",
+      "false_positive_rate_percent": 20,
+      "last_rule_review_days_ago": 90,
+      "baseline_modeling_enabled": true,
+      "deviation_detection_rules_count": 1,
+      "baseline_coverage_scope": "partial",
+      "log_source_types_integrated": [
+        "item_0",
+        "item_1"
+      ],
+      "active_cross_source_rule_count": 5,
+      "alert_output_configured": true,
+      "severity_scoring_enabled": true,
+      "alert_prioritization_workflow_configured": true,
+      "severity_levels_defined": "multi_tier",
+      "coverage_percentage_of_rules_with_severity": 80,
+      "automated_response_actions_enabled": true,
+      "rules_with_response_coverage_pct": 50,
+      "response_action_types": [
+        "item_0"
+      ],
+      "active_detection_rule_count": 150,
+      "mitre_attack_tactic_coverage_count": 11,
+      "critical_sources_onboarded": true,
+      "log_feed_health_percent": 95,
+      "stale_or_silent_source_count": 0,
+      "rule_version_control_enabled": true,
+      "rule_testing_process": "automated",
+      "deprecated_rules_removed": true,
+      "threat_intel_feeds_enabled": true,
+      "active_feed_count": 1,
+      "ioc_correlation_rules_status": "enabled",
+      "log_retention_days": 90,
+      "log_indexing_status": "healthy",
+      "forensic_query_capability_enabled": true,
+      "cross_source_correlation_rules_enabled": false,
+      "rules_reviewed_within_90_days": true,
+      "rule_review_cycle_days": 1
+    },
+    "expectedCountermeasures": [
+      "Historical Log Retention And Forensic Querying",
+      "Rule Tuning And Operational Maintainability",
+      "Alert Triage And Prioritization",
+      "Behavioral Baseline Deviation Detection",
+      "Rule Based Detection Accuracy",
+      "Multi Source Log Correlation",
+      "Threat Intelligence Integration",
+      "Log Ingestion Completeness",
+      "Automated Response Orchestration",
+      "Detection Rule Coverage Breadth"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "rules_deployed_and_enabled": true,
+      "false_positive_rate_percent": 0,
+      "rule_tuning_status": "fully_tuned",
+      "last_rule_review_days_ago": 0,
+      "baseline_modeling_enabled": true,
+      "deviation_detection_rules_count": 0,
+      "baseline_coverage_scope": "none",
+      "log_source_types_integrated": [
+        "partial"
+      ],
+      "cross_source_correlation_rules_enabled": false,
+      "active_cross_source_rule_count": 0,
+      "alert_output_configured": true,
+      "severity_scoring_enabled": true,
+      "alert_prioritization_workflow_configured": true,
+      "severity_levels_defined": "none",
+      "coverage_percentage_of_rules_with_severity": 0,
+      "automated_response_actions_enabled": true,
+      "response_action_types": [
+        "partial"
+      ],
+      "rules_with_response_coverage_pct": 0,
+      "active_detection_rule_count": 0,
+      "mitre_attack_tactic_coverage_count": 0,
+      "rules_reviewed_within_90_days": true,
+      "critical_sources_onboarded": true,
+      "log_feed_health_percent": 0,
+      "stale_or_silent_source_count": 0,
+      "rule_version_control_enabled": true,
+      "rule_review_cycle_days": 0,
+      "rule_testing_process": "none",
+      "deprecated_rules_removed": true,
+      "threat_intel_feeds_enabled": true,
+      "active_feed_count": 0,
+      "ioc_correlation_rules_status": "disabled",
+      "log_retention_days": 0,
+      "forensic_query_capability_enabled": true,
+      "log_indexing_status": "healthy"
+    },
+    "expectedCountermeasures": [
+      "Rule Based Detection Accuracy"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

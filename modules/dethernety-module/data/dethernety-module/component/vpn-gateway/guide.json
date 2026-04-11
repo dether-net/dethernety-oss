@@ -1,0 +1,1888 @@
+[
+  {
+    "option_name": "mfa_enforced",
+    "option_description": "Controls whether multi-factor authentication is mandatory for all remote access VPN sessions. When true, every user must provide a second factor (OTP, push notification, hardware token) in addition to primary credentials before a tunnel is established. When false, users may authenticate with a single factor alone.",
+    "security_impact": "The Rego policy triggers the 'weak_authentication_mechanism' exposure when mfa_enforced is false AND certificate_based_auth_enabled is false. Password-only authentication directly enables T1110.001 (Password Guessing) and T1110.003 (Password Spraying) attacks. MFA enforcement is also flagged as a mitigating factor in the 'no_account_lockout_or_rate_limiting_on_authentication' rule — when MFA is enforced it reduces practical brute-force risk even without lockout. Any user group or bypass path that exempts accounts from MFA creates an undetected hole in the policy.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log in to the VPN gateway admin console and navigate to Authentication > Remote Access Policy or Users & Groups > Authentication Profile. Look for a toggle, checkbox, or enforcement mode labeled 'Require MFA', 'Two-Factor Authentication', or 'Multi-Factor Authentication'. Verify the setting is set to 'Required' or 'Enforced' globally and that no user groups have an override or exception.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Authentication > Remote Access Policy > MFA Enforcement",
+        "expected_output": "MFA status shows 'Enforced' or 'Required' with no exempt groups listed"
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA/FTD, query the running configuration for AAA and group-policy MFA settings. On Palo Alto GlobalProtect, check authentication profile configuration. On Fortinet FortiGate, show the VPN SSL settings for two-factor enforcement.",
+        "command": "show running-config | include aaa|two-factor|mfa|otp|radius|ldap|auth-profile",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows MFA-enforcing RADIUS/LDAP server group or TOTP configuration bound to VPN authentication policy with no bypass groups"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the vendor management API for the authentication policy applied to the VPN gateway. For Palo Alto Panorama use the REST API; for Fortinet use the FortiManager API; for Cisco FMC use its REST API to pull the remote access VPN policy and inspect authentication settings.",
+        "command": "curl -sk -H 'X-Auth-Token: <token>' https://<mgmt-ip>/api/v1/remoteaccessvpn/policy | jq '.authProfile.mfaRequired'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response contains mfaRequired: true or equivalent field confirming MFA is mandatory"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security team and request documentation of the VPN authentication design. Ask whether any service accounts, vendor accounts, or privileged admin groups are permitted to connect via VPN without MFA. Review any RADIUS or LDAP policy exceptions documented in change management records.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirms all user populations, including admins and service accounts, are subject to MFA with no documented exceptions"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in legacy or SMB deployments)",
+      "true (required in regulated environments and modern zero-trust deployments)"
+    ]
+  },
+  {
+    "option_name": "certificate_based_auth_enabled",
+    "option_description": "Controls whether the VPN gateway requires or accepts X.509 client certificates as a primary or supplementary authentication factor during tunnel establishment. When enabled, each connecting client must present a valid certificate issued by a trusted PKI before access is granted, providing cryptographic proof of identity independent of passwords.",
+    "security_impact": "The Rego policy triggers the 'weak_authentication_mechanism' exposure when both mfa_enforced is false AND certificate_based_auth_enabled is false. Certificate-based authentication directly addresses T1110.001 and T1550 (Use Alternate Authentication Material) by ensuring possession of a private key is required — something that cannot be guessed or credential-stuffed. When certificates are used, stolen passwords alone are insufficient to establish a tunnel, significantly raising the bar for adversaries.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Access the VPN gateway admin console and navigate to Authentication > Client Certificate Settings or Remote Access > Authentication Profile. Check whether 'Client Certificate Required', 'Mutual TLS', or 'PKI Authentication' is enabled. Verify the trusted CA list is populated and that certificate validation (revocation checking via OCSP or CRL) is active.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > VPN > Authentication > Client Certificate / mTLS Settings",
+        "expected_output": "Client certificate requirement shows 'Enabled' or 'Required' with a valid CA trust store and revocation checking enabled"
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, inspect the tunnel-group and crypto configuration for certificate map or trustpoint bindings. On Palo Alto GlobalProtect, check the authentication profile for certificate profile assignments. On OpenVPN, check the server configuration for tls-auth and client-cert-not-required directives.",
+        "command": "show running-config | include certificate|trustpoint|crypto ca|ssl certificate|client-cert",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "Configuration shows a certificate trustpoint bound to the VPN auth policy; absence of 'client-cert-not-required' in OpenVPN config"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the VPN gateway configuration file for certificate authentication directives. For OpenVPN check server.conf for 'ca', 'cert', 'key', and absence of '--client-cert-not-required'. For StrongSwan/IKEv2 check ipsec.conf or swanctl.conf for 'leftcert' and 'rightauth=pubkey'. For Fortinet check the SSL-VPN realm authentication settings in the configuration backup.",
+        "command": null,
+        "file_path": "/etc/strongswan/swanctl/swanctl.conf",
+        "navigation": null,
+        "expected_output": "Configuration contains valid certificate directives with CA and key paths defined; no bypass flags present"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a VPN connection from a test client without a valid client certificate installed. The gateway should reject the connection at the TLS handshake level (for SSL-VPN) or IKE authentication phase (for IPsec). Use openssl s_client to initiate a handshake and observe whether the server requests a client certificate in the Certificate Request TLS record.",
+        "command": "openssl s_client -connect <vpn-gateway-ip>:443 -state -cert /dev/null 2>&1 | grep -i 'certificate request\\|handshake failure\\|alert'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Server sends 'CertificateRequest' TLS record; connection fails with 'handshake failure' when no client certificate is provided"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in most SSL-VPN deployments using password+OTP)",
+      "true (common in high-security environments, government, and IKEv2 site-to-site configurations)"
+    ]
+  },
+  {
+    "option_name": "authentication_method",
+    "option_description": "Identifies the specific authentication mechanism configured for all remote access sessions on the VPN gateway. This enum captures the full authentication flow — from password-only to hardware token — and determines which credentials an attacker must obtain or compromise to establish a tunnel.",
+    "security_impact": "The Rego policy directly fires the 'weak_authentication_mechanism' exposure when authentication_method equals 'password_only'. This single-factor configuration is the most common enabler of T1110.001 (Password Guessing), T1110.003 (Password Spraying), and T1110.004 (Credential Stuffing) attacks against VPN gateways. Any method other than password_only provides meaningful uplift, but 'saml_with_mfa', 'certificate_only', 'certificate_plus_password', and 'hardware_token' represent the strongest postures. 'password_plus_otp' provides acceptable protection if OTP enforcement is airtight.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the VPN gateway admin console, navigate to Authentication > Authentication Profiles or VPN > Remote Access > User Authentication. Review the configured authentication type for each profile or group policy. Note whether multiple profiles exist and if weaker methods are permitted for any group. Check RADIUS server configuration for the authentication protocol enforced (PAP, CHAP, EAP-TLS, etc.).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > Authentication > Authentication Profiles > Primary Method",
+        "expected_output": "Authentication profile clearly identifies the method (e.g., 'SAML with MFA', 'Certificate + Password', 'RADIUS OTP')"
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, inspect group-policy and tunnel-group settings to determine what authentication methods are bound. On Palo Alto, show the GlobalProtect gateway authentication profile. On Fortinet, display the SSL-VPN authentication rules. Cross-reference with the RADIUS/LDAP server configuration to confirm OTP or MFA enforcement at the authentication server level.",
+        "command": "show running-config group-policy | include authentication|password|certificate|aaa|two-factor",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Group policy output identifies specific auth method; RADIUS server config confirms whether OTP/MFA challenge-response is enforced"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the authentication configuration file or exported configuration backup. For Fortinet FortiGate, inspect the 'config vpn ssl settings' and 'config user group' sections for authentication method assignments. For OpenVPN Access Server, check the /etc/openvpn-as/as.conf and user database for auth method settings. For Pulse/Ivanti, inspect the authentication realm configuration files.",
+        "command": "grep -E 'auth-method|authentication-type|two-factor|certificate|ldap|radius|saml' /etc/vpn/gateway.conf",
+        "file_path": "/etc/vpn/gateway.conf",
+        "navigation": null,
+        "expected_output": "Configuration file entries clearly show the authentication method (e.g., auth-method=certificate_plus_password)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the VPN authentication architecture documentation from the network security team. Confirm whether separate authentication profiles exist for different user populations (e.g., employees vs. contractors vs. admins) and whether any groups are permitted to use weaker methods. Obtain the RADIUS or LDAP policy definition that enforces the second factor.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation maps each user group to a specific authentication method with no undocumented weaker-method exceptions"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "password_only (legacy and SMB deployments; highest risk)",
+      "password_plus_otp (most common in enterprise deployments)",
+      "saml_with_mfa (modern cloud-integrated deployments)",
+      "certificate_only (high-security and government environments)",
+      "hardware_token (financial services and critical infrastructure)"
+    ]
+  },
+  {
+    "option_name": "enabled_cipher_suites",
+    "option_description": "Enumerates the complete list of encryption cipher suites that the VPN gateway currently accepts for tunnel establishment. For IPsec gateways this includes IKE Phase 1 and Phase 2 encryption and integrity algorithms. For SSL-VPN gateways this covers the TLS cipher string offered during the handshake. Presence of weak algorithms in this list exposes tunnels to downgrade and decryption attacks.",
+    "security_impact": "The Rego policy fires the 'deprecated_cipher_suite_enabled' exposure when any of DES, 3DES, RC4, NULL, or EXPORT appear in the enabled_cipher_suites array. These ciphers are directly exploitable via T1600.001 (Reduce Key Space) and T1600 (Weaken Encryption). DES offers only 56-bit effective key space trivially brutable offline; RC4 has statistical biases enabling plaintext recovery; NULL provides zero encryption; EXPORT ciphers enforce deliberately weakened keys exploited by FREAK and LOGJAM attacks. Even a single deprecated cipher in the list allows a capable attacker to force a downgrade to the weakest available algorithm.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For SSL-VPN gateways, use nmap ssl-enum-ciphers or openssl to enumerate all accepted cipher suites. For IPsec gateways, use ike-scan to enumerate supported IKE proposals. Compare the output against the list of deprecated ciphers (DES, 3DES, RC4, NULL, EXPORT, ANON).",
+        "command": "nmap --script ssl-enum-ciphers -p 443,4433,8443 <vpn-gateway-ip> | grep -E 'TLS_|SSL_|DES|RC4|NULL|EXPORT|3DES'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of accepted cipher suites; any line containing DES, 3DES, RC4, NULL, or EXPORT indicates a deprecated cipher is enabled"
+      },
+      {
+        "type": "command",
+        "instruction": "For IPsec VPN gateways, use ike-scan to probe IKE Phase 1 proposals and identify accepted encryption and integrity algorithms. For Phase 2, review the gateway configuration directly since ike-scan may not enumerate Phase 2 proposals without authentication.",
+        "command": "ike-scan --trans=5,2,1,2 --trans=5,2,3,2 --trans=5,2,7,2 <vpn-gateway-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ike-scan output shows SA proposals; look for encryption algorithm IDs corresponding to DES (1), 3DES (3), or RC4 in the response"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the gateway configuration file for cipher suite definitions. On Cisco ASA check 'crypto ipsec transform-set' and 'ssl cipher' commands. On Fortinet FortiGate inspect 'config vpn ssl settings' > 'algorithm' and 'config vpn ipsec phase1-interface' > 'encryption'. On OpenVPN check 'cipher' and 'tls-cipher' directives in server.conf.",
+        "command": "grep -E 'cipher|transform|encryption|integrity|algorithm|hmac' /etc/vpn/ipsec.conf",
+        "file_path": "/etc/vpn/ipsec.conf",
+        "navigation": null,
+        "expected_output": "Configuration shows only AES-128/256, AES-GCM, ChaCha20-Poly1305 entries; no DES, 3DES, RC4, or EXPORT entries"
+      },
+      {
+        "type": "gui",
+        "instruction": "Access the VPN gateway admin console and navigate to Cryptography Settings, IPsec Proposals, or SSL/TLS Settings. Review the list of enabled encryption algorithms for both Phase 1/Phase 2 (IPsec) or the TLS cipher string (SSL-VPN). Verify the 'Remove Deprecated Ciphers' or 'Cipher Hardening' option is applied.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > VPN > Cryptography Settings > Enabled Cipher Suites",
+        "expected_output": "Only modern ciphers (AES-GCM, AES-CBC with SHA-256/384, ECDHE) are listed; deprecated entries are absent or disabled"
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['AES-256-GCM', 'AES-128-GCM', 'ECDHE-RSA-AES256-GCM-SHA384'] (hardened deployment)",
+      "['AES-256-CBC', 'AES-128-CBC', '3DES', 'DES'] (legacy misconfigured deployment)",
+      "['AES256-SHA256', 'AES128-SHA', 'RC4-SHA'] (mixed deprecated and modern — common in unreviewed configurations)",
+      "['AES-256-GCM', 'CHACHA20-POLY1305'] (modern WireGuard or IKEv2 deployment)"
+    ]
+  },
+  {
+    "option_name": "minimum_tls_version",
+    "option_description": "Defines the lowest TLS protocol version the VPN gateway will negotiate for SSL-VPN connections, management plane HTTPS access, or any TLS-wrapped communication. Setting this too low allows clients and potential attackers to force negotiation down to protocol versions with known vulnerabilities, bypassing the protections of modern TLS.",
+    "security_impact": "The Rego policy triggers the 'deprecated_cipher_suite_enabled' exposure for minimum_tls_version values of SSLv3, TLS1.0, or TLS1.1. SSLv3 is vulnerable to POODLE (padding oracle), TLS1.0 is susceptible to BEAST and Lucky13 attacks, and TLS1.1 lacks modern AEAD cipher support. All three allow exploitation via T1600 (Weaken Encryption) and T1600.001 (Reduce Key Space) through protocol downgrade. Attackers in network-adjacent positions can force negotiation to the lowest common denominator cipher when the minimum is not enforced at TLS1.2 or higher. Only TLS1.2 and TLS1.3 are considered safe.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Use testssl.sh or openssl s_client to probe which TLS protocol versions the VPN gateway accepts on the SSL-VPN port (typically 443 or 4433). Attempt explicit SSLv3, TLS1.0, TLS1.1 handshakes and observe whether the server accepts or rejects them. Record the lowest version accepted.",
+        "command": "testssl.sh --protocols --severity MEDIUM <vpn-gateway-ip>:443 2>/dev/null | grep -E 'SSLv3|TLSv1\\b|TLSv1\\.1|TLSv1\\.2|TLSv1\\.3|offered|not offered'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SSLv3, TLSv1.0, and TLSv1.1 show as 'not offered'; TLSv1.2 and/or TLSv1.3 show as 'offered'"
+      },
+      {
+        "type": "command",
+        "instruction": "Attempt explicit TLS version handshakes using openssl s_client with version flags. A successful connection indicates that version is accepted by the gateway. Test SSLv3, TLS1.0, TLS1.1 explicitly — connection establishment (not just attempt) confirms server acceptance.",
+        "command": "openssl s_client -connect <vpn-gateway-ip>:443 -tls1 2>&1 | grep -E 'Protocol|Cipher|handshake failure|CONNECTED'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection with -tls1 or -tls1_1 flags results in 'handshake failure' or 'alert'; -tls1_2 succeeds"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the gateway TLS configuration for the minimum protocol version directive. On Nginx-based SSL-VPN proxies check ssl_protocols in nginx.conf. On Apache check SSLProtocol in ssl.conf. On Fortinet check 'config vpn ssl settings' > 'ssl-min-proto-ver'. On Cisco ASA check 'ssl server-version' and 'ssl client-version' commands.",
+        "command": "grep -E 'ssl-min-proto|SSLProtocol|ssl_protocols|server-version|TLSv' /etc/nginx/nginx.conf /etc/apache2/ssl.conf /etc/vpn/ssl-settings.conf 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Configuration shows 'TLSv1.2 TLSv1.3' or 'ssl-min-proto-ver tls1-2'; no SSLv3, TLSv1, or TLSv1.1 entries"
+      },
+      {
+        "type": "gui",
+        "instruction": "Access the VPN gateway admin console and navigate to SSL/TLS Settings, HTTPS Configuration, or Security Hardening. Look for a 'Minimum TLS Version' or 'Minimum Protocol Version' dropdown or selector. Verify the value is set to TLS 1.2 or TLS 1.3.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > SSL-VPN > TLS/SSL Settings > Minimum Protocol Version",
+        "expected_output": "Dropdown or setting shows 'TLS 1.2' or 'TLS 1.3' as the minimum; SSLv3, TLS 1.0, and TLS 1.1 are not selectable or are explicitly disabled"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLS1.0 (legacy deployments, unreviewed configurations — most common finding)",
+      "TLS1.1 (partially hardened but still non-compliant)",
+      "TLS1.2 (current baseline standard, acceptable)",
+      "TLS1.3 (hardened modern deployment, preferred)",
+      "SSLv3 (extremely legacy, typically only found in EOL hardware)"
+    ]
+  },
+  {
+    "option_name": "weak_hmac_algorithms_enabled",
+    "option_description": "Controls whether the VPN gateway accepts MD5 or SHA-1 as HMAC integrity algorithms for IPsec tunnel authentication in Phase 1 and Phase 2 IKE negotiations. These algorithms are used to authenticate and ensure the integrity of IKE exchanges and encapsulated traffic. Accepting weak HMAC algorithms reduces the cryptographic assurance that tunnel data has not been tampered with.",
+    "security_impact": "The Rego policy fires the 'deprecated_cipher_suite_enabled' exposure directly when weak_hmac_algorithms_enabled is true. MD5 is fully broken for collision resistance and has practical preimage weaknesses; SHA-1 is deprecated by NIST with demonstrated collision attacks (SHAttered). Weak HMAC enables T1600 (Weaken Encryption) by undermining the integrity guarantees of IPsec tunnels, making them susceptible to tunnel injection or manipulation attacks. For IKEv1 specifically, MD5 or SHA-1 in aggressive mode enables offline dictionary attacks against PSK authentication. SHA-256, SHA-384, or SHA-512 (part of the SHA-2 family) are the required replacements.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the IPsec configuration for Phase 1 and Phase 2 integrity algorithm settings. On StrongSwan, inspect ipsec.conf or swanctl.conf for 'integrity' attributes in IKE and ESP proposals. On Cisco ASA, check 'crypto isakmp policy' for hash settings and 'crypto ipsec transform-set' for authentication algorithm. On Fortinet, check 'config vpn ipsec phase1-interface' > 'authmethod' and 'config vpn ipsec phase2-interface' > 'dhgrp'/'authmethod'.",
+        "command": "grep -E 'integrity|hash|authmethod|auth-alg|md5|sha1|sha-1' /etc/ipsec.conf /etc/strongswan/swanctl/swanctl.conf 2>/dev/null",
+        "file_path": "/etc/ipsec.conf",
+        "navigation": null,
+        "expected_output": "No md5, sha1, or SHA-1 integrity algorithms present in Phase 1 or Phase 2 proposals; only sha256, sha384, sha512, or aes-xcbc appear"
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, display the configured ISAKMP policies and IPsec transform sets to identify any MD5 or SHA-1 hash algorithms. On Palo Alto, show IKE crypto profiles and IPsec crypto profiles. Filter output for weak integrity algorithm identifiers.",
+        "command": "show running-config | grep -E 'hash md5|hash sha$|authentication sha$|integrity hmac-md5|integrity hmac-sha1|auth sha$'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No lines matching MD5 or plain SHA (SHA-1) integrity in IKE or IPsec transform configurations"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use ike-scan with various transform proposals to determine which integrity algorithms the gateway accepts. Send IKE proposals with HMAC-MD5 (integrity ID 1) and HMAC-SHA1 (integrity ID 2) and observe whether the gateway responds with an SA payload accepting those proposals.",
+        "command": "ike-scan --trans=5,2,1,1 --trans=5,2,1,2 <vpn-gateway-ip> 2>&1 | grep -E 'SA=|Handshake|returned'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Gateway returns no SA match for MD5 (integrity=1) or SHA1 (integrity=2) proposals; only SHA-256 or stronger proposals are accepted"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the VPN gateway admin console navigate to IPsec > IKE Proposals or Crypto Profiles. Review Phase 1 and Phase 2 integrity algorithm selections. Verify that HMAC-MD5 and HMAC-SHA1 options are not selected or are greyed out. Confirm only SHA-256, SHA-384, SHA-512, or AES-XCBC integrity options are active.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Admin Console > IPsec > IKE Crypto Profile > Integrity Algorithms",
+        "expected_output": "Only SHA-256 or stronger algorithms are checked; HMAC-MD5 and HMAC-SHA1 are unchecked or absent from the accepted proposal list"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (legacy IPsec deployments; common finding especially in IKEv1 configurations)",
+      "false (hardened deployments using SHA-256/384/512 exclusively)",
+      "true (mixed environments where legacy peer compatibility is maintained — common in site-to-site tunnels with legacy on-premises equipment)"
+    ]
+  },
+  {
+    "option_name": "split_tunneling_enabled",
+    "option_description": "Controls whether VPN clients route only corporate-destined traffic through the encrypted tunnel while sending all other traffic directly to the internet outside the VPN. When enabled, the client maintains simultaneous access to both internal resources and untrusted external networks.",
+    "security_impact": "The Rego policy flags 'unrestricted_split_tunneling' when split_tunneling_enabled is true and either split_tunnel_policy_enforced or endpoint_security_posture_check is absent. An enabled split tunnel without compensating controls creates a network boundary bridging vector (T1599) where a compromised endpoint on an untrusted network can pivot into the corporate environment, and traffic can be tunneled outside monitored VPN channels (T1572).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, display the tunnel-group or group-policy split-tunnel configuration to determine whether split tunneling is active.",
+        "command": "show running-config group-policy | include split-tunnel",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output containing 'split-tunnel-policy tunnelspecified' or 'split-tunnel-policy tunnelall'. 'tunnelspecified' indicates split tunneling is enabled; 'tunnelall' means all traffic is forced through the tunnel (split tunneling disabled)."
+      },
+      {
+        "type": "command",
+        "instruction": "On Palo Alto GlobalProtect, query the gateway configuration for the split-tunnel setting via the CLI.",
+        "command": "show config running | match 'split-tunnel'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If a split-tunnel element with include/exclude routes is present, split tunneling is enabled. An absent element or 'no' value indicates tunnel-all mode."
+      },
+      {
+        "type": "command",
+        "instruction": "On Fortinet FortiGate SSL-VPN, check the split-tunneling mode for the VPN portal configuration.",
+        "command": "get vpn ssl settings | grep split",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A value of 'split-tunneling enable' confirms split tunneling is active. 'disable' confirms all traffic is tunneled."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Cisco ASA ASDM, navigate to the group policy split-tunnel configuration panel.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ASDM > Configuration > Remote Access VPN > Network (Client) Access > Group Policies > [Policy Name] > Advanced > Split Tunneling. Review the 'Policy' dropdown — 'Tunnel Network List Below' means split tunneling is enabled.",
+        "expected_output": "Policy set to 'Tunnel All Networks' indicates split tunneling is disabled. Any other value (Tunnel Network List, Exclude Network List) indicates it is enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "split_tunnel_policy_enforced",
+    "option_description": "Indicates whether a granular, approved access control list or route policy is defined and enforced to restrict which external subnets or domains VPN clients may reach outside the tunnel when split tunneling is active. A missing or overly permissive ACL (e.g., permit any) is treated as policy not enforced.",
+    "security_impact": "The Rego rule 'unrestricted_split_tunneling' fires when split_tunneling_enabled is true and split_tunnel_policy_enforced is false, meaning clients are free to communicate with any external destination simultaneously while connected internally. This enables attackers on the same untrusted network as the VPN client to use that client as an uncontrolled bridge into the corporate network (T1599) and to exfiltrate data through unmonitored channels (T1572).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, retrieve the split-tunnel network list (ACL) associated with the group policy to verify it is defined and granular.",
+        "command": "show running-config access-list | grep -A 20 <split-tunnel-acl-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACL entries should list specific corporate CIDR ranges only. Entries containing 'permit ip any any' or '0.0.0.0 255.255.255.255' indicate the policy is not effectively enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "On Palo Alto GlobalProtect, inspect the gateway split-tunnel include/exclude route lists for the access route configuration.",
+        "command": "show config running xpath /config/devices/entry/vsys/entry/gateway/global-protect/gateway-config/tunnel-settings",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An include-list with specific subnets and no wildcard entries (0.0.0.0/0) confirms a policy is enforced. An empty include-list or presence of 0.0.0.0/0 indicates no meaningful restriction."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Fortinet FortiGate, review the SSL-VPN portal configuration file or running config for the split-tunneling routing table entries.",
+        "command": "show vpn ssl web portal <portal-name>",
+        "file_path": "/etc/config (FortiGate persistent config — extract via 'show full-configuration vpn ssl web portal')",
+        "navigation": null,
+        "expected_output": "The 'split-tunneling-routing-address' block should list specific named address objects representing corporate subnets. An absent block or 'all' address group indicates no restrictive policy."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Cisco ASA ASDM, inspect the network list associated with the split-tunnel policy for the relevant group policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ASDM > Configuration > Remote Access VPN > Network (Client) Access > Group Policies > [Policy Name] > Advanced > Split Tunneling > Network List. Review the named ACL entries.",
+        "expected_output": "Only specific, documented corporate subnets should appear. A permit-any entry or an empty list is a finding."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "endpoint_security_posture_check",
+    "option_description": "Controls whether the VPN gateway evaluates the connecting client endpoint's security health — such as OS patch level, EDR/AV presence, disk encryption state, or firewall status — before allowing a split-tunnel session to be established. Posture failure should result in quarantine or denial of access.",
+    "security_impact": "The Rego rule 'unrestricted_split_tunneling' fires when split_tunneling_enabled is true and endpoint_security_posture_check is false. Without posture enforcement, a compromised or unmanaged device that passes credential authentication is allowed to bridge untrusted and internal networks simultaneously. This directly enables the network boundary bridging attack vector (T1599) and allows devices carrying malware or unauthorized remote access tools to connect and exfiltrate data.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Palo Alto GlobalProtect, verify that Host Information Profile (HIP) checks are configured and applied to the gateway security policy.",
+        "command": "show config running | match 'hip-profile'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Named HIP profile references in gateway configuration or security policy rules confirm posture checks are active. An absent hip-profile element indicates no posture enforcement."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Cisco ASA with ISE posture integration, verify the posture policy configuration in Cisco ISE.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco ISE > Policy > Policy Elements > Results > Client Provisioning > Resources. Then check Policy > Posture > Posture Policy to confirm rules are assigned to the VPN authorization profile.",
+        "expected_output": "Active posture policy rules mapped to the VPN authorization profile with remediation or deny actions for non-compliant endpoints confirm enforcement."
+      },
+      {
+        "type": "command",
+        "instruction": "On Fortinet FortiGate with FortiClient EMS integration, check the endpoint control profile binding to the SSL-VPN portal.",
+        "command": "show endpoint-control profile",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An active endpoint-control profile linked to the SSL-VPN portal with compliance rules defined confirms posture check enforcement. An absent or unlinked profile indicates no enforcement."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security team and review VPN access policy documentation to confirm whether a formal posture assessment requirement exists and is technically enforced versus advisory only.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written policy with evidence of technical enforcement (e.g., quarantine VLAN assignment for non-compliant hosts, deny logs for failed posture) confirms enforcement. Advisory-only policies without technical enforcement are a finding."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "network_access_scope",
+    "option_description": "Defines how broadly authenticated VPN users can reach internal network resources. 'unrestricted' means no network-layer ACL limits which internal subnets a user can reach; 'role_based' means different user groups receive differentiated ACLs matching their job function; 'subnet_restricted' means all users are limited to a defined subset of subnets regardless of role.",
+    "security_impact": "The Rego rule 'overly_broad_network_access_policy' fires unconditionally when network_access_scope equals 'unrestricted'. This directly amplifies lateral movement impact post-credential compromise (T1210, T1599) because an attacker who obtains a single valid VPN credential gains access to all internal subnets. Overly broad access also bypasses conditional access restrictions (T1556.009) that would otherwise limit exposure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, extract the VPN filter ACL applied to the tunnel group or group policy to assess breadth of permitted internal destinations.",
+        "command": "show running-config group-policy | include vpn-filter",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A named ACL reference confirms a filter is applied. Then run 'show access-list <acl-name>' to enumerate permitted CIDRs. No vpn-filter entry or a permit-any rule maps to 'unrestricted'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Palo Alto GlobalProtect with Prisma Access or on-prem gateway, inspect the security policy rules applied to the trust-zone traffic post-tunnel termination.",
+        "command": "show security policy-rule all | match 'from tunnel'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules with specific destination addresses and application filters indicate subnet_restricted or role_based scope. A rule permitting 'any' destination to 'any' application indicates unrestricted access."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Fortinet FortiGate, review the firewall policy applied to SSL-VPN traffic for destination address objects.",
+        "command": null,
+        "file_path": null,
+        "navigation": "FortiGate Web UI > Policy & Objects > Firewall Policy > filter by Incoming Interface = 'ssl.root'. Review Destination Address column for each policy permitting VPN traffic.",
+        "expected_output": "Policies targeting specific named address groups (not 'all') with service restrictions indicate subnet_restricted or role_based scope. A policy with Destination = 'all' and Service = 'ALL' maps to 'unrestricted'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Fortinet FortiGate REST API to retrieve firewall policies applied to VPN tunnel traffic and programmatically assess destination address breadth.",
+        "command": "curl -sk -H 'Authorization: Bearer <token>' 'https://<fortigate>/api/v2/cmdb/firewall/policy?filter=srcintf==ssl.root'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response with 'dstaddr' fields. Values of [{'name':'all'}] indicate unrestricted scope. Specific named address objects indicate restricted scope."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "unrestricted",
+      "role_based",
+      "subnet_restricted"
+    ]
+  },
+  {
+    "option_name": "role_based_acl_enforced",
+    "option_description": "Indicates whether the VPN gateway dynamically assigns differentiated network access control lists based on the authenticated user's role, group membership, or identity attributes (e.g., via RADIUS attribute assignment, LDAP group mapping, or identity-aware policy engines) rather than applying a single flat ACL to all VPN users.",
+    "security_impact": "The Rego rule 'overly_broad_network_access_policy' fires when role_based_acl_enforced is false in combination with broad permitted_destination_subnets entries (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, or 0.0.0.0/0). Without role-based ACL enforcement, a compromised contractor or low-privilege user account grants the same internal network access as a privileged administrator, dramatically expanding lateral movement opportunities (T1210) and enabling network boundary bridging (T1599).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, verify whether RADIUS is configured to return dynamic ACL assignments (RADIUS attribute 11 Filter-Id or Cisco AV-pair) per user group.",
+        "command": "show running-config aaa-server | include attribute",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "References to 'acl' or 'filter-id' in RADIUS AV-pair configuration confirm dynamic ACL assignment is configured. Absence indicates a static group-level ACL or no ACL."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, check tunnel-group and group-policy mappings to determine whether multiple policies exist for different user groups or a single policy applies to all.",
+        "command": "show running-config tunnel-group | include authentication-server-group|default-group-policy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Multiple tunnel-groups each referencing distinct group-policies with different vpn-filter ACLs indicates role-based enforcement. A single default-group-policy for all users indicates no role differentiation."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Palo Alto GlobalProtect, verify that multiple gateway configurations or security policies are mapped to different user groups via User-ID or HIP-based policy rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama/PAN-OS Web UI > Policies > Security. Filter rules by Source User to confirm user-group-specific rules are defined targeting different destination address objects.",
+        "expected_output": "Separate security policy rules for distinct AD/LDAP groups (e.g., 'domain\\contractors' vs 'domain\\engineers') with different destination address objects confirms role-based ACL enforcement."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the VPN access request and provisioning procedures to determine whether role-based network access is a documented and technically enforced requirement.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Evidence of per-role access request approvals linked to specific ACL assignments in the VPN configuration confirms role-based enforcement. A single 'VPN access' approval granting identical access to all users is a finding."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "permitted_destination_subnets",
+    "option_description": "The explicit list of destination CIDR ranges that VPN-authenticated users are permitted to reach through the VPN access profile ACL or split-tunnel include list. This array captures the actual network scope granted, enabling detection of overly broad entries such as entire RFC1918 address space or default routes.",
+    "security_impact": "The Rego rule 'overly_broad_network_access_policy' fires when role_based_acl_enforced is false and this array contains any of 0.0.0.0/0, 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16 — representing full or entire address class grants. These broad entries expose all internal services to exploitation (T1210), enable unrestricted lateral movement once credentials are compromised, and violate conditional access principles (T1556.009) by granting access far beyond business requirements.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, extract all permit entries from the VPN filter ACL to enumerate the full set of permitted destination subnets.",
+        "command": "show running-config access-list <vpn-filter-acl-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of 'permit ip <source> <destination>' ACE entries. Extract all destination network/mask pairs and convert to CIDR notation. Flag entries where destination is 'any' (0.0.0.0/0) or full RFC1918 blocks."
+      },
+      {
+        "type": "command",
+        "instruction": "On Palo Alto GlobalProtect, list all address objects and groups referenced in security policy destination fields for VPN tunnel-originating traffic.",
+        "command": "show config running xpath /config/devices/entry/vsys/entry/address | match 'ip-netmask'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All defined address objects with their CIDR values. Cross-reference with security policy destination fields to identify which CIDRs are reachable from VPN sessions."
+      },
+      {
+        "type": "command",
+        "instruction": "On Fortinet FortiGate, extract address objects and address groups used as destination in SSL-VPN firewall policies to compile the full permitted subnet list.",
+        "command": "get firewall address | grep -E 'name|subnet'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Named address objects with subnet values. Compare against SSL-VPN policy destination references to determine actual permitted ranges. Flag if 'all' (0.0.0.0/0) appears."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Parse the VPN gateway exported configuration for all ACL permit entries or route table inclusions to compile a complete CIDR list for the access profile.",
+        "command": "grep -E 'permit|network-list|include|dst' /path/to/exported_vpn_config.txt",
+        "file_path": "/etc/ipsec.conf (strongSwan), /etc/openvpn/server.conf, or vendor-specific export path",
+        "navigation": null,
+        "expected_output": "All destination CIDR entries from ACL permit lines or route include directives. Any entry matching 0.0.0.0/0, 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16 must be flagged."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"10.10.0.0/16\", \"10.20.0.0/16\"]",
+      "[\"0.0.0.0/0\"]",
+      "[\"10.0.0.0/8\", \"172.16.0.0/12\", \"192.168.0.0/16\"]",
+      "[\"192.168.100.0/24\", \"172.16.50.0/24\"]"
+    ]
+  },
+  {
+    "option_name": "certificate_type",
+    "option_description": "Classifies the VPN gateway's TLS/DTLS server certificate as issued by a trusted certificate authority ('trusted_ca'), self-generated without a CA chain ('self_signed'), or entirely absent ('none'). This attribute reflects the trust anchor available to connecting clients for server identity verification.",
+    "security_impact": "The Rego rule 'self_signed_or_expired_server_certificate' fires when certificate_type is 'self_signed' or 'none'. Self-signed certificates cannot be validated against a known trust store, making clients vulnerable to machine-in-the-middle attacks (T1587.003, T1649) where an attacker presents a forged certificate indistinguishable from the legitimate one. Environments that accept self-signed certificates are also susceptible to certificate forgery and cannot leverage certificate-based client authentication verification (T1596.003).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use OpenSSL to connect to the VPN gateway's TLS endpoint and inspect the server certificate's issuer and subject fields. If issuer equals subject, the certificate is self-signed.",
+        "command": "openssl s_client -connect <vpn-gateway-host>:<port> -showcerts 2>/dev/null | openssl x509 -noout -issuer -subject",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If 'issuer' and 'subject' fields are identical, the certificate is self-signed. If issuer references a known CA (e.g., DigiCert, Let's Encrypt, internal PKI CA), it is trusted_ca. If no certificate is returned, record 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the full certificate chain to confirm the issuing CA is trusted and the chain is complete up to a root CA.",
+        "command": "openssl s_client -connect <vpn-gateway-host>:<port> -verify 5 2>&1 | grep -E 'Verify return code|Certificate chain|depth'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Verify return code: 0 (ok)' with a full chain depth confirms trusted_ca. Error codes such as 18 (self-signed certificate), 19 (self-signed cert in chain), or 20 (unable to get local issuer) indicate self_signed or untrusted issuer."
+      },
+      {
+        "type": "gui",
+        "instruction": "In a web browser, navigate to the VPN gateway's web authentication portal URL and inspect the certificate details via the browser's padlock icon.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser > navigate to https://<vpn-gateway-host> > click padlock icon > View Certificate > Certification Path tab. Review the root and intermediate CA chain.",
+        "expected_output": "A complete chain ending at a trusted public or corporate root CA confirms 'trusted_ca'. A single entry with no chain, or a browser warning about an untrusted certificate, confirms 'self_signed' or 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On the VPN gateway host, inspect the configured TLS certificate file to determine its issuer and whether it is part of a CA-signed chain.",
+        "command": "openssl x509 -noout -issuer -subject -in /etc/ssl/certs/vpn-gateway.crt",
+        "file_path": "/etc/ssl/certs/vpn-gateway.crt (Linux-based VPN); /etc/ipsec.d/certs/ (strongSwan); /etc/pki/tls/certs/ (RHEL/CentOS)",
+        "navigation": null,
+        "expected_output": "Subject and Issuer fields that differ and reference a known CA name indicate 'trusted_ca'. Matching subject/issuer fields indicate 'self_signed'. An absent or empty file indicates 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "trusted_ca",
+      "self_signed",
+      "none"
+    ]
+  },
+  {
+    "option_name": "certificate_expired",
+    "option_description": "Indicates whether the VPN gateway's server certificate has surpassed its NotAfter validity date. An expired certificate may still be presented by the server but will be rejected by properly configured clients, potentially disrupting service or — more critically — indicating that clients have been configured to ignore certificate validation errors, enabling MITM attacks.",
+    "security_impact": "The Rego rule 'self_signed_or_expired_server_certificate' fires when certificate_expired is true. An expired certificate signals either a lapsed certificate lifecycle management process or — more dangerously — that client-side validation has been disabled to work around expiration errors. Either condition leaves clients unable to verify server identity (T1587.003), susceptible to MITM interception of credentials and session data (T1649), and exposed to certificate forgery attacks where adversaries present similarly expired or invalid certificates (T1596.003).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use OpenSSL to retrieve and check the NotAfter date of the VPN gateway's server certificate against the current system date.",
+        "command": "echo | openssl s_client -connect <vpn-gateway-host>:<port> 2>/dev/null | openssl x509 -noout -dates",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'notBefore' and 'notAfter' dates. Compare 'notAfter' against current date (run 'date' separately). If notAfter is in the past, certificate_expired is true."
+      },
+      {
+        "type": "command",
+        "instruction": "Use OpenSSL's -checkend flag to programmatically determine certificate expiry with a specific future-days threshold, enabling both current and near-expiry detection.",
+        "command": "echo | openssl s_client -connect <vpn-gateway-host>:<port> 2>/dev/null | openssl x509 -noout -checkend 0 && echo 'VALID' || echo 'EXPIRED'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'VALID' confirms the certificate has not yet expired (certificate_expired = false). 'EXPIRED' or a non-zero exit code confirms certificate_expired = true. Change '0' to '2592000' (30 days in seconds) to detect near-expiry."
+      },
+      {
+        "type": "command",
+        "instruction": "On the VPN gateway host, directly inspect the certificate file's expiry date to confirm the gateway is presenting the correct certificate.",
+        "command": "openssl x509 -noout -enddate -in /etc/ssl/certs/vpn-gateway.crt",
+        "file_path": "/etc/ssl/certs/vpn-gateway.crt (Linux); /etc/ipsec.d/certs/ (strongSwan); C:\\ProgramData\\Pulse Secure\\ (Windows-based VPN)",
+        "navigation": null,
+        "expected_output": "The 'notAfter' field value. If this date is prior to today's date, certificate_expired is true. Cross-reference with the certificate actually served via s_client to confirm the file and served certificate match."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the VPN gateway's web authentication portal in a browser and inspect the certificate's validity period directly.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser > navigate to https://<vpn-gateway-host> > click padlock icon > View Certificate > General or Details tab > Valid from / Valid to fields.",
+        "expected_output": "'Valid to' date in the past confirms certificate_expired = true. A browser warning stating 'Certificate has expired' also confirms expiry. A 'Valid to' date in the future confirms certificate_expired = false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "client_certificate_validation_enforced",
+    "option_description": "Controls whether the VPN gateway validates connecting clients' certificates against a trusted CA store, rejecting self-signed, expired, or CA-unverifiable client certificates during the TLS or IKE handshake. This enforces mutual authentication and prevents unauthorized clients from establishing tunnels.",
+    "security_impact": "The Rego policy flags `self_signed_or_expired_server_certificate` when `client_certificate_validation_enforced` is false or absent. Without this control, any client presenting a self-signed or spoofed certificate can potentially complete the handshake, enabling impersonation attacks and bypassing identity assurance. Tied to MITRE T1587.003 and T1649 — attackers can forge certificates that an unconfigured gateway will accept.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, display the trustpoint and certificate map configuration to verify mutual TLS client validation is active.",
+        "command": "show run ssl | include certificate-authentication\nshow run crypto ca trustpoint\nshow run webvpn | include certificate",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show a trustpoint referencing an internal or public CA, and 'certificate-authentication' present in the SSL or WebVPN stanza. If absent, client certificate validation is not enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "On Fortinet FortiGate, check SSL-VPN settings for peer certificate authentication and CA reference.",
+        "command": "config vpn ssl settings\n  show full-configuration | grep -E 'reqclientcert|cacert'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Expect 'set reqclientcert enable' and a valid 'set cacert <CA-name>' entry. Missing or disabled values confirm the control is absent."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Palo Alto GlobalProtect, navigate to the Gateway configuration and verify client authentication profile references a certificate profile with CA chain and OCSP/CRL enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Network > GlobalProtect > Gateways > [Gateway Name] > Authentication > Certificate Profile — confirm a CA certificate profile is selected and CRL/OCSP is enabled within Device > Certificate Management > Certificate Profile.",
+        "expected_output": "A non-empty Certificate Profile field pointing to a CA-backed profile with revocation checking enabled. Empty or 'None' means client cert validation is not enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On OpenVPN, inspect the server configuration file for 'tls-verify', 'verify-client-cert', and 'ca' directives.",
+        "command": "grep -E 'ca |tls-verify|verify-client-cert|ns-cert-type' /etc/openvpn/server.conf",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "Expect 'ca <path-to-ca.crt>', absence of 'verify-client-cert none', and optionally a 'tls-verify' script. 'verify-client-cert none' or missing 'ca' directive means the control is not enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null (not configured)"
+    ]
+  },
+  {
+    "option_name": "version_has_known_cve",
+    "option_description": "Indicates whether the currently installed VPN software version appears in a CVE database (NVD, vendor advisory, or CISA KEV catalog) as containing a known vulnerability, especially pre-authentication RCE or authentication bypass class issues. This is a derived boolean determined by cross-referencing the running version string against vulnerability intelligence sources.",
+    "security_impact": "The Rego policy triggers `unpatched_vpn_service` when `version_has_known_cve` is true AND either `patch_lag_days > 7` or `cve_allows_preauthentication_exploit` is true. A true value means the gateway is running software with a documented attack path. This maps directly to MITRE T1190 (Exploit Public-Facing Application) and T1210 (Exploitation of Remote Services), both commonly observed in ransomware and nation-state initial access chains targeting VPN appliances.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve the installed version from the VPN appliance CLI and compare against NVD CPE records or vendor advisories.",
+        "command": "# Cisco ASA\nshow version | include Version\n# Palo Alto PAN-OS\nshow system info | match version\n# Fortinet\nget system status | grep Version\n# OpenVPN Access Server\nsacli --key \"version\" GetActiveUserList 2>/dev/null || ovpn-init --show_userprop version",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A version string such as 'Cisco Adaptive Security Appliance Software Version 9.16.1' or 'PAN-OS 10.1.3'. Cross-reference this string at https://nvd.nist.gov/products/cpe/search or the vendor's security advisory portal."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the NIST NVD API to programmatically check whether the installed CPE matches any published CVE record.",
+        "command": "VERSION=\"9.16.1\"\ncurl -s \"https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName=cpe:2.3:a:cisco:adaptive_security_appliance_software:${VERSION}:*:*:*:*:*:*:*\" | python3 -m json.tool | grep -c '\"id\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-zero count of CVE IDs indicates the version has known CVEs. Also cross-reference https://www.cisa.gov/known-exploited-vulnerabilities-catalog for CISA KEV status."
+      },
+      {
+        "type": "gui",
+        "instruction": "Check the vendor's security advisory portal for the installed version using the web interface.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco PSIRT: https://tools.cisco.com/security/center/publicationListing.x | Palo Alto: https://security.paloaltonetworks.com/ | Fortinet: https://www.fortiguard.com/psirt | Filter by product and installed version string to identify active advisories.",
+        "expected_output": "A list of advisories affecting the installed version. Any critical or high-severity advisory confirms version_has_known_cve = true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use Shodan or Censys to query the external VPN endpoint's banner and version, then correlate with vulnerability databases. This validates what external attackers can observe.",
+        "command": "# If Shodan CLI is installed:\nshodan host <vpn_public_ip>\n# Or query Censys API:\ncurl -s --user '<api_id>:<secret>' 'https://search.censys.io/api/v2/hosts/<vpn_public_ip>' | python3 -m json.tool | grep -E 'version|product'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Banner or service fingerprint matching the vendor and version. Confirm if the externally visible version matches the internally reported version."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "patch_lag_days",
+    "option_description": "Records the number of calendar days elapsed between the vendor's patch release date for known CVE(s) and the current date, given the installed version has not been updated. A value of 0 means either no patch exists yet or the system is fully patched. Higher values indicate extended windows of exposure.",
+    "security_impact": "The Rego policy fires `unpatched_vpn_service` when `version_has_known_cve` is true AND `patch_lag_days > 7`. A lag exceeding 7 days means the gateway has been knowingly vulnerable for over a week. In practice, exploitation of VPN CVEs (e.g., CVE-2023-46805 for Ivanti, CVE-2018-13379 for Fortinet) begins within 24–72 hours of public disclosure. Extended lag values dramatically increase the probability of compromise via T1190 and T1210.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Determine the installed version via CLI, then look up the vendor advisory publication date and compute the delta to today.",
+        "command": "# Get installed version (Fortinet example)\nget system status | grep 'Version'\n# Then compute days since patch release (Linux/Mac):\nPATCH_DATE=\"2023-11-15\"  # Replace with actual vendor patch release date\necho $(( ($(date +%s) - $(date -d \"$PATCH_DATE\" +%s)) / 86400 )) days",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing days. For example, '120 days'. If the patch release date is today or in the future, value is 0."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the NVD API for the CVE's published date and the vendor advisory for the patch date, then compute lag programmatically.",
+        "command": "CVE_ID=\"CVE-2023-46805\"\ncurl -s \"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=${CVE_ID}\" | python3 -c \"\nimport json,sys,datetime\nd=json.load(sys.stdin)\npub=d['vulnerabilities'][0]['cve']['published'][:10]\ndelta=(datetime.date.today()-datetime.date.fromisoformat(pub)).days\nprint(f'Days since CVE published: {delta}')\n\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output like 'Days since CVE published: 245'. Note: CVE publication date may lag vendor patch date; always verify against the vendor advisory for the patch release date."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the patch/change management team to obtain the documented date the vendor patch was made available and the date it was last applied or evaluated for the VPN appliance.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review the ITSM ticketing system (ServiceNow, Jira, Remedy) for the last VPN firmware change record. Cross-reference against the vendor security advisory timestamp to calculate lag.",
+        "expected_output": "A documented patch release date and last-applied date. Subtract to compute lag_days. If no ticket exists, lag must be estimated from current installed version compared to current vendor latest."
+      },
+      {
+        "type": "gui",
+        "instruction": "Check the vendor's update portal or appliance admin console for the 'latest available version' and compare to installed version publication dates.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto: Device > Dynamic Updates or https://software.paloaltonetworks.com | Fortinet: System > Firmware > Check for Updates | Cisco ASA: https://software.cisco.com/download/ — note the release date of the patch version vs installed version.",
+        "expected_output": "A listed patch release date for the fixed version. If the installed version predates the fix by N days, patch_lag_days = N."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "30",
+      "90",
+      "180",
+      "365+"
+    ]
+  },
+  {
+    "option_name": "cve_allows_preauthentication_exploit",
+    "option_description": "Flags whether at least one CVE affecting the installed VPN version can be exploited without presenting valid credentials — including unauthenticated remote code execution, authentication bypass, path traversal prior to login, or SSRF. This represents the highest-severity category of VPN vulnerability because no credential theft is required for initial access.",
+    "security_impact": "The Rego policy independently triggers `unpatched_vpn_service` on `cve_allows_preauthentication_exploit == true` regardless of patch lag, meaning even a 1-day-old vulnerability of this class creates an immediate exposure. Pre-auth exploits map directly to MITRE T1190 and are consistently weaponized by threat actors within days of PoC publication. Examples include CVE-2023-46805/CVE-2024-21887 (Ivanti), CVE-2019-11510 (Pulse Secure), and CVE-2022-40684 (Fortinet).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the NVD API CVSS vector for all CVEs affecting the installed version and filter for AV:N/PR:N (CVSS v3) or AV:N/Au:N (CVSS v2), which indicate network-accessible, no-privilege-required vulnerabilities.",
+        "command": "CVE_ID=\"CVE-2023-46805\"\ncurl -s \"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=${CVE_ID}\" | python3 -c \"\nimport json,sys\nd=json.load(sys.stdin)\ncve=d['vulnerabilities'][0]['cve']\nfor m in cve.get('metrics',{}).get('cvssMetricV31',[]):\n    v=m['cvssData']['vectorString']\n    print(v)\n    print('PRE-AUTH' if 'PR:N' in v and 'AV:N' in v else 'Requires auth')\n\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A CVSS vector such as 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H'. The presence of 'AV:N' and 'PR:N' (or 'Au:N' in v2) confirms pre-authentication exploitability."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review vendor security advisories and look for explicit 'unauthenticated' or 'pre-authentication' language in the vulnerability description.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Navigate to vendor PSIRT pages: Fortinet https://www.fortiguard.com/psirt | Palo Alto https://security.paloaltonetworks.com | Ivanti https://www.ivanti.com/security — search the CVE ID and read the impact description for 'unauthenticated', 'authentication bypass', or 'pre-auth'.",
+        "expected_output": "Advisory language such as 'An unauthenticated remote attacker may...' or 'Authentication bypass allowing...' confirms true. Post-auth only exploits confirm false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Check Exploit-DB and CISA KEV for PoC availability and active exploitation status of the CVE(s) affecting the installed version.",
+        "command": "# Check Exploit-DB via searchsploit (Kali/Parrot)\nsearchsploit --cve CVE-2023-46805\n# Check CISA KEV\ncurl -s https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json | python3 -c \"\nimport json,sys\nd=json.load(sys.stdin)\nmatches=[v for v in d['vulnerabilities'] if v['cveID']=='CVE-2023-46805']\nprint(matches if matches else 'Not in KEV')\n\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A Exploit-DB entry or CISA KEV record confirms the CVE is actively exploited (implying pre-auth in most KEV VPN entries). Presence in KEV strongly implies true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review vendor patch notes and security bulletins to identify whether the vulnerability requires authentication. Cross-check with CVE descriptions on MITRE CVE.org.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Visit https://cve.mitre.org/cgi-bin/cvename.cgi?name=<CVE-ID> and read the description field. Keywords such as 'without authentication', 'unauthenticated attacker', 'prior to authentication', or 'authentication bypass' confirm pre-auth exploitability.",
+        "expected_output": "CVE description clearly states whether exploitation requires credentials. Document exact quote from description as evidence."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "idle_timeout_minutes",
+    "option_description": "Specifies the number of minutes of network inactivity after which the VPN gateway automatically terminates an established session. A value of 0 indicates no idle timeout is configured, meaning a session can remain active indefinitely even when the client endpoint is unattended or offline. This applies to both SSL-VPN and IPsec-based remote access tunnels.",
+    "security_impact": "The Rego policy triggers `excessive_session_lifetime_and_no_idle_timeout` when `idle_timeout_minutes == 0` OR when `idle_timeout_minutes > 60`. Both conditions leave authenticated tunnels open for exploitation. An idle session on an unattended machine is directly exploitable via T1133 (External Remote Services) and T1040 (Network Sniffing for session tokens). Security benchmarks (CIS, NIST SP 800-46r2) recommend idle timeouts between 15 and 30 minutes for remote access VPNs.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, check the group-policy configuration for vpn-idle-timeout to determine the configured idle timeout value.",
+        "command": "show run group-policy | include vpn-idle-timeout\nshow run all group-policy | grep idle\n# Also check default group policy:\nshow run group-policy DfltGrpPolicy | include idle",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output such as 'vpn-idle-timeout 30' indicates 30 minutes. 'vpn-idle-timeout none' or absence of the line with a default of 'none' means idle_timeout_minutes = 0."
+      },
+      {
+        "type": "command",
+        "instruction": "On Fortinet FortiGate SSL-VPN, check idle-timeout in the SSL-VPN settings configuration.",
+        "command": "config vpn ssl settings\nshow full-configuration | grep idle-timeout\nend\n# Or from CLI directly:\nget vpn ssl settings | grep idle",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output 'set idle-timeout 300' means 300 seconds = 5 minutes. Default is 300 seconds. Value 0 or 'no timeout' means disabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Palo Alto GlobalProtect, locate the session idle timeout in the Gateway or Portal configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Network > GlobalProtect > Gateways > [Gateway Name] > Agent > Timeout Settings > 'Inactivity Logout (min)'. Also check: Device > Setup > Session > Session Timeouts > 'SSL Inactivity Timeout'.",
+        "expected_output": "A numeric field showing minutes. Value of 0 or blank means no idle timeout. NIST-compliant configurations show 15–30 minutes."
+      },
+      {
+        "type": "command",
+        "instruction": "On OpenVPN, check the keepalive and ping-restart directives which govern session idle behavior, and on OpenVPN Access Server check the web config.",
+        "command": "grep -E 'keepalive|ping|inactive' /etc/openvpn/server.conf\n# OpenVPN AS via CLI:\n/usr/local/openvpn_as/scripts/sacli --key 'vpn.client.inactive_timeout' ConfigQuery",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "A 'keepalive 10 120' directive means ping every 10s, restart if no response in 120s. 'inactive 0' or absence of inactive/keepalive means no idle timeout enforced."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (no timeout)",
+      "15",
+      "30",
+      "60",
+      "120",
+      "480"
+    ]
+  },
+  {
+    "option_name": "max_session_duration_hours",
+    "option_description": "Defines the absolute maximum time in hours that a VPN session can remain active before mandatory re-authentication is required, regardless of user activity. A value of 0 means no maximum session duration is enforced, allowing sessions to persist indefinitely. This is distinct from idle timeout — a user actively transferring data can still trigger this limit.",
+    "security_impact": "The Rego policy fires `excessive_session_lifetime_and_no_idle_timeout` when `max_session_duration_hours == 0` OR when `max_session_duration_hours > 24` while `session_reauthentication_enforced` is false. Unlimited or multi-day sessions mean that a token or session credential captured via T1040 (Network Sniffing) remains valid indefinitely, and session hijacking via T1133 is viable long after initial compromise. NIST SP 800-46r2 recommends maximum session durations of 8–24 hours with forced re-authentication.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, check the vpn-session-timeout setting within group-policy configurations for each applicable group.",
+        "command": "show run group-policy | include vpn-session-timeout\nshow run all group-policy | grep session-timeout\n# Check tunnel-group settings too:\nshow run tunnel-group | include max-connect-time",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output 'vpn-session-timeout 480' means 480 minutes = 8 hours. 'vpn-session-timeout none' means max_session_duration_hours = 0 (unlimited)."
+      },
+      {
+        "type": "command",
+        "instruction": "On Palo Alto GlobalProtect, check the max-duration setting in the gateway's agent configuration via CLI.",
+        "command": "show config running | match 'max-duration'\n# Or:\nadmin@PA-FW> configure\nadmin@PA-FW# show devices entry * gateway agent gateways entry * timeout-settings",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'max-duration' value in hours/minutes. Absence or 0 means no maximum session duration."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On OpenVPN, inspect the server configuration for --reneg-sec which forces TLS renegotiation (equivalent to session re-keying), and check --max-routes-per-client or custom management scripts for session limits.",
+        "command": "grep -E 'reneg-sec|max-session|session-timeout' /etc/openvpn/server.conf\n# OpenVPN AS:\n/usr/local/openvpn_as/scripts/sacli --key 'vpn.client.max_session' ConfigQuery",
+        "file_path": "/etc/openvpn/server.conf",
+        "navigation": null,
+        "expected_output": "'reneg-sec 3600' means renegotiation every hour (not full re-auth, but session renewal). Full session max requires management interface scripting. Default OpenVPN has no built-in max session duration, so absence = 0."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Fortinet FortiGate SSL-VPN, locate the authentication timeout which governs maximum session duration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "VPN > SSL-VPN Settings > Authentication/Portal Mapping or VPN > SSL-VPN Portals > [Portal Name] > 'Auth Timeout' field. Also check User & Authentication > RADIUS Servers if RADIUS session timeouts apply.",
+        "expected_output": "A numeric timeout value in seconds or hours. A value of 0 or 'unlimited' confirms max_session_duration_hours = 0. Typical secure values show 28800 seconds (8 hours) or similar."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (unlimited)",
+      "8",
+      "12",
+      "24",
+      "168 (1 week)"
+    ]
+  },
+  {
+    "option_name": "session_reauthentication_enforced",
+    "option_description": "Indicates whether the VPN gateway enforces periodic re-authentication of active sessions independent of session timeout — for example, prompting for MFA credentials, refreshing RADIUS authentication tokens, or re-validating certificates at a defined interval within the session lifetime. This provides a compensating control when long session durations are unavoidable.",
+    "security_impact": "The Rego policy relies on `session_reauthentication_enforced` as a mitigating factor for `excessive_session_lifetime_and_no_idle_timeout`. Specifically, if `max_session_duration_hours > 24` but `session_reauthentication_enforced` is false, the exposure fires. Without periodic re-authentication, a hijacked or compromised session (T1133) persists without any identity verification event. Re-authentication ensures that even if a session token is captured, it becomes invalid within the re-auth window, limiting the blast radius of T1040 and session hijacking attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA with RADIUS, check whether the group-policy references periodic RADIUS re-authentication via 'vpn-simultaneous-logins' and authentication server reauthentication interval.",
+        "command": "show run group-policy | include reauth\nshow run aaa-server | include reauth\n# Check for periodic authentication:\nshow run webvpn | grep reauth",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'reauth-interval <value>' or RADIUS session-timeout attributes (Attribute 27) returned from the RADIUS server confirms re-authentication is enforced. Absence means it is not configured."
+      },
+      {
+        "type": "command",
+        "instruction": "On Fortinet FortiGate, check the auth-timeout in SSL-VPN settings, which forces re-authentication after the specified period.",
+        "command": "config vpn ssl settings\nshow full-configuration | grep -E 'auth-timeout|reauth'\nend\n# Check RADIUS accounting for session re-auth:\nconfig user radius\nshow full-configuration | grep -E 'nas-ip|timeout|acct-interim'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'set auth-timeout <seconds>' value below the max session duration confirms periodic re-authentication. If auth-timeout equals or exceeds the session duration, it is effectively not a re-auth enforcement."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the MFA/RADIUS/IdP configuration for whether a re-authentication interval or session re-challenge policy is documented and active for VPN users.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review the Identity Provider (Okta, Azure AD, Duo, RSA SecurID) policies for VPN RADIUS or SAML sessions: Check session lifetime policies, re-authentication requirements, and whether conditional access policies enforce MFA re-prompts after a time interval. In Duo: Admin Panel > Applications > [VPN Application] > 'Session Duration' and 'Require re-authentication'. In Okta: Security > Authentication Policies > [VPN Policy] > 'Re-authentication frequency'.",
+        "expected_output": "A documented re-authentication interval shorter than the max session duration, with enforcement confirmed active (not just configured). If no re-auth policy exists or it is set to 'Never', value is false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Palo Alto GlobalProtect with SAML or RADIUS, check the authentication override cookie settings and gateway re-authentication interval.",
+        "command": "show config running | match 'cookie-lifetime\\|reauth\\|re-auth'\n# Check GP gateway auth settings:\nadmin@PA> show global-protect-gateway current-user\n# Look for re-auth enforcement in RADIUS config:\nshow config running | xpath /config/shared/authentication-profile | match reauth",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "GlobalProtect authentication override cookies with a short 'cookie-lifetime' combined with 'generate-cookie' disabled (forcing re-auth on reconnect) or RADIUS Session-Timeout (Attribute 27) returned per session confirms re-authentication enforcement. No cookie lifetime control or missing RADIUS timeout attribute means false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null (not assessed)"
+    ]
+  },
+  {
+    "option_name": "management_interface_network_exposure",
+    "option_description": "Controls which network zones (internet, internal, or restricted management VLAN) can reach the VPN gateway's administrative interfaces including SSH, web UI, and SNMP. Defines the attack surface available to adversaries attempting to reach privileged configuration endpoints.",
+    "security_impact": "The Rego policy fires the 'vpn_management_interface_exposed_externally' exposure when this value is 'any' or 'internet_facing', directly flagging the device as exposable to public internet threat actors. Values of 'internal_only' without a dedicated management ACL also trigger secondary policy conditions. The most secure state is 'restricted', limiting reach to a named management VLAN or bastion host IP range. Exposure of management interfaces enables T1190 (Exploit Public-Facing Application) and T1021 (Remote Services) attack paths.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Cisco ASA, display the management access rules and interface configurations to determine which networks can reach the management plane.",
+        "command": "show running-config | include management-access|http server|ssh|snmp-server|telnet",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines such as 'ssh 10.10.10.0 255.255.255.0 management' or 'http 0.0.0.0 0.0.0.0 outside' indicating source network restrictions per protocol."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Palo Alto Networks firewall or VPN gateway, review management interface access settings and permitted source addresses.",
+        "command": "show deviceconfig system | match 'permitted-ip|service'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output listing permitted-ip entries restricted to management VLAN ranges; absence of permitted-ip entries indicates unrestricted access."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Juniper SRX, display management interface and host-inbound-traffic configurations to identify allowed source zones and protocols.",
+        "command": "show configuration interfaces | display set | match management; show configuration security zones | display set | match host-inbound",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zone-level host-inbound-traffic entries and interface IP assignments showing whether management is bound to a dedicated zone or the untrust zone."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a TCP port scan from an external IP (or simulate from the internet zone) targeting known management ports to verify reachability from untrusted networks.",
+        "command": "nmap -Pn -p 22,80,443,8443,161,8080 <vpn-gateway-public-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All management ports should return 'filtered' or 'closed' from untrusted network segments; any 'open' result indicates internet_facing or any exposure."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "internet_facing (common in SMB or legacy deployments)",
+      "internal_only (typical enterprise default without dedicated management VLAN)",
+      "restricted (target state with dedicated OOB management VLAN)",
+      "any (legacy or misconfigured appliances)"
+    ]
+  },
+  {
+    "option_name": "management_protocols_enabled",
+    "option_description": "Enumerates which management-plane protocols are actively listening and accessible on the VPN gateway, including SSH (port 22), HTTPS (443/8443), HTTP (80), SNMP (161/162), and Telnet (23). Each enabled protocol represents an additional attack surface entry point for adversaries.",
+    "security_impact": "The Rego policy evaluates this array jointly with management_acl_configured: if no ACL is configured and count(management_protocols_enabled) > 0, the exposure fires regardless of network zone. Insecure protocols within this list (Telnet, HTTP, SNMPv1/v2c) are separately evaluated by the insecure_protocol_exposed attribute. A large set of enabled protocols expands the attack surface accessible via T1021 (Remote Services) and T1190 (Exploit Public-Facing Application). Reducing this list to the minimum required (typically SSH and HTTPS only) is the target state.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Scan the VPN gateway from the management network to enumerate actively listening management ports and identify all enabled protocols.",
+        "command": "nmap -Pn -sV -p 22,23,80,161,162,443,8080,8443,8888 <vpn-gateway-mgmt-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service version output per open port, e.g., '22/tcp open ssh OpenSSH 8.2', '23/tcp open telnet', '161/udp open snmp SNMPv2c'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE VPN devices, enumerate all enabled management services from the running configuration.",
+        "command": "show running-config | section ^line|^ip http|^snmp-server|^telnet|^ssh",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sections showing 'ip http server', 'ip ssh version 2', 'snmp-server community', and VTY line transport configurations."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux-based VPN appliances (OpenVPN, StrongSwan, pfSense), inspect running services and listening sockets to enumerate active management protocols.",
+        "command": "ss -tlnup | grep -E ':22|:23|:80|:161|:443|:8443'",
+        "file_path": "/etc/services",
+        "navigation": null,
+        "expected_output": "Lines showing LISTEN state on management port numbers with the associated process name; any entry for port 23 or 80 indicates insecure protocol enabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Fortinet FortiGate, navigate to the management interface settings to review which administrative access protocols are enabled per interface.",
+        "command": null,
+        "file_path": null,
+        "navigation": "System > Network > Interfaces > [Select Interface] > Administrative Access checkboxes (HTTPS, HTTP, SSH, SNMP, Telnet)",
+        "expected_output": "Only HTTPS and SSH checkboxes should be selected; HTTP, Telnet, and SNMP should be unchecked for untrusted interfaces."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['SSH', 'HTTPS'] (hardened configuration)",
+      "['SSH', 'HTTPS', 'SNMP'] (common enterprise with monitoring)",
+      "['SSH', 'HTTPS', 'HTTP', 'Telnet', 'SNMP'] (legacy or factory default)",
+      "['SSH', 'HTTPS', 'HTTP', 'SNMP'] (partially hardened)"
+    ]
+  },
+  {
+    "option_name": "management_acl_configured",
+    "option_description": "Indicates whether an explicit allowlist-based access control list or firewall rule restricts which source IP addresses or network ranges can initiate connections to the VPN gateway's management interface. A value of false means any reachable host can attempt management authentication.",
+    "security_impact": "The Rego policy directly triggers 'vpn_management_interface_exposed_externally' when management_acl_configured is false AND at least one management protocol is enabled. Without an ACL, even protocols listening only on internal interfaces are reachable by any internal host, violating least-privilege principles. An explicit management ACL is the primary control preventing unauthorized hosts from reaching privileged configuration endpoints and blocking T1190 and T1021 exploitation paths. This is a required compensating control even when network_exposure is set to 'internal_only'.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, verify that an explicit ACL or SSH/HTTP source restriction is bound to the management interface.",
+        "command": "show running-config | include ^ssh |^http |^snmp-server host|^access-group",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Entries like 'ssh 10.10.10.5 255.255.255.255 management' or 'http 10.10.10.0 255.255.255.0 management'; absence of source restrictions means ACL is not configured."
+      },
+      {
+        "type": "command",
+        "instruction": "On Palo Alto Networks PAN-OS, check for permitted-ip entries under the management service configuration which act as the management ACL.",
+        "command": "show deviceconfig system | match permitted-ip",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more 'permitted-ip' entries with specific management host or VLAN CIDR; empty output means no management ACL is configured (false)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux-based VPN gateways, inspect iptables or nftables rules for INPUT chain restrictions on management ports to confirm source-based filtering exists.",
+        "command": "iptables -L INPUT -n -v | grep -E 'dpt:22|dpt:443|dpt:161'",
+        "file_path": "/etc/iptables/rules.v4",
+        "navigation": null,
+        "expected_output": "ACCEPT rules with specific source (-s) CIDR prefixes for management ports; rules with no source restriction or a blanket ACCEPT indicate management_acl_configured: false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security team to determine whether management ACL rules are documented in the firewall change management system and applied to the VPN appliance's management plane.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review firewall ruleset documentation, change management tickets, or network diagram annotations for management VLAN ACL entries targeting the VPN gateway management IP.",
+        "expected_output": "Written policy or demonstrated firewall rule restricting management access to named bastion host IPs or management VLAN subnet only."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in environments lacking dedicated management VLANs)",
+      "true (properly hardened environments with out-of-band management)"
+    ]
+  },
+  {
+    "option_name": "insecure_protocol_exposed",
+    "option_description": "Indicates whether an inherently insecure management protocol—specifically Telnet (port 23), plain HTTP (port 80), or SNMP v1/v2c (port 161/162)—is actively reachable from non-management or untrusted network segments. These protocols transmit authentication credentials and configuration data in cleartext, enabling passive interception.",
+    "security_impact": "The Rego policy fires 'vpn_management_interface_exposed_externally' when insecure_protocol_exposed is true AND management_interface_network_exposure is not 'restricted'. Cleartext protocol exposure enables passive credential harvesting via T1040 (Network Sniffing) and provides attackers with gateway configuration intelligence. SNMPv1/v2c community strings captured in transit can reveal the full device configuration. Telnet sessions expose administrator credentials in plaintext. Even on internal networks, these protocols violate defense-in-depth requirements and create insider threat vectors.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Scan the VPN gateway for open cleartext management protocol ports from a non-management network segment to confirm external reachability.",
+        "command": "nmap -Pn -sV -p 23,80,161 --script telnet-info,http-title,snmp-info <vpn-gateway-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Open ports on 23/tcp, 80/tcp, or 161/udp with service banners; 'filtered' or 'closed' on all three indicates insecure_protocol_exposed: false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS devices, check whether Telnet is enabled on VTY lines and HTTP server is running without TLS.",
+        "command": "show running-config | include ^line vty|transport input|ip http server$|snmp-server community",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'transport input ssh' only on VTY lines indicates Telnet disabled; 'ip http server' without 'ip http secure-server' indicates HTTP exposed; community strings with 'RO' or 'RW' indicate SNMPv1/v2c."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt an SNMPv1 walk against the VPN gateway from an untrusted VLAN to verify whether SNMP community strings are accessible from non-management segments.",
+        "command": "snmpwalk -v1 -c public <vpn-gateway-ip> 1.3.6.1.2.1.1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful response with system OID data confirms SNMPv1/v2c is exposed; 'Timeout' or 'No Response' indicates it is blocked or disabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On pfSense or OPNsense VPN appliances, inspect the web interface and service configuration to check whether HTTP redirection is enforced and SNMP version is restricted.",
+        "command": null,
+        "file_path": "/cf/conf/config.xml",
+        "navigation": "System > Advanced > Admin Access: verify 'HTTP Redirect' is disabled and only HTTPS is enabled; Services > SNMP: confirm SNMPv3 only or service disabled.",
+        "expected_output": "Config XML shows '<webgui><protocol>https</protocol>' and SNMP configured with v3 auth/priv settings only."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (hardened deployments with SSH/HTTPS only)",
+      "true (legacy appliances, factory defaults, or environments with monitoring using SNMPv2c)"
+    ]
+  },
+  {
+    "option_name": "psk_authentication_used",
+    "option_description": "Indicates whether the VPN gateway uses pre-shared key (PSK) authentication for IPsec or other tunnel establishment rather than certificate-based PKI authentication. PSK authentication relies on a shared secret known to both tunnel endpoints, without the non-repudiation or centralized revocation capabilities of PKI.",
+    "security_impact": "The Rego policy treats psk_authentication_used as the gateway condition for all 'default_or_shared_pre_shared_key' exposure sub-rules. If true, subsequent checks on psk_uniqueness and psk_minimum_length determine whether a finding is raised. PSK-based tunnels are vulnerable to offline brute-force if the IKE handshake is captured (T1552.004, T1573.001). Weak or reused PSKs enable unauthorized tunnel establishment by any party who obtains the secret. Certificate-based authentication (PKI) eliminates these risks through asymmetric cryptography and certificate revocation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, examine ISAKMP/IKE policy and crypto map configurations to determine whether PSK or RSA signature (certificate) authentication is configured.",
+        "command": "show running-config | include authentication|crypto isakmp key|crypto ikev2 keyring",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'authentication pre-share' in ISAKMP policy indicates PSK is used; 'authentication rsa-sig' or 'authentication ecdsa-sig' indicates certificate authentication."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On StrongSwan/libreswan Linux VPN gateways, inspect the ipsec.conf or swanctl.conf to identify the authentication method for each connection definition.",
+        "command": "grep -E 'authby|auth|leftauth|rightauth' /etc/ipsec.conf /etc/ipsec.d/*.conf /etc/swanctl/swanctl.conf 2>/dev/null",
+        "file_path": "/etc/ipsec.conf",
+        "navigation": null,
+        "expected_output": "'authby=secret' or 'leftauth=psk' confirms PSK; 'authby=rsasig' or 'leftauth=pubkey' confirms certificate-based auth."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper SRX, display IKE gateway configuration to identify the authentication method for each peer definition.",
+        "command": "show configuration security ike gateway | display set | match pre-shared-key|certificate",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines containing 'pre-shared-key ascii-text' confirm PSK; 'local-certificate' entries confirm PKI-based authentication."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Fortinet FortiGate, navigate to VPN tunnel settings and inspect the authentication method for each IPsec Phase 1 configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "VPN > IPsec Tunnels > [Select Tunnel] > Edit > Authentication: review 'Method' field showing 'Pre-shared Key' or 'Signature' (certificate)",
+        "expected_output": "'Pre-shared Key' field populated indicates psk_authentication_used: true; 'Signature' with certificate selection indicates PKI-based auth."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (dominant in site-to-site VPN deployments, especially SMB and branch office connections)",
+      "false (enterprise environments with PKI infrastructure and certificate lifecycle management)"
+    ]
+  },
+  {
+    "option_name": "psk_uniqueness",
+    "option_description": "Classifies whether pre-shared keys configured on the VPN gateway are unique per peer or tunnel, shared across multiple peers, or match a known vendor-supplied default value. Shared or default PSKs mean compromise of a single tunnel's secret exposes all tunnels using the same key.",
+    "security_impact": "The Rego policy raises 'default_or_shared_pre_shared_key' immediately when psk_uniqueness is 'default_vendor_key' or 'shared_across_peers', and also when the value is 'unknown' (inability to determine uniqueness itself indicates inadequate key management). Default vendor keys (e.g., 'cisco', 'password', 'secret') are publicly documented and trivially exploited. Shared keys across peers mean a compromised remote site can be used to impersonate any other peer using the same PSK, enabling unauthorized tunnel establishment (T1552.004). The target state is 'unique' with a distinct high-entropy secret per peer.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "On Cisco IOS/IOS-XE, extract all configured ISAKMP pre-shared keys and compare them across peer definitions to identify shared values or known defaults.",
+        "command": "show running-config | include ^crypto isakmp key|^crypto ikev2 keyring",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Multiple 'crypto isakmp key <PSK> address <peer-ip>' lines; identical PSK values across different peer IPs confirms shared_across_peers. Values matching 'cisco', 'secret', 'vpn', 'password' confirm default_vendor_key."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On StrongSwan, extract PSK entries from the ipsec.secrets file and check for duplicate values across peer definitions.",
+        "command": "grep -v '^#' /etc/ipsec.secrets | grep PSK | awk '{print $NF}' | sort | uniq -d",
+        "file_path": "/etc/ipsec.secrets",
+        "navigation": null,
+        "expected_output": "Empty output means all PSKs are unique; any output lines indicate duplicate (shared) PSK values across peers."
+      },
+      {
+        "type": "command",
+        "instruction": "On Juniper SRX with Type-7 or obfuscated PSK storage, retrieve and decode keys to compare uniqueness. On SRX, keys may be recoverable in plaintext from the candidate configuration.",
+        "command": "show configuration security ike policy | display set | match pre-shared-key",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IKE policy blocks showing 'pre-shared-key ascii-text <value>'; compare values across all policy definitions for duplicates or known default strings."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the VPN key management process with the network team to determine whether a documented procedure exists for generating unique PSKs per peer and whether this is verified during onboarding.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Request the VPN deployment runbook or site-to-site tunnel provisioning checklist; confirm whether a cryptographically random PSK generator is mandated per tunnel.",
+        "expected_output": "Documented procedure requiring unique randomly generated PSK per peer with minimum entropy requirements; absence of such a procedure implies unknown or shared_across_peers risk."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "shared_across_peers (common in organizations using a single 'company PSK' across all tunnels)",
+      "unique (properly managed deployments with per-tunnel key generation)",
+      "default_vendor_key (newly deployed or improperly hardened appliances)",
+      "unknown (environments lacking key management documentation)"
+    ]
+  },
+  {
+    "option_name": "psk_minimum_length",
+    "option_description": "Records the shortest PSK character length found across all tunnel or peer definitions on the VPN gateway. This value represents the weakest link in PSK strength, as the shortest key determines the overall brute-force resistance of the gateway's tunnel authentication.",
+    "security_impact": "The Rego policy fires 'default_or_shared_pre_shared_key' when psk_authentication_used is true AND psk_minimum_length is less than 20 characters. Short PSKs are vulnerable to offline dictionary and brute-force attacks against captured IKE aggressive mode or main mode handshakes. IKE aggressive mode in particular exposes the PSK hash to passive capture, enabling offline cracking with tools like hashcat. Industry standards (NIST SP 800-77, RFC 4306) recommend PSKs of at least 20 characters with high entropy. PSKs under 8 characters can be cracked in seconds with GPU acceleration.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco IOS/IOS-XE, extract all IKEv1 and IKEv2 pre-shared key values and measure the length of the shortest one.",
+        "command": "show running-config | include ^crypto isakmp key|pre-shared-key | awk '{for(i=1;i<=NF;i++) if(length($i)>4 && $i~/[a-zA-Z0-9!@#$%^&*]/) print length($i), $i}' | sort -n | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Length values in ascending order; first line shows the shortest PSK length. Values below 20 indicate psk_minimum_length < 20 and trigger the policy."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On StrongSwan/OpenSwan, read PSK values from ipsec.secrets and calculate the minimum length across all entries.",
+        "command": "grep -v '^#\\|^$' /etc/ipsec.secrets | grep -oP '(?<=\")[^\"]+(?=\")|(?<=: PSK )\\S+' | awk '{print length($0), $0}' | sort -n | head -3",
+        "file_path": "/etc/ipsec.secrets",
+        "navigation": null,
+        "expected_output": "Length and PSK value per line sorted ascending; minimum length value should be >= 20 for compliant configuration."
+      },
+      {
+        "type": "command",
+        "instruction": "On Palo Alto Networks GlobalProtect or IPsec tunnel configuration, retrieve pre-shared key lengths via the CLI (keys are masked but length may be retrievable via API or config export).",
+        "command": "show config running | xpath /config/devices/entry/network/ike/gateway | match pre-shared-key",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Masked key entries; use API config export with admin credentials for plaintext review, then count character length of each PSK value."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the VPN configuration baseline or provisioning template from the network operations team to verify whether a minimum PSK length standard is enforced at the time of tunnel creation.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review VPN provisioning standards documentation, configuration templates, or automation scripts that generate PSK values. Verify use of a random key generator with minimum 20-character output.",
+        "expected_output": "Provisioning script or template demonstrating PSK generation with minimum 20 characters of random alphanumeric and special characters; alternatively, extract and measure current PSK lengths from device configs."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "8-12 (common in legacy deployments using human-memorable passwords)",
+      "16 (partially compliant, below the 20-character best practice threshold)",
+      "20-32 (compliant with NIST and industry best practice recommendations)",
+      "0 (indicates PSK not configured or unable to retrieve)"
+    ]
+  },
+  {
+    "option_name": "auth_event_logging_enabled",
+    "option_description": "Controls whether the VPN gateway captures and forwards authentication-related events including failed login attempts, successful authentications, session initiations, and session disconnects. These events are essential for detecting brute-force attacks, credential stuffing campaigns, and unauthorized access patterns.",
+    "security_impact": "The Rego policy fires 'insufficient_authentication_logging' when auth_event_logging_enabled is false, and additionally when logging is enabled but required fields (timestamp, source_ip, username) are missing from log records, or when log retention is under 30 days. Without authentication logging, T1110 (Brute Force) and T1110.004 (Credential Stuffing) attacks proceed undetected, and post-incident forensic reconstruction is impossible. Regulatory frameworks including PCI-DSS Requirement 10.2 and NIST 800-53 AU-2 mandate logging of authentication events. This is a foundational detective control that enables SIEM correlation rules to alert on anomalous authentication patterns.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, verify that logging is enabled, authentication events are included, and a syslog server is configured for remote log forwarding.",
+        "command": "show running-config | include ^logging|^aaa accounting",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'logging enable', 'logging host <syslog-server-ip>', 'logging trap informational' or higher severity, and 'aaa accounting' entries confirm auth event logging is active. Absence of these lines means auth_event_logging_enabled: false."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Linux-based VPN gateway (OpenVPN, StrongSwan), verify that authentication events are captured in syslog or a dedicated log file and forwarded to a central SIEM.",
+        "command": "grep -E 'AUTH|auth|login|TLS|Connected|Disconnected' /var/log/openvpn.log /var/log/auth.log /var/log/secure 2>/dev/null | tail -20",
+        "file_path": "/var/log/openvpn.log",
+        "navigation": null,
+        "expected_output": "Recent log entries showing authentication success/failure events with timestamps, usernames, and source IPs. Empty output or no log file indicates auth_event_logging_enabled: false."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Fortinet FortiGate, verify that VPN authentication events are logged to FortiLog or a remote syslog server with appropriate log severity.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Log & Report > Log Settings: verify 'VPN Activity' and 'Authentication Events' are enabled; Log & Report > Remote Logging: confirm syslog server IP is configured with severity 'Information' or lower.",
+        "expected_output": "VPN Activity logging checkbox enabled with remote syslog server configured; test log connectivity confirms events are being forwarded."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM or log aggregation system to verify that VPN authentication events are arriving from the gateway in real time, with required fields present.",
+        "command": "grep -E '(failed|accepted|rejected|authenticated|disconnect)' /var/log/vpn/auth.log | head -20 | awk '{print NF, $0}' | sort -rn | head -5",
+        "file_path": null,
+        "navigation": "In SIEM (Splunk/ELK/Sentinel): search for source=<vpn-gateway-ip> (authentication OR login OR disconnect) | table _time, src_ip, user, action | limit 20",
+        "expected_output": "Log events containing timestamp, source IP, username, and action (success/failure) fields confirm auth_event_logging_enabled: true with required fields. Gap in recent events or missing fields indicates misconfiguration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in SMB environments, legacy appliances, or when default logging configuration is not modified)",
+      "true (enterprise environments with SIEM integration and compliance requirements)"
+    ]
+  },
+  {
+    "option_name": "logged_auth_fields",
+    "option_description": "Controls which data fields are captured per authentication event in VPN gateway logs, including timestamp, source_ip, username, device_id, session_id, and event_type. Determines the forensic completeness of the authentication audit trail.",
+    "security_impact": "The Rego policy triggers the 'insufficient_authentication_logging' finding when 'timestamp', 'source_ip', or 'username' are absent from logged_auth_fields. Missing fields directly impair detection of brute-force and credential-stuffing campaigns (T1110, T1110.004) because analysts cannot correlate attack patterns without source IP or identify targeted accounts without username. Incomplete logs also prevent retrospective investigation of compromised sessions.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Pull a sample of recent authentication log entries from the VPN syslog stream or local log file and identify which fields are consistently present across success, failure, and disconnect events.",
+        "command": "grep -E '(Accepted|Failed|Disconnect)' /var/log/vpn/auth.log | head -50",
+        "file_path": "/var/log/vpn/auth.log",
+        "navigation": null,
+        "expected_output": "Each log line should contain a timestamp, source IP address, username, device identifier or hostname, session ID, and event classification (success/failure/disconnect)."
+      },
+      {
+        "type": "gui",
+        "instruction": "For Cisco ASA/FTD: navigate to Monitoring > Logging > Real-Time Log Viewer and filter on authentication syslog message IDs (713228, 722051, 722037). For Palo Alto GlobalProtect: navigate to Monitor > Logs > GlobalProtect and inspect the column set. For Fortinet FortiGate: navigate to Log & Report > VPN Events and review displayed fields.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco ASA: Monitoring > Logging > Real-Time Log Viewer | Palo Alto: Monitor > Logs > GlobalProtect | FortiGate: Log & Report > VPN Events",
+        "expected_output": "Log entries display all six expected fields: timestamp, source IP, username, device ID, session ID, and event type."
+      },
+      {
+        "type": "command",
+        "instruction": "For Palo Alto GlobalProtect, query the operational CLI for recent HIP and authentication logs to enumerate captured fields.",
+        "command": "show log globalprotect direction equal backward | match 'srcip\\|user\\|sessionid\\|eventid'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output rows include srcip, user, sessionid, and eventid columns confirming all required fields are logged."
+      },
+      {
+        "type": "api",
+        "instruction": "Query a SIEM or syslog aggregator (e.g., Splunk, Elastic) for recent VPN authentication events and inspect field coverage programmatically.",
+        "command": "curl -sk -H 'Authorization: Bearer $TOKEN' 'https://siem.corp/api/search?query=source%3Dvpn+AND+event_type%3Dauth&fields=timestamp,src_ip,username,device_id,session_id,event_type&limit=20'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response contains all six field names populated in at least 95% of returned records."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"timestamp\", \"source_ip\", \"username\"]",
+      "[\"timestamp\", \"source_ip\", \"username\", \"event_type\"]",
+      "[\"timestamp\", \"source_ip\", \"username\", \"device_id\", \"session_id\", \"event_type\"]",
+      "[]"
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Specifies the number of days that authentication log data is retained on the VPN gateway or a connected log management system. Determines how far back analysts can investigate historical authentication events.",
+    "security_impact": "The Rego policy triggers 'insufficient_authentication_logging' when log_retention_days is less than 30. Short retention windows prevent retrospective investigation of slow-burn brute-force campaigns (T1110) and credential-stuffing attacks (T1110.004) that may not be detected in real time. Regulators and frameworks such as PCI DSS and NIST 800-53 mandate minimum 90-day online and 12-month total retention for access logs.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "For Cisco ASA: navigate to Configuration > Device Management > Logging > Logging Setup and review the 'Log Buffer Size' and any configured log server retention policies. For FortiGate: navigate to Log & Report > Log Settings and inspect local disk or remote syslog retention. For Palo Alto: navigate to Device > Log Settings and check the retention period configured per log type.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco ASA: Configuration > Device Management > Logging > Logging Setup | FortiGate: Log & Report > Log Settings | Palo Alto: Device > Log Settings",
+        "expected_output": "A numeric retention value of 90 days or greater is configured for authentication-related log categories."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based VPN appliances (OpenVPN, strongSwan), inspect logrotate configuration to determine how many rotated log files are retained and calculate total retention days.",
+        "command": "grep -E 'rotate|daily|weekly|monthly' /etc/logrotate.d/openvpn /etc/logrotate.d/strongswan /etc/logrotate.conf 2>/dev/null",
+        "file_path": "/etc/logrotate.d/openvpn",
+        "navigation": null,
+        "expected_output": "Rotate count multiplied by rotation interval should equal at least 90 days (e.g., 'daily' with 'rotate 90' or 'weekly' with 'rotate 13')."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SIEM or syslog platform API to determine the oldest authentication log record timestamp, which reveals the effective retention window.",
+        "command": "curl -sk -H 'Authorization: Bearer $TOKEN' 'https://siem.corp/api/search?query=source%3Dvpn+AND+event_type%3Dauth&sort=timestamp:asc&limit=1'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The timestamp on the oldest returned record should be at least 90 days prior to the current date."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the VPN or SOC team to determine whether a SIEM, syslog server, or cloud log archive stores VPN authentication events separately from local appliance storage, and confirm the configured retention policy in that system.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented retention policy specifying a minimum of 90 days online retention for VPN authentication events, with written evidence of enforcement."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "7",
+      "30",
+      "90",
+      "180",
+      "365"
+    ]
+  },
+  {
+    "option_name": "endpoint_posture_check_enabled",
+    "option_description": "Controls whether the VPN gateway enforces a device health and posture assessment—verifying OS patch level, EDR agent presence, and disk encryption state—as a prerequisite before granting tunnel access to any connecting client.",
+    "security_impact": "The Rego policy triggers 'no_client_endpoint_posture_check' when endpoint_posture_check_enabled is false or not set. Without posture gating, unmanaged, unpatched, or malware-infected endpoints can authenticate and gain full tunnel access, enabling external remote service abuse (T1133) and introduction of unauthorized remote access tools (T1219) into the corporate network. This is the primary gate preventing BYOD and compromised contractor machines from tunneling into internal resources.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "For Cisco AnyConnect/ASA: navigate to Configuration > Remote Access VPN > Network (Client) Access > Group Policies, select a policy, and check whether 'HostScan' or 'DAP (Dynamic Access Policy)' with posture conditions is enabled. For Palo Alto GlobalProtect: navigate to Network > GlobalProtect > Gateways, select a gateway, and review HIP Profile bindings under the Security Policies tab. For Fortinet: navigate to VPN > SSL-VPN Settings and check endpoint compliance profile assignment.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco ASA: Configuration > Remote Access VPN > Network (Client) Access > Group Policies | Palo Alto: Network > GlobalProtect > Gateways | FortiGate: VPN > SSL-VPN Settings",
+        "expected_output": "A posture/HIP/HostScan policy is referenced and set to 'enforce' or 'required' rather than 'optional' or 'disabled'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, display the running configuration to identify HostScan image and DAP policy assignments.",
+        "command": "show running-config | include hostscan|csd|dap",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output includes 'csd hostscan image' and 'dap' entries referencing an active posture policy bound to tunnel groups."
+      },
+      {
+        "type": "command",
+        "instruction": "On Palo Alto, query the operational CLI to list configured HIP objects and profiles, confirming at least one is active.",
+        "command": "show hip-report | match 'HIP Profile\\|match-criteria'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists at least one HIP profile with match criteria defined, indicating posture enforcement is configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For FortiGate SSL-VPN, review the exported configuration file for the endpoint-compliance reference within the SSL-VPN realms or portals.",
+        "command": "grep -A5 'endpoint-compliance\\|endpoint-check\\|posture' /etc/fortigate_running.conf",
+        "file_path": "/etc/fortigate_running.conf",
+        "navigation": null,
+        "expected_output": "Configuration block shows 'set endpoint-compliance enable' or a reference to an endpoint compliance profile within the VPN portal definition."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "posture_enforcement_scope",
+    "option_description": "Defines the breadth of posture check enforcement across VPN connection profiles or tunnel groups. 'all' means every connection profile enforces posture; 'partial' means only selected profiles do; 'none' means no profiles enforce posture regardless of whether the feature is enabled.",
+    "security_impact": "The Rego policy triggers 'no_client_endpoint_posture_check' when posture_enforcement_scope is 'partial', even if endpoint_posture_check_enabled is true. Profiles lacking posture enforcement become unguarded entry points where unmanaged or compromised endpoints connect freely, defeating the overall posture control. Attackers specifically probe for guest tunnel groups or fallback profiles (T1133) that bypass enforcement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, enumerate all tunnel-group configurations and check whether each references a DAP policy or HostScan-enforcing group policy.",
+        "command": "show running-config tunnel-group | grep -A20 'tunnel-group\\|default-group-policy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every tunnel-group entry references a group-policy that has HostScan/DAP posture enforcement; any profile referencing a policy without posture indicates 'partial' scope."
+      },
+      {
+        "type": "gui",
+        "instruction": "For Palo Alto GlobalProtect: navigate to Policies > Security and filter on GlobalProtect zones; for each rule, verify that a HIP Profile match condition is present. Navigate to Network > GlobalProtect > Gateways and confirm that all gateway configurations reference the HIP profile in their security policy. Profiles without a HIP condition are unprotected.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto: Policies > Security (filter by GlobalProtect zone) | Network > GlobalProtect > Gateways",
+        "expected_output": "Every security policy associated with GlobalProtect traffic includes a HIP Profile match condition; absence in any rule indicates 'partial' scope."
+      },
+      {
+        "type": "command",
+        "instruction": "For FortiGate, list all SSL-VPN portals and check each for endpoint compliance configuration.",
+        "command": "grep -E 'edit portal|set endpoint-compliance|next' /etc/fortigate_running.conf | grep -A2 'edit portal'",
+        "file_path": "/etc/fortigate_running.conf",
+        "navigation": null,
+        "expected_output": "Each portal block contains 'set endpoint-compliance enable'; any portal block lacking this line indicates 'partial' or 'none' scope."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the VPN administrator to provide a complete list of all tunnel groups, connection profiles, and portals with their associated posture enforcement status. Cross-reference against the list of groups actively assigned to users in the directory.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A matrix showing every connection profile and its posture enforcement status; all profiles should be marked as enforced for a result of 'all'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "partial",
+      "all"
+    ]
+  },
+  {
+    "option_name": "unmanaged_device_access_allowed",
+    "option_description": "Indicates whether the VPN gateway explicitly permits connections from devices not enrolled in or recognized by the organization's MDM or UEM platform, even when posture checking is nominally configured. Includes bypass rules, guest tunnel groups, or fallback profiles that skip device enrollment verification.",
+    "security_impact": "The Rego policy triggers 'no_client_endpoint_posture_check' when unmanaged_device_access_allowed is true, even when endpoint_posture_check_enabled is also true. Allowing unmanaged devices creates a posture bypass path where personal, contractor, or attacker-controlled endpoints connect without certificate-based device authentication or MDM enrollment verification (T1133, T1219). This nullifies the posture investment for all scenarios where an attacker can present as an unmanaged device.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "For Cisco ASA with AnyConnect: navigate to Configuration > Remote Access VPN > Dynamic Access Policies and review DAP rules. Check for any rule with a 'NoMatch' or catch-all condition that grants 'continue' access without requiring an MDM or certificate-based device check. For Palo Alto GlobalProtect: navigate to Network > GlobalProtect > Gateways and check whether any security policy allows access when the HIP profile match fails (i.e., a default-allow rule exists for non-HIP-matched traffic).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco ASA: Configuration > Remote Access VPN > Dynamic Access Policies | Palo Alto: Network > GlobalProtect > Gateways > Security Policy (check deny-on-HIP-mismatch)",
+        "expected_output": "No DAP rule or gateway security policy permits tunnel establishment for devices failing MDM enrollment or certificate checks; any such permissive fallback rule indicates unmanaged access is allowed."
+      },
+      {
+        "type": "command",
+        "instruction": "On Cisco ASA, check DAP configuration for permissive fallback actions that would allow unmanaged devices.",
+        "command": "show running-config dap | grep -A10 'dap record\\|action\\|cisco-av-pair'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No DAP record with 'action = continue' exists without a corresponding MDM or HostScan attribute match; a 'terminate' action on the catch-all record indicates unmanaged devices are blocked."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect VPN gateway configuration for guest tunnel group definitions or fallback profile entries that omit certificate authentication requirements.",
+        "command": "grep -E 'guest|fallback|bypass|unmanaged|no-cert' /etc/openvpn/*.conf /etc/ipsec.conf 2>/dev/null",
+        "file_path": "/etc/openvpn/",
+        "navigation": null,
+        "expected_output": "No configuration blocks allowing connections without certificate-based device authentication; absence of these keywords in non-commented lines indicates unmanaged access is not configured."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the VPN administrator and request documentation of any formally approved exceptions or guest access profiles that bypass MDM enrollment requirements, including their justification and expiration dates.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Either no documented exceptions exist (confirming unmanaged_device_access_allowed = false) or exceptions are documented with a compensating control plan."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "vpn_service_account_privilege_level",
+    "option_description": "Identifies the OS privilege level of the account under which the VPN service process executes. Categories are: root_or_system (maximum OS privilege), domain_admin (full AD domain control), local_admin (local machine administrative rights), or least_privilege (dedicated low-privilege service account).",
+    "security_impact": "The Rego policy triggers 'privileged_account_used_for_vpn_service_identity' for root_or_system and domain_admin unconditionally, and for local_admin when the account is also shared. VPN services are exposed to the internet and have historically been targeted for pre-auth RCE. If the service process runs as root or SYSTEM, a successful exploit immediately yields full OS control (T1548.002) and enables privileged service execution (T1569.002). Domain admin level provides AD-wide lateral movement with no further escalation required.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux, identify the process owner of the VPN daemon (OpenVPN, strongSwan charon, ocserv) using ps.",
+        "command": "ps aux | grep -E 'openvpn|charon|ocserv|vpnd|ipsec' | grep -v grep | awk '{print $1}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Process owner should be a dedicated non-root service account such as 'openvpn' or 'vpnsvc', not 'root'. Output of 'root' indicates root_or_system level."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, check the systemd unit file for the User= directive to confirm the configured service account.",
+        "command": "systemctl show openvpn@server.service strongswan.service ocserv.service --property=User,Group 2>/dev/null",
+        "file_path": "/etc/systemd/system/openvpn@.service",
+        "navigation": null,
+        "expected_output": "User= is set to a dedicated non-root, non-sudo account. Empty User= means the service inherits root, which is root_or_system level."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Windows, open Services (services.msc), locate the VPN service (e.g., Cisco AnyConnect VPN Agent, Juniper Network Connect), right-click > Properties > Log On tab. Review the account name. Then verify group membership in Computer Management > Local Users and Groups.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Windows: services.msc > [VPN Service] > Properties > Log On tab | Computer Management > Local Users and Groups",
+        "expected_output": "Log On As account is a dedicated service account, not LocalSystem, Local Service with admin group membership, or a domain admin account."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, use sc.exe to query the service configuration and determine the account name, then check group membership.",
+        "command": "sc qc \"Cisco AnyConnect VPN Agent\" && net user %SERVICE_ACCOUNT% /domain 2>nul || net localgroup administrators",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SERVICE_START_NAME reflects a least-privilege account that is not a member of Administrators, Domain Admins, or equivalent groups."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "root_or_system",
+      "local_admin",
+      "least_privilege",
+      "domain_admin"
+    ]
+  },
+  {
+    "option_name": "service_account_is_shared",
+    "option_description": "Indicates whether the OS account used to run the VPN service process is also referenced by other services, scheduled tasks, cron jobs, or application configurations, meaning compromise of the account from one vector exposes all consuming services simultaneously.",
+    "security_impact": "The Rego policy triggers 'privileged_account_used_for_vpn_service_identity' when vpn_service_account_privilege_level is local_admin AND service_account_is_shared is true. A shared service account dramatically expands lateral movement risk: compromising the VPN service (a high-value internet-exposed target) also grants access to every other system and service using the same credential. Attackers can harvest the credential from any one consumer and pivot broadly without needing additional escalation techniques.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux, identify the VPN service account name, then search for references to that account in other service unit files, cron entries, and application configuration files.",
+        "command": "VPN_USER=$(systemctl show openvpn@server.service --property=User | cut -d= -f2); grep -rn \"$VPN_USER\" /etc/systemd/system/ /etc/cron* /etc/cron.d/ /opt/ /etc/*.conf 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/systemd/system/",
+        "navigation": null,
+        "expected_output": "Only VPN-related unit files reference the account. References in other service files or application configs indicate the account is shared."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, check /etc/passwd for the service account's shell and home directory, then review .ssh/authorized_keys and any sudo rules that reference the account.",
+        "command": "grep vpnsvc /etc/passwd /etc/sudoers /etc/sudoers.d/* 2>/dev/null; ls -la /home/vpnsvc/.ssh/ 2>/dev/null",
+        "file_path": "/etc/passwd",
+        "navigation": null,
+        "expected_output": "The account has a non-login shell (e.g., /usr/sbin/nologin), no SSH authorized keys, and no sudo privileges beyond what is strictly required for the VPN service."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Active Directory Users and Computers (for domain accounts), locate the service account, right-click > Properties > check the 'Member Of' tab for group memberships, then use 'Find Objects' or a PowerShell query to enumerate other services referencing the same account across domain-joined hosts.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Active Directory Users and Computers > [Service Account] > Properties > Member Of | Attribute Editor > servicePrincipalName",
+        "expected_output": "Service principal names (SPNs) should be limited to VPN-related entries only; multiple SPNs or group memberships covering non-VPN services indicate a shared account."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, query the Service Control Manager for all services using the VPN service account to detect sharing.",
+        "command": "Get-WmiObject Win32_Service | Where-Object {$_.StartName -like '*vpnsvc*' -or $_.StartName -like '*vpn_svc*'} | Select-Object Name, StartName, State",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only VPN-related services (e.g., Cisco AnyConnect VPN Agent) appear in the results. Multiple service names indicate account sharing."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "plaintext_secrets_detected",
+    "option_description": "Indicates whether pre-shared keys (PSKs), private key passphrases, or service account credentials are stored in unencrypted plaintext within VPN gateway configuration files on disk, rather than being stored as references to an external secrets manager or in an encrypted vault.",
+    "security_impact": "The Rego policy triggers 'hardcoded_secrets_in_configuration_files' when plaintext_secrets_detected is true and either secrets_manager_integrated is false or the config file permissions are world-readable or group-readable by unintended principals. Plaintext secrets in config files are directly exploitable as credentials stored in files (T1552.001) and private key theft (T1552.004). Any user or process with file read access—including malware with limited privileges—can extract PSKs, enabling unauthorized tunnel establishment or service account impersonation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Grep VPN configuration files for common plaintext secret patterns including PSK, passphrase, password, and secret keywords. Run as root to access restricted files.",
+        "command": "grep -rEin 'PSK\\s*=|passphrase\\s*=|password\\s*=|secret\\s*=|authby=secret|SharedSecret' /etc/ipsec.conf /etc/ipsec.secrets /etc/openvpn/*.conf /etc/strongswan/ /etc/vpn/ 2>/dev/null | grep -v '\\$VAULT\\|\\$SECRET_MANAGER\\|ref:'",
+        "file_path": "/etc/ipsec.secrets",
+        "navigation": null,
+        "expected_output": "No output indicates no plaintext secrets are present. Any output lines containing literal key material (not variable references or secrets manager tokens) confirm plaintext secrets are detected."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Directly inspect /etc/ipsec.secrets (strongSwan/libreswan) for RSA private key passphrases and PSK entries, and /etc/openvpn/*.conf for inline <tls-auth>, <cert>, or <key> blocks containing embedded key material.",
+        "command": "cat /etc/ipsec.secrets; grep -A5 '<tls-auth>\\|<key>\\|<cert>' /etc/openvpn/*.conf 2>/dev/null",
+        "file_path": "/etc/ipsec.secrets",
+        "navigation": null,
+        "expected_output": "PSK entries in ipsec.secrets should be absent or replaced with certificate references (%cert). OpenVPN configs should reference external file paths rather than containing inline PEM blocks."
+      },
+      {
+        "type": "command",
+        "instruction": "Check file permissions on VPN configuration files to assess exposure surface even if secrets are present; world-readable files with secrets are the highest risk combination.",
+        "command": "find /etc/openvpn /etc/ipsec.conf /etc/ipsec.secrets /etc/strongswan /etc/vpn -type f -exec ls -la {} \\; 2>/dev/null | awk '{print $1, $3, $4, $9}'",
+        "file_path": "/etc/openvpn/",
+        "navigation": null,
+        "expected_output": "Permissions on secret-bearing files should be 600 or 640, owned by root or the VPN service account. World-readable permissions (o+r) or group-readable by non-VPN groups indicate elevated exposure."
+      },
+      {
+        "type": "gui",
+        "instruction": "For commercial appliances (Cisco ASA, FortiGate, Palo Alto): export the running configuration from the management GUI and open in a text editor. Search for PSK, preshared-key, passphrase, password, and secret tokens. Verify that sensitive values are masked as '****' or reference a key vault integration rather than appearing as cleartext strings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco ASA: Tools > Backup Configurations | FortiGate: System > Config > Backup | Palo Alto: Device > Setup > Operations > Export Named Configuration Snapshot",
+        "expected_output": "All credential and key fields are either masked (displayed as '****' in GUI) or reference an external vault/HSM identifier. Any cleartext credential value visible in the exported config confirms plaintext_secrets_detected = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "secrets_manager_integrated",
+    "option_description": "Controls whether the VPN gateway retrieves sensitive credentials (pre-shared keys, service account passwords, certificate passphrases) from a dedicated secrets management platform such as HashiCorp Vault, AWS Secrets Manager, or Azure Key Vault, rather than reading plaintext values directly from local configuration files on disk.",
+    "security_impact": "The Rego policy flags hardcoded_secrets_in_configuration_files when plaintext_secrets_detected is true and secrets_manager_integrated is false. Without secrets manager integration, any attacker or unauthorized local user with filesystem access can extract PSKs, private key passphrases, or service credentials directly from config files. This maps to MITRE T1552.001 (Credentials in Files) and T1552.004 (Private Keys). Enabling secrets manager integration removes the static secret from disk entirely, replacing it with a runtime API call to a controlled, audited vault.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the primary VPN daemon configuration file for secret reference syntax versus inline plaintext values. Look for patterns indicating vault agent socket paths, AWS Secrets Manager ARN references, or environment variable injection rather than literal credential strings.",
+        "command": null,
+        "file_path": "/etc/vpn/vpnd.conf",
+        "navigation": null,
+        "expected_output": "Secret fields should reference a path such as 'vault:secret/vpn/psk' or an environment variable like '${VPN_PSK}' rather than a plaintext string like 'MySecretKey123'."
+      },
+      {
+        "type": "command",
+        "instruction": "Search VPN configuration files for common secret field names and check whether values look like plaintext credentials or external references. Grep recursively across the VPN config directory.",
+        "command": "grep -rE '(password|psk|secret|passphrase|key)\\s*=\\s*[^${{]' /etc/vpn/ /etc/ipsec.d/ /etc/openvpn/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output indicates no plaintext inline secrets. Any match showing a literal string value is a finding."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the VPN gateway startup scripts and service unit files to confirm whether a secrets manager agent (e.g., Vault Agent, AWS SSM Parameter Store fetch script, Azure Key Vault reference) is invoked prior to or during service startup to inject secrets at runtime.",
+        "command": "systemctl cat vpnd 2>/dev/null || cat /etc/init.d/vpnd 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service unit or init script should show a pre-start hook calling vault agent, aws secretsmanager get-secret-value, or az keyvault secret show before the VPN daemon launches."
+      },
+      {
+        "type": "api",
+        "instruction": "If the VPN gateway is cloud-hosted (e.g., AWS Client VPN, Azure VPN Gateway), query the cloud provider API to verify that secret references in the gateway configuration point to managed secret ARNs or Key Vault URIs rather than inline values.",
+        "command": "aws ec2 describe-client-vpn-endpoints --query 'ClientVpnEndpoints[*].{ID:ClientVpnEndpointId,AuthType:AuthenticationOptions}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Authentication options should reference certificate ARNs or directory service IDs managed through AWS Certificate Manager or Secrets Manager, not embedded credential strings."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in legacy on-premises deployments where PSKs are stored directly in ipsec.conf or vpnd.conf)",
+      "true (expected in cloud-native or modern deployments using Vault Agent sidecar or cloud-native secrets references)"
+    ]
+  },
+  {
+    "option_name": "config_file_permission_mode",
+    "option_description": "Records the octal filesystem permission mode assigned to VPN configuration files that contain or reference sensitive credentials. This attribute captures how restrictively the operating system controls read and write access to these files, determining which OS users and processes can inspect or modify VPN secrets.",
+    "security_impact": "The Rego policy evaluates hardcoded_secrets_in_configuration_files and checks config_file_permission_mode against a regex that matches any mode granting read access to group or world (e.g., 644, 640, 664, 604). When plaintext_secrets_detected is true and the permission mode allows group or world read, the exposure is flagged regardless of whether a secrets manager is used. This directly enables T1552.001 (Credentials in Files) since any process or user in the file-owning group, or any local user on a world-readable file, can cat the config and extract PSKs or passphrases. The secure baseline is 600 (owner read/write only) or 400 (owner read-only) so only the VPN daemon process running as its designated service account can access the file.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use stat to retrieve the octal permission mode of the primary VPN configuration files. Run this for each relevant config file including IPsec secrets files and OpenVPN config files.",
+        "command": "stat -c '%a %n' /etc/ipsec.conf /etc/ipsec.secrets /etc/openvpn/*.conf /etc/vpn/vpnd.conf 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each line shows the octal mode followed by the filename, e.g., '600 /etc/ipsec.secrets'. Values of 640 or 644 are findings; 600 or 400 are acceptable."
+      },
+      {
+        "type": "command",
+        "instruction": "Use ls -l to obtain symbolic permission notation and owner/group information for all VPN configuration files, confirming that group and other permission bits are clear for sensitive files.",
+        "command": "ls -la /etc/ipsec.secrets /etc/openvpn/ /etc/vpn/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permission string should begin with '-rw-------' (600) or '-r--------' (400). Strings showing '-rw-r--r--' (644) or '-rw-r-----' (640) are findings."
+      },
+      {
+        "type": "command",
+        "instruction": "Recursively find all VPN-related configuration files with permissions more permissive than 600 to identify any files that grant group or world read access.",
+        "command": "find /etc/ipsec.d/ /etc/openvpn/ /etc/vpn/ /etc/strongswan/ -type f \\( -name '*.conf' -o -name '*.secrets' -o -name '*.key' -o -name '*.pem' \\) ! -perm 600 ! -perm 400 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output means all sensitive files are restricted to 600 or 400. Any file listed is a finding requiring permission tightening."
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "600 (secure baseline; owner read/write only, no group or world access)",
+      "640 (common misconfiguration; grants group read access, allowing any member of the VPN group to read secrets)",
+      "644 (insecure default on some distributions; world-readable, any local user can extract secrets)",
+      "400 (hardened read-only; acceptable when the daemon runs as the owning user)"
+    ]
+  },
+  {
+    "option_name": "account_lockout_enabled",
+    "option_description": "Determines whether the VPN gateway enforces an account lockout mechanism that temporarily disables or locks a user account after a defined number of consecutive failed authentication attempts. This control applies to the VPN authentication layer regardless of whether the backend is a local user database, RADIUS server, LDAP directory, or built-in identity provider.",
+    "security_impact": "The Rego policy triggers no_account_lockout_or_rate_limiting_on_authentication when both account_lockout_enabled and rate_limiting_enabled are false, directly exposing the gateway to T1110.001 (Password Guessing), T1110.003 (Password Spraying), and T1110.004 (Credential Stuffing). Without lockout, an attacker can attempt unlimited authentication requests against any user account. A secondary Rego condition also flags the exposure when account_lockout_enabled is true but max_failed_auth_attempts exceeds 100 and rate_limiting_enabled is also absent, meaning a nominally enabled lockout with an excessively high threshold provides no effective protection.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the VPN gateway authentication configuration section for lockout-related directives. On StrongSwan or Libreswan, check for PAM integration with pam_faillock or pam_tally2. On OpenVPN Access Server, review the as.conf or node.conf for lockout settings.",
+        "command": null,
+        "file_path": "/etc/openvpn/as.conf",
+        "navigation": null,
+        "expected_output": "Presence of a directive such as 'cs.max_login_failures=5' or 'auth.lockout.enable=true' indicates lockout is configured. Absence or a value of 0 indicates no lockout."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based VPN gateways using PAM for authentication, check the PAM configuration for the VPN service to confirm pam_faillock or pam_tally2 is present and configured with a deny threshold.",
+        "command": "grep -E '(pam_faillock|pam_tally2|deny=)' /etc/pam.d/vpnd /etc/pam.d/openvpn /etc/pam.d/sshd 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show lines such as 'auth required pam_faillock.so deny=5 unlock_time=900'. No output or absence of deny parameter indicates lockout is not enforced."
+      },
+      {
+        "type": "gui",
+        "instruction": "For commercial VPN solutions (Cisco ASA/FTD, Palo Alto GlobalProtect, Fortinet FortiGate), navigate to the authentication or AAA policy section in the management console and locate the account lockout or failed login threshold setting.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco ASDM: Configuration > Remote Access VPN > AAA/Local Users > Account Lockout | FortiGate: VPN > SSL-VPN Settings > Authentication/Portal > Lockout Settings | Palo Alto: Device > Authentication Profile > Lockout tab",
+        "expected_output": "A lockout policy is enabled with a maximum attempts value between 3 and 10, and a lockout duration of at least 5 minutes."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "If authentication is delegated to a RADIUS or LDAP server, interview the identity team to confirm whether the backend directory (Active Directory, FreeRADIUS) enforces account lockout for VPN-sourced authentication requests and verify that lockout events propagate back to the VPN gateway.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented policy showing AD Fine-Grained Password Policy or Default Domain Policy has account lockout threshold set, and RADIUS NPS is configured to enforce these policies for VPN authentication requests."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common on legacy IPsec gateways with local user databases and no PAM integration)",
+      "true (expected when PAM pam_faillock is configured or when a commercial gateway has lockout policy enabled)"
+    ]
+  },
+  {
+    "option_name": "rate_limiting_enabled",
+    "option_description": "Controls whether the VPN gateway enforces throttling or rate limiting on authentication attempts originating from a given source IP address or targeting a specific user account. This mechanism introduces delay penalties, connection attempt caps per time window, or automated blocking of high-frequency authentication sources without requiring a full account lockout.",
+    "security_impact": "The Rego policy flags no_account_lockout_or_rate_limiting_on_authentication when neither account_lockout_enabled nor rate_limiting_enabled is true. Rate limiting is particularly important as a complementary or standalone control because account lockout can be weaponized for denial-of-service against legitimate users, whereas source-IP-based rate limiting disrupts password spray and credential stuffing campaigns (T1110.003, T1110.004) without locking valid accounts. Rate limiting also addresses distributed attacks where a single account lockout threshold is not reached per account but many accounts are targeted sequentially.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether fail2ban or a similar host-based intrusion prevention tool is installed, active, and has a jail configured for the VPN authentication service to block source IPs after repeated failures.",
+        "command": "fail2ban-client status 2>/dev/null && fail2ban-client status vpn 2>/dev/null || fail2ban-client status openvpn 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show an active jail named 'vpn', 'openvpn', or 'ipsec' with a non-zero maxretry value and a bantime. 'No such jail' indicates rate limiting via fail2ban is not configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect fail2ban jail configuration files or the VPN daemon's built-in rate limiting directives to confirm a connection rate limit is applied to the authentication endpoint.",
+        "command": null,
+        "file_path": "/etc/fail2ban/jail.d/vpn.conf",
+        "navigation": null,
+        "expected_output": "File should contain '[openvpn]' or '[vpn]' section with 'enabled = true', 'maxretry = 5', and 'findtime = 300' or similar values. File absence or 'enabled = false' is a finding."
+      },
+      {
+        "type": "gui",
+        "instruction": "For commercial VPN platforms, navigate to the threat prevention or DoS protection settings to verify per-source authentication rate limiting is configured and applied to the remote access VPN authentication listener port.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto NGFW: Network > Network Profiles > Zone Protection > Reconnaissance Protection | Fortinet FortiGate: Policy & Objects > DoS Policy > Authentication Rate Limit | Cisco FTD: Policies > Access Control > Prefilter > Rate-Based Attack Prevention",
+        "expected_output": "A rate-based policy exists targeting the VPN authentication port (TCP/443 or UDP/500/4500) with a per-source connection rate limit configured and action set to block or drop."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based gateways, verify whether iptables or nftables rules implementing connection rate limiting are applied to the VPN authentication service port, restricting new connection attempts per source IP per time interval.",
+        "command": "iptables -L INPUT -n -v 2>/dev/null | grep -E '(limit|recent|connlimit)' || nft list ruleset 2>/dev/null | grep -E '(limit rate|ct count)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show rules such as '-m limit --limit 5/min' or '-m connlimit --connlimit-above 10' applied to the VPN port. No matching rules indicate rate limiting is not enforced at the network layer."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common on self-managed OpenVPN or StrongSwan deployments without an explicit fail2ban or firewall rate-limiting rule)",
+      "true (expected on commercial gateways with built-in DoS protection or Linux gateways with fail2ban and iptables rate limiting configured)"
+    ]
+  },
+  {
+    "option_name": "max_failed_auth_attempts",
+    "option_description": "Specifies the numeric threshold of consecutive failed authentication attempts that triggers the account lockout or rate-limiting enforcement action. A value of 0 indicates no limit is configured, meaning the lockout or rate-limiting feature is either disabled or has no effective threshold. Values between 1 and 9999 represent the configured attempt ceiling before the protective action fires.",
+    "security_impact": "The Rego policy references this attribute in no_account_lockout_or_rate_limiting_on_authentication with the condition that if account_lockout_enabled is true but max_failed_auth_attempts exceeds 100 and rate_limiting_enabled is also false, the exposure is still flagged. This recognizes that a lockout threshold of 101 or higher provides essentially no protection against automated brute-force or password-spray tooling, which can trivially stay under such a high ceiling while systematically testing password lists. Industry best practice establishes the secure threshold at 5 or fewer consecutive failures. A value of 0 always results in an exposure finding as it signals the lockout feature is unconfigured.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the configured maximum failed attempts value directly from the VPN gateway authentication configuration file or the associated PAM configuration for the VPN service.",
+        "command": null,
+        "file_path": "/etc/security/faillock.conf",
+        "navigation": null,
+        "expected_output": "The file should contain a line such as 'deny = 5' specifying the maximum consecutive failures. Absence of the deny directive or a value of 0 is a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "On OpenVPN Access Server, query the configuration database for the maximum login failures setting, which maps directly to this attribute.",
+        "command": "/usr/local/openvpn_as/scripts/sacli ConfigQuery 2>/dev/null | grep -i 'max_login\\|lockout\\|fail'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should include a key-value pair such as 'cs.max_login_failures: 5'. A value of 0 or absence of the key indicates no lockout threshold is set."
+      },
+      {
+        "type": "command",
+        "instruction": "On StrongSwan or Libreswan with PAM authentication, extract the deny parameter from the pam_faillock or pam_tally2 configuration lines in the PAM stack for the VPN service.",
+        "command": "grep -E 'deny=[0-9]+' /etc/pam.d/vpnd /etc/pam.d/openvpn /etc/security/faillock.conf 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show 'deny=5' or a similarly low value. Values of 'deny=0', values above 10, or no output are findings requiring remediation."
+      },
+      {
+        "type": "gui",
+        "instruction": "For Cisco ASA/FTD, Palo Alto GlobalProtect, or Fortinet FortiGate, locate the account lockout threshold setting in the authentication policy configuration panel and record the numeric value shown.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco ASDM: Configuration > Device Management > Users/AAA > AAA Servers > Lockout Policy > Max Failures | FortiGate GUI: VPN > SSL-VPN Settings > Lockout Duration and Attempt fields | Palo Alto: Device > Authentication Profile > [Profile Name] > Lockout tab > Failed Attempts field",
+        "expected_output": "The 'Maximum Failed Attempts' or equivalent field should display a value between 3 and 5. A value of 0, blank, or greater than 10 is a finding."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (default on many unconfigured gateways; indicates no lockout threshold and is always a finding)",
+      "3 (hardened configuration; common in high-security or compliance-driven environments)",
+      "5 (industry best practice baseline; recommended by CIS benchmarks and NIST SP 800-63B guidance)",
+      "10 (permissive but still functional; provides some brute-force resistance but below best practice)",
+      "100 or higher (effectively disabled; found on legacy systems where lockout was nominally enabled but threshold never tuned)"
+    ]
+  }
+]

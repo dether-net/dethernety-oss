@@ -1,0 +1,8 @@
+{
+  "name": "Data Layer",
+  "classType": "securityBoundary",
+  "type": "securityBoundary",
+  "description": "A security boundary encapsulating data storage components (database and object storage) within a defined trust zone. Primary concerns center on improper zone separation, weak ingress/egress controls allowing unauthorized cross-zone traffic, trust propagation misconfigurations enabling lateral movement, and insufficient segmentation enforcement that could expose storage endpoints to less-trusted network segments.",
+  "category": "Data Security",
+  "status": "reviewed"
+}

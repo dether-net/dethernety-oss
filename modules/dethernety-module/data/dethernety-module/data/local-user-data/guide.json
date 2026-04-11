@@ -1,0 +1,850 @@
+[
+  {
+    "option_name": "classification_tool_enforced",
+    "option_description": "Controls whether a mandatory data classification tool or policy is actively enforced on the local workstation, requiring users to classify files at creation or save time. This applies to solutions such as Microsoft Purview Information Protection, Titus Classification Suite, or Boldon James Classifier operating in enforcement mode rather than advisory or audit-only mode.",
+    "security_impact": "The Rego policy fires the 'unclassified_sensitive_local_data' exposure when classification_tool_enforced is false AND sensitive_content_detected_without_label is true. Without enforced classification, downstream controls including DLP blocking rules, encryption triggers, and retention policies cannot activate correctly because they rely on label metadata to identify sensitive files. Advisory-only or disabled classification agents allow untagged sensitive data to accumulate invisibly on workstations.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the Microsoft Purview Information Protection client status on a managed Windows endpoint to confirm the client is installed and operating in enforcement mode rather than advisory mode.",
+        "command": "Get-MIPNetworkDiscoveryConfiguration | Select-Object -Property Mode, Status; (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\MSIPC\\MIPLabels') | Format-List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Registry keys present with Mode set to Enforce; MIP client version and policy timestamp visible, confirming active policy push."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Microsoft Purview compliance portal, navigate to Information Protection > Labels > Label policies, and confirm the policy assigned to endpoint workstations has 'Require users to apply a label to their email and documents' enabled, not set to recommendation-only.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Information Protection > Label Policies > [Policy Name] > Settings > Mandatory labeling",
+        "expected_output": "Mandatory labeling toggle is ON; policy is scoped to All Users or the applicable security group covering managed workstations."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Group Policy Object (GPO) or MDM configuration profile applied to workstations for the classification client enforcement setting. For Purview, check the registry path written by GPO or Intune configuration profile.",
+        "command": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Office\\16.0\\Common\\Security\\Labels\" /v MandatoryLabel",
+        "file_path": "C:\\Windows\\System32\\GroupPolicy\\Machine\\Registry.pol",
+        "navigation": null,
+        "expected_output": "MandatoryLabel DWORD value equals 1, confirming enforcement is active via policy push."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Microsoft Graph API to retrieve the label policy configuration and confirm mandatory labeling settings for the tenant.",
+        "command": "Invoke-RestMethod -Uri 'https://graph.microsoft.com/v1.0/informationProtection/policy/labels' -Headers @{Authorization='Bearer <token>'} | ConvertTo-Json -Depth 5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response lists active labels and policy settings; mandatory flag appears as true for the applicable policy scope."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in organizations using advisory-only mode or with partially deployed clients)",
+      "true (mature data governance programs with enforced Purview or Titus policy)"
+    ]
+  },
+  {
+    "option_name": "sensitive_content_detected_without_label",
+    "option_description": "Indicates whether a DLP content inspection scan or data discovery tool has identified files on local workstation storage that match sensitive data patterns (PII, financial records, health information, or confidential business data) but lack the required classification label metadata. This is an observed-state attribute populated by scanning results rather than a policy setting.",
+    "security_impact": "The Rego policy triggers 'unclassified_sensitive_local_data' when this attribute is true in combination with either classification_tool_enforced being false OR dlp_policy_scope being 'none' or 'partial'. A true value confirms that real sensitive data exists on the endpoint outside the classification control perimeter, meaning DLP blocking rules, encryption policies, and retention automation tied to label presence will not apply to those files, leaving them fully unprotected.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run a Spirion (formerly Identity Finder) command-line scan against the local user profile and document directories to identify unclassified sensitive content patterns such as SSNs, credit card numbers, and PHI.",
+        "command": "SpiironCLI.exe /scan /location:C:\\Users\\%USERNAME% /report:C:\\Temp\\spirion_scan_report.xml /sensitivedata:PII,Financial,Health",
+        "file_path": "C:\\Temp\\spirion_scan_report.xml",
+        "navigation": null,
+        "expected_output": "XML report lists file paths with matched sensitive pattern types; files with matches but no classification label metadata indicate sensitive_content_detected_without_label should be set to true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Purview Data Map or Purview Compliance portal, navigate to Data Classification > Content Explorer and filter by workstation asset or user, then filter results to show items with sensitive information types detected but no sensitivity label applied.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Data Classification > Content Explorer > Filter: Location = Endpoint > Filter: Sensitivity Label = None > Filter: Sensitive Info Types = Any",
+        "expected_output": "Content Explorer displays files with detected sensitive information types but empty sensitivity label column, confirming unclassified sensitive content on endpoints."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Varonis DatAdvantage or Varonis DatAlert API to retrieve scan results for local endpoint paths showing files with sensitive classification but no label tag.",
+        "command": "Invoke-RestMethod -Uri 'https://<varonis-server>/api/v1/files?sensitiveDataDetected=true&labelPresent=false&location=endpoint' -Headers @{Authorization='Bearer <token>'} | Select-Object -ExpandProperty results | Format-Table path, sensitiveTypes, labelStatus",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "API response returns list of file paths where sensitiveDataDetected is true and labelStatus is null or empty."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review Microsoft Purview endpoint DLP audit logs in the Compliance portal or via PowerShell to identify file activity events where sensitive content was detected but no label was applied at time of access or modification.",
+        "command": "Search-UnifiedAuditLog -StartDate (Get-Date).AddDays(-30) -EndDate (Get-Date) -RecordType ComplianceDLPExchange,ComplianceDLPEndpoint | Where-Object {$_.AuditData -like '*SensitiveInformationType*' -and $_.AuditData -notlike '*SensitivityLabel*'} | Select-Object CreationDate, UserIds, AuditData",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit log entries show DLP sensitive info type matches on endpoint file operations without corresponding sensitivity label fields populated."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common finding in organizations without enforced classification, especially in departments handling HR, finance, or customer data)",
+      "false (expected state in well-governed environments with enforced classification and regular DLP scanning)"
+    ]
+  },
+  {
+    "option_name": "dlp_policy_scope",
+    "option_description": "Defines the coverage scope of the Data Loss Prevention policy as applied to local workstation file storage and sync paths. 'Full' means DLP policies actively monitor, inspect, and enforce controls on local disk writes, sync folder activity, and removable media on endpoints. 'Partial' means DLP covers only network shares or cloud destinations but not local disk paths. 'None' means no DLP policy is configured for endpoint local storage.",
+    "security_impact": "The Rego policy references dlp_policy_scope in two exposures. For 'unclassified_sensitive_local_data', a scope of 'none' or 'partial' combined with detected unclassified sensitive content triggers the exposure because partial or absent DLP cannot prevent or alert on sensitive file creation without labels. For 'cross_border_transfer_via_local_sync_tools', absence of dlp_policy_scope coverage means managed sync tools can transfer sensitive data to external destinations without DLP interception, bypassing transfer controls entirely.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the Microsoft Purview Compliance portal, navigate to Data Loss Prevention > Policies, open each active DLP policy, and inspect the Locations tab to determine whether 'Devices' (endpoint) is toggled on with local file activity monitoring enabled, or only Exchange, SharePoint, and OneDrive locations are selected.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Data Loss Prevention > Policies > [Policy Name] > Edit Policy > Locations > Devices",
+        "expected_output": "Devices location toggle is ON and scope includes 'File activities on Windows devices' for local disk monitoring; if only cloud locations are enabled, scope is partial."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the Security & Compliance PowerShell module to list DLP policies and their location configurations, filtering for endpoint (device) scope.",
+        "command": "Connect-IPPSSession; Get-DlpCompliancePolicy | Select-Object Name, Mode, Workload | Where-Object {$_.Workload -like '*EndpointDevices*'} | Format-Table -AutoSize",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policies with Workload containing 'EndpointDevices' and Mode set to 'Enable' (not TestWithNotifications) confirm full local scope. Absence of endpoint workload entries indicates none or partial scope."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On a managed endpoint, inspect the Windows Defender Advanced Threat Protection (MDE) or Purview endpoint DLP agent policy cache to confirm local file activity rules are pushed and active.",
+        "command": "Get-Content 'C:\\ProgramData\\Microsoft\\Windows Defender Advanced Threat Protection\\DataCollection\\*.json' | ConvertFrom-Json | Select-Object -ExpandProperty dlpPolicies | Format-List",
+        "file_path": "C:\\ProgramData\\Microsoft\\Windows Defender Advanced Threat Protection\\DataCollection\\",
+        "navigation": null,
+        "expected_output": "JSON policy cache contains dlpPolicies entries with fileActivities rules referencing local drive paths (C:\\, D:\\) confirming full endpoint scope."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the DLP or endpoint security administrator to determine whether endpoint DLP agents are deployed to all managed workstations, and confirm whether policies cover local file writes, clipboard activity, and sync folder paths in addition to network egress points.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Administrator confirms endpoint DLP agent deployment percentage, policy mode (enforce vs. audit), and explicit coverage of local disk paths and sync directories such as OneDrive and Dropbox sync folders."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (default in many organizations where DLP is configured only for email and cloud)",
+      "partial (common intermediate state where endpoint agent is deployed but only monitors network egress or cloud sync, not local disk)",
+      "full (mature endpoint DLP deployments with MDE-integrated Purview or equivalent covering all file activities)"
+    ]
+  },
+  {
+    "option_name": "file_level_encryption_enforced",
+    "option_description": "Controls whether a file or folder-level encryption solution is actively applied and policy-enforced on sensitive data directories on local workstations, including temporary file locations. This covers solutions such as Windows Encrypting File System (EFS), Microsoft Purview Information Protection automatic labeling with encryption, or third-party file-level encryption enforced via MDM or GPO.",
+    "security_impact": "The Rego policy references file_level_encryption_enforced in two exposures. For 'unencrypted_sensitive_files_at_rest', when sensitive_data_present_on_workstation is true and file_level_encryption_enforced is false, the exposure fires because full-disk encryption alone does not protect files after OS decryption; file-level encryption persists protection even when files are copied or exfiltrated. For 'sensitive_data_in_temporary_and_cache_files', absence of file-level encryption combined with missing temp cleanup policies means sensitive data in browser caches, print spools, and crash dumps remains readable indefinitely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether EFS encryption is applied to user home directories and common sensitive data folders by inspecting file attributes and EFS certificate status on a sample workstation.",
+        "command": "cipher /u /n 2>&1 | Select-String 'EFS'; Get-ChildItem -Path C:\\Users\\$env:USERNAME\\Documents -Recurse -Force | Where-Object { $_.Attributes -band [System.IO.FileAttributes]::Encrypted } | Select-Object FullName, Attributes | Measure-Object | Select-Object Count",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "cipher /u /n output lists encrypted files with associated EFS certificates. A count greater than zero in Documents confirms EFS is applied. Zero results indicate file-level encryption is not enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Query Intune MDM or Group Policy to verify that a file encryption policy is deployed and applied to the workstation, specifically checking for Purview auto-labeling with encryption or EFS GPO settings.",
+        "command": "Get-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\EFS' | Format-List; gpresult /R /SCOPE:COMPUTER | Select-String 'EFS','Encryption','Purview','AIP'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Registry policy keys for EFS enforcement present with appropriate values. GPO result confirms encryption-related policies are applied from a domain or MDM policy source."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune admin center, navigate to Endpoint Security > Disk Encryption or Devices > Configuration Profiles and review profiles targeting Windows workstations for file-level or folder-level encryption settings beyond BitLocker full-disk encryption.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Intune Admin Center > Devices > Configuration Profiles > [Windows Profile] > Properties > Configuration Settings > Endpoint Protection > Windows Encryption",
+        "expected_output": "Configuration profile shows EFS settings or Purview auto-labeling with encryption enforcement enabled and assigned to the appropriate device group."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review Purview audit logs or endpoint DLP event logs to identify whether sensitivity labels with encryption are being applied to files on endpoints, confirming file-level protection is active.",
+        "command": "Search-UnifiedAuditLog -StartDate (Get-Date).AddDays(-7) -EndDate (Get-Date) -Operations SensitivityLabelApplied,SensitivityLabelUpdated | Where-Object {$_.AuditData -like '*Encrypt*'} | Select-Object CreationDate, UserIds, AuditData | Select-Object -First 20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Audit log shows SensitivityLabelApplied events with encryption actions on endpoint file paths, confirming file-level encryption is actively being enforced through the classification pipeline."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most common state; organizations rely on BitLocker full-disk encryption and do not separately enforce file-level encryption for sensitive directories)",
+      "true (found in regulated industries such as healthcare and financial services with mature Purview auto-labeling or EFS GPO enforcement)"
+    ]
+  },
+  {
+    "option_name": "sensitive_data_present_on_workstation",
+    "option_description": "Indicates whether sensitive files (PII, regulated data, or confidential business data) have been detected or confirmed to exist in local workstation storage through DLP scanning, classification tool results, or audit evidence. This attribute is used both for current operational state assessment and as a historical lifecycle marker during device decommissioning, reassignment, or repurposing workflows.",
+    "security_impact": "The Rego policy uses sensitive_data_present_on_workstation as the primary gate for two high-criticality exposures. For 'unencrypted_sensitive_files_at_rest', a true value triggers the exposure when file_level_encryption_enforced or removable_media_encryption_enforced is false, because confirmed sensitive data without encryption controls is directly exploitable via local access or file exfiltration. For 'inadequate_data_disposal_on_device_reuse', a true value combined with a lifecycle event (repurposed, reassigned, decommissioned) and inadequate sanitization triggers the exposure, because recoverable sensitive data on retired devices can be extracted using forensic tools.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Execute a targeted data discovery scan on the local workstation using Microsoft Purview endpoint DLP or PowerShell-based pattern matching to identify files containing sensitive information types in user profile directories.",
+        "command": "Get-ChildItem -Path C:\\Users -Recurse -Include *.docx,*.xlsx,*.pdf,*.csv,*.txt -ErrorAction SilentlyContinue | ForEach-Object { $content = Get-Content $_.FullName -ErrorAction SilentlyContinue -Raw; if ($content -match '\\b\\d{3}-\\d{2}-\\d{4}\\b|\\b\\d{4}[- ]?\\d{4}[- ]?\\d{4}[- ]?\\d{4}\\b') { $_.FullName } } | Out-File C:\\Temp\\sensitive_files_found.txt",
+        "file_path": "C:\\Temp\\sensitive_files_found.txt",
+        "navigation": null,
+        "expected_output": "Output file lists file paths matching SSN or credit card number patterns. Any results confirm sensitive_data_present_on_workstation should be set to true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Purview Content Explorer, filter by the specific endpoint device or user UPN and review the sensitive information types detected on the endpoint. Alternatively, review Varonis or Spirion scan dashboards filtered by workstation asset name.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Data Classification > Content Explorer > Filter: Location = Endpoint Devices > Filter: User = [username@domain.com] > Review Sensitive Info Types column",
+        "expected_output": "Content Explorer shows files with sensitive information type matches on the target endpoint. Presence of any results confirms sensitive data exists on the workstation."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Purview Information Protection scan results API or Defender for Endpoint advanced hunting to retrieve evidence of sensitive data on a specific device.",
+        "command": "Invoke-RestMethod -Uri 'https://api.security.microsoft.com/api/advancedhunting/run' -Method POST -Headers @{Authorization='Bearer <token>'; 'Content-Type'='application/json'} -Body '{\"Query\":\"DeviceFileEvents | where DeviceName == \\\"<workstation-name>\\\" | where FileName endswith \\\".xlsx\\\" or FileName endswith \\\".csv\\\" | where FileSize > 0 | take 50\"}' | ConvertFrom-Json | Select-Object -ExpandProperty Results",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Advanced hunting query returns file events on the target device; cross-reference with DLP sensitive type scan results to confirm sensitive data presence."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "For decommissioning scenarios, review the asset inventory record and data access profile for the assigned user. Confirm whether the user's role involved access to PII, financial, health, or confidential business data systems, and treat as true if role-based access to sensitive data sources existed without evidence of data isolation controls.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Asset management record or CMDB entry documents user role and data access scope. HR or IT documentation confirms whether the user worked with regulated data, informing the default assumption for this attribute during lifecycle events."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common in endpoints assigned to HR, finance, legal, sales, and clinical roles that routinely handle PII, financial records, or health data)",
+      "false (expected in kiosk systems, developer workstations isolated from production data, or endpoints with verified clean DLP scan results)"
+    ]
+  },
+  {
+    "option_name": "removable_media_encryption_enforced",
+    "option_description": "Controls whether organizational policy enforces encryption of data written to removable media such as USB drives and external hard drives connected to managed workstations. This is typically implemented through BitLocker To Go enforcement via Group Policy or MDM, DLP-enforced write blocking to unencrypted removable devices, or allowlisting of pre-encrypted organizational USB drives only.",
+    "security_impact": "The Rego policy triggers 'unencrypted_sensitive_files_at_rest' when sensitive_data_present_on_workstation is true and removable_media_encryption_enforced is false. This is a distinct exposure path from file-level encryption because a workstation may have local encryption enforced yet allow cleartext writes to USB drives, enabling straightforward physical exfiltration of sensitive files. An attacker or malicious insider with physical access can copy sensitive data to personal media and walk out of a facility with no cryptographic protection on the copied files.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check Group Policy settings on the local workstation to confirm whether BitLocker To Go is required for removable drives before write access is granted.",
+        "command": "gpresult /H C:\\Temp\\gpreport.html /F; reg query 'HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE' /v RDVDenyWriteAccess; reg query 'HKLM\\SOFTWARE\\Policies\\Microsoft\\FVE' /v RDVRequireEncryption",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RDVDenyWriteAccess DWORD = 1 confirms that write access to removable drives is denied unless BitLocker To Go encrypted. RDVRequireEncryption = 1 enforces encryption requirement."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune admin center, navigate to Devices > Configuration Profiles and open the BitLocker or Endpoint Protection profile assigned to Windows workstations. Verify that 'Removable data-drive encryption' is set to Required.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Intune Admin Center > Devices > Configuration Profiles > [Windows Endpoint Protection Profile] > Properties > Configuration Settings > Windows Encryption > BitLocker removable drive settings > Require encryption for write access",
+        "expected_output": "Removable drive encryption setting shows 'Require' status, confirming BitLocker To Go enforcement is pushed via MDM policy."
+      },
+      {
+        "type": "command",
+        "instruction": "Review Defender for Endpoint or Windows Defender Device Control policy to confirm that removable media write access is restricted to encrypted devices or blocked entirely for unencrypted media.",
+        "command": "Get-MpPreference | Select-Object -Property *DeviceControl*; Get-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\Device Control' | Format-List",
+        "file_path": "C:\\Windows\\System32\\GroupPolicy\\Machine\\Registry.pol",
+        "navigation": null,
+        "expected_output": "Device Control policy entries reference allow rules restricted to BitLocker-encrypted removable media class GUIDs, or deny rules blocking unencrypted USB write access."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review Windows Event Log for Removable Storage Access Audit events and Defender for Endpoint device control alerts to identify any successful unencrypted removable media write events on managed endpoints.",
+        "command": "Get-WinEvent -LogName 'Microsoft-Windows-Removable Storage Access/Operational' -MaxEvents 100 | Where-Object {$_.Message -like '*Write*' -and $_.Message -notlike '*Encrypted*'} | Select-Object TimeCreated, Message | Format-List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No write events to unencrypted removable storage confirms enforcement is effective. Presence of unencrypted write events indicates removable_media_encryption_enforced should be set to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (majority of organizations do not enforce BitLocker To Go; USB write access is unrestricted or only logged)",
+      "true (organizations with mature DLP and endpoint security programs in regulated sectors; often implemented alongside USB allowlisting or complete removable media blocking)"
+    ]
+  },
+  {
+    "option_name": "centralized_retention_enforcement_enabled",
+    "option_description": "Indicates whether a centralized data retention management system actively enforces retention schedules and deletion policies on local workstation storage. This includes MDM-pushed retention policies, DLP rules triggering deletion or quarantine after retention period expiry, or endpoint management solutions configured to enforce data lifecycle controls on local drives rather than only on network shares or cloud repositories.",
+    "security_impact": "The Rego policy triggers 'retention_policy_non_compliance_local_storage' through three conditions, all requiring centralized_retention_enforcement_enabled to be false. Without centralized enforcement, even if a retention period (local_retention_period_days) is defined in policy, there is no automated mechanism to identify or delete data that has exceeded its permitted residency period on local drives. This creates GDPR Article 5 violations (storage limitation principle), HIPAA 45 CFR 164.530 non-compliance, and PCI-DSS Requirement 3.1 violations when regulated data persists beyond maximum retention periods on endpoints outside policy visibility.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the Microsoft Purview Compliance portal, navigate to Records Management > Retention Policies or Data Lifecycle Management > Retention Policies. Review active policies and confirm whether 'Devices' or endpoint locations are included in policy scope with delete actions configured.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Data Lifecycle Management > Retention Policies > [Policy Name] > Locations tab > Check for Devices or Endpoint location scope with Retain and Delete or Delete only action",
+        "expected_output": "Retention policy includes Devices location with an enforced delete action after the configured retention period, confirming centralized retention enforcement covers local workstation storage."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the Security & Compliance PowerShell module to enumerate retention policies and confirm whether any are configured with endpoint device scope and a delete action.",
+        "command": "Connect-IPPSSession; Get-RetentionCompliancePolicy | Select-Object Name, Enabled, Mode, ExchangeLocation, SharePointLocation | Format-Table; Get-RetentionComplianceRule | Select-Object Name, RetentionDuration, RetentionComplianceAction | Where-Object {$_.RetentionComplianceAction -eq 'Delete'}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows retention policies with Mode = Enforce and rules with RetentionComplianceAction = Delete. Absence of endpoint-scoped policies confirms centralized_retention_enforcement_enabled should be false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the endpoint management or data governance administrator to determine whether any MDM solution (Intune, JAMF, SCCM) deploys scheduled scripts or policies that enforce file deletion or data archival on local workstation drives based on age or classification.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Administrator can demonstrate active MDM policy or scheduled task configuration that enforces data deletion or review on local drives. Inability to demonstrate automated enforcement confirms the attribute should be set to false."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for scheduled tasks on managed workstations that implement retention-based file cleanup enforced by MDM or endpoint management solutions.",
+        "command": "Get-ScheduledTask | Where-Object {$_.TaskName -like '*retention*' -or $_.TaskName -like '*cleanup*' -or $_.TaskName -like '*purge*'} | Select-Object TaskName, TaskPath, State, @{N='LastRunTime';E={$_.LastRunTime}} | Format-Table; Get-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataRetention' -ErrorAction SilentlyContinue",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Scheduled tasks related to retention cleanup are present, enabled, and show recent LastRunTime values. Policy registry keys confirm MDM-pushed retention enforcement configuration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (predominant state across most organizations; retention policies are configured for cloud and network repositories but local workstation storage is excluded from automated enforcement)",
+      "true (found in highly regulated environments with mature endpoint management programs where Purview or custom MDM scripts enforce local data lifecycle controls)"
+    ]
+  },
+  {
+    "option_name": "local_retention_period_days",
+    "option_description": "Defines the maximum number of days sensitive or regulated data is permitted to reside on a local workstation before mandatory review or deletion, as established by the organization's data retention policy or applicable regulatory framework. Valid values range from 0 (no local retention permitted) to 3650 (ten years maximum). A null or undefined value indicates no retention period policy has been formally established for local workstation data.",
+    "security_impact": "The Rego policy uses local_retention_period_days in two conditions of the 'retention_policy_non_compliance_local_storage' exposure. When centralized_retention_enforcement_enabled is false and local_retention_period_days is null or undefined, the exposure fires because there is no policy basis for determining when local data must be deleted, making compliance with GDPR Article 5 (storage limitation), HIPAA 164.530, and PCI-DSS 3.1 impossible to demonstrate. Additionally, when a retention period is defined but centralized enforcement and scheduled review are both absent, the policy still triggers because the defined limit cannot be operationalized without automated enforcement or compensating manual review processes.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's formal data retention policy and data classification policy documents to identify the maximum permitted local retention period for sensitive data categories. Cross-reference applicable regulatory requirements (GDPR, HIPAA, PCI-DSS) for the data types handled.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy document specifies a maximum retention period in days for sensitive data on local endpoints (e.g., 90 days, 365 days). Absence of a defined period for local workstation storage confirms local_retention_period_days should be null."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Microsoft Purview Compliance portal, navigate to Data Lifecycle Management > Retention Policies and review the retention duration configured for endpoint-scoped policies to confirm the enforced retention period aligns with documented policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Data Lifecycle Management > Retention Policies > [Policy Name] > Retention settings > Retain content for [X] days/years",
+        "expected_output": "Retention duration displayed in the policy matches the organizationally defined maximum local retention period. Convert years to days (e.g., 1 year = 365, 3 years = 1095) for comparison with the attribute value."
+      },
+      {
+        "type": "command",
+        "instruction": "Query configured retention rules via PowerShell to extract the retention duration in days for policies covering endpoint devices.",
+        "command": "Connect-IPPSSession; Get-RetentionComplianceRule | Select-Object Name, RetentionDuration, RetentionDurationDisplayHint, RetentionComplianceAction | Format-Table; Get-RetentionComplianceRule | Select-Object -ExpandProperty RetentionDuration",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RetentionDuration value returned in days for endpoint-applicable policies. Compare this value against the formally documented policy maximum to confirm alignment or identify gaps."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Consult with the Legal, Privacy, or Compliance team to obtain the regulatory-driven maximum retention period applicable to the data categories processed on local workstations (e.g., GDPR personal data, HIPAA PHI, PCI-DSS cardholder data) and confirm whether a formal local workstation retention standard has been approved.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Legal or compliance team provides a documented maximum retention period in days validated against regulatory requirements. No documented local-specific period indicates this attribute should be recorded as null, triggering the retention policy non-compliance exposure in the Rego evaluation."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "null (common default state; most organizations have not formally defined a maximum retention period specific to local workstation storage)",
+      "90 (30 to 90 days found in high-sensitivity regulated environments with strict data minimization requirements)",
+      "365 (one year, common in moderate-governance programs aligning with annual audit cycles)",
+      "2555 (seven years, found in financial services organizations applying standard financial records retention to local copies)"
+    ]
+  },
+  {
+    "option_name": "scheduled_local_data_review_exists",
+    "option_description": "Controls whether a documented, scheduled process exists for periodically auditing and purging locally stored sensitive or regulated data in accordance with organizational retention policies. This covers formal procedures such as automated scripts, policy-triggered cleanup tasks, calendar-based reviews, or MDM-enforced review workflows.",
+    "security_impact": "Directly referenced by the retention_policy_non_compliance_local_storage Rego rule. The policy fires when centralized_retention_enforcement_enabled is absent AND scheduled_local_data_review_exists is false or unset, regardless of whether a local_retention_period_days value is defined. Without this control, locally stored PII, health records, or financial data persists indefinitely beyond regulatory maximum retention limits (GDPR Art. 5(1)(e), HIPAA 45 CFR 164.530, PCI-DSS Req. 3.1), creating enforceable compliance violations that cannot be detected through centralized controls alone.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IT governance or data privacy team to confirm whether a formal local data retention review procedure exists and is documented in a policy register, runbook, or DPA. Request the procedure document name, owner, and last review date.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A named, versioned procedure document with a scheduled cadence (e.g., quarterly) and an assigned responsible party; absence of documentation indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows endpoints, check Task Scheduler for any active tasks related to data review or cleanup targeting user data directories. Look for tasks in the custom or GPO-delivered task folders.",
+        "command": "Get-ScheduledTask | Where-Object { $_.TaskName -match 'data|review|retention|cleanup|purge' } | Select-Object TaskName, State, TaskPath | Format-List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more tasks in 'Ready' or 'Running' state with names matching retention or review patterns; empty output indicates no automated process."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune, navigate to Devices > Scripts & remediations > Remediations and review whether any remediation policy exists targeting local data retention review on enrolled workstations.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Intune admin center > Devices > Scripts & remediations > Remediations > filter by 'data' or 'retention'",
+        "expected_output": "An active remediation policy assigned to the relevant device group with a scheduled detection script that validates data review occurrence."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux endpoints, inspect cron job configurations for scheduled data audit or deletion tasks under system-wide and user crontab directories.",
+        "command": "grep -rE 'purge|delete|clean|retention|review' /etc/cron.d/ /etc/cron.daily/ /etc/cron.weekly/ /var/spool/cron/",
+        "file_path": "/etc/cron.d/ | /etc/cron.daily/ | /etc/cron.weekly/",
+        "navigation": null,
+        "expected_output": "Cron entries referencing scripts that target user data directories with documented retention logic; no output indicates false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "data_sanitization_standard_applied",
+    "option_description": "Captures the specific data sanitization methodology applied to a workstation prior to repurposing, reassignment, or decommissioning. Valid compliant values reflect NIST SP 800-88 Clear, Purge, or Destroy methods, or third-party certified wiping tools. Non-compliant values include standard OS-level deletion, quick format operations, or no action taken.",
+    "security_impact": "Directly referenced by the inadequate_data_disposal_on_device_reuse Rego rule. The exposure fires when workstation_lifecycle_event is repurposed, reassigned, or decommissioned AND sensitive_data_present_on_workstation is true AND this attribute is os_delete_or_format, none, or absent. Standard OS deletion leaves data recoverable via forensic tools, making previously stored PII, credentials, or confidential business data accessible to subsequent device users or external parties, violating NIST 800-88 requirements and data protection obligations.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review IT asset management or ITSM tickets (e.g., ServiceNow, Jira Service Management) associated with the workstation's decommission or transfer event. Look for a sanitization field, attached wipe report, or technician sign-off confirming the method applied.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ITSM platform > Asset Management > search by asset tag > view lifecycle history > check 'Sanitization Method' field or attached reports",
+        "expected_output": "A completed sanitization field populated with a recognized standard value and an attached certificate or log file from the wipe tool; absence or 'OS Delete' indicates non-compliance."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Retrieve the wipe report or audit log exported from the sanitization tool used (e.g., Blancco, DBAN, Eraser). These tools generate XML or PDF certificates specifying the standard applied, pass/fail status, and target drive serial numbers.",
+        "command": null,
+        "file_path": "/var/log/blancco/ | C:\\ProgramData\\Blancco\\Reports\\",
+        "navigation": null,
+        "expected_output": "A certificate file referencing NIST 800-88 Clear, Purge, or Destroy, or third-party certified wipe standard with a pass status and matching device serial number."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Windows workstation pending decommission, verify whether a certified wipe tool was executed by checking Add/Remove Programs or event logs for tool execution history.",
+        "command": "Get-WinEvent -LogName Application | Where-Object { $_.ProviderName -match 'Blancco|Eraser|DBAN|KillDisk' } | Select-Object TimeCreated, Message | Format-List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Event log entries from a certified sanitization tool with a completion timestamp; no entries indicate no certified wipe was performed."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the IT asset management system (e.g., Lansweeper, Snow, Asset Panda), locate the device record and review the 'Disposition' or 'Sanitization' tab for the recorded sanitization method and supporting documentation.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Asset management console > Assets > search by hostname or serial number > Lifecycle tab > Disposal/Sanitization section",
+        "expected_output": "A populated sanitization method field matching one of the recognized enum values with a timestamp and technician identifier."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "os_delete_or_format",
+      "nist_800_88_clear",
+      "nist_800_88_purge",
+      "third_party_certified_wipe"
+    ]
+  },
+  {
+    "option_name": "workstation_lifecycle_event",
+    "option_description": "Identifies the current lifecycle transition state of the workstation that triggers mandatory data disposal requirements. Captures whether the device is actively being repurposed for a different function, reassigned to a new user, or permanently decommissioned, each of which requires validated data sanitization before the transition completes.",
+    "security_impact": "Used as the primary trigger condition in the inadequate_data_disposal_on_device_reuse Rego rule. The exposure fires only when this attribute is repurposed, reassigned, or decommissioned — combined with sensitive_data_present_on_workstation being true and an insufficient sanitization method. Accurate capture of this attribute is critical to scoping sanitization requirements; a value of none suppresses the rule, so misclassification of in-transition devices as none creates undetected data remnant exposure.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the IT asset management system API for the workstation's current lifecycle stage. For ServiceNow, query the cmdb_ci_computer table filtering on asset_tag or serial_number and return the lifecycle_state field.",
+        "command": "curl -u admin:password 'https://<instance>.service-now.com/api/now/table/cmdb_ci_computer?sysparm_query=serial_number=<SN>&sysparm_fields=name,lifecycle_state,assigned_to' -H 'Accept: application/json'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON response with lifecycle_state populated as 'In Retirement', 'Reassigned', 'Decommissioned', or equivalent mapped to the enum values."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the ITSM or CMDB platform, locate the device record and inspect the current status or lifecycle stage field. Common indicators include open change requests, pending disposal tickets, or status values such as 'In Transfer' or 'Pending Decommission'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CMDB/Asset Management > Assets > search by hostname > Status field or Lifecycle Stage field > check for active change or transition records",
+        "expected_output": "A status value indicating active transition (repurposed, reassigned, decommissioned) with an associated change ticket number and target date."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, check whether the device has a pending domain disjoin, new user profile assignment, or Active Directory computer account move indicating reassignment or repurposing.",
+        "command": "Get-ADComputer -Identity <hostname> -Properties Description, ManagedBy, Modified | Select-Object Name, Description, ManagedBy, Modified",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Description or ManagedBy fields updated to reflect new owner or 'Pending Decommission'; recent modification date corroborating a lifecycle change."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review open helpdesk or change management tickets assigned to the workstation's asset tag. Filter for ticket categories such as 'Hardware Refresh', 'User Offboarding', 'Asset Transfer', or 'Device Retirement' to confirm an active lifecycle event.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An open or recently resolved ticket categorized under a disposal or transfer workflow with the device asset tag referenced, confirming an active lifecycle event."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "reassigned",
+      "decommissioned",
+      "repurposed"
+    ]
+  },
+  {
+    "option_name": "temp_cache_cleanup_policy_enforced",
+    "option_description": "Determines whether an automated, policy-driven mechanism is actively configured and applied to regularly purge ephemeral data artifacts from workstations, including temporary file directories (%TEMP%, /tmp), browser cache folders, print spool files, and clipboard history. The policy must be enforced via a management platform (GPO, Intune, Jamf, Ansible) to count as enforced rather than relying on manual user action.",
+    "security_impact": "Referenced in the sensitive_data_in_temporary_and_cache_files Rego rule under two conditions: the exposure fires when temp_cache_cleanup_policy_enforced is false AND file_level_encryption_enforced is absent, or when both temp_cache_cleanup_policy_enforced and crash_dump_sensitive_data_scrubbing_enabled are false simultaneously. Temporary and cache files represent uncontrolled secondary data stores containing fragments of PII, session tokens, document contents, and print jobs that bypass all primary data classification and retention controls, persisting indefinitely without enforced cleanup.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune, check Device Configuration profiles and Administrative Templates for policies targeting Storage Sense, Disk Cleanup, or temporary file deletion scheduled tasks deployed to workstation groups.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Intune admin center > Devices > Configuration profiles > filter by Platform: Windows > review profiles for 'Storage Sense', 'Temporary Files', or 'Disk Cleanup' settings > check Assignment groups",
+        "expected_output": "An active configuration profile assigned to all managed workstations with Storage Sense or Disk Cleanup settings configured for automated execution on a defined schedule."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, check Group Policy results on the endpoint to confirm whether a GPO-enforced scheduled task for temp file cleanup is applied and active.",
+        "command": "gpresult /R /SCOPE COMPUTER | findstr -i 'cleanup\\|temp\\|cache\\|storage sense' ; Get-ScheduledTask | Where-Object {$_.TaskName -match 'cleanup|temp|cache|StorageSense'} | Select-Object TaskName, State",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "GPO results showing an applied policy and a scheduled task in 'Ready' state targeting temp or cache directories; missing output indicates not enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On macOS endpoints managed by Jamf, review the configuration profile payload delivered to workstations for any LaunchDaemon or LaunchAgent configurations targeting cache or temp cleanup.",
+        "command": "sudo profiles show -all | grep -A 10 -i 'cache\\|temp\\|cleanup'",
+        "file_path": "/Library/LaunchDaemons/ | /Library/LaunchAgents/",
+        "navigation": null,
+        "expected_output": "A profile section referencing a cleanup LaunchDaemon with a StartInterval or StartCalendarInterval key defining automated execution; absence indicates not enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux endpoints, verify whether a cron job, systemd timer, or logrotate configuration enforces periodic cleanup of /tmp, user cache directories, and browser cache paths.",
+        "command": "systemctl list-timers | grep -i 'clean\\|tmp\\|cache' ; ls /etc/cron.daily/ /etc/cron.weekly/ | grep -i 'clean\\|tmp\\|cache' ; cat /usr/lib/tmpfiles.d/tmp.conf",
+        "file_path": "/usr/lib/tmpfiles.d/tmp.conf | /etc/cron.daily/",
+        "navigation": null,
+        "expected_output": "Active systemd timers or cron entries targeting cache and temp directories with a defined retention period (e.g., d /tmp 1777 root root 7d in tmpfiles.d)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "crash_dump_sensitive_data_scrubbing_enabled",
+    "option_description": "Controls whether OS and application-generated crash dump files are either disabled for non-developer workstations, stored in encrypted locations, or subjected to a scrubbing or filtering process that removes sensitive in-memory data before retention. This prevents memory snapshots captured at crash time from becoming persistent uncontrolled repositories of sensitive application data, credentials, or PII.",
+    "security_impact": "Referenced in the sensitive_data_in_temporary_and_cache_files Rego rule under two conditions: fires when crash_dump_sensitive_data_scrubbing_enabled is false AND file_level_encryption_enforced is absent, or when both crash_dump_sensitive_data_scrubbing_enabled and temp_cache_cleanup_policy_enforced are false together. Crash dumps capture raw process memory at failure time, which can contain decrypted credentials, session tokens, PII, or encryption keys that bypass all application-layer access controls. These files are typically excluded from DLP scanning and data classification policies.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, check the system crash dump configuration to determine the dump type setting. For non-developer workstations, the value should be 0 (disabled) or Small Memory Dump with encrypted dump path.",
+        "command": "Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\CrashControl' | Select-Object CrashDumpEnabled, DumpFile, AutoReboot, MinidumpsCount ; reg query 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\CrashControl' /v CrashDumpEnabled",
+        "file_path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\CrashControl",
+        "navigation": null,
+        "expected_output": "CrashDumpEnabled = 0 (disabled) for non-developer workstations, or DumpFile pointing to an encrypted volume with scrubbing tooling configured; value of 1, 2, or 3 without encryption indicates exposure."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux, inspect core dump configuration via sysctl and the /proc/sys/kernel/core_pattern to determine if core dumps are disabled or redirected to a controlled scrubbing handler.",
+        "command": "sysctl kernel.core_pattern ; sysctl kernel.core_uses_pid ; cat /proc/sys/kernel/core_pattern ; grep -r 'core' /etc/sysctl.conf /etc/sysctl.d/",
+        "file_path": "/etc/sysctl.conf | /etc/sysctl.d/99-coredump.conf",
+        "navigation": null,
+        "expected_output": "kernel.core_pattern set to '|/dev/null' or a scrubbing handler path, or kernel.core_uses_pid with ulimit -c 0 enforced system-wide; active core dump paths without scrubbing indicate false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune or SCCM, review endpoint security or configuration profiles for Windows Error Reporting (WER) settings that control crash dump generation, collection, and local storage on managed workstations.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Intune admin center > Devices > Configuration profiles > select Windows profile > Settings catalog > search 'Windows Error Reporting' or 'Crash Dump' > review LocalDumps or WER consent settings",
+        "expected_output": "WER LocalDumps registry path disabled or DumpType set to 0 with an applied assignment covering all managed workstations."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, check whether Windows Error Reporting local dump collection is enabled under the application-specific LocalDumps registry key, which can store full or mini dumps outside of system crash dump settings.",
+        "command": "Get-ChildItem -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\Windows Error Reporting\\LocalDumps' -ErrorAction SilentlyContinue | ForEach-Object { Get-ItemProperty $_.PSPath } | Select-Object PSChildName, DumpFolder, DumpType, DumpCount",
+        "file_path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\Windows Error Reporting\\LocalDumps",
+        "navigation": null,
+        "expected_output": "No LocalDumps subkeys present (disabled), or DumpType = 0 for all entries; populated subkeys with DumpType 1 or 2 pointing to unencrypted paths indicate false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "sync_tool_installation_status",
+    "option_description": "Captures the installation and management state of personal or commercial cloud storage synchronization clients and external drive auto-sync tools on the workstation. Distinguishes between three states: no sync tool installed, a sync tool installed and managed by the organization (with visibility and configuration control), or a sync tool installed without organizational management (shadow IT).",
+    "security_impact": "Used as the primary branching condition in the cross_border_transfer_via_local_sync_tools Rego rule. The installed_unmanaged value triggers the most severe exposure paths — firing when sync_scope_includes_sensitive_paths is true regardless of whether data_transfer_agreement_in_place or dlp_policy_scope is present. The installed_managed value still triggers exposure when sync_scope_includes_sensitive_paths is true AND both data_transfer_agreement_in_place and dlp_policy_scope are absent. Unmanaged sync tools exfiltrate data to jurisdictions without legal basis assessment, bypassing network-layer DLP and transfer controls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, query installed applications and running processes for known sync client executables and registry entries. Check for Dropbox, OneDrive Personal, Google Drive, iCloud, Box, Sync.com, and similar clients.",
+        "command": "Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*, HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* | Where-Object {$_.DisplayName -match 'Dropbox|Google Drive|iCloud|Box|OneDrive|Sync'} | Select-Object DisplayName, DisplayVersion, Publisher ; Get-Process | Where-Object {$_.Name -match 'Dropbox|googledrivesync|OneDrive|iCloud'}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output indicates not_installed; output with MDM-managed OneDrive Business indicates installed_managed; Dropbox or OneDrive Personal without MDM policy indicates installed_unmanaged."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the endpoint management platform's device inventory API for installed application data. In Microsoft Intune, use the Graph API to retrieve the detected apps list for the workstation.",
+        "command": "curl -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/<deviceId>/detectedApps' | python3 -m json.tool | grep -i 'dropbox\\|google drive\\|icloud\\|box\\|sync'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array of detected apps; match against known sync client names to determine installation; cross-reference against managed app policy to distinguish managed vs unmanaged."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Intune admin center, navigate to the specific device record and review the Discovered Apps section to identify sync tools. Cross-reference with approved app lists or Intune managed app policies to determine management status.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Intune admin center > Devices > All devices > select device > Discovered apps > filter for known sync client names > verify against Client apps > App protection policies",
+        "expected_output": "Sync clients appearing in discovered apps but absent from managed app or app protection policy assignments indicate installed_unmanaged."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, check the Applications folder, LaunchAgents, and login items for installed sync clients, then verify whether they are managed via Jamf policy or configuration profile.",
+        "command": "ls /Applications | grep -iE 'dropbox|google drive|icloud|box|onedrive' ; launchctl list | grep -iE 'dropbox|google|icloud|box|onedrive' ; sudo jamf policy -verbose 2>/dev/null | grep -i 'sync\\|drive\\|cloud'",
+        "file_path": "/Applications/ | ~/Library/LaunchAgents/",
+        "navigation": null,
+        "expected_output": "Applications present without corresponding Jamf policy entry indicate installed_unmanaged; presence with an active Jamf policy and configuration profile indicates installed_managed."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "not_installed",
+      "installed_unmanaged",
+      "installed_managed"
+    ]
+  },
+  {
+    "option_name": "sync_scope_includes_sensitive_paths",
+    "option_description": "Determines whether the installed sync client is configured to monitor or automatically synchronize directories that are known or likely to contain sensitive, regulated, or classified organizational data. High-risk paths include the Desktop, Documents, Downloads, and project-specific working directories where users routinely store business files, client data, and regulated records.",
+    "security_impact": "Acts as a required co-condition in all three cross_border_transfer_via_local_sync_tools Rego rule firing conditions. The exposure only triggers when this attribute is true — meaning a sync tool is present AND it is actively syncing directories containing sensitive data. When false, even an unmanaged sync tool does not trigger the rule. Accurate assessment of sync scope is therefore critical: misconfiguring this as false when sensitive paths are included suppresses detection of active cross-border data transfer without legal basis, violating GDPR Chapter V transfer restrictions and similar data sovereignty requirements.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Dropbox sync configuration file to identify which local directories are included in the selective sync scope. Dropbox stores sync configuration in a SQLite database on Windows.",
+        "command": "python3 -c \"import sqlite3; conn = sqlite3.connect(r'C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Dropbox\\\\instance1\\\\sync_engine_southbound.db'); c = conn.cursor(); c.execute('SELECT * FROM sync_root'); print(c.fetchall())\"",
+        "file_path": "C:\\Users\\<user>\\AppData\\Local\\Dropbox\\instance1\\sync_engine_southbound.db | ~/Library/Application Support/Dropbox/",
+        "navigation": null,
+        "expected_output": "Database rows listing synced local paths; paths matching Desktop, Documents, or known project directories indicate true."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Google Drive desktop client (Windows), inspect the sync configuration to identify which local folders are included in the mirroring or streaming scope.",
+        "command": "Get-Content \"$env:LOCALAPPDATA\\Google\\DriveFS\\\\*\\user_preferences\" -ErrorAction SilentlyContinue | Select-String -Pattern 'mirror_path|sync_path|folder'",
+        "file_path": "C:\\Users\\<user>\\AppData\\Local\\Google\\DriveFS\\",
+        "navigation": null,
+        "expected_output": "Configuration entries listing synced local paths; presence of Documents, Desktop, or named project folders indicates true."
+      },
+      {
+        "type": "gui",
+        "instruction": "Open the installed sync client's GUI on the workstation and navigate to the sync folder or selective sync settings to visually confirm which local directories are included in the sync scope.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Dropbox system tray icon > Preferences > Sync > Selective Sync > review checked folders | OneDrive system tray > Settings > Account > Choose folders | Google Drive > Preferences > My Computer > review mirrored folders",
+        "expected_output": "Folders listed as synced include Desktop, Documents, Downloads, or named project directories containing organizational data; indicates true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Cross-reference the sync client's configured folders against the organization's sensitive data path inventory (e.g., standard project folder naming conventions, regulated data stores). Interview the assigned user about their sync configuration if remote audit is not possible.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Overlap between synced paths and documented sensitive data storage locations confirms true; no overlap or sync limited to personal non-work directories indicates false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "data_transfer_agreement_in_place",
+    "option_description": "Indicates whether the organization has identified, assessed, and documented a valid legal basis or data transfer mechanism for the cross-border transfer of personal or regulated data to the destination jurisdiction of the sync tool vendor's cloud infrastructure. Valid mechanisms include Standard Contractual Clauses (SCCs), Binding Corporate Rules (BCRs), adequacy decisions, or derogations under applicable data protection law.",
+    "security_impact": "Referenced in the cross_border_transfer_via_local_sync_tools Rego rule as a mitigating control. When data_transfer_agreement_in_place is absent or false, the exposure fires for both installed_unmanaged sync tools (with sensitive paths) and installed_managed sync tools (with sensitive paths and no dlp_policy_scope). Without a documented transfer agreement, synchronization of personal data to cloud providers in non-adequate third countries (e.g., US-based services without EU-US DPF enrollment, or services in countries lacking adequacy decisions) constitutes an unlawful transfer under GDPR Art. 44-49, exposing the organization to supervisory authority enforcement action and data subject claims.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request documentation from the legal or data privacy team confirming whether a Transfer Impact Assessment (TIA) and valid transfer mechanism have been completed and approved for the specific sync tool vendor. Verify the vendor name, destination jurisdiction, transfer mechanism type, and expiry or review date.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented TIA or Data Transfer Agreement referencing the specific vendor (e.g., Dropbox Inc., Google LLC), the applicable transfer mechanism (e.g., SCCs 2021 module 1/2), destination country, and a review date within the past 12 months; absence defaults to false."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the organization's data processing agreement (DPA) register, contract management system, or privacy program platform (e.g., OneTrust, TrustArc, Osano) for a documented agreement covering the sync tool vendor and applicable data transfers.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Privacy management platform > Vendors / Third Parties > search by vendor name (e.g., 'Dropbox', 'Google', 'Microsoft') > review Transfer Mechanism field > check associated DPA and TIA documents",
+        "expected_output": "A vendor record with Transfer Mechanism populated (e.g., 'SCCs (2021)', 'Adequacy Decision', 'BCR') and linked signed DPA document; missing or blank transfer mechanism field indicates false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Check whether the sync tool vendor's Terms of Service or DPA have been reviewed against the destination country's data protection regime. For US-based vendors, verify enrollment in the EU-US Data Privacy Framework (DPF) via the official DPF participant list.",
+        "command": null,
+        "file_path": null,
+        "navigation": "https://www.dataprivacyframework.gov/s/participant-search > search for vendor name > verify active participant status and covered services",
+        "expected_output": "Vendor appears as an active DPF participant covering the relevant data processing activities, or a separately executed SCC is on file; no DPF participation and no SCC on file indicates false."
+      },
+      {
+        "type": "api",
+        "instruction": "If the organization uses a GRC or contract lifecycle management API, query for active agreements tagged with the vendor name and a transfer mechanism category to programmatically confirm agreement existence.",
+        "command": "curl -H 'Authorization: Bearer <token>' 'https://<grc-platform>/api/v1/agreements?vendor=<vendor_name>&category=data_transfer&status=active' | python3 -m json.tool | grep -E 'transfer_mechanism|expiry|status'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response with at least one active agreement record containing a populated transfer_mechanism field and a future expiry date; empty results array indicates false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "production_data_copied_to_local_workstation",
+    "option_description": "Controls whether users are permitted or have been observed copying subsets of production data such as customer records, transaction logs, or test datasets to local workstations outside of controlled production environments. This attribute captures the factual state of local production data presence, not the policy intent.",
+    "security_impact": "This attribute is a direct input to the absence_of_masking_for_locally_copied_production_data rule. When set to true, the Rego policy evaluates whether data_masking_applied_before_local_copy is also true and whether sensitive_data_classifications_present is non-empty. If production data has been copied locally without masking, the exposure fires with medium criticality and a score of 5. Beyond the rule trigger, local copies of production data bypass centralized governance, DLP, and retention controls, creating shadow data stores that are invisible to data inventory systems and auditors.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Query DLP platform alerts for events where production database hostnames, production S3 buckets, or production file share paths are the source and a local workstation drive or user profile path is the destination. Filter for file classifications matching PII, PCI, PHI, or Confidential over the past 90 days.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DLP Console > Incident Management > Filter by Source: Production Systems AND Destination: Endpoint Local Storage > Export CSV",
+        "expected_output": "Alert records listing user, source system, destination path, file name, and classification label. Any results indicate production_data_copied_to_local_workstation should be set to true."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Windows endpoint enrolled in endpoint monitoring (e.g., Microsoft Defender for Endpoint), query the advanced hunting portal for file creation events originating from network production paths written to local drives within the past 30 days.",
+        "command": "DeviceFileEvents | where FolderPath startswith 'C:\\Users' | where InitiatingProcessCommandLine contains 'prod' or NetworkSharePath contains 'prod' | project DeviceName, FileName, FolderPath, InitiatingProcessAccountName, Timestamp | limit 200",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rows returned indicate files moved from production network paths to local user directories. Zero rows suggest no recent copies but does not confirm absence of prior activity."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview data engineering, support, and QA team leads to determine whether there is a common practice of pulling production database exports or log files locally for debugging or analysis. Ask specifically whether any runbooks or troubleshooting guides instruct users to copy production data locally.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmed acknowledgment that production data is routinely or occasionally copied locally, or written confirmation from team leads that no such practice exists and that synthetic or masked datasets are exclusively used."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Microsoft Purview or Symantec DLP REST API to programmatically retrieve incident counts where the destination is classified as an endpoint and the data classification matches production-level sensitivity labels.",
+        "command": "curl -s -X GET 'https://<purview-tenant>.purview.azure.com/catalog/api/atlas/v2/search/query' -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{\"keywords\": \"production\", \"filter\": {\"and\": [{\"attributeName\": \"assetType\", \"operator\": \"eq\", \"attributeValue\": \"endpoint\"}]}}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response with matching assets or incidents. Non-empty results arrays confirm that production-labeled data has been identified on endpoint assets."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true — Common in organizations where developers or support staff lack access to masked datasets and default to pulling production exports for local analysis",
+      "false — Observed in mature data governance programs with enforced synthetic data environments and DLP rules blocking production-to-endpoint transfers"
+    ]
+  },
+  {
+    "option_name": "data_masking_applied_before_local_copy",
+    "option_description": "Indicates whether a mandatory and enforced anonymization or masking procedure is applied to production data before it is extracted or transferred to a local workstation. This is not a best-effort or optional control; the attribute should only be set to true when a documented workflow enforces masking as a prerequisite gate, not merely when masking is available as an option.",
+    "security_impact": "In the Rego policy for absence_of_masking_for_locally_copied_production_data, this attribute acts as the primary mitigating control. The exposure fires when production_data_copied_to_local_workstation is true AND data_masking_applied_before_local_copy is not true AND sensitive_data_classifications_present is non-empty. If masking is not enforced prior to local copy, real PII, PCI, or PHI data lands on endpoints outside the production security perimeter, where file-level encryption, DLP monitoring, and retention enforcement may not apply. This violates data minimization principles under GDPR Article 5(1)(c) and PCI-DSS Requirement 3.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review data handling procedures, runbooks, and extract-transform-load documentation to determine whether a masking or anonymization step is formally documented as mandatory before production data can be extracted. Confirm whether the step is enforced by tooling or depends solely on user compliance.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A written procedure explicitly stating that production data must be passed through a masking tool before local storage, with evidence that the process is automated or enforced via DLP policy. Absence of documentation or presence of optional language indicates false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the DLP management console, navigate to policy rules governing outbound transfers from production data sources to endpoint destinations. Verify whether an active rule blocks unmasked data transfers or requires a masking workflow to be triggered as a prerequisite action before file delivery.",
+        "command": null,
+        "file_path": null,
+        "navigation": "DLP Console > Policy Management > Data-in-Motion Policies > Production-to-Endpoint Rules > Review Action Configuration",
+        "expected_output": "A policy rule set to Block or Quarantine with a condition requiring classification labels of Masked or Anonymized on the file before transfer is permitted. Rules set to Monitor-only do not satisfy the enforcement requirement."
+      },
+      {
+        "type": "command",
+        "instruction": "If a dedicated data masking tool such as Informatica Data Masking, Delphix, or IBM InfoSphere Optim is in use, query its job execution logs to confirm that masking jobs are consistently executed before data export events that correspond to local workstation transfers.",
+        "command": "grep -E 'MASK_JOB|EXPORT_JOB|STATUS' /var/log/masking-tool/masking-audit.log | awk '{print $1, $2, $3, $NF}' | tail -100",
+        "file_path": "/var/log/masking-tool/masking-audit.log",
+        "navigation": null,
+        "expected_output": "Log entries showing MASK_JOB completion with STATUS=SUCCESS immediately preceding EXPORT_JOB events. Missing MASK_JOB entries before export events indicate masking is not enforced in the pipeline."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Cross-reference data export timestamps from production database audit logs with masking tool job completion timestamps. For each export event destined for a local path, confirm a corresponding masking job completed on the same dataset within an acceptable time window before the export.",
+        "command": "SELECT export_time, user_id, source_table, destination FROM db_audit_log WHERE destination LIKE '%local%' AND export_time > NOW() - INTERVAL 90 DAY ORDER BY export_time DESC;",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each row in the result should have a matching masking job record. Rows without corresponding masking records indicate unmasked production data was copied locally, confirming data_masking_applied_before_local_copy should be set to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false — The most common observed state; masking tooling exists but is not gated or enforced as a mandatory prerequisite before local extraction",
+      "true — Found in regulated environments such as financial services or healthcare organizations that have automated masking pipelines integrated with data access request workflows"
+    ]
+  },
+  {
+    "option_name": "sensitive_data_classifications_present",
+    "option_description": "An array of sensitive data classification labels that have been identified through scanning, DLP inspection, or data inventory processes in files stored or copied locally on workstations. Labels may include regulatory categories such as PII, PCI, PHI, and organizational categories such as Confidential or Restricted. This attribute is used both to determine whether exposure rules fire and to inform triage severity based on which data types are present.",
+    "security_impact": "This attribute is consumed by two rules in the Rego policy. In absence_of_masking_for_locally_copied_production_data, the policy checks count(input.sensitive_data_classifications_present) > 0 as a condition alongside production data being copied and masking not applied, meaning an empty array suppresses the exposure even if production data is present without masking. In retention_policy_non_compliance_local_storage, the classifications drive triage severity for retention violations. Misreporting this attribute as empty when sensitive data is present will cause both rules to fail to fire, masking real compliance violations under GDPR, HIPAA, and PCI-DSS.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run a Microsoft Purview endpoint data classification scan or use an open-source tool such as Presidio to scan user home directories and common working folders for sensitive data patterns matching PII, PCI, and PHI regular expressions and ML classifiers.",
+        "command": "python -m presidio_analyzer --input-path /mnt/endpoint-share/users/ --output-path /tmp/presidio-results.json --language en --entities PERSON,EMAIL_ADDRESS,CREDIT_CARD,US_SSN,PHONE_NUMBER,MEDICAL_LICENSE",
+        "file_path": "/tmp/presidio-results.json",
+        "navigation": null,
+        "expected_output": "A JSON results file with detected entity types per file path. Entity types map to classification labels: PERSON/EMAIL_ADDRESS/US_SSN map to PII, CREDIT_CARD maps to PCI, MEDICAL_LICENSE maps to PHI. Collect unique entity types into the array value."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Purview Compliance Portal, navigate to the Data Classification section and review the Content Explorer filtered to endpoint locations. Filter by workstation device groups and export the sensitive information type summary to identify which classification labels are present on local storage.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Purview Compliance Portal > Data Classification > Content Explorer > Filter: Location = Devices > Filter: Sensitive Info Type = All > Group By: Sensitive Info Type > Export Summary",
+        "expected_output": "A table showing sensitive information types detected on endpoint devices with file counts. Each row represents a classification label that should be included in the sensitive_data_classifications_present array if file count is greater than zero."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query DLP incident and scan reports exported from your DLP platform for endpoint policy matches. Aggregate unique classification labels from incidents where the device is a workstation and the match type corresponds to a sensitive data category over the past 90 days.",
+        "command": "SELECT DISTINCT classification_label FROM dlp_incidents WHERE device_type = 'workstation' AND incident_date >= DATE_SUB(NOW(), INTERVAL 90 DAY) AND classification_label IS NOT NULL ORDER BY classification_label;",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of unique classification labels such as PII, PCI, PHI, Confidential. This list becomes the array value for sensitive_data_classifications_present. An empty result set indicates no classifications detected but should be validated against scan coverage gaps."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Microsoft Defender for Endpoint API to retrieve a list of devices with sensitive data discoveries, then aggregate the data sensitivity labels reported per device to compile the classification labels present across the local workstation fleet.",
+        "command": "curl -s -X GET 'https://api.securitycenter.microsoft.com/api/deviceFileSensitiveData' -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' | jq '[.[].sensitivityLabel] | unique | sort'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A deduplicated JSON array of sensitivity label strings such as [\"Confidential\", \"PII\", \"PHI\"]. This array directly maps to the value for sensitive_data_classifications_present. An empty array requires validation that endpoint scanning is active and coverage is complete before concluding no sensitive data is present."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['PII'] — Commonly observed where customer-facing applications generate support exports containing names, email addresses, or phone numbers copied locally by support staff",
+      "['PII', 'PCI'] — Seen in e-commerce or payment processing environments where transaction log exports contain both personal identifiers and card data",
+      "['PII', 'PHI'] — Typical in healthcare or insurance organizations where patient records are accessed by clinical or billing staff on workstations",
+      "['PII', 'PCI', 'PHI', 'Confidential'] — Found in mature scan results at large enterprises with comprehensive DLP coverage; represents maximum triage severity",
+      "[] — Default state indicating no classification scan has been performed or no sensitive data was detected; requires validation of scan coverage before treating as confirmed absence"
+    ]
+  }
+]

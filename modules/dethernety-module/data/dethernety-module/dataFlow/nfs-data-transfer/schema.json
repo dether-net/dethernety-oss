@@ -1,0 +1,287 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "nfs_protocol_version": {
+        "type": "string",
+        "enum": [
+          "v2",
+          "v3",
+          "v4_no_krb",
+          "v4_krb5",
+          "v4_krb5i",
+          "v4_krb5p",
+          "v4_tls"
+        ],
+        "title": "NFS Protocol Version",
+        "description": "The NFS protocol version in use for this mount or export. NFSv2 and NFSv3 transmit all data in cleartext with no transport security options. NFSv4+ with appropriate security flavor or TLS can provide encryption, integrity, and authentication."
+      },
+      "nfs_security_flavor": {
+        "type": "string",
+        "enum": [
+          "sys",
+          "auth_none",
+          "krb5",
+          "krb5i",
+          "krb5p",
+          "tls"
+        ],
+        "title": "NFS Security Flavor (sec= option)",
+        "description": "The security flavor negotiated or configured for NFS mounts and exports. 'sys' uses weak UID/GID-based AUTH_SYS with no encryption or mutual authentication. 'auth_none' provides no authentication. Kerberos flavors (krb5, krb5i, krb5p) provide progressive authentication, integrity, and privacy. Only krb5p encrypts the data payload. 'tls' provides transport encryption on NFSv4.2+.",
+        "default": "sys"
+      },
+      "nfs_tls_enabled": {
+        "type": "boolean",
+        "title": "NFS over TLS Enabled (xprtsec/RFC 9289)",
+        "description": "Whether NFS traffic is encrypted using TLS at the transport layer (xprtsec=tls or xprtsec=mtls per RFC 9289, available in NFSv4.1+ with kernel TLS support). True indicates transport encryption is enforced, providing both confidentiality and integrity for all NFS traffic including Kerberos ticket exchange.",
+        "default": false
+      },
+      "rpcsec_gss_enabled": {
+        "type": "boolean",
+        "title": "RPCSEC_GSS (Kerberos) Authentication Enabled",
+        "description": "Whether RPCSEC_GSS with Kerberos is configured for this NFS mount or export (sec=krb5, krb5i, or krb5p). Provides sequence-number-based replay protection and mutual authentication. krb5i adds per-message integrity; krb5p adds full encryption.",
+        "default": false
+      },
+      "rpcsec_gss_integrity_enabled": {
+        "type": "boolean",
+        "title": "RPCSEC_GSS Integrity Protection Enabled (krb5i/krb5p)",
+        "description": "Whether RPCSEC_GSS with integrity protection (sec=krb5i or sec=krb5p) is configured, providing per-message MICs to detect in-transit tampering. krb5i provides integrity without encryption; krb5p provides both integrity and privacy.",
+        "default": false
+      },
+      "kerberos_configured": {
+        "type": "boolean",
+        "title": "Kerberos (RPCSEC_GSS) Infrastructure Configured",
+        "description": "Whether Kerberos-based mutual authentication (RPCSEC_GSS) is fully operationally configured for this NFS deployment, including keytab presence with nfs/ principal, rpc.gssd/gssproxy service running, and KDC reachability. All three conditions must be true.",
+        "default": false
+      },
+      "auth_flavor": {
+        "type": "string",
+        "enum": [
+          "auth_sys",
+          "auth_none",
+          "krb5",
+          "krb5i",
+          "krb5p"
+        ],
+        "title": "NFS Authentication Flavor",
+        "description": "The RPC authentication flavor negotiated for the NFS mount (AUTH_SYS/AUTH_UNIX, AUTH_NONE, RPCSEC_GSS/Kerberos variants). AUTH_SYS relies on client-asserted UID/GID with no cryptographic verification. AUTH_NONE provides no authentication.",
+        "default": "auth_sys"
+      },
+      "kerberos_encryption_types": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Kerberos Encryption Types Permitted",
+        "description": "List of Kerberos encryption types negotiated or permitted in the KDC/client configuration. Weak types such as rc4-hmac, des-cbc-md5, or des3-cbc-sha1 increase susceptibility to offline cracking of intercepted tickets."
+      },
+      "rpcbind_network_exposure": {
+        "type": "string",
+        "enum": [
+          "internet_exposed",
+          "untrusted_network",
+          "internal_only",
+          "blocked"
+        ],
+        "title": "rpcbind/portmapper Network Exposure",
+        "description": "Whether rpcbind/portmapper (port 111 TCP/UDP) is accessible from untrusted or external network segments, enabling interception and spoofing of port assignments that redirect NFS clients to attacker-controlled services.",
+        "default": "internal_only"
+      },
+      "portmapper_response_authentication_enabled": {
+        "type": "boolean",
+        "title": "Portmapper Response Authentication Enabled",
+        "description": "Whether cryptographic authentication or integrity verification of rpcbind/portmapper responses is enforced (via RPCSEC_GSS at the portmapper level or static port configuration bypassing portmapper lookup). Default rpcbind offers no response authentication.",
+        "default": false
+      },
+      "nfs_traverses_routed_segments": {
+        "type": "boolean",
+        "title": "NFS Traffic Traverses Routed Network Segments",
+        "description": "Whether NFS traffic crosses one or more routed network boundaries (passes through routers, crosses VLANs via L3, or traverses WAN links) rather than remaining on a single flat L2 segment. Increases exposure to routing manipulation attacks.",
+        "default": false
+      },
+      "icmp_redirects_disabled": {
+        "type": "boolean",
+        "title": "ICMP Redirects Disabled on NFS Hosts",
+        "description": "Whether ICMP redirect message acceptance is disabled on both NFS client and server hosts, preventing route poisoning via ICMP redirect attacks that could redirect NFS traffic through an attacker-controlled host."
+      },
+      "nfs_client_bandwidth_limit_configured": {
+        "type": "boolean",
+        "title": "NFS Client Bandwidth Limit Configured",
+        "description": "Whether per-client bandwidth or rate limiting controls are configured at the NFS server or network level (via export options, QoS policies, traffic shaping, or NFS server-side throttling) to prevent a single client from saturating the link.",
+        "default": false
+      },
+      "nfs_network_qos_policy_applied": {
+        "type": "boolean",
+        "title": "NFS Network QoS Policy Applied",
+        "description": "Whether a network-level QoS or traffic shaping policy is applied to the NFS transport path (on switch, router, or SDN fabric) that enforces bandwidth limits or prevents a single client from monopolizing the NFS network link.",
+        "default": false
+      }
+    },
+    "required": [
+      "nfs_protocol_version",
+      "nfs_security_flavor",
+      "nfs_tls_enabled",
+      "rpcsec_gss_enabled",
+      "rpcsec_gss_integrity_enabled",
+      "kerberos_configured",
+      "auth_flavor",
+      "kerberos_encryption_types",
+      "rpcbind_network_exposure",
+      "portmapper_response_authentication_enabled",
+      "nfs_traverses_routed_segments",
+      "icmp_redirects_disabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/auth_flavor"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/kerberos_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/kerberos_encryption_types"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_security_flavor"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/portmapper_response_authentication_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rpcsec_gss_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_tls_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rpcsec_gss_integrity_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_protocol_version"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_traverses_routed_segments"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rpcbind_network_exposure"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/icmp_redirects_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/network_exposure_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_network_segment_type"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_client_bandwidth_limit_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_client_count"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_network_qos_policy_applied"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/network_path_monitoring_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

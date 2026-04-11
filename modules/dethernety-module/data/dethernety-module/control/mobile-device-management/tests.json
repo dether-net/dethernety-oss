@@ -1,0 +1,160 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "enrollment_authentication_method": "none",
+      "mdm_policy_enforcement_enabled": false,
+      "remote_wipe_enabled": false,
+      "selective_wipe_enabled": false,
+      "app_allowlist_enforcement_enabled": false,
+      "app_blocklist_enforcement_enabled": false,
+      "containerization_enabled": false,
+      "jailbreak_root_detection_enabled": false,
+      "detection_check_interval_hours": 0,
+      "inventory_collection_enabled": false,
+      "nac_integration_enabled": false,
+      "ota_configuration_deployment_enabled": false,
+      "audit_logging_enabled": false,
+      "user_identity_binding_enforced": false,
+      "open_enrollment_allowed": false,
+      "enrollment_token_expiry_hours": 0,
+      "device_compliance_rate_percent": 0,
+      "non_compliant_device_action": "block_access",
+      "policy_scope_coverage": "all_devices",
+      "automated_wipe_trigger": "none",
+      "remote_lock_enabled": false,
+      "cross_boundary_data_sharing_policy": "not_configured",
+      "container_compliance_status": "unknown",
+      "compromised_device_action": "none",
+      "inventory_sync_interval_hours": 0,
+      "inventory_data_scope": [
+        "default"
+      ],
+      "compliance_enforcement_action": "monitor_only",
+      "compliance_check_frequency_minutes": 0,
+      "configuration_profile_enforcement_scope": "all_devices",
+      "certificate_provisioning_enabled": true,
+      "configuration_compliance_check_frequency_hours": 1,
+      "logged_event_categories": [
+        "default"
+      ],
+      "log_retention_days": 0
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "enrollment_authentication_method": "mfa",
+      "user_identity_binding_enforced": true,
+      "open_enrollment_allowed": false,
+      "mdm_policy_enforcement_enabled": true,
+      "policy_scope_coverage": "all_devices",
+      "non_compliant_device_action": "block_access",
+      "device_compliance_rate_percent": 90,
+      "remote_wipe_enabled": true,
+      "automated_wipe_trigger": "compliance_violation",
+      "app_allowlist_enforcement_enabled": true,
+      "containerization_enabled": true,
+      "cross_boundary_data_sharing_policy": "blocked",
+      "container_compliance_status": "compliant",
+      "jailbreak_root_detection_enabled": true,
+      "compromised_device_action": "quarantine",
+      "detection_check_interval_hours": 24,
+      "inventory_collection_enabled": true,
+      "inventory_sync_interval_hours": 24,
+      "inventory_data_scope": [
+        "hardware",
+        "os_version",
+        "installed_apps",
+        "compliance_state"
+      ],
+      "nac_integration_enabled": true,
+      "compliance_enforcement_action": "block",
+      "compliance_check_frequency_minutes": 60,
+      "ota_configuration_deployment_enabled": true,
+      "configuration_profile_enforcement_scope": "all_devices",
+      "configuration_compliance_check_frequency_hours": 24,
+      "audit_logging_enabled": true,
+      "logged_event_categories": [
+        "policy_changes",
+        "admin_actions",
+        "compliance_events",
+        "remote_commands"
+      ],
+      "log_retention_days": 90,
+      "enrollment_token_expiry_hours": 0,
+      "selective_wipe_enabled": false,
+      "remote_lock_enabled": false,
+      "app_blocklist_enforcement_enabled": false,
+      "certificate_provisioning_enabled": true
+    },
+    "expectedCountermeasures": [
+      "Policy Enforcement Compliance Accuracy",
+      "Jailbreak And Root Detection Accuracy",
+      "Application Allowlist And Blocklist Control",
+      "Corporate Data Containerization",
+      "Device Enrollment Authentication Coverage",
+      "Audit Logging And Event Completeness",
+      "Over The Air Configuration Management",
+      "Network Access Conditional Enforcement",
+      "Device Inventory And Visibility Completeness",
+      "Remote Wipe And Lock Automation"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "enrollment_authentication_method": "none",
+      "user_identity_binding_enforced": true,
+      "open_enrollment_allowed": false,
+      "enrollment_token_expiry_hours": 0,
+      "mdm_policy_enforcement_enabled": true,
+      "device_compliance_rate_percent": 0,
+      "non_compliant_device_action": "block_access",
+      "policy_scope_coverage": "all_devices",
+      "remote_wipe_enabled": true,
+      "selective_wipe_enabled": false,
+      "automated_wipe_trigger": "none",
+      "remote_lock_enabled": false,
+      "app_allowlist_enforcement_enabled": true,
+      "app_blocklist_enforcement_enabled": false,
+      "containerization_enabled": true,
+      "cross_boundary_data_sharing_policy": "not_configured",
+      "container_compliance_status": "unknown",
+      "jailbreak_root_detection_enabled": true,
+      "compromised_device_action": "none",
+      "detection_check_interval_hours": 0,
+      "inventory_collection_enabled": true,
+      "inventory_sync_interval_hours": 0,
+      "inventory_data_scope": [
+        "partial"
+      ],
+      "nac_integration_enabled": true,
+      "compliance_enforcement_action": "monitor_only",
+      "compliance_check_frequency_minutes": 0,
+      "ota_configuration_deployment_enabled": true,
+      "configuration_profile_enforcement_scope": "all_devices",
+      "certificate_provisioning_enabled": true,
+      "configuration_compliance_check_frequency_hours": 0,
+      "audit_logging_enabled": true,
+      "logged_event_categories": [
+        "partial"
+      ],
+      "log_retention_days": 0
+    },
+    "expectedCountermeasures": [
+      "Application Allowlist And Blocklist Control",
+      "Over The Air Configuration Management"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

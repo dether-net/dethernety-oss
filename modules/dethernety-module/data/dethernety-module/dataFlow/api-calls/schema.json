@@ -1,0 +1,471 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "transport_encryption_enabled": {
+        "type": "boolean",
+        "title": "Transport Encryption Enabled",
+        "description": "Indicates whether TLS/SSL is enforced for all API communication, preventing plaintext HTTP transmission. Check for HTTPS-only flags, TLS termination configuration, or HSTS headers.",
+        "default": false
+      },
+      "minimum_tls_version": {
+        "type": "string",
+        "enum": [
+          "SSL2",
+          "SSL3",
+          "TLS1_0",
+          "TLS1_1",
+          "TLS1_2",
+          "TLS1_3"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "The lowest TLS protocol version accepted by the API endpoint or during handshake negotiation. Versions below TLS 1.2 are considered insecure.",
+        "default": "TLS1_2"
+      },
+      "plaintext_port_exposed": {
+        "type": "boolean",
+        "title": "Plaintext Port Exposed",
+        "description": "Indicates whether the API service is actively listening on a plaintext HTTP port (e.g., port 80) in addition to or instead of HTTPS.",
+        "default": false
+      },
+      "enabled_cipher_suites": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Enabled Cipher Suites",
+        "description": "List of cipher suites currently enabled for TLS negotiation. Weak ciphers such as RC4, 3DES, or EXPORT suites indicate misconfiguration."
+      },
+      "tls_downgrade_protection_enabled": {
+        "type": "boolean",
+        "title": "TLS Downgrade Protection Enabled",
+        "description": "Whether TLS_FALLBACK_SCSV or equivalent downgrade attack prevention mechanism is enforced."
+      },
+      "mtls_enabled": {
+        "type": "boolean",
+        "title": "Mutual TLS Enabled",
+        "description": "Whether mutual TLS (mTLS) authentication is configured, requiring both the server and client to present and validate certificates. Used across missing_mutual_tls_authentication and bgp_route_hijacking_exposure rules.",
+        "default": false
+      },
+      "client_certificate_validation_mode": {
+        "type": "string",
+        "enum": [
+          "required",
+          "optional",
+          "none"
+        ],
+        "title": "Client Certificate Validation Mode",
+        "description": "The mode used to validate client certificates during TLS handshake. 'required' enforces mTLS, 'optional' allows but does not enforce it, 'none' disables client cert validation entirely.",
+        "default": "none"
+      },
+      "trusted_client_ca_configured": {
+        "type": "boolean",
+        "title": "Trusted Client CA Configured",
+        "description": "Whether a trusted Certificate Authority (CA) bundle is configured for validating client certificates. Without this, even if client certs are requested, they cannot be properly verified.",
+        "default": false
+      },
+      "certificate_chain_validation_enabled": {
+        "type": "boolean",
+        "title": "Certificate Chain Validation Enabled",
+        "description": "Indicates whether the API client enforces full certificate chain validation including CA store checks and hostname verification. False means validation is disabled or bypassed.",
+        "default": false
+      },
+      "hostname_verification_enabled": {
+        "type": "boolean",
+        "title": "Hostname Verification Enabled",
+        "description": "Indicates whether the API client verifies that the server's certificate hostname matches the target hostname. False means hostname mismatches are accepted, enabling MITM attacks.",
+        "default": false
+      },
+      "self_signed_certificate_accepted": {
+        "type": "boolean",
+        "title": "Self-Signed Certificate Accepted Without Pinning",
+        "description": "Indicates whether the API client accepts self-signed certificates without enforcing certificate pinning, allowing rogue certificate substitution.",
+        "default": false
+      },
+      "message_integrity_mechanism": {
+        "type": "string",
+        "enum": [
+          "hmac",
+          "digital_signature",
+          "none"
+        ],
+        "title": "Message Integrity Mechanism",
+        "description": "The cryptographic mechanism used to verify API message body integrity. 'none' means the system relies solely on transport-layer protection.",
+        "default": "none"
+      },
+      "replay_protection_mechanism": {
+        "type": "string",
+        "enum": [
+          "nonce",
+          "timestamp",
+          "signed_token",
+          "none"
+        ],
+        "title": "Replay Protection Mechanism",
+        "description": "Indicates which anti-replay mechanism is implemented in API requests. 'none' means no protection exists.",
+        "default": "none"
+      },
+      "request_idempotency_enforced": {
+        "type": "boolean",
+        "title": "Request Idempotency Enforced",
+        "description": "Whether the API tracks and rejects duplicate requests using idempotency keys or replay caches, preventing the same request from being processed more than once."
+      },
+      "token_expiry_window_seconds": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 86400,
+        "title": "Token/Timestamp Expiry Window (Seconds)",
+        "description": "The maximum age in seconds that the server will accept for a timestamped or token-based request. A value of 0 means no expiry is enforced. Only relevant when replay_protection_mechanism is 'timestamp' or 'signed_token'.",
+        "default": 0
+      },
+      "transport_protocol_enforced": {
+        "type": "string",
+        "enum": [
+          "tls_1_3_only",
+          "tls_1_2_or_higher",
+          "tls_1_0_or_1_1",
+          "plaintext_allowed"
+        ],
+        "title": "Transport Protocol Enforcement",
+        "description": "The minimum TLS/transport protocol enforced for API communication. Reflects whether HTTPS/TLS is required or if plaintext HTTP is permitted."
+      },
+      "token_transmitted_in_query_string": {
+        "type": "boolean",
+        "title": "Bearer Token Transmitted in URL Query String",
+        "description": "Whether bearer tokens, API keys, or OAuth access tokens are passed as URL query parameters rather than in HTTP Authorization headers, causing them to appear in server logs, browser history, and proxy access logs.",
+        "default": false
+      },
+      "rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "Rate Limiting Enabled",
+        "description": "Indicates whether rate limiting or throttling controls are configured at the API gateway or transport layer to restrict request volume per client or globally.",
+        "default": false
+      },
+      "rate_limit_scope": {
+        "type": "string",
+        "enum": [
+          "none",
+          "global",
+          "per_client",
+          "per_endpoint"
+        ],
+        "title": "Rate Limit Enforcement Scope",
+        "description": "Indicates the scope at which rate limiting is enforced. 'none' means no enforcement; 'global' is aggregate only; 'per_client' is per IP or API key; 'per_endpoint' is granular per route/operation.",
+        "default": "none"
+      },
+      "api_traffic_uses_public_internet": {
+        "type": "boolean",
+        "title": "API Traffic Routed Over Public Internet",
+        "description": "Indicates whether API traffic between services traverses the public internet rather than private network infrastructure (VPC peering, dedicated interconnects, VPNs).",
+        "default": false
+      },
+      "bgp_route_origin_validation_enforced": {
+        "type": "boolean",
+        "title": "BGP Route Origin Validation (RPKI) Enforced",
+        "description": "Indicates whether the network provider or organization enforces RPKI-based Route Origin Validation to reject invalid BGP route announcements that could divert traffic.",
+        "default": false
+      },
+      "trusted_proxy_header_validation": {
+        "type": "boolean",
+        "title": "Trusted Proxy Header Validation Enforced",
+        "description": "Whether the API gateway or application enforces an allowlist/validation policy on forwarding headers (e.g., X-Forwarded-For, X-Real-IP, Host) to reject or sanitize attacker-influenced values before acting on them.",
+        "default": false
+      },
+      "accepted_forwarding_headers": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Accepted Forwarding Headers",
+        "description": "List of forwarding/routing headers that the API accepts and acts upon (e.g., X-Forwarded-For, X-Forwarded-Host, X-Real-IP, Forwarded, Host override headers)."
+      },
+      "proxy_trust_scope": {
+        "type": "string",
+        "enum": [
+          "none",
+          "loopback_only",
+          "internal_cidr",
+          "all"
+        ],
+        "title": "Proxy Trust Scope",
+        "description": "Defines which sources the API trusts for forwarding headers. 'none' means headers are ignored; 'loopback_only' trusts only 127.0.0.1/::1; 'internal_cidr' trusts defined internal ranges; 'all' trusts any source.",
+        "default": "all"
+      },
+      "header_overwrite_protection_enabled": {
+        "type": "boolean",
+        "title": "Header Overwrite Protection Enabled",
+        "description": "Whether the proxy or gateway strips or overwrites client-supplied forwarding headers before passing requests to upstream services, preventing end-users from injecting false routing metadata.",
+        "default": false
+      },
+      "backend_transport_protocol": {
+        "type": "string",
+        "enum": [
+          "HTTP",
+          "HTTPS",
+          "GRPC",
+          "GRPCS",
+          "TCP"
+        ],
+        "title": "Backend Transport Protocol",
+        "description": "The protocol used on the internal leg between the API gateway and the backend service (e.g., HTTP, HTTPS, gRPC, gRPCS)."
+      },
+      "backend_tls_verification_enabled": {
+        "type": "boolean",
+        "title": "Backend TLS Certificate Verification Enabled",
+        "description": "Whether the API gateway verifies the backend service's TLS certificate (CA validation + hostname check). Even when HTTPS is used, verification may be disabled, allowing MITM attacks on the internal leg.",
+        "default": false
+      }
+    },
+    "required": [
+      "transport_encryption_enabled",
+      "minimum_tls_version",
+      "plaintext_port_exposed",
+      "enabled_cipher_suites",
+      "tls_downgrade_protection_enabled",
+      "mtls_enabled",
+      "client_certificate_validation_mode",
+      "trusted_client_ca_configured",
+      "certificate_chain_validation_enabled",
+      "hostname_verification_enabled",
+      "self_signed_certificate_accepted",
+      "message_integrity_mechanism",
+      "replay_protection_mechanism",
+      "request_idempotency_enforced",
+      "token_expiry_window_seconds",
+      "transport_protocol_enforced",
+      "token_transmitted_in_query_string",
+      "rate_limiting_enabled",
+      "rate_limit_scope",
+      "api_traffic_uses_public_internet",
+      "bgp_route_origin_validation_enforced",
+      "trusted_proxy_header_validation",
+      "accepted_forwarding_headers",
+      "proxy_trust_scope",
+      "header_overwrite_protection_enabled",
+      "backend_transport_protocol",
+      "backend_tls_verification_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backend_tls_verification_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backend_transport_protocol"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_chain_validation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/enabled_cipher_suites"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/hostname_verification_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/minimum_tls_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/plaintext_port_exposed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/self_signed_certificate_accepted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_data_in_transit"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/transport_encryption_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/transport_protocol_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_downgrade_protection_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/client_certificate_validation_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/message_integrity_mechanism"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mtls_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/replay_protection_mechanism"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/token_transmitted_in_query_string"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/trusted_client_ca_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/request_idempotency_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/token_expiry_window_seconds"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/api_traffic_uses_public_internet"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/bgp_route_origin_validation_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/header_overwrite_protection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/proxy_trust_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/trusted_proxy_header_validation"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/accepted_forwarding_headers"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/api_exposure_scope"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limit_scope"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

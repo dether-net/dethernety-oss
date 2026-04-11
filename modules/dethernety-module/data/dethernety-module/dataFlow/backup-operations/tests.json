@@ -1,0 +1,141 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "backup_protocol": "ftp",
+      "minimum_tls_version_enforced": "none_configured",
+      "client_certificate_validation_mode": "none",
+      "weak_cipher_categories_present": [
+        "NULL"
+      ],
+      "application_layer_integrity_verification_enabled": false,
+      "anti_replay_mechanism_enabled": true,
+      "backup_session_integrity_verification": "none",
+      "tls_mode": "no_verify",
+      "backup_transfer_rate_limiting_enabled": false,
+      "backup_transfer_max_bandwidth_mbps": "0",
+      "bgp_route_origin_validation_enabled": false,
+      "backup_network_segment_type": "shared_internal",
+      "backup_schedule_type": "fixed",
+      "backup_transfer_jitter_minutes": true,
+      "key_exchange_channel_protocol": "http_plaintext",
+      "backup_transport_encryption_enabled": false,
+      "deprecated_protocol_fallback_enabled": false,
+      "cipher_suite_policy": "not_configured",
+      "mutual_tls_enforced": false,
+      "transport_layer_protection_mechanism": "none",
+      "certificate_chain_validation_enabled": true,
+      "hostname_verification_enabled": true,
+      "backup_anomaly_detection_enabled": false,
+      "backup_schedule_publicly_documented": true,
+      "key_exchange_server_authentication_enforced": false,
+      "key_material_appears_in_plaintext_logs_or_config": true,
+      "network_segment_shared": true,
+      "backup_data_classification": "public"
+    },
+    "expectedExposures": [
+      "Transport Protocol Downgrade",
+      "Unencrypted Backup Channel",
+      "Missing Mutual Tls Authentication",
+      "Weak Cipher Suite Negotiation",
+      "Certificate Validation Bypass",
+      "Predictable Backup Scheduling Timing",
+      "Replay Attack On Backup Stream",
+      "Absent Message Integrity Verification",
+      "Uncontrolled Backup Transfer Bandwidth",
+      "Insecure Key Exchange For Backup Encryption",
+      "Bgp Route Hijacking Of Backup Path"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "backup_transport_encryption_enabled": true,
+      "backup_protocol": "sftp",
+      "minimum_tls_version_enforced": "TLSv1.2",
+      "deprecated_protocol_fallback_enabled": false,
+      "cipher_suite_policy": "strong_only",
+      "mutual_tls_enforced": true,
+      "client_certificate_validation_mode": "required",
+      "weak_cipher_categories_present": [],
+      "application_layer_integrity_verification_enabled": true,
+      "anti_replay_mechanism_enabled": true,
+      "backup_session_integrity_verification": "nonce_based",
+      "certificate_chain_validation_enabled": true,
+      "hostname_verification_enabled": true,
+      "tls_mode": "full",
+      "backup_transfer_rate_limiting_enabled": true,
+      "bgp_route_origin_validation_enabled": true,
+      "backup_network_segment_type": "dedicated_private",
+      "backup_schedule_type": "randomized",
+      "backup_schedule_publicly_documented": false,
+      "key_exchange_channel_protocol": "https_authenticated",
+      "key_exchange_server_authentication_enforced": true,
+      "key_material_appears_in_plaintext_logs_or_config": false,
+      "transport_layer_protection_mechanism": "none",
+      "backup_anomaly_detection_enabled": false,
+      "backup_transfer_jitter_minutes": false,
+      "network_segment_shared": true,
+      "backup_data_classification": "public"
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "backup_transport_encryption_enabled": true,
+      "backup_protocol": "ftp",
+      "minimum_tls_version_enforced": "none_configured",
+      "deprecated_protocol_fallback_enabled": false,
+      "cipher_suite_policy": "not_configured",
+      "weak_cipher_categories_present": [
+        "partial"
+      ],
+      "mutual_tls_enforced": true,
+      "client_certificate_validation_mode": "none",
+      "application_layer_integrity_verification_enabled": true,
+      "transport_layer_protection_mechanism": "none",
+      "anti_replay_mechanism_enabled": true,
+      "backup_session_integrity_verification": "none",
+      "certificate_chain_validation_enabled": true,
+      "hostname_verification_enabled": true,
+      "tls_mode": "no_verify",
+      "backup_transfer_rate_limiting_enabled": true,
+      "backup_anomaly_detection_enabled": false,
+      "bgp_route_origin_validation_enabled": true,
+      "backup_network_segment_type": "shared_internal",
+      "backup_schedule_type": "fixed",
+      "backup_schedule_publicly_documented": false,
+      "backup_transfer_jitter_minutes": false,
+      "key_exchange_channel_protocol": "http_plaintext",
+      "key_exchange_server_authentication_enforced": true,
+      "key_material_appears_in_plaintext_logs_or_config": false,
+      "network_segment_shared": true,
+      "backup_data_classification": "public"
+    },
+    "expectedExposures": [
+      "Transport Protocol Downgrade",
+      "Unencrypted Backup Channel",
+      "Missing Mutual Tls Authentication",
+      "Certificate Validation Bypass",
+      "Replay Attack On Backup Stream",
+      "Insecure Key Exchange For Backup Encryption"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Unencrypted Backup Channel",
+      "Missing Mutual Tls Authentication",
+      "Certificate Validation Bypass",
+      "Replay Attack On Backup Stream",
+      "Absent Message Integrity Verification",
+      "Uncontrolled Backup Transfer Bandwidth"
+    ]
+  }
+]

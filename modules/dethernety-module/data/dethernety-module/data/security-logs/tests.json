@@ -1,0 +1,113 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "log_classification_label": "public",
+      "sensitive_field_types_present": [
+        "item_0",
+        "item_1"
+      ],
+      "retention_schedule_defined": false,
+      "pii_anonymization_policy_applied": false,
+      "unmasked_quasi_identifier_fields": [
+        "item_0"
+      ],
+      "metadata_access_control_model": "none",
+      "field_level_encryption_enabled": false,
+      "cross_border_transfer_enabled": true,
+      "metadata_contains_individual_identifiers": true,
+      "transfer_legal_basis": "none",
+      "disposal_method": "none",
+      "aggregate_reclassification_policy_exists": false,
+      "retention_schedule_enforced": false,
+      "log_maximum_retention_days": 0,
+      "applicable_privacy_regulation": [],
+      "field_level_access_control_enabled": true,
+      "purpose_bound_export_controls_enforced": true,
+      "formal_disposal_procedure_documented": false,
+      "disposal_attestation_records_maintained": false
+    },
+    "expectedExposures": [
+      "Absence Of Pii And Quasi Identifier Masking",
+      "Insufficient Sensitivity Classification",
+      "Undefined Or Unenforced Retention Schedule",
+      "Overly Broad Read Access To Metadata Aggregates",
+      "Missing Encryption At Rest For Sensitive Log Fields",
+      "Non Compliant Cross Border Transfer Of Operational Metadata",
+      "Inadequate Secure Disposal Procedures"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "log_classification_label": "confidential",
+      "aggregate_reclassification_policy_exists": true,
+      "retention_schedule_defined": true,
+      "retention_schedule_enforced": true,
+      "unmasked_quasi_identifier_fields": [],
+      "metadata_access_control_model": "coarse",
+      "field_level_access_control_enabled": true,
+      "field_level_encryption_enabled": true,
+      "cross_border_transfer_enabled": false,
+      "formal_disposal_procedure_documented": true,
+      "disposal_method": "cryptographic_erasure",
+      "disposal_attestation_records_maintained": true,
+      "sensitive_field_types_present": [],
+      "log_maximum_retention_days": 1,
+      "pii_anonymization_policy_applied": false,
+      "applicable_privacy_regulation": [],
+      "purpose_bound_export_controls_enforced": true,
+      "transfer_legal_basis": "none",
+      "metadata_contains_individual_identifiers": false
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "log_classification_label": "public",
+      "aggregate_reclassification_policy_exists": true,
+      "sensitive_field_types_present": [
+        "partial"
+      ],
+      "retention_schedule_defined": true,
+      "retention_schedule_enforced": true,
+      "log_maximum_retention_days": 0,
+      "pii_anonymization_policy_applied": false,
+      "unmasked_quasi_identifier_fields": [
+        "partial"
+      ],
+      "applicable_privacy_regulation": [
+        "partial"
+      ],
+      "metadata_access_control_model": "none",
+      "field_level_access_control_enabled": true,
+      "purpose_bound_export_controls_enforced": true,
+      "field_level_encryption_enabled": true,
+      "cross_border_transfer_enabled": false,
+      "transfer_legal_basis": "none",
+      "metadata_contains_individual_identifiers": false,
+      "formal_disposal_procedure_documented": true,
+      "disposal_method": "none",
+      "disposal_attestation_records_maintained": true
+    },
+    "expectedExposures": [
+      "Absence Of Pii And Quasi Identifier Masking",
+      "Undefined Or Unenforced Retention Schedule",
+      "Overly Broad Read Access To Metadata Aggregates",
+      "Inadequate Secure Disposal Procedures"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Undefined Or Unenforced Retention Schedule",
+      "Inadequate Secure Disposal Procedures"
+    ]
+  }
+]

@@ -1,0 +1,99 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "dlp_policy_scope": "none",
+      "sensitive_content_detected_without_label": true,
+      "sensitive_data_present_on_workstation": true,
+      "file_level_encryption_enforced": false,
+      "centralized_retention_enforcement_enabled": false,
+      "workstation_lifecycle_event": "repurposed",
+      "data_sanitization_standard_applied": "os_delete_or_format",
+      "temp_cache_cleanup_policy_enforced": false,
+      "sync_tool_installation_status": "installed_unmanaged",
+      "sync_scope_includes_sensitive_paths": true,
+      "data_transfer_agreement_in_place": false,
+      "production_data_copied_to_local_workstation": true,
+      "data_masking_applied_before_local_copy": false,
+      "sensitive_data_classifications_present": [
+        "item_0"
+      ],
+      "classification_tool_enforced": false,
+      "removable_media_encryption_enforced": false,
+      "scheduled_local_data_review_exists": false,
+      "crash_dump_sensitive_data_scrubbing_enabled": false
+    },
+    "expectedExposures": [
+      "Unencrypted Sensitive Files At Rest",
+      "Unclassified Sensitive Local Data",
+      "Sensitive Data In Temporary And Cache Files",
+      "Retention Policy Non Compliance Local Storage",
+      "Cross Border Transfer Via Local Sync Tools",
+      "Absence Of Masking For Locally Copied Production Data",
+      "Inadequate Data Disposal On Device Reuse"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "classification_tool_enforced": true,
+      "sensitive_content_detected_without_label": false,
+      "sensitive_data_present_on_workstation": false,
+      "removable_media_encryption_enforced": true,
+      "centralized_retention_enforcement_enabled": true,
+      "workstation_lifecycle_event": "none",
+      "data_sanitization_standard_applied": "nist_800_88_clear",
+      "temp_cache_cleanup_policy_enforced": true,
+      "crash_dump_sensitive_data_scrubbing_enabled": true,
+      "sync_scope_includes_sensitive_paths": false,
+      "production_data_copied_to_local_workstation": false,
+      "dlp_policy_scope": "none",
+      "file_level_encryption_enforced": false,
+      "scheduled_local_data_review_exists": false,
+      "sync_tool_installation_status": "not_installed",
+      "data_transfer_agreement_in_place": false,
+      "data_masking_applied_before_local_copy": false,
+      "sensitive_data_classifications_present": []
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "classification_tool_enforced": true,
+      "sensitive_content_detected_without_label": false,
+      "dlp_policy_scope": "none",
+      "file_level_encryption_enforced": false,
+      "sensitive_data_present_on_workstation": false,
+      "removable_media_encryption_enforced": true,
+      "centralized_retention_enforcement_enabled": true,
+      "local_retention_period_days": 0,
+      "scheduled_local_data_review_exists": false,
+      "data_sanitization_standard_applied": "os_delete_or_format",
+      "workstation_lifecycle_event": "repurposed",
+      "temp_cache_cleanup_policy_enforced": true,
+      "crash_dump_sensitive_data_scrubbing_enabled": true,
+      "sync_tool_installation_status": "installed_unmanaged",
+      "sync_scope_includes_sensitive_paths": false,
+      "data_transfer_agreement_in_place": false,
+      "production_data_copied_to_local_workstation": false,
+      "data_masking_applied_before_local_copy": false,
+      "sensitive_data_classifications_present": [
+        "partial"
+      ]
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Sensitive Data In Temporary And Cache Files",
+      "Retention Policy Non Compliance Local Storage"
+    ]
+  }
+]

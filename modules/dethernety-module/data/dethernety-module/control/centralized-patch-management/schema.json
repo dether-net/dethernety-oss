@@ -1,0 +1,427 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "patch_management_enabled": {
+        "type": "boolean",
+        "title": "Automated Patch Management Enabled",
+        "description": "Whether an automated patch management system (e.g., WSUS, SCCM, Intune, Jamf, Ansible) is actively configured and enforcing patch deployment across the device fleet.",
+        "default": false
+      },
+      "fleet_patch_compliance_percent": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "title": "Fleet Patch Compliance Percentage",
+        "description": "Percentage of managed devices currently compliant with the required patch level as reported by the patch management system."
+      },
+      "patch_scope": {
+        "type": "string",
+        "enum": [
+          "all_devices",
+          "partial",
+          "servers_only",
+          "workstations_only",
+          "none"
+        ],
+        "title": "Patch Management Scope",
+        "description": "The breadth of device coverage enforced by the automated patch management system."
+      },
+      "max_patch_age_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 365,
+        "title": "Maximum Allowed Patch Age (Days)",
+        "description": "The maximum number of days a critical or high-severity patch is permitted to remain unapplied before enforcement action is triggered, as defined in patch policy."
+      },
+      "automated_deployment_enabled": {
+        "type": "boolean",
+        "title": "Automated Patch Deployment Enabled",
+        "description": "Whether patch deployment is set to occur automatically without requiring manual approval or initiation for each patch cycle.",
+        "default": false
+      },
+      "max_patch_deployment_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 365,
+        "title": "Maximum Days to Full Fleet Patch Deployment",
+        "description": "The configured maximum number of days allowed between patch release and enforced deployment to managed endpoints for critical/high severity patches, as defined in patch management policy."
+      },
+      "compliance_reporting_enabled": {
+        "type": "boolean",
+        "title": "Patch Compliance Reporting Enabled",
+        "description": "Whether the patch management system is configured to generate compliance status reports and retain audit trails showing patch state across the fleet.",
+        "default": false
+      },
+      "report_frequency": {
+        "type": "string",
+        "enum": [
+          "real_time",
+          "daily",
+          "weekly",
+          "monthly",
+          "on_demand_only",
+          "never"
+        ],
+        "title": "Report Generation Frequency",
+        "description": "How frequently compliance reports are generated and updated."
+      },
+      "per_device_tracking_enabled": {
+        "type": "boolean",
+        "title": "Per-Device Patch State Tracking",
+        "description": "Whether the system tracks and reports patch compliance at the individual device level rather than only aggregate statistics.",
+        "default": false
+      },
+      "audit_trail_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Audit Trail Retention Period (Days)",
+        "description": "Number of days patch compliance history and audit logs are retained.",
+        "default": 0
+      },
+      "staging_environment_exists": {
+        "type": "boolean",
+        "title": "Staging Environment Exists",
+        "description": "Whether a dedicated pre-production staging or test environment is provisioned and used for patch validation before fleet-wide deployment.",
+        "default": false
+      },
+      "patch_testing_policy": {
+        "type": "string",
+        "enum": [
+          "none",
+          "optional",
+          "enforced"
+        ],
+        "title": "Patch Testing Policy",
+        "description": "The enforced policy governing whether patches must pass a validation stage before production deployment.",
+        "default": "none"
+      },
+      "minimum_staging_dwell_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 90,
+        "title": "Minimum Staging Dwell Period (Days)",
+        "description": "The minimum number of days a patch must remain validated in the staging environment before being promoted to production fleet deployment.",
+        "default": 0
+      },
+      "rollback_enabled": {
+        "type": "boolean",
+        "title": "Automatic Rollback Enabled",
+        "description": "Whether the patch management system is configured to automatically roll back patches that fail deployment or cause system instability.",
+        "default": false
+      },
+      "rollback_trigger_type": {
+        "type": "string",
+        "enum": [
+          "failure_code_only",
+          "health_check_only",
+          "failure_code_and_health_check",
+          "not_configured"
+        ],
+        "title": "Rollback Trigger Configuration",
+        "description": "The conditions under which automatic rollback is triggered — whether based on installation failure codes, post-patch health checks, or both."
+      },
+      "known_good_snapshot_policy": {
+        "type": "string",
+        "enum": [
+          "automatic_pre_patch",
+          "manual_only",
+          "none"
+        ],
+        "title": "Known-Good State Snapshot Policy",
+        "description": "Whether the system maintains pre-patch snapshots or checkpoints that enable recovery to a known-good state prior to patch application.",
+        "default": "none"
+      },
+      "patch_scope_coverage": {
+        "type": "string",
+        "enum": [
+          "both_os_and_third_party",
+          "os_only",
+          "third_party_only",
+          "none"
+        ],
+        "title": "Patch Scope Coverage",
+        "description": "Indicates whether the patch management solution covers both OS updates and third-party application updates, only OS updates, only third-party updates, or neither."
+      },
+      "patch_deployment_windows_configured": {
+        "type": "boolean",
+        "title": "Patch Deployment Windows Configured",
+        "description": "Whether scheduled maintenance windows have been defined for patch deployment, restricting patch application to approved time periods.",
+        "default": false
+      },
+      "deployment_window_enforcement_mode": {
+        "type": "string",
+        "enum": [
+          "enforced",
+          "advisory",
+          "disabled"
+        ],
+        "title": "Deployment Window Enforcement Mode",
+        "description": "Whether the deployment window schedule is actively enforced (patches only applied in window), optional/advisory, or disabled.",
+        "default": "disabled"
+      },
+      "inventory_discovery_enabled": {
+        "type": "boolean",
+        "title": "Endpoint Inventory and Discovery Enabled",
+        "description": "Whether automated discovery and inventory scanning is actively enabled to detect managed and unmanaged endpoints on the network.",
+        "default": false
+      },
+      "inventory_scan_frequency_hours": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 8760,
+        "title": "Inventory Scan Frequency (Hours)",
+        "description": "How often (in hours) the system performs automated scans to refresh the endpoint inventory and detect new or changed devices."
+      },
+      "unmanaged_device_detection_enabled": {
+        "type": "boolean",
+        "title": "Unmanaged Device Detection Enabled",
+        "description": "Whether the system is configured to specifically flag and alert on devices found in inventory that lack patch management agent coverage.",
+        "default": false
+      },
+      "software_version_tracking_enabled": {
+        "type": "boolean",
+        "title": "Software Version Tracking Enabled",
+        "description": "Whether the inventory system records and maintains current software/OS version data for each discovered endpoint.",
+        "default": false
+      },
+      "signature_verification_enabled": {
+        "type": "boolean",
+        "title": "Patch Signature Verification Enabled",
+        "description": "Whether cryptographic signature verification is enabled for patches before installation, ensuring only vendor-signed updates are applied.",
+        "default": false
+      },
+      "trusted_source_enforcement": {
+        "type": "string",
+        "enum": [
+          "enforced",
+          "partial",
+          "none"
+        ],
+        "title": "Trusted Patch Source Enforcement",
+        "description": "Whether the patch management system enforces that updates are sourced exclusively from trusted, vendor-approved repositories or update servers."
+      },
+      "hash_validation_enabled": {
+        "type": "boolean",
+        "title": "Patch Hash/Checksum Validation Enabled",
+        "description": "Whether cryptographic hash or checksum validation of patch files is performed prior to installation to detect tampering or corruption."
+      }
+    },
+    "required": [
+      "patch_management_enabled",
+      "fleet_patch_compliance_percent",
+      "patch_scope",
+      "max_patch_age_days",
+      "automated_deployment_enabled",
+      "max_patch_deployment_days",
+      "compliance_reporting_enabled",
+      "report_frequency",
+      "per_device_tracking_enabled",
+      "audit_trail_retention_days",
+      "staging_environment_exists",
+      "patch_testing_policy",
+      "minimum_staging_dwell_days",
+      "rollback_enabled",
+      "rollback_trigger_type",
+      "known_good_snapshot_policy",
+      "patch_scope_coverage",
+      "inventory_discovery_enabled",
+      "inventory_scan_frequency_hours",
+      "unmanaged_device_detection_enabled",
+      "software_version_tracking_enabled",
+      "signature_verification_enabled",
+      "trusted_source_enforcement",
+      "hash_validation_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Configuration",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/automated_deployment_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/compliance_reporting_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/fleet_patch_compliance_percent"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/inventory_discovery_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/known_good_snapshot_policy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/max_patch_age_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/max_patch_deployment_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_management_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_scope_coverage"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_testing_policy"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/per_device_tracking_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rollback_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/signature_verification_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/staging_environment_exists"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unmanaged_device_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unmanaged_device_detection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_trail_retention_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hash_validation_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/inventory_scan_frequency_hours"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/minimum_staging_dwell_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/report_frequency"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rollback_trigger_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/software_version_tracking_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/trusted_source_enforcement"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/deployment_window_enforcement_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_deployment_windows_configured"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

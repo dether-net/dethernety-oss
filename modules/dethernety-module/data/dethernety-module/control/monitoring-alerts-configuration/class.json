@@ -1,0 +1,8 @@
+{
+  "name": "Monitoring Alerts Configuration",
+  "classType": "control",
+  "type": "control",
+  "description": "Alert threshold configuration controls deliver detection accuracy and operational visibility by defining the sensitivity boundaries at which system anomalies trigger notifications. When properly tuned, these thresholds minimize false positives while ensuring genuine issues surface promptly, enabling rapid response and reducing mean time to detect (MTTD).",
+  "category": "Operational Monitoring",
+  "status": "reviewed"
+}

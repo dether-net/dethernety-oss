@@ -1,0 +1,8 @@
+{
+  "name": "Git Operations",
+  "classType": "dataFlow",
+  "type": "Git Operations",
+  "description": "Data in transit between developer workstations or CI/CD Pipeline Engine and the Git Repository, carrying clone, fetch, push, and webhook payloads. Medium-high sensitivity because repository access exposes full source history including accidentally committed secrets. This flow is the entry point to the entire software supply chain.",
+  "category": "Software Supply Chain",
+  "status": "draft"
+}

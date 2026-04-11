@@ -1,0 +1,773 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "plaintext_secrets_detected": {
+        "type": "boolean",
+        "title": "Plaintext Secrets Detected",
+        "description": "Whether plaintext passwords, API keys, tokens, or certificates are embedded directly in configuration manifests, playbooks, or state files rather than being referenced via a secrets manager or vault.",
+        "default": false
+      },
+      "secrets_vault_or_encryption_in_use": {
+        "type": "boolean",
+        "title": "Secrets Vault or Encryption in Use",
+        "description": "Whether secret values in configuration files are protected via an approved mechanism such as Ansible Vault, HashiCorp Vault references, AWS Secrets Manager references, SOPS encryption, or Kubernetes Secrets with encryption-at-rest.",
+        "default": false
+      },
+      "api_authentication_enabled": {
+        "type": "boolean",
+        "title": "API Authentication Enabled",
+        "description": "Whether the configuration agent's management API requires authentication (e.g., token, certificate, or other credential) before accepting commands.",
+        "default": false
+      },
+      "api_network_exposure": {
+        "type": "string",
+        "enum": [
+          "localhost",
+          "internal",
+          "all_interfaces"
+        ],
+        "title": "API Network Exposure",
+        "description": "The network scope on which the configuration agent API listens — whether it is bound to localhost only, an internal network interface, or all interfaces."
+      },
+      "tls_enforced": {
+        "type": "boolean",
+        "title": "TLS Enforced on Agent API",
+        "description": "Whether the configuration agent API enforces TLS/mutual-TLS for all connections. When false, the API may accept plaintext connections, which can bypass certificate-based authentication and allow interception.",
+        "default": false
+      },
+      "agent_runtime_user": {
+        "type": "string",
+        "title": "Agent Runtime User",
+        "description": "The OS user account under which the configuration/deployment agent process runs (e.g., root, SYSTEM, ansible, puppet, chef-client)."
+      },
+      "agent_sudoers_unrestricted": {
+        "type": "boolean",
+        "title": "Agent Has Unrestricted Sudo/Elevation Rights",
+        "description": "Whether the deployment agent account has unrestricted sudo (Linux) or SeDebugPrivilege/local administrator membership (Windows) without command-level restrictions.",
+        "default": false
+      },
+      "least_privilege_policy_applied": {
+        "type": "boolean",
+        "title": "Least-Privilege Policy Applied to Agent Account",
+        "description": "Whether a documented, enforced least-privilege policy scopes the agent account to only the specific OS capabilities, paths, or commands required for configuration management tasks.",
+        "default": false
+      },
+      "signature_verification_enabled": {
+        "type": "boolean",
+        "title": "Configuration Signature Verification Enabled",
+        "description": "Whether the configuration management system enforces cryptographic signature verification before applying manifests, modules, or packages.",
+        "default": false
+      },
+      "trusted_key_store_configured": {
+        "type": "boolean",
+        "title": "Trusted Key Store Configured",
+        "description": "Whether a set of trusted public keys or a key store has been configured for verifying configuration content signatures.",
+        "default": false
+      },
+      "unsigned_content_action": {
+        "type": "string",
+        "enum": [
+          "block",
+          "warn",
+          "allow"
+        ],
+        "title": "Action on Unsigned Content",
+        "description": "The action taken by the configuration management system when it encounters unsigned or unverified configuration content.",
+        "default": "allow"
+      },
+      "transport_protocol": {
+        "type": "string",
+        "enum": [
+          "http",
+          "https",
+          "plaintext_tcp",
+          "tls_tcp",
+          "ssh"
+        ],
+        "title": "Transport Protocol",
+        "description": "The protocol used for communication between the host agent and the central configuration server."
+      },
+      "tls_enabled": {
+        "type": "boolean",
+        "title": "TLS Enabled for Agent-Server Transport",
+        "description": "Whether TLS/SSL encryption is enabled for agent-to-server communication in the configuration management system.",
+        "default": false
+      },
+      "certificate_verification_enabled": {
+        "type": "boolean",
+        "title": "Certificate Verification Enabled",
+        "description": "Whether the agent validates the server's TLS certificate, preventing MITM attacks even when TLS is nominally in use.",
+        "default": false
+      },
+      "drift_detection_enabled": {
+        "type": "boolean",
+        "title": "Drift Detection Enabled",
+        "description": "Whether the configuration management system has drift detection scheduled and active (e.g., Puppet agent runs, Chef client recurring execution, Ansible Tower scheduled jobs, or equivalent).",
+        "default": false
+      },
+      "drift_remediation_mode": {
+        "type": "string",
+        "enum": [
+          "enforce",
+          "alert_only",
+          "none"
+        ],
+        "title": "Drift Remediation Mode",
+        "description": "How the system responds when configuration drift is detected: automatic enforcement, alert-only, or no action."
+      },
+      "max_drift_check_interval_hours": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 8760,
+        "title": "Maximum Drift Check Interval (Hours)",
+        "description": "The maximum number of hours between scheduled drift detection or configuration enforcement runs across managed hosts."
+      },
+      "drift_alerting_configured": {
+        "type": "boolean",
+        "title": "Drift Alerting Configured",
+        "description": "Whether alerts or notifications are configured to fire when drift is detected and not remediated (e.g., integration with SIEM, PagerDuty, or email notifications)."
+      },
+      "state_file_world_readable": {
+        "type": "boolean",
+        "title": "State File World-Readable",
+        "description": "Whether any configuration state files (e.g., Puppet catalogs, Chef node cache, Ansible facts cache, Salt grains/pillar cache) have world-readable permissions, allowing any local user to read their contents.",
+        "default": false
+      },
+      "sensitive_data_in_state_files": {
+        "type": "string",
+        "enum": [
+          "credentials",
+          "topology",
+          "none"
+        ],
+        "title": "Sensitive Data Present in State Files",
+        "description": "The highest sensitivity class of data found within the world-readable state files, indicating the severity of the exposure.",
+        "default": "none"
+      },
+      "state_file_owner_is_root": {
+        "type": "boolean",
+        "title": "State File Owner Is Root",
+        "description": "Whether the world-readable state files are owned by root or a privileged system account, meaning normal processes wrote them with excess permissions."
+      },
+      "audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Audit Logging Enabled",
+        "description": "Whether the configuration management system has audit/event logging enabled for applied changes and agent runs.",
+        "default": false
+      },
+      "logged_event_types": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Logged Event Types",
+        "description": "List of event categories that are captured in logs (e.g., 'config_change', 'agent_run', 'deployment', 'error', 'auth_event')."
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Log Retention Period (Days)",
+        "description": "Number of days that configuration change logs are retained before deletion or archival.",
+        "default": 0
+      },
+      "log_detail_level": {
+        "type": "string",
+        "enum": [
+          "none",
+          "minimal",
+          "standard",
+          "detailed"
+        ],
+        "title": "Log Detail Level",
+        "description": "The granularity of detail captured in configuration change logs.",
+        "default": "none"
+      },
+      "agent_version_has_known_cve": {
+        "type": "boolean",
+        "title": "Agent Version Has Known CVE",
+        "description": "Whether the installed configuration management agent version has one or more publicly disclosed CVEs with available exploits or patches.",
+        "default": false
+      },
+      "days_since_last_agent_update": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Days Since Last Agent Update",
+        "description": "Number of days elapsed since the configuration management agent binary was last updated or patched."
+      },
+      "automatic_agent_updates_enabled": {
+        "type": "boolean",
+        "title": "Automatic Agent Updates Enabled",
+        "description": "Whether the system is configured to automatically apply updates to the configuration management agent."
+      },
+      "source_urls_use_unverified_external_repos": {
+        "type": "boolean",
+        "title": "Modules Sourced From Unverified External Repositories",
+        "description": "Indicates whether the configuration system pulls modules, roles, or plugins from public repositories (e.g., Ansible Galaxy, Puppet Forge, Chef Supermarket) or arbitrary URLs without any restriction to an internal mirror or approved source list.",
+        "default": false
+      },
+      "version_pinning_enforced": {
+        "type": "boolean",
+        "title": "Module Version Pinning Enforced",
+        "description": "Indicates whether every external module, role, or plugin dependency specifies an exact pinned version, preventing silent upgrades or dependency confusion substitution.",
+        "default": false
+      },
+      "integrity_verification_method": {
+        "type": "string",
+        "enum": [
+          "none",
+          "checksum",
+          "gpg_signature",
+          "sbom_attestation"
+        ],
+        "title": "Module Integrity Verification Method",
+        "description": "The method used to verify the integrity of downloaded modules, roles, or plugins before installation or execution.",
+        "default": "none"
+      },
+      "listener_bind_address": {
+        "type": "string",
+        "title": "Agent Listener Bind Address",
+        "description": "The IP address or hostname the configuration agent's management/reporting port is bound to. A value of '0.0.0.0', '::', or '*' indicates binding to all interfaces.",
+        "default": "127.0.0.1"
+      },
+      "firewall_restricts_management_port": {
+        "type": "boolean",
+        "title": "Firewall Restricts Management Port Access",
+        "description": "Whether a host-level or network firewall rule restricts access to the agent management port to authorized sources only. True means a compensating control is in place.",
+        "default": false
+      },
+      "host_certificate_validation_enforced": {
+        "type": "boolean",
+        "title": "Host Certificate Validation Enforced",
+        "description": "Whether the configuration server strictly validates host TLS client certificates against a trusted CA before issuing configuration payloads.",
+        "default": false
+      },
+      "host_token_validation_mode": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Host Token Validation Mode",
+        "description": "The mode used by the configuration server to validate host identity tokens (e.g., bootstrap tokens, API keys) before issuing configuration."
+      },
+      "auto_sign_enabled": {
+        "type": "boolean",
+        "title": "Automatic Certificate/Node Signing Enabled",
+        "description": "Whether the configuration server is configured to automatically sign or accept certificate signing requests or node registrations without manual operator approval.",
+        "default": false
+      },
+      "rollback_mechanism_configured": {
+        "type": "boolean",
+        "title": "Rollback Mechanism Configured",
+        "description": "Indicates whether the deployment system has an automated rollback mechanism configured that can revert to a previous known-good state upon deployment failure or health check failure.",
+        "default": false
+      },
+      "rollback_trigger_type": {
+        "type": "string",
+        "enum": [
+          "automatic",
+          "manual",
+          "none"
+        ],
+        "title": "Rollback Trigger Type",
+        "description": "The type of trigger that initiates a rollback when one is configured: automatic (triggered by health checks or failure conditions), manual (requires human action), or none (no rollback configured).",
+        "default": "none"
+      },
+      "deployment_history_versions_retained": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Deployment History Versions Retained",
+        "description": "The number of previous deployment revisions or snapshots retained by the deployment system, which determines whether a rollback target exists. Zero means no history is kept.",
+        "default": 0
+      },
+      "env_vars_passed_as_plaintext_args": {
+        "type": "boolean",
+        "title": "Environment Variables Passed as Plaintext CLI Arguments",
+        "description": "Indicates whether sensitive environment variables are injected via command-line arguments rather than through secure mechanisms like secrets managers or encrypted vaults, making them visible in process listings.",
+        "default": false
+      },
+      "deployment_output_logging_level": {
+        "type": "string",
+        "enum": [
+          "none",
+          "standard",
+          "verbose_with_secrets"
+        ],
+        "title": "Deployment Output Logging Level",
+        "description": "The verbosity level at which deployment runs log their output, including whether environment variable values are captured in log files or CI/CD pipeline artifacts."
+      },
+      "shell_history_persistence_disabled": {
+        "type": "boolean",
+        "title": "Shell History Persistence Disabled on Deployment Hosts",
+        "description": "Indicates whether shell history recording is disabled on deployment hosts so that commands containing environment variable values are not persisted to disk."
+      },
+      "secrets_manager_integration_used": {
+        "type": "boolean",
+        "title": "Secrets Manager Integration Used for Sensitive Variables",
+        "description": "Indicates whether the deployment system retrieves sensitive values at runtime from a dedicated secrets manager (e.g., HashiCorp Vault, AWS Secrets Manager, Azure Key Vault) rather than embedding them in deployment configuration or environment.",
+        "default": false
+      },
+      "idempotency_enforcement_enabled": {
+        "type": "boolean",
+        "title": "Idempotency Enforcement Enabled",
+        "description": "Whether the configuration management tool is configured to enforce idempotent runs, ensuring repeated or interrupted runs converge to the same fully configured state.",
+        "default": false
+      },
+      "security_critical_resources_managed": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Security-Critical Resources Under Configuration Management",
+        "description": "List of security-critical resource types managed by the configuration tool (e.g., firewall_rules, file_permissions, sudoers, ssh_keys, selinux_policy, audit_rules). If managed without idempotency enforcement, partial runs can leave them insecure."
+      },
+      "partial_run_detection_enabled": {
+        "type": "boolean",
+        "title": "Partial Run Detection / Failure Alerting Enabled",
+        "description": "Whether the system has a mechanism to detect and alert on incomplete or interrupted configuration runs (e.g., run reports checked for partial completion, health checks after provisioning, or mandatory post-run validation gates).",
+        "default": false
+      }
+    },
+    "required": [
+      "plaintext_secrets_detected",
+      "secrets_vault_or_encryption_in_use",
+      "api_authentication_enabled",
+      "api_network_exposure",
+      "tls_enforced",
+      "agent_runtime_user",
+      "agent_sudoers_unrestricted",
+      "least_privilege_policy_applied",
+      "signature_verification_enabled",
+      "trusted_key_store_configured",
+      "unsigned_content_action",
+      "transport_protocol",
+      "tls_enabled",
+      "certificate_verification_enabled",
+      "drift_detection_enabled",
+      "drift_remediation_mode",
+      "max_drift_check_interval_hours",
+      "drift_alerting_configured",
+      "state_file_world_readable",
+      "sensitive_data_in_state_files",
+      "state_file_owner_is_root",
+      "audit_logging_enabled",
+      "logged_event_types",
+      "log_retention_days",
+      "log_detail_level",
+      "agent_version_has_known_cve",
+      "days_since_last_agent_update",
+      "automatic_agent_updates_enabled",
+      "source_urls_use_unverified_external_repos",
+      "version_pinning_enforced",
+      "integrity_verification_method",
+      "listener_bind_address",
+      "firewall_restricts_management_port",
+      "host_certificate_validation_enforced",
+      "host_token_validation_mode",
+      "auto_sign_enabled",
+      "rollback_mechanism_configured",
+      "rollback_trigger_type",
+      "deployment_history_versions_retained",
+      "env_vars_passed_as_plaintext_args",
+      "deployment_output_logging_level",
+      "shell_history_persistence_disabled",
+      "secrets_manager_integration_used"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_runtime_user"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_sudoers_unrestricted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/api_authentication_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/auto_sign_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/host_certificate_validation_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/host_token_validation_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_policy_applied"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/node_identity_source"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_verification_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/env_vars_passed_as_plaintext_args"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/plaintext_secrets_detected"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_types_exposed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_manager_integration_used"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_vault_or_encryption_in_use"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_data_in_state_files"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/state_file_world_readable"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/transport_protocol"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/shell_history_persistence_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/state_file_owner_is_root"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/api_network_exposure"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/firewall_restricts_management_port"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/listener_bind_address"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/drift_detection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/integrity_verification_method"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rollback_mechanism_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/signature_verification_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/source_urls_use_unverified_external_repos"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/trusted_key_store_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unsigned_content_action"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/version_pinning_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/deployment_history_versions_retained"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/deployment_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/drift_remediation_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/max_drift_check_interval_hours"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rollback_trigger_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_type"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/deployment_system_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/idempotency_enforcement_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/partial_run_detection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/run_failure_remediation_policy"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/security_critical_resources_managed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/deployment_output_logging_level"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/logged_event_types"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/drift_alerting_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_detail_level"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/agent_version_has_known_cve"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/automatic_agent_updates_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/days_since_last_agent_update"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

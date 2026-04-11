@@ -1,0 +1,529 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "classification_engines_enabled": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Active Classification Engines",
+        "description": "List of content inspection engines currently enabled (e.g., pattern_matching, fingerprinting, ml_classifier, exact_data_match)"
+      },
+      "false_positive_rate_percent": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "title": "False Positive Rate (%)",
+        "description": "Measured percentage of DLP alerts that are false positives over the last 30 days, indicating tuning quality"
+      },
+      "custom_pattern_definitions_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000,
+        "title": "Custom Pattern Definitions Count",
+        "description": "Number of organization-specific custom regex or keyword patterns defined in the DLP policy beyond built-in templates",
+        "default": 0
+      },
+      "last_classifier_tuning_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Days Since Last Classifier Tuning",
+        "description": "Number of days elapsed since DLP classifiers or pattern sets were last reviewed and tuned"
+      },
+      "monitored_channels": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "DLP Monitored Network Channels",
+        "description": "List of network channels actively monitored and blocked by the DLP system (e.g., HTTP, HTTPS, SMTP, FTP, cloud_upload)"
+      },
+      "blocking_mode_enabled": {
+        "type": "boolean",
+        "title": "DLP Inline Blocking Mode Enabled",
+        "description": "Indicates whether the DLP system is operating in active inline blocking mode (not just monitor/alert mode) for network channels",
+        "default": false
+      },
+      "ssl_tls_inspection_active": {
+        "type": "boolean",
+        "title": "SSL/TLS Inspection Active (Network DLP)",
+        "description": "Indicates whether SSL/TLS decryption and inspection is active on the network DLP appliance or proxy for encrypted channels. Merged from ssl_tls_inspection_active and ssl_tls_interception_enabled; use this single attribute for both network_channel_prevention_coverage and encrypted_traffic_inspection_capability rules.",
+        "default": false
+      },
+      "endpoint_dlp_agent_deployed": {
+        "type": "boolean",
+        "title": "Endpoint DLP Agent Deployed",
+        "description": "Whether a DLP agent is installed and active on endpoints to enforce data movement controls",
+        "default": false
+      },
+      "enforced_control_channels": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Enforced Data Movement Control Channels",
+        "description": "List of endpoint data movement channels actively blocked or monitored by DLP policy (e.g., usb_storage, clipboard, print_to_file, screen_capture, local_sync)",
+        "default": []
+      },
+      "policy_enforcement_mode": {
+        "type": "string",
+        "enum": [
+          "block",
+          "monitor_and_alert",
+          "monitor_only",
+          "disabled"
+        ],
+        "title": "DLP Policy Enforcement Mode",
+        "description": "The operational mode of the endpoint DLP policy determining whether violations are actively blocked or only logged",
+        "default": "disabled"
+      },
+      "sensitive_data_patterns_configured": {
+        "type": "boolean",
+        "title": "Sensitive Data Patterns Configured",
+        "description": "Whether content inspection rules with sensitive data patterns (e.g., PII, PCI, PHI, IP) are configured and enabled in the DLP policy",
+        "default": false
+      },
+      "casb_integration_enabled": {
+        "type": "boolean",
+        "title": "CASB Integration Enabled",
+        "description": "Whether a Cloud Access Security Broker (CASB) is integrated with the DLP system to enforce policies on cloud services",
+        "default": false
+      },
+      "cloud_upload_blocking_policy_status": {
+        "type": "string",
+        "enum": [
+          "disabled",
+          "audit_only",
+          "enforce_block"
+        ],
+        "title": "Cloud Upload Blocking Policy Status",
+        "description": "Operational status of DLP policies that block sensitive data uploads to cloud storage and collaboration platforms",
+        "default": "disabled"
+      },
+      "monitored_cloud_services": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Monitored Cloud Services",
+        "description": "List of cloud storage and collaboration platforms covered by DLP/CASB policies (e.g., SharePoint, Google Drive, Dropbox, Box, Slack)"
+      },
+      "automated_response_actions_enabled": {
+        "type": "boolean",
+        "title": "Automated Response Actions Enabled",
+        "description": "Indicates whether the DLP system is configured to automatically execute response actions (quarantine, block, alert, SIEM forwarding) upon policy violation detection without requiring manual intervention.",
+        "default": false
+      },
+      "configured_response_actions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Configured Response Actions",
+        "description": "List of automated response actions configured in the DLP system. Expected values include 'block', 'quarantine', 'alert', 'user_notification', 'siem_forwarding'.",
+        "default": []
+      },
+      "siem_forwarding_configured": {
+        "type": "boolean",
+        "title": "SIEM Forwarding Configured",
+        "description": "Indicates whether DLP policy violations are automatically forwarded to a SIEM system for centralized logging, correlation, and audit trail maintenance.",
+        "default": false
+      },
+      "policies_in_enforcement_mode": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000,
+        "title": "Policies in Enforcement Mode",
+        "description": "Number of DLP policies that are actively set to enforcement (blocking/quarantine) mode rather than monitor-only or simulation mode.",
+        "default": 0
+      },
+      "audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Audit Logging Enabled",
+        "description": "Whether the DLP system has audit/event logging actively enabled and configured to write logs to a destination",
+        "default": false
+      },
+      "logged_fields": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Logged Event Fields",
+        "description": "List of fields captured per DLP event log entry (e.g., sender, recipient, data_classification, action_taken, timestamp, content_snippet)"
+      },
+      "tamper_protection_mechanism": {
+        "type": "string",
+        "enum": [
+          "cryptographic_signing",
+          "immutable_siem_forwarding",
+          "hash_chaining",
+          "worm_storage",
+          "none"
+        ],
+        "title": "Log Tamper Protection Mechanism",
+        "description": "The mechanism used to ensure audit logs are tamper-evident or tamper-proof"
+      },
+      "rule_versioning_enabled": {
+        "type": "boolean",
+        "title": "Rule Versioning Enabled",
+        "description": "Whether the DLP policy management system tracks version history for policy rules, enabling rollback and audit of changes."
+      },
+      "policy_approval_workflow_status": {
+        "type": "string",
+        "enum": [
+          "enabled",
+          "partial",
+          "disabled",
+          "not_configured"
+        ],
+        "title": "Policy Approval Workflow Status",
+        "description": "Indicates whether a formal workflow-based approval process exists for policy changes before they are promoted to production.",
+        "default": "not_configured"
+      },
+      "staged_rollout_mode": {
+        "type": "string",
+        "enum": [
+          "monitor_then_enforce",
+          "enforce_only",
+          "not_configured"
+        ],
+        "title": "Staged Rollout Mode",
+        "description": "Whether new or modified DLP policies are deployed first in monitor-only mode before transitioning to enforce mode, reducing operational disruption.",
+        "default": "not_configured"
+      },
+      "false_positive_feedback_loop_configured": {
+        "type": "boolean",
+        "title": "False Positive Feedback Loop Configured",
+        "description": "Whether the DLP system has a formal mechanism for users or analysts to report false positives and for those reports to feed back into policy tuning."
+      },
+      "classification_framework_integration_status": {
+        "type": "string",
+        "enum": [
+          "fully_integrated",
+          "partially_integrated",
+          "not_integrated"
+        ],
+        "title": "Classification Framework Integration Status",
+        "description": "Whether the DLP system is actively integrated with the enterprise data classification framework (e.g., Microsoft Purview, Titus, Boldon James) to consume sensitivity labels"
+      },
+      "identity_context_enforcement_enabled": {
+        "type": "boolean",
+        "title": "Identity-Aware Context Enforcement Enabled",
+        "description": "Whether DLP policies incorporate identity context (user role, group membership, or device posture) to apply graduated enforcement rather than uniform block/allow decisions",
+        "default": false
+      },
+      "graduated_policy_action_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10,
+        "title": "Number of Distinct Graduated Policy Actions Configured",
+        "description": "Count of distinct enforcement actions (e.g., allow, log-only, user-notify, manager-notify, block-with-override, hard-block) configured across active DLP policies, indicating policy graduation depth"
+      },
+      "inspection_scope": {
+        "type": "string",
+        "enum": [
+          "none",
+          "partial",
+          "full"
+        ],
+        "title": "SSL/TLS Inspection Traffic Scope",
+        "description": "Defines what portion of encrypted traffic is subject to DLP inspection — none, partial (e.g., only certain categories or ports), or full (all SSL/TLS traffic).",
+        "default": "none"
+      },
+      "certificate_trust_chain_valid": {
+        "type": "boolean",
+        "title": "Interception Certificate Trust Chain Valid",
+        "description": "Indicates whether the SSL interception CA certificate is properly deployed to endpoints so that decrypted-and-re-encrypted traffic is trusted without bypass attempts by end-user agents.",
+        "default": false
+      },
+      "dlp_policy_applied_to_decrypted_traffic": {
+        "type": "boolean",
+        "title": "DLP Policy Applied to Decrypted Traffic",
+        "description": "Confirms that DLP inspection rules and sensitive data patterns are actively enforced against decrypted SSL/TLS payloads, not just metadata or plaintext channels.",
+        "default": false
+      }
+    },
+    "required": [
+      "classification_engines_enabled",
+      "false_positive_rate_percent",
+      "custom_pattern_definitions_count",
+      "last_classifier_tuning_days",
+      "monitored_channels",
+      "blocking_mode_enabled",
+      "ssl_tls_inspection_active",
+      "endpoint_dlp_agent_deployed",
+      "enforced_control_channels",
+      "policy_enforcement_mode",
+      "sensitive_data_patterns_configured",
+      "casb_integration_enabled",
+      "cloud_upload_blocking_policy_status",
+      "monitored_cloud_services",
+      "automated_response_actions_enabled",
+      "configured_response_actions",
+      "siem_forwarding_configured",
+      "policies_in_enforcement_mode",
+      "audit_logging_enabled",
+      "logged_fields",
+      "tamper_protection_mechanism",
+      "classification_framework_integration_status",
+      "identity_context_enforcement_enabled",
+      "graduated_policy_action_count",
+      "inspection_scope",
+      "certificate_trust_chain_valid",
+      "dlp_policy_applied_to_decrypted_traffic"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dlp_policy_applied_to_decrypted_traffic"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/inspection_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ssl_tls_inspection_active"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_trust_chain_valid"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Data Classification",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/classification_engines_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/classification_framework_integration_status"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/false_positive_rate_percent"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/last_classifier_tuning_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_data_patterns_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/custom_pattern_definitions_count"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/blocking_mode_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/casb_integration_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cloud_upload_blocking_policy_status"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_dlp_agent_deployed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/enforced_control_channels"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/monitored_channels"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/monitored_cloud_services"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/identity_context_enforcement_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/policy_enforcement_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/graduated_policy_action_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/policies_in_enforcement_mode"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/automated_response_actions_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/configured_response_actions"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/false_positive_feedback_loop_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/policy_approval_workflow_status"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rule_versioning_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/staged_rollout_mode"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logged_fields"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/siem_forwarding_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tamper_protection_mechanism"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

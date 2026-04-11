@@ -1,0 +1,530 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "minimum_tls_version": {
+        "type": "string",
+        "enum": [
+          "ssl_2_0",
+          "ssl_3_0",
+          "tls_1_0",
+          "tls_1_1",
+          "tls_1_2",
+          "tls_1_3",
+          "not_configured"
+        ],
+        "title": "Minimum TLS Version Enforced",
+        "description": "The minimum TLS/SSL protocol version enforced by the cloud storage service, gateway, or endpoint. Deprecated versions expose traffic to downgrade and cipher attacks."
+      },
+      "tls_version_policy_enforced": {
+        "type": "boolean",
+        "title": "TLS Minimum Version Policy Enforced",
+        "description": "Whether an explicit policy actively rejects connections attempting to negotiate deprecated TLS/SSL versions.",
+        "default": false
+      },
+      "accepted_tls_versions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Accepted TLS Protocol Versions",
+        "description": "List of TLS/SSL protocol versions the endpoint will accept during negotiation. Presence of deprecated versions enables downgrade attacks."
+      },
+      "certificate_chain_validation_enabled": {
+        "type": "boolean",
+        "title": "Certificate Chain Validation Enabled",
+        "description": "Whether the client validates the full certificate chain up to a trusted root CA when connecting to cloud storage endpoints.",
+        "default": false
+      },
+      "hostname_verification_enabled": {
+        "type": "boolean",
+        "title": "Hostname Verification Enabled",
+        "description": "Whether the client verifies that the server certificate CN or SAN matches the target hostname when connecting to cloud storage.",
+        "default": false
+      },
+      "certificate_revocation_check_method": {
+        "type": "string",
+        "enum": [
+          "ocsp_stapling",
+          "ocsp",
+          "crl",
+          "none"
+        ],
+        "title": "Certificate Revocation Check Method",
+        "description": "The method used to check whether server certificates have been revoked before trusting them. none indicates revocation checking is absent."
+      },
+      "allows_self_signed_certificates": {
+        "type": "boolean",
+        "title": "Allows Self-Signed Certificates",
+        "description": "Whether the client is configured to accept self-signed certificates from cloud storage endpoints without further chain validation.",
+        "default": false
+      },
+      "mtls_enabled": {
+        "type": "boolean",
+        "title": "Mutual TLS Authentication Enabled",
+        "description": "Whether mutual TLS (mTLS) is configured, requiring both client and server to present and validate certificates during the TLS handshake.",
+        "default": false
+      },
+      "client_certificate_validation_mode": {
+        "type": "string",
+        "enum": [
+          "none",
+          "optional",
+          "required"
+        ],
+        "title": "Client Certificate Validation Mode",
+        "description": "The mode used to validate client certificates during TLS handshake. none means no client cert requested, optional means requested but not enforced, required means mandatory and validated.",
+        "default": "none"
+      },
+      "trusted_client_ca_configured": {
+        "type": "boolean",
+        "title": "Trusted Client CA Certificate Configured",
+        "description": "Whether a trusted CA bundle is configured for validating client certificates. Without this, client certificate validation cannot be cryptographically enforced.",
+        "default": false
+      },
+      "weak_cipher_suite_accepted": {
+        "type": "boolean",
+        "title": "Weak or Deprecated Cipher Suite Accepted",
+        "description": "Whether the TLS endpoint accepts at least one weak, null, export-grade, or cryptographically broken cipher suite (RC4, NULL, EXPORT, DES, 3DES, anon DH, DHE <1024-bit).",
+        "default": false
+      },
+      "negotiated_cipher_suites": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Negotiated TLS Cipher Suites",
+        "description": "List of cipher suites accepted or negotiated during TLS handshake. Used to detect presence of RC4, NULL, EXPORT, anon, DES cipher families."
+      },
+      "pfs_enforcement_enabled": {
+        "type": "boolean",
+        "title": "PFS-Only Cipher Suite Enforcement",
+        "description": "Whether the TLS configuration explicitly restricts cipher suites to only those providing Perfect Forward Secrecy (ECDHE or DHE key exchange). True means non-PFS suites are blocked.",
+        "default": false
+      },
+      "hsts_header_present": {
+        "type": "boolean",
+        "title": "HSTS Header Present",
+        "description": "Whether the server responds with a Strict-Transport-Security header on HTTPS responses.",
+        "default": false
+      },
+      "hsts_max_age_seconds": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 63072000,
+        "title": "HSTS max-age Value (seconds)",
+        "description": "The max-age directive value in the Strict-Transport-Security header. Values below 31536000 (one year) are insufficient. Set to 0 if header is absent.",
+        "default": 0
+      },
+      "session_ticket_rotation_enabled": {
+        "type": "boolean",
+        "title": "Session Ticket Key Rotation Enabled",
+        "description": "Whether TLS session ticket keys are rotated on a scheduled basis to limit the window of compromise if a ticket key is leaked.",
+        "default": false
+      },
+      "session_resumption_max_lifetime_seconds": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 604800,
+        "title": "Maximum TLS Session Resumption Lifetime (seconds)",
+        "description": "The maximum allowed lifetime in seconds for a TLS session ticket or session ID. Values above 86400 (24 hours) indicate excessive exposure."
+      },
+      "session_resumption_mechanism": {
+        "type": "string",
+        "enum": [
+          "none",
+          "session_id",
+          "session_ticket",
+          "both"
+        ],
+        "title": "TLS Session Resumption Mechanism",
+        "description": "The type of TLS session resumption mechanism in use for connections to cloud storage endpoints.",
+        "default": "none"
+      },
+      "shared_ticket_key_across_instances": {
+        "type": "boolean",
+        "title": "Session Ticket Key Shared Across Multiple Instances",
+        "description": "Whether the same static session ticket key is distributed across multiple servers or instances without secure key management, increasing blast radius if compromised.",
+        "default": false
+      },
+      "application_layer_integrity_enabled": {
+        "type": "boolean",
+        "title": "Application-Layer Integrity Verification Enabled",
+        "description": "Whether application-layer message integrity mechanisms (HMAC signatures, digital signatures, cryptographic checksums) are applied to data payloads independently of TLS.",
+        "default": false
+      },
+      "tls_termination_points": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "TLS Termination Points",
+        "description": "List of intermediate nodes (CDN, reverse proxy, load balancer, API gateway) where TLS is terminated and re-established before reaching the cloud storage backend.",
+        "default": []
+      },
+      "payload_checksum_validation_enforced": {
+        "type": "boolean",
+        "title": "Payload Checksum Validation Enforced",
+        "description": "Whether the storage service or application enforces validation of cryptographic checksums on received payloads, detecting tampering between TLS hops before data is committed.",
+        "default": false
+      },
+      "rpki_route_origin_validation_enabled": {
+        "type": "boolean",
+        "title": "RPKI Route Origin Validation Enabled",
+        "description": "Whether Resource Public Key Infrastructure (RPKI) route origin validation is configured and enforced for BGP routes serving cloud storage endpoints.",
+        "default": false
+      },
+      "bgp_path_monitoring_enabled": {
+        "type": "boolean",
+        "title": "BGP Autonomous System Path Monitoring Enabled",
+        "description": "Whether active monitoring of BGP autonomous system paths is in place to detect unexpected route changes or anomalous AS paths for cloud storage traffic.",
+        "default": false
+      },
+      "unexpected_asn_hops_detected": {
+        "type": "boolean",
+        "title": "Unexpected Autonomous System Hops Detected",
+        "description": "Whether traffic analysis or route inspection has identified unexpected or anomalous autonomous system numbers in the path to cloud storage endpoints, indicating a potential prefix hijack.",
+        "default": false
+      },
+      "dnssec_validation_enabled": {
+        "type": "boolean",
+        "title": "DNSSEC Validation Enabled",
+        "description": "Whether DNSSEC validation is enforced for DNS resolution of cloud storage endpoints, ensuring DNS responses are cryptographically signed and authentic.",
+        "default": false
+      },
+      "encrypted_dns_protocol": {
+        "type": "string",
+        "enum": [
+          "none",
+          "doh",
+          "dot",
+          "dnscrypt"
+        ],
+        "title": "Encrypted DNS Protocol",
+        "description": "The DNS transport protocol used when resolving cloud storage endpoints. Indicates whether DNS queries are protected from interception or manipulation in transit.",
+        "default": "none"
+      },
+      "certificate_pinning_enabled": {
+        "type": "boolean",
+        "title": "Certificate Pinning or Strict HSTS Enabled",
+        "description": "Whether the client enforces certificate pinning or HSTS preloading for cloud storage endpoints, preventing acceptance of fraudulent certificates served by a DNS-spoofed host.",
+        "default": false
+      },
+      "api_rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "API Rate Limiting Enabled",
+        "description": "Whether per-client or per-session bandwidth throttling and request rate limiting is enforced on data transfer API endpoints."
+      },
+      "max_transfer_rate_bytes_per_second": {
+        "type": "integer",
+        "minimum": 0,
+        "title": "Maximum Transfer Rate (Bytes/Second)",
+        "description": "The configured per-client maximum data transfer rate in bytes per second. Zero or null indicates no limit is set.",
+        "default": 0
+      },
+      "encrypted_client_hello_enabled": {
+        "type": "boolean",
+        "title": "Encrypted Client Hello (ECH) Enabled",
+        "description": "Whether the TLS client is configured to use Encrypted Client Hello, preventing SNI from being transmitted in cleartext during the TLS handshake.",
+        "default": false
+      }
+    },
+    "required": [
+      "minimum_tls_version",
+      "tls_version_policy_enforced",
+      "accepted_tls_versions",
+      "certificate_chain_validation_enabled",
+      "hostname_verification_enabled",
+      "certificate_revocation_check_method",
+      "allows_self_signed_certificates",
+      "mtls_enabled",
+      "client_certificate_validation_mode",
+      "trusted_client_ca_configured",
+      "weak_cipher_suite_accepted",
+      "negotiated_cipher_suites",
+      "pfs_enforcement_enabled",
+      "hsts_header_present",
+      "hsts_max_age_seconds",
+      "session_ticket_rotation_enabled",
+      "session_resumption_max_lifetime_seconds",
+      "session_resumption_mechanism",
+      "shared_ticket_key_across_instances",
+      "application_layer_integrity_enabled",
+      "tls_termination_points",
+      "payload_checksum_validation_enforced",
+      "rpki_route_origin_validation_enabled",
+      "bgp_path_monitoring_enabled",
+      "unexpected_asn_hops_detected",
+      "dnssec_validation_enabled",
+      "encrypted_dns_protocol",
+      "certificate_pinning_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/accepted_tls_versions"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/allows_self_signed_certificates"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/application_layer_integrity_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_chain_validation_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/hostname_verification_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/minimum_tls_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/negotiated_cipher_suites"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/permitted_cipher_suites"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pfs_enforcement_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/session_ticket_rotation_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_ticket_key_across_instances"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_termination_points"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_version_policy_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_cipher_suite_accepted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_revocation_check_method"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hsts_header_present"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/hsts_max_age_seconds"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/payload_checksum_validation_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/session_resumption_max_lifetime_seconds"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/session_resumption_mechanism"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_client_hello_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/client_certificate_validation_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mtls_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/trusted_client_ca_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_pinning_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dnssec_validation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/encrypted_dns_protocol"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rpki_route_origin_validation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unexpected_asn_hops_detected"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bgp_path_monitoring_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dns_resolver_type"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/api_rate_limiting_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/max_transfer_rate_bytes_per_second"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/network_exposure"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_sensitivity_classification"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,1807 @@
+[
+  {
+    "option_name": "authentication_required",
+    "option_description": "Controls whether the monitoring agent's API, management interface, or listener enforces authentication (e.g., API key, bearer token, or mTLS) before accepting any request or connection. When disabled, any local or network-accessible process can interact with the agent without credentials.",
+    "security_impact": "The Rego policy fires the 'unauthenticated_monitoring_api_endpoint' exposure when authentication_required is false AND the API is exposed to internal_network or public scope, OR when sensitive_operations_exposed is true. An unauthenticated API allows attackers to collect telemetry (T1119) or suppress alerts (T1562.006) without any credential barrier.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the agent's primary configuration file for authentication toggle fields such as 'auth_enabled', 'require_auth', 'authentication', or 'security.enabled'. Common paths vary by agent.",
+        "command": "grep -rEi 'auth_enabled|require_auth|authentication|api_key|security\\.enabled' /etc/prometheus/prometheus.yml /etc/datadog-agent/datadog.yaml /etc/filebeat/filebeat.yml /etc/telegraf/telegraf.conf 2>/dev/null",
+        "file_path": "/etc/prometheus/prometheus.yml, /etc/datadog-agent/datadog.yaml, /etc/filebeat/filebeat.yml, /etc/telegraf/telegraf.conf",
+        "navigation": null,
+        "expected_output": "A line such as 'auth_enabled: true' or 'require_auth: true' indicates authentication is enforced. Absence of these fields typically implies authentication is disabled."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt an unauthenticated HTTP request to the agent's API endpoint. A 401 or 403 response confirms authentication is required; a 200 response with data means it is not enforced.",
+        "command": "curl -sv http://localhost:9090/api/v1/status/config 2>&1 | grep -E 'HTTP/|< HTTP|401|403|200'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 401 Unauthorized or HTTP 403 Forbidden indicates authentication is required. HTTP 200 with a response body indicates authentication is NOT enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the agent process startup flags for authentication-related arguments that may override configuration file settings.",
+        "command": "ps aux | grep -E 'prometheus|datadog|telegraf|filebeat|node_exporter' | grep -oE '\\-\\-web\\.config\\.file=[^ ]+|\\-\\-auth[^ ]*|\\-\\-tls[^ ]*'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Flags like '--web.config.file=/etc/prometheus/web.yml' indicate a web config is in use that may enforce auth. Absence of auth flags suggests no authentication."
+      },
+      {
+        "type": "api",
+        "instruction": "Query a protected endpoint without credentials to confirm whether the agent enforces authentication on its management interface.",
+        "command": "curl -o /dev/null -w '%{http_code}' http://localhost:8126/info && curl -o /dev/null -w '%{http_code}' http://localhost:9100/metrics",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 401/403 indicates authentication is enforced. HTTP 200 indicates the endpoint is unauthenticated."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "api_network_exposure",
+    "option_description": "Defines the network scope on which the monitoring agent's API or listener is bound and reachable — whether it is restricted to localhost only, accessible within an internal/cluster network, or exposed to public/internet-facing networks. Determined by the bind address configuration and any applicable firewall or network policy.",
+    "security_impact": "The Rego policy triggers 'unauthenticated_monitoring_api_endpoint' when api_network_exposure is 'internal_network' or 'public' combined with missing authentication. Even with authentication, 'public' exposure dramatically increases the attack surface for brute force and exploitation of any agent vulnerabilities, supporting T1119 (Automated Collection) and T1562.006 (Indicator Blocking).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the agent configuration for bind address, listen address, or host parameters to determine which network interface the API is bound to.",
+        "command": "grep -rEi 'listen_address|bind_ip|bind_addr|host|web\\.listen-address|http_listen_addr' /etc/prometheus/prometheus.yml /etc/datadog-agent/datadog.yaml /etc/telegraf/telegraf.conf /etc/node_exporter/ 2>/dev/null",
+        "file_path": "/etc/prometheus/prometheus.yml, /etc/datadog-agent/datadog.yaml, /etc/telegraf/telegraf.conf",
+        "navigation": null,
+        "expected_output": "Values like '127.0.0.1:9090' indicate localhost-only binding. '0.0.0.0:9090' or an externally-routable IP indicates broader exposure."
+      },
+      {
+        "type": "command",
+        "instruction": "Use ss or netstat to identify what address and port the monitoring agent is actually listening on at runtime.",
+        "command": "ss -tlnp | grep -E 'prometheus|telegraf|filebeat|node_exp|datadog|9090|9100|8126|5601' && netstat -tlnp 2>/dev/null | grep -E '9090|9100|8126|5601'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing '127.0.0.1:9090' means localhost only. '0.0.0.0:9090' or '*:9090' means all interfaces (potentially public). An internal IP indicates internal_network binding."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an external or different-network host, attempt a TCP connection to the agent's known port to verify whether it is reachable beyond localhost.",
+        "command": "nc -zv <agent-host-ip> 9090 && nc -zv <agent-host-ip> 9100",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful connection from a remote host confirms internal_network or public exposure. A connection refused or timeout confirms localhost-only binding is effective."
+      },
+      {
+        "type": "command",
+        "instruction": "Check firewall rules and network policies to understand whether the port is filtered even if the agent binds to all interfaces.",
+        "command": "iptables -L INPUT -n -v | grep -E '9090|9100|8126' && firewall-cmd --list-all 2>/dev/null | grep -E 'port|service'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules that DROP or REJECT the agent port from external source ranges confirm network-level restriction. An absence of such rules with a 0.0.0.0 bind means exposure is 'public' or 'internal_network'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "localhost",
+      "internal_network",
+      "public"
+    ]
+  },
+  {
+    "option_name": "sensitive_operations_exposed",
+    "option_description": "Indicates whether the monitoring agent's unauthenticated API surface includes endpoints that perform sensitive operations, such as suppressing or acknowledging alerts, modifying detection thresholds, reading raw telemetry containing PII or security events, or performing administrative actions like reloading configuration.",
+    "security_impact": "The Rego policy triggers 'unauthenticated_monitoring_api_endpoint' when sensitive_operations_exposed is true, regardless of network scope. This directly enables T1562.006 (Indicator Blocking) by allowing attackers to suppress alerts or modify thresholds, and T1119 (Automated Collection) by allowing bulk telemetry reads without credentials.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Enumerate the agent's API endpoints without authentication and test for sensitive operations such as alert suppression, threshold modification, or raw telemetry access.",
+        "command": "curl -s http://localhost:9090/api/v1/rules && curl -s http://localhost:9090/api/v1/alerts && curl -s -X POST http://localhost:9090/-/reload",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If these endpoints return data or accept modifications without credentials, sensitive_operations_exposed should be set to true. HTTP 401/403 on all sensitive endpoints confirms they are protected."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the agent's OpenAPI or Swagger specification (if available) to enumerate all exposed endpoints and identify sensitive operations.",
+        "command": "curl -s http://localhost:9090/api/v1/ && curl -s http://localhost:8080/swagger.json 2>/dev/null && curl -s http://localhost:8080/openapi.json 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An API spec listing endpoints such as '/alerts/silence', '/rules/update', '/config/reload', or '/telemetry' without authentication requirements indicates sensitive operations are exposed."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the agent's access control or route configuration to identify which API paths are explicitly excluded from authentication requirements.",
+        "command": "grep -rEi 'no_auth|public_path|exempt|skip_auth|unauthenticated|allow_without_auth' /etc/prometheus/ /etc/datadog-agent/ /etc/grafana/ 2>/dev/null",
+        "file_path": "/etc/prometheus/, /etc/datadog-agent/, /etc/grafana/grafana.ini",
+        "navigation": null,
+        "expected_output": "Any path exemptions that include alert management, threshold modification, or telemetry read endpoints confirm sensitive_operations_exposed is true."
+      },
+      {
+        "type": "gui",
+        "instruction": "Access the monitoring agent's web UI without authentication and navigate to alert management, rule configuration, and telemetry views to verify whether sensitive operations are accessible.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Open browser to http://<agent-host>:9090 (Prometheus), http://<agent-host>:3000 (Grafana), or http://<agent-host>:5601 (Kibana). Attempt to view, modify, or silence alerts. If accessible without login prompt, sensitive_operations_exposed is true.",
+        "expected_output": "If alert management pages load and allow modifications without a login prompt, sensitive operations are exposed unauthenticated."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "telemetry_transport_tls_enabled",
+    "option_description": "Controls whether the monitoring agent or forwarder encrypts telemetry data and alert payloads using TLS/SSL when transmitting to aggregators, SIEM systems, or remote collectors. When disabled, all metric data, log events, and alert content traverse the network in plaintext.",
+    "security_impact": "The Rego policy triggers 'unencrypted_telemetry_transmission' when telemetry_transport_tls_enabled is false. Plaintext transmission exposes sensitive system health data and security events to network sniffing (T1040) and allows in-transit manipulation of telemetry (T1565.002), enabling attackers to both exfiltrate data and inject false events.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the agent's output or forwarding configuration section for TLS/SSL toggle fields such as 'ssl', 'tls_enabled', 'use_tls', or certificate path references that imply TLS is configured.",
+        "command": "grep -rEi 'ssl|tls|tls_enabled|ssl_enabled|use_ssl|use_tls|certificate|cert_file|key_file|ca_file' /etc/filebeat/filebeat.yml /etc/telegraf/telegraf.conf /etc/fluentd/ /etc/logstash/ /etc/prometheus/prometheus.yml 2>/dev/null",
+        "file_path": "/etc/filebeat/filebeat.yml, /etc/telegraf/telegraf.conf, /etc/fluentd/fluent.conf, /etc/logstash/logstash.yml",
+        "navigation": null,
+        "expected_output": "Lines such as 'ssl: true', 'tls_enabled: true', or 'certificate: /path/to/cert.pem' confirm TLS is enabled. Absence of any TLS-related configuration strongly suggests it is disabled."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client or nmap to probe the destination endpoint and verify whether TLS is negotiated on the telemetry forwarding connection.",
+        "command": "openssl s_client -connect <siem-host>:<port> -verify 5 </dev/null 2>&1 | grep -E 'CONNECTED|Verify|Certificate|error' && nmap --script ssl-enum-ciphers -p <port> <siem-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful TLS handshake with certificate details confirms TLS is in use. 'Connection refused' or a plaintext HTTP response banner confirms TLS is NOT enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Capture a sample of traffic on the forwarding interface using tcpdump to determine whether data is transmitted in plaintext or appears encrypted.",
+        "command": "tcpdump -i any -nn -A -c 50 'dst host <siem-host> and dst port <port>' 2>/dev/null | grep -E 'metric|event|alert|log|POST|GET'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Readable metric names, log messages, or HTTP method strings in the capture confirm plaintext transmission. Binary/random-looking data confirms TLS encryption is active."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the agent's startup logs or status output for messages confirming TLS initialization or certificate loading.",
+        "command": "journalctl -u filebeat -u telegraf -u datadog-agent --since '1 hour ago' 2>/dev/null | grep -Ei 'tls|ssl|certificate|plaintext|insecure|encrypt'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log messages like 'TLS enabled', 'Certificate loaded', or 'SSL handshake successful' confirm TLS is enabled. Messages like 'TLS disabled' or the absence of any TLS log entries suggest it is off."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "telemetry_destination_protocol",
+    "option_description": "Specifies the exact network protocol used by the monitoring agent when forwarding telemetry data and alerts to the aggregator or SIEM endpoint. Determines whether transport-layer encryption is inherent to the protocol choice (e.g., https, tls, syslog_tls) or absent (e.g., http, tcp, udp, syslog_tcp, syslog_udp).",
+    "security_impact": "The Rego policy directly triggers 'unencrypted_telemetry_transmission' when this value is 'http', 'tcp', 'udp', 'syslog_tcp', or 'syslog_udp' — protocols that carry no encryption. These expose telemetry to network sniffing (T1040) and in-transit manipulation (T1565.002). Only 'https', 'tls', and 'syslog_tls' are treated as encrypted.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Examine the agent's output or destination block for the protocol, scheme, or URL that defines how telemetry is sent to the backend.",
+        "command": "grep -rEi 'protocol|scheme|output|hosts|endpoint|url|remote_write' /etc/filebeat/filebeat.yml /etc/telegraf/telegraf.conf /etc/prometheus/prometheus.yml /etc/fluentd/ /etc/logstash/ 2>/dev/null | grep -Ei 'http|https|tcp|udp|tls|syslog'",
+        "file_path": "/etc/filebeat/filebeat.yml, /etc/telegraf/telegraf.conf, /etc/prometheus/prometheus.yml, /etc/fluentd/fluent.conf",
+        "navigation": null,
+        "expected_output": "Values such as 'https://siem-host:443', 'protocol: tls', or 'syslog_tls' confirm encrypted protocols. 'http://', 'protocol: tcp', 'udp', or 'syslog_tcp' confirm unencrypted protocols."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap to identify whether the destination port speaks TLS or plaintext by probing the remote endpoint port used by the agent.",
+        "command": "nmap -sV -p <destination-port> <siem-host> 2>/dev/null && echo | openssl s_client -connect <siem-host>:<destination-port> 2>&1 | grep -E 'CONNECTED|errno|no peer'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful TLS negotiation with certificate output confirms the protocol is tls/https/syslog_tls. A refused connection or plaintext banner confirms http/tcp/udp/syslog_tcp."
+      },
+      {
+        "type": "command",
+        "instruction": "Check active network connections from the agent process to identify the destination port and infer the protocol.",
+        "command": "ss -tnp | grep -E 'filebeat|telegraf|datadog|prometheus|logstash|fluentd' && lsof -i -n -P | grep -E 'filebeat|telegraf|datadog|prometheus'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection entries showing destination ports 443, 6514 (syslog-tls), or named TLS ports suggest encrypted protocols. Ports 514, 80, or custom unencrypted ports suggest plaintext protocols."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review agent startup and connection logs to identify protocol negotiation messages that confirm which protocol is active.",
+        "command": "journalctl -u filebeat -u telegraf --since '2 hours ago' 2>/dev/null | grep -Ei 'connected to|using protocol|tls|ssl|tcp|udp|syslog|http|https'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Messages referencing 'connected via TLS', 'HTTPS endpoint', or 'syslog-tls' confirm encrypted protocols. 'TCP connection', 'UDP output', or 'HTTP' confirm unencrypted protocols."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "https",
+      "http",
+      "tls",
+      "tcp",
+      "syslog_tls",
+      "syslog_tcp"
+    ]
+  },
+  {
+    "option_name": "ca_certificate_validation_enforced",
+    "option_description": "Controls whether the monitoring agent validates the CA certificate chain and hostname of the aggregator or SIEM endpoint during TLS connection establishment. When disabled (e.g., insecure_skip_verify=true), TLS encrypts the channel but provides no guarantee the agent is communicating with the legitimate server, enabling man-in-the-middle attacks.",
+    "security_impact": "The Rego policy triggers 'unencrypted_telemetry_transmission' when telemetry_transport_tls_enabled is true but ca_certificate_validation_enforced is false. Disabling validation allows adversaries to intercept TLS-encrypted telemetry through certificate spoofing (T1040) and to inject manipulated events (T1565.002) — TLS without validation provides only confidentiality, not authenticity.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search the agent configuration for fields that disable certificate validation such as 'insecure_skip_verify', 'ssl_verify', 'tls_insecure', 'verify_ssl', or 'ssl_check_hostname'.",
+        "command": "grep -rEi 'insecure_skip_verify|ssl_verify|tls_insecure|verify_ssl|check_certificate|skip_ssl|ssl_check_hostname|insecure' /etc/filebeat/filebeat.yml /etc/telegraf/telegraf.conf /etc/prometheus/prometheus.yml /etc/datadog-agent/ 2>/dev/null",
+        "file_path": "/etc/filebeat/filebeat.yml, /etc/telegraf/telegraf.conf, /etc/prometheus/prometheus.yml, /etc/datadog-agent/datadog.yaml",
+        "navigation": null,
+        "expected_output": "'insecure_skip_verify: true' or 'ssl_verify: false' confirms validation is disabled. 'insecure_skip_verify: false' or absence of insecure flags with a configured ca_cert path confirms validation is enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Verify that a CA certificate file is explicitly configured in the TLS output section, which is required for proper chain validation.",
+        "command": "grep -rEi 'ca_cert|ssl_ca|tls_ca|ca_file|certificate_authorities|trusted_cert' /etc/filebeat/filebeat.yml /etc/telegraf/telegraf.conf /etc/logstash/ /etc/fluentd/ 2>/dev/null && ls -la $(grep -rEoi 'ca_cert[^\\n]*' /etc/filebeat/filebeat.yml 2>/dev/null | awk -F': ' '{print $2}') 2>/dev/null",
+        "file_path": "/etc/filebeat/filebeat.yml, /etc/telegraf/telegraf.conf",
+        "navigation": null,
+        "expected_output": "A configured ca_cert path pointing to an existing, non-empty PEM file confirms CA validation is possible. Absence of a ca_cert field or a file that does not exist confirms validation cannot be enforced."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client with explicit CA verification to test whether the destination certificate passes validation from the agent host.",
+        "command": "openssl s_client -connect <siem-host>:<port> -CAfile /etc/ssl/certs/ca-certificates.crt -verify 5 </dev/null 2>&1 | grep -E 'Verify return|verify error|Certificate chain'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Verify return code: 0 (ok)' confirms the certificate is valid and validation would succeed if enforced. Any other return code or 'verify error' indicates certificate issues that may cause agents with validation enabled to refuse connection."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the agent process environment or startup flags for TLS skip-verify flags that override configuration file settings.",
+        "command": "cat /proc/$(pgrep -x filebeat)/environ 2>/dev/null | tr '\\0' '\\n' | grep -i tls && ps aux | grep -E 'telegraf|filebeat|prometheus' | grep -oE '\\-\\-tls[^ ]*|insecure[^ ]*'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Environment variables or flags containing 'INSECURE=true' or '--tls-insecure' confirm validation is bypassed at runtime. Absence of these flags suggests configuration file settings are authoritative."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "agent_process_account",
+    "option_description": "Identifies the operating system user account under which the monitoring agent process executes. This determines the agent's baseline access to system resources, files, and kernel interfaces. Running as root or SYSTEM grants full system access, while a dedicated low-privilege account scopes the blast radius if the agent is compromised.",
+    "security_impact": "The Rego policy triggers 'overprivileged_agent_service_account' when agent_process_account is 'root' or 'SYSTEM' and least_privilege_policy_enforced is false, or when it is 'other_privileged' or 'unknown' without additional isolation controls. An overprivileged agent enables privilege escalation (T1548.002) and persistence via event-triggered execution (T1546) if the process is exploited.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the running user for monitoring agent processes using ps or systemctl on Linux.",
+        "command": "ps aux | grep -E 'datadog-agent|telegraf|filebeat|prometheus|node_exporter|zabbix|nagios|falco' | grep -v grep | awk '{print $1, $11}' && systemctl show datadog-agent telegraf filebeat prometheus node_exporter 2>/dev/null --property=User,ExecStart | grep -E 'User=|ExecStart='",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The first column from ps or the 'User=' field from systemctl shows the running account. 'root' or 'SYSTEM' indicates high privilege. A dedicated account name like 'datadog', 'prometheus', 'telegraf' suggests a dedicated_low_privilege account."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, query the service account using sc or Get-Service to identify the logon account for monitoring service processes.",
+        "command": "sc qc DatadogAgent && wmic service where \"name like '%datadog%' or name like '%telegraf%' or name like '%zabbix%'\" get name,startname && Get-WmiObject Win32_Service | Where-Object {$_.Name -match 'datadog|telegraf|zabbix'} | Select Name,StartName",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The 'START_NAME' field showing 'LocalSystem' maps to 'SYSTEM'. A custom service account name indicates dedicated_low_privilege. 'LocalService' or 'NetworkService' maps to other_privileged."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the systemd service unit file for the monitoring agent to find the User= and Group= directives that define the execution context.",
+        "command": "cat /etc/systemd/system/datadog-agent.service /lib/systemd/system/telegraf.service /etc/systemd/system/prometheus.service /etc/systemd/system/filebeat.service 2>/dev/null | grep -E '^User=|^Group=|^ExecStart='",
+        "file_path": "/etc/systemd/system/datadog-agent.service, /lib/systemd/system/telegraf.service, /etc/systemd/system/prometheus.service",
+        "navigation": null,
+        "expected_output": "'User=datadog' or 'User=prometheus' indicates a dedicated service account. Absence of a User= directive means the service runs as root by default."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the effective UID and capabilities of the running agent process to confirm its actual privilege level at runtime.",
+        "command": "PID=$(pgrep -x datadog-agent || pgrep -x telegraf || pgrep -x filebeat || pgrep -x prometheus); cat /proc/$PID/status 2>/dev/null | grep -E '^Uid:|^Gid:|^CapEff:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Uid: 0' confirms root execution. A non-zero UID with a matching dedicated service account name confirms dedicated_low_privilege. CapEff showing all-F values confirms full root-equivalent capability even if not running as UID 0."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "root",
+      "SYSTEM",
+      "dedicated_low_privilege",
+      "other_privileged",
+      "unknown"
+    ]
+  },
+  {
+    "option_name": "least_privilege_policy_enforced",
+    "option_description": "Indicates whether the monitoring agent's account permissions have been explicitly and verifiably scoped to only the minimum read access required for its monitored subsystems — implemented through mechanisms such as Linux capability dropping, sudoers rules limiting specific read commands, SELinux/AppArmor mandatory access control profiles, or Windows privilege stripping via token adjustment.",
+    "security_impact": "The Rego policy triggers 'overprivileged_agent_service_account' when least_privilege_policy_enforced is false and the agent runs as root, SYSTEM, other_privileged, or unknown. Without least privilege enforcement, a compromised agent can escalate privileges (T1548.002), establish persistent execution hooks (T1546), or access sensitive files and processes far beyond its monitoring scope.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check Linux capabilities assigned to the monitoring agent binary and its running process to verify capability dropping is in effect.",
+        "command": "PID=$(pgrep -x datadog-agent || pgrep -x telegraf || pgrep -x node_exporter); getpcaps $PID 2>/dev/null && getcap $(which datadog-agent 2>/dev/null || which telegraf 2>/dev/null || which node_exporter 2>/dev/null) 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A process with no capabilities beyond specific ones like 'cap_dac_read_search' for log reading confirms least privilege. A full capability set (CapEff: 0000003fffffffff) or 'cap_sys_admin' confirms overprivilege. No output from getcap means no file capabilities are set."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review sudoers rules and /etc/sudoers.d/ entries for the monitoring agent service account to determine what commands it can run with elevated privileges.",
+        "command": "grep -rE 'datadog|telegraf|prometheus|filebeat|zabbix|nagios|monitor' /etc/sudoers /etc/sudoers.d/ 2>/dev/null && sudo -l -U datadog 2>/dev/null && sudo -l -U prometheus 2>/dev/null",
+        "file_path": "/etc/sudoers, /etc/sudoers.d/",
+        "navigation": null,
+        "expected_output": "Sudoers entries listing only specific read commands like 'NOPASSWD: /bin/cat /var/log/syslog' confirm scoped privilege. 'NOPASSWD: ALL' or broad command allowances confirm least_privilege_policy_enforced should be false."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify whether an SELinux or AppArmor profile is active and enforcing for the monitoring agent process.",
+        "command": "ps -Z | grep -E 'datadog|telegraf|filebeat|prometheus' 2>/dev/null | grep -v grep && aa-status 2>/dev/null | grep -E 'datadog|telegraf|filebeat|prometheus' && getenforce 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An SELinux context label like 'system_u:system_r:datadog_t:s0' or AppArmor status showing the agent profile as 'enforce' confirms a MAC policy is active. 'Permissive' or 'Disabled' for SELinux, or absence from AppArmor enforce list, means no MAC restriction."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's hardening documentation and service deployment runbooks to confirm whether a least-privilege configuration procedure was applied and validated during agent deployment.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Request from the security team or DevOps: (1) the agent deployment runbook for privilege configuration steps, (2) any CIS Benchmark or organizational hardening standard applied to the agent, (3) evidence of periodic access reviews for the agent service account. Verify these documents specify capability dropping, sudoers scoping, or MAC profile enforcement rather than generic 'minimal permissions' language.",
+        "expected_output": "A runbook with specific capability drop lists, sudoers entries, or MAC profile names — combined with evidence of verification — confirms least_privilege_policy_enforced is true. Generic documentation without verifiable implementation details should result in false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "process_isolation_enabled",
+    "option_description": "Controls whether the monitoring agent process is confined by a mandatory access control or sandbox mechanism such as a seccomp profile, SELinux/AppArmor policy, or Windows Job Object, limiting what system calls and resources the agent can access even if it runs under a privileged account.",
+    "security_impact": "The Rego policy flags overprivileged_agent_service_account when the agent runs as other_privileged or unknown account without least_privilege_policy_enforced AND without process_isolation_enabled. Process isolation is the compensating control that can prevent an exposure finding when full privilege reduction is not possible. Without it, a compromised agent can make arbitrary system calls, access files outside its scope, or pivot to other system resources.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for an active seccomp profile in a containerized deployment by inspecting the running container spec.",
+        "command": "docker inspect <container_name> --format '{{json .HostConfig.SecurityOpt}}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should include seccomp=<profile_path> or seccomp=unconfined. Absence of seccomp or value unconfined means isolation is not enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the SELinux context of the monitoring agent process to confirm a confined policy is active.",
+        "command": "ps -eZ | grep -E 'prometheus|alertmanager|node_exporter|datadog|telegraf'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A confined context such as system_u:system_r:prometheus_t:s0 indicates SELinux isolation is active. A label ending in unconfined_t means isolation is absent."
+      },
+      {
+        "type": "command",
+        "instruction": "Check AppArmor enforcement status for the monitoring agent binary.",
+        "command": "aa-status 2>/dev/null | grep -E 'prometheus|alertmanager|node_exporter' || cat /proc/$(pgrep -f prometheus | head -1)/attr/current",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Profile listed under enforce mode indicates AppArmor isolation is active. Output of unconfined means no AppArmor profile is applied."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For systemd-managed agents, inspect the unit file for SystemCallFilter or SecureBits directives that apply seccomp restrictions.",
+        "command": "systemctl cat prometheus.service | grep -E 'SystemCallFilter|SecureBits|CapabilityBoundingSet|NoNewPrivileges'",
+        "file_path": "/etc/systemd/system/prometheus.service",
+        "navigation": null,
+        "expected_output": "Presence of SystemCallFilter=@system-service or similar allowlist indicates process isolation is configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (container deployments with seccomp runtime/default or custom profiles)",
+      "false (bare-metal or VM deployments with no SELinux/AppArmor policy applied to the agent)"
+    ]
+  },
+  {
+    "option_name": "credential_source",
+    "option_description": "Describes the mechanism by which the monitoring service obtains credentials for connecting to alerting backends, time-series databases, or notification platforms. Options range from least secure (hardcoded in config file) to most secure (secrets manager integration).",
+    "security_impact": "The Rego policy fires hardcoded_or_default_credentials on two credential_source paths: hardcoded_config_file triggers a finding unconditionally, and default_vendor_credentials triggers if default_credentials_changed is false. Using hardcoded_config_file exposes credentials to anyone with filesystem access and makes rotation difficult. Secrets manager is the only source that provides dynamic credential injection, automatic rotation, and audit trails.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the primary monitoring service configuration file for inline credential fields such as password, api_key, token, or secret.",
+        "command": "grep -Ei 'password|api_key|token|secret|credentials' /etc/prometheus/prometheus.yml /etc/alertmanager/alertmanager.yml 2>/dev/null",
+        "file_path": "/etc/prometheus/prometheus.yml",
+        "navigation": null,
+        "expected_output": "Presence of literal credential values indicates hardcoded_config_file. References to environment variable syntax (${VAR} or $VAR) indicate environment_variable. References to vault or AWS Secrets Manager paths indicate secrets_manager."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the process environment of the running monitoring service to determine if credentials are injected as environment variables.",
+        "command": "cat /proc/$(pgrep -f alertmanager | head -1)/environ | tr '\\0' '\\n' | grep -Ei 'password|api_key|token|secret'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If environment variables with credential values are present, source is environment_variable. If empty, credentials are likely in a config file or fetched from a vault at runtime."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check startup scripts and systemd unit files for secrets manager references or vault agent sidecar configuration.",
+        "command": "grep -rE 'vault|aws secretsmanager|azure keyvault|gcp secretmanager' /etc/systemd/system/ /opt/monitoring/config/ 2>/dev/null",
+        "file_path": "/etc/systemd/system/",
+        "navigation": null,
+        "expected_output": "Presence of vault CLI calls, AWS CLI secretsmanager get-secret-value, or equivalent indicates secrets_manager. No such references alongside inline credentials confirms hardcoded_config_file."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the team responsible for deploying the monitoring service to determine the credential provisioning process and whether a secrets management platform is formally integrated.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented use of HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, or Kubernetes Secrets with external-secrets-operator confirms secrets_manager. Ad-hoc manual credential placement confirms hardcoded_config_file or environment_variable."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "hardcoded_config_file (common in self-hosted deployments without secrets management)",
+      "environment_variable (common in container-based deployments using Kubernetes Secrets)",
+      "secrets_manager (present in mature environments using Vault or cloud-native secrets services)",
+      "default_vendor_credentials (newly deployed instances where post-install hardening was skipped)"
+    ]
+  },
+  {
+    "option_name": "config_file_world_readable",
+    "option_description": "Indicates whether configuration files used by the monitoring service, particularly those containing credentials or sensitive settings, have the others-read permission bit set, making them readable by any user account on the system.",
+    "security_impact": "The Rego policy references this attribute in two rules. In hardcoded_or_default_credentials, if credential_source is hardcoded_config_file and config_file_world_readable is true, an exposure is flagged because any local user can read the credentials. In secrets_stored_in_plaintext_config_files, if secret_storage_method is plaintext_file and this is true, sensitive secrets are exposed to all local users. World-readable credential files are a direct path to credential theft by any process or user on the host.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the permission bits on the primary monitoring service configuration files using stat.",
+        "command": "stat -c '%a %U %G %n' /etc/prometheus/prometheus.yml /etc/alertmanager/alertmanager.yml /etc/grafana/grafana.ini 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permissions of 640 or 600 are secure. Any permissions ending in 4 (e.g., 644, 604, 644) indicate the others-read bit is set, meaning config_file_world_readable is true."
+      },
+      {
+        "type": "command",
+        "instruction": "Use find to scan the entire monitoring configuration directory for world-readable files.",
+        "command": "find /etc/prometheus /etc/alertmanager /etc/grafana /opt/monitoring -type f -perm /o+r 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any files listed are world-readable. An empty result means no world-readable config files exist in those paths."
+      },
+      {
+        "type": "command",
+        "instruction": "Use ls -l to visually inspect the permission string for the others-read bit.",
+        "command": "ls -la /etc/prometheus/ /etc/alertmanager/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permission strings where the 7th character is r (e.g., -rw-r--r--) confirm world-readable status. Strings ending in --- (e.g., -rw-r-----) are correctly restricted."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (correctly hardened deployments with 640 or 600 permissions)",
+      "true (default package installations that use 644 without post-install hardening)"
+    ]
+  },
+  {
+    "option_name": "default_credentials_changed",
+    "option_description": "Tracks whether the out-of-box vendor-supplied default usernames and passwords for all backends connected to the monitoring service (such as Grafana admin, Alertmanager basic auth, or TSDB access credentials) have been changed to unique, strong values.",
+    "security_impact": "The Rego policy triggers hardcoded_or_default_credentials when credential_source is default_vendor_credentials and default_credentials_changed is false. Default credentials are publicly documented, trivially guessable, and frequently targeted by automated scanners. A monitoring service with default credentials allows any attacker who can reach the backend to authenticate, query telemetry, suppress alerts, or modify detection rules.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Attempt authentication to the Grafana API using the well-known default credentials to determine if they remain active.",
+        "command": "curl -s -o /dev/null -w '%{http_code}' -u admin:admin http://localhost:3000/api/org",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 200 confirms default credentials are still valid, meaning default_credentials_changed is false. HTTP 401 or 403 indicates the default has been changed."
+      },
+      {
+        "type": "gui",
+        "instruction": "Log in to the Grafana web interface using the default admin/admin credentials to verify if the login succeeds or if a forced password change prompt appears.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Navigate to http://<grafana_host>:3000 and attempt login with username admin and password admin. Successful login without a change prompt means default credentials are active.",
+        "expected_output": "Successful login with default credentials confirms default_credentials_changed is false. A login failure or an immediate forced password change screen indicates defaults have been changed."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the Grafana configuration file for the security.admin_password directive to determine if the default has been overridden.",
+        "command": "grep -i 'admin_password' /etc/grafana/grafana.ini",
+        "file_path": "/etc/grafana/grafana.ini",
+        "navigation": null,
+        "expected_output": "If admin_password = admin or the field is absent (using compiled default), credentials have not been changed. A non-default value or a reference to an environment variable suggests the default was changed."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review deployment runbooks or configuration management scripts to confirm a credential rotation step is included in the installation procedure.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented evidence of credential rotation during or after deployment confirms default_credentials_changed is true. Absence of such documentation requires active verification via authentication tests."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (deployments managed by configuration management tools such as Ansible or Terraform that set credentials at provisioning)",
+      "false (manually installed instances where post-install hardening checklist was not followed)"
+    ]
+  },
+  {
+    "option_name": "config_file_world_writable",
+    "option_description": "Indicates whether alert threshold files, detection rule files, or suppression list configuration files have the others-write permission bit set, allowing any local user or process to modify alerting behavior without elevated privileges.",
+    "security_impact": "The Rego policy directly triggers alert_suppression_via_unauthorized_config_modification when config_file_world_writable is true, regardless of any other controls. A world-writable alert config file allows a local attacker or compromised service account to silence specific alerts, lower detection thresholds, or add suppression rules to hide ongoing malicious activity. This maps to MITRE T1562.001 (Disable or Modify Tools) and T1562.006 (Indicator Blocking).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the others-write permission bit on all Prometheus rule files and Alertmanager configuration.",
+        "command": "stat -c '%a %n' /etc/prometheus/rules/*.yml /etc/alertmanager/alertmanager.yml 2>/dev/null | awk -F' ' '$1 ~ /[2367]$/ {print \"WORLD-WRITABLE: \" $0}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines prefixed with WORLD-WRITABLE indicate the others-write bit is set. No output means no world-writable files were found."
+      },
+      {
+        "type": "command",
+        "instruction": "Use find to locate any world-writable files within monitoring configuration directories.",
+        "command": "find /etc/prometheus /etc/alertmanager /etc/grafana/provisioning -type f -perm /o+w 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any file paths returned are world-writable. An empty result confirms no world-writable config files exist."
+      },
+      {
+        "type": "command",
+        "instruction": "Use ls -l to visually inspect the permission string on rule and config files for the others-write bit.",
+        "command": "ls -la /etc/prometheus/rules/ /etc/alertmanager/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permission strings where the 9th character is w (e.g., -rw-rw-rw- or -rw-r--rw-) confirm world-writable status. Strings ending in - in position 9 (e.g., -rw-r--r--) are correctly restricted."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (correctly hardened deployments; should always be false)",
+      "true (misconfigured deployments where umask was not set correctly during installation or files were created by a script running as root with permissive umask)"
+    ]
+  },
+  {
+    "option_name": "config_directory_world_writable",
+    "option_description": "Indicates whether the parent directory containing alert and detection configuration files has the others-write permission bit set, which would allow a local attacker to add, replace, or rename configuration files even if the individual files have correct permissions.",
+    "security_impact": "The Rego policy triggers alert_suppression_via_unauthorized_config_modification when config_directory_world_writable is true, independent of file-level permissions. A world-writable parent directory allows an attacker to replace a properly-owned and properly-permissioned config file by deleting and recreating it, rename the legitimate config and substitute a malicious one, or add new rule files that override or suppress existing detections.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the permission bits on the parent directories containing monitoring configuration files using stat.",
+        "command": "stat -c '%a %U %G %n' /etc/prometheus /etc/prometheus/rules /etc/alertmanager /etc/grafana/provisioning 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Directory permissions of 750 or 755 are typical. Permissions ending in 7 or 2 in the others position (e.g., 757, 777, 752) indicate the others-write bit is set and config_directory_world_writable is true."
+      },
+      {
+        "type": "command",
+        "instruction": "Use find to identify world-writable directories within the monitoring configuration hierarchy.",
+        "command": "find /etc/prometheus /etc/alertmanager /etc/grafana -type d -perm /o+w 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any directory paths returned are world-writable. An empty result confirms no world-writable config directories exist."
+      },
+      {
+        "type": "command",
+        "instruction": "Use ls -ld to inspect the directory permission string directly for the others-write bit.",
+        "command": "ls -ld /etc/prometheus /etc/prometheus/rules /etc/alertmanager",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permission strings where the 9th character is w (e.g., drwxrwxrwx) confirm world-writable. Strings ending in - or x only in the others position (e.g., drwxr-xr-x) are correctly restricted."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (correctly configured; directories should be owned by root or the service account with 750 or 755)",
+      "true (rare but observed in environments where monitoring was installed by automated scripts with inadequate permission controls)"
+    ]
+  },
+  {
+    "option_name": "config_owner_matches_service_account",
+    "option_description": "Verifies that alert threshold, detection rule, and suppression list configuration files are owned by the designated non-root service account for the monitoring service (such as prometheus or alertmanager), ensuring that only the intended service process and administrators can modify them.",
+    "security_impact": "The Rego policy triggers alert_suppression_via_unauthorized_config_modification when config_integrity_monitoring_enabled is false AND config_owner_matches_service_account is false. Incorrect file ownership (e.g., owned by root or a generic user) means that access control enforcement depends solely on broad group or other permissions rather than precise service account ownership, weakening the ability to restrict write access to only the authorized service. Combined with absent FIM, this creates an unmonitored, loosely-owned attack surface for config tampering.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the owner of monitoring configuration files and compare against the expected service account name.",
+        "command": "stat -c '%U %n' /etc/prometheus/prometheus.yml /etc/prometheus/rules/*.yml /etc/alertmanager/alertmanager.yml 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each file should be owned by the dedicated service account (e.g., prometheus or alertmanager). Files owned by root or another generic account indicate config_owner_matches_service_account is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Identify the user account under which the monitoring service process is running to determine the expected file owner.",
+        "command": "ps -eo user,comm | grep -E 'prometheus|alertmanager|node_exporter'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The user column should show a dedicated service account name (e.g., prometheus). If root or nobody appears, cross-reference with file ownership to assess alignment."
+      },
+      {
+        "type": "command",
+        "instruction": "Use find to locate any config files in monitoring directories not owned by the expected service account.",
+        "command": "find /etc/prometheus /etc/alertmanager -type f \\( -name '*.yml' -o -name '*.yaml' \\) ! -user prometheus 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any files returned are not owned by the prometheus account. Replace prometheus with the actual service account name for the deployment. Empty output confirms correct ownership."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the systemd unit file to confirm the service account name and cross-reference it against file ownership.",
+        "command": "systemctl cat prometheus.service | grep -E '^User=|^Group='",
+        "file_path": "/etc/systemd/system/prometheus.service",
+        "navigation": null,
+        "expected_output": "Output such as User=prometheus confirms the service account. Use this name when verifying file ownership with stat or find commands."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (package-managed installations that create a dedicated service account and set ownership during installation)",
+      "false (manually extracted binaries or deployments where configuration files were created by root and ownership was never transferred to the service account)"
+    ]
+  },
+  {
+    "option_name": "config_integrity_monitoring_enabled",
+    "option_description": "Indicates whether a file integrity monitoring solution such as auditd, AIDE, Tripwire, or a commercial FIM tool is actively watching the alert threshold and detection rule configuration files for unauthorized modifications, additions, or deletions.",
+    "security_impact": "The Rego policy triggers alert_suppression_via_unauthorized_config_modification when config_integrity_monitoring_enabled is false AND config_owner_matches_service_account is false. Even if file permissions are correctly set, FIM provides the detection layer that identifies when a privileged or authorized account makes unauthorized changes. Without FIM, an attacker who gains write access can modify alert rules, suppress detections, or lower thresholds, and the change will not be detected until the next manual audit.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether auditd has filesystem watch rules configured for the monitoring configuration paths.",
+        "command": "auditctl -l 2>/dev/null | grep -E '/etc/prometheus|/etc/alertmanager|/etc/grafana'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing watch rules with -w /etc/prometheus/rules -p wa or similar confirms auditd FIM is active. Empty output means no auditd watches are configured for these paths."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the persistent auditd rules file to confirm monitoring configuration paths are included.",
+        "command": "grep -E 'prometheus|alertmanager|grafana' /etc/audit/rules.d/*.rules /etc/audit/audit.rules 2>/dev/null",
+        "file_path": "/etc/audit/rules.d/monitoring.rules",
+        "navigation": null,
+        "expected_output": "Lines containing -w /etc/prometheus/rules -p wa -k alert_config_change confirm FIM is configured. No matching lines indicate FIM is not set up via auditd."
+      },
+      {
+        "type": "command",
+        "instruction": "Check if AIDE is installed and whether the monitoring configuration directories are included in its watched path configuration.",
+        "command": "grep -E '/etc/prometheus|/etc/alertmanager' /etc/aide/aide.conf /etc/aide.conf 2>/dev/null; aide --check 2>/dev/null | grep -E 'prometheus|alertmanager' | head -5",
+        "file_path": "/etc/aide/aide.conf",
+        "navigation": null,
+        "expected_output": "Matching path entries in aide.conf confirm AIDE covers monitoring configs. Output from aide --check listing these paths confirms active monitoring."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the security team's FIM policy documentation and any SIEM alert rules to confirm whether monitoring configuration file changes generate alerts and are reviewed.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented FIM policy covering monitoring agent configuration paths, with evidence of alert generation in the SIEM for recent test changes, confirms config_integrity_monitoring_enabled is true. Absence of such documentation or alert rules confirms it is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (majority of deployments; FIM for monitoring config paths is frequently overlooked even when auditd is installed)",
+      "true (security-mature environments with a formal FIM program that explicitly covers monitoring infrastructure configuration files)"
+    ]
+  },
+  {
+    "option_name": "agent_version_has_known_cve",
+    "option_description": "Controls whether the installed monitoring agent binary and its bundled libraries carry any publicly disclosed, unpatched CVEs. This is a boolean assessment result derived by comparing the installed version string against NVD/CVE databases and vendor security advisories.",
+    "security_impact": "The Rego policy fires the 'unpatched_monitoring_agent_software' exposure whenever agent_version_has_known_cve is true, regardless of network exposure. A second, higher-risk condition combines this flag with agent_network_interface_exposed=true, meaning a network-reachable agent with a known CVE becomes directly exploitable via T1190 (Exploit Public-Facing Application) or T1210 (Exploitation of Remote Services). Attackers can leverage unpatched vulnerabilities to gain code execution within the monitoring agent's privilege context.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Extract the installed agent version and query the NVD REST API for matching CVEs. Replace 'datadog-agent' with the actual package name on your system.",
+        "command": "PKG_VER=$(dpkg-query -W -f='${Version}' datadog-agent 2>/dev/null || rpm -q --queryformat '%{VERSION}' datadog-agent 2>/dev/null); echo \"Installed version: $PKG_VER\"; curl -s \"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=datadog-agent+${PKG_VER}&resultsPerPage=5\" | python3 -m json.tool | grep -E '(cveId|vulnStatus)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If CVEs are returned with status 'Analyzed' or 'Modified', agent_version_has_known_cve should be set to true. An empty 'vulnerabilities' array indicates no known CVEs for that version string."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Trivy to scan the monitoring agent package or container image for known CVEs, including bundled library versions.",
+        "command": "trivy fs --scanners vuln /opt/datadog-agent/ 2>/dev/null || trivy image datadog/agent:latest --severity HIGH,CRITICAL --format table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A table listing CVE IDs, severity, affected package, installed version, and fixed version. If the 'FIXED VERSION' column shows a newer version than installed, agent_version_has_known_cve is true."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the package manager's advisory list for the installed monitoring agent package to identify any unpatched security updates.",
+        "command": "apt-get --just-print upgrade 2>/dev/null | grep -i 'agent\\|monitor\\|prometheus\\|telegraf\\|fluentd' || yum check-update --security 2>/dev/null | grep -i 'agent\\|monitor'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the agent package appears in the upgrade list with a security tag, unpatched CVEs exist and agent_version_has_known_cve is true. No output for the agent package means it is current per the package manager."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the vendor's security advisory feed or GitHub Security Advisories API for the specific agent product and compare against the installed version.",
+        "command": "curl -s 'https://api.github.com/repos/prometheus/prometheus/security-advisories' -H 'Accept: application/vnd.github+json' | python3 -c \"import sys,json; advisories=json.load(sys.stdin); [print(a['ghsa_id'], a['severity'], a['vulnerabilities']) for a in advisories]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of GHSA IDs with severity and affected version ranges. Cross-reference the installed version against 'vulnerable_version_range' fields to determine if agent_version_has_known_cve should be true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "days_since_last_patch",
+    "option_description": "Measures the number of elapsed calendar days since the monitoring agent package or any of its tracked dependencies received a version update or security patch. Ranges from 0 (patched today) to 3650 (ten years without update).",
+    "security_impact": "The Rego policy triggers the 'unpatched_monitoring_agent_software' exposure when days_since_last_patch exceeds 90 AND agent_network_interface_exposed is true. This threshold reflects the typical window between CVE publication and active exploitation. An agent that has not been patched in over 90 days and is network-exposed presents a concrete opportunity for T1190 and T1210 attacks, even if no CVE has yet been individually identified for the exact installed version.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve the installation or last-update timestamp of the monitoring agent package from the package manager database and compute elapsed days.",
+        "command": "INSTALL_DATE=$(rpm -q --queryformat '%{INSTALLTIME:date}' datadog-agent 2>/dev/null || stat -c %Y $(dpkg -L datadog-agent 2>/dev/null | head -1) 2>/dev/null); EPOCH_INSTALL=$(date -d \"$INSTALL_DATE\" +%s 2>/dev/null || echo \"$INSTALL_DATE\"); echo \"Days since patch: $(( ($(date +%s) - EPOCH_INSTALL) / 86400 ))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing elapsed days, e.g., 'Days since patch: 47'. Values above 90 combined with network exposure trigger the exposure finding."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the package manager history log to find the most recent update event for the agent package.",
+        "command": "grep -i 'datadog-agent\\|prometheus\\|telegraf\\|zabbix-agent\\|nagios' /var/log/dpkg.log /var/log/apt/history.log 2>/dev/null | grep -E 'install|upgrade' | tail -5 || rpm -q --queryformat '%{INSTALLTIME:date}\n' datadog-agent 2>/dev/null",
+        "file_path": "/var/log/dpkg.log",
+        "navigation": null,
+        "expected_output": "A timestamped log line showing the last install or upgrade event. Compute the difference between that date and today to populate days_since_last_patch."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review CI/CD or configuration management deployment logs (Ansible, Chef, Puppet, or Terraform state) for the last agent deployment event timestamp.",
+        "command": "find /var/log/ansible /var/log/puppet /var/log/chef -name '*.log' 2>/dev/null | xargs grep -l 'agent\\|monitor' | xargs grep -h 'changed\\|updated\\|installed' | sort | tail -10",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log lines with timestamps indicating when the agent was last deployed. Use the most recent timestamp to calculate days elapsed."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the operations team or review the asset management system (e.g., ServiceNow, Snipe-IT, CMDB) for the recorded last-patched date of the monitoring agent on each host.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Asset Management System → CI Search → filter by hostname → 'Last Patched Date' field for the monitoring agent component",
+        "expected_output": "A recorded date for the last patch event. Calculate days_since_last_patch as (today - last_patched_date) in days."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "7",
+      "30",
+      "90",
+      "180",
+      "365"
+    ]
+  },
+  {
+    "option_name": "agent_network_interface_exposed",
+    "option_description": "Indicates whether the monitoring agent process is bound to a non-loopback network interface (e.g., 0.0.0.0, ::, or a specific external IP), making it reachable from other hosts on the network rather than only from the local machine.",
+    "security_impact": "This attribute is evaluated in two separate Rego conditions. First, it amplifies the risk of a known CVE: if agent_version_has_known_cve is true AND this flag is true, the 'unpatched_monitoring_agent_software' exposure fires at elevated risk because the vulnerable service is directly reachable for exploitation (T1210). Second, it independently triggers the exposure when days_since_last_patch exceeds 90, capturing the scenario where a stale but not yet CVE-tagged agent is exposed on the network. Network-unexposed agents (loopback-only) significantly reduce the exploitability window.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use ss (or netstat) to list all TCP/UDP listening sockets associated with the monitoring agent process and identify whether any bind to non-loopback addresses.",
+        "command": "ss -tlnp | grep -E 'datadog|prometheus|telegraf|zabbix|nagios|node_exporter|beats' || netstat -tlnp 2>/dev/null | grep -E 'datadog|prometheus|telegraf|zabbix|nagios|node_exporter|beats'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing the local address. If the Local Address column shows '0.0.0.0:PORT' or '[::]:PORT' or an external IP rather than '127.0.0.1:PORT', agent_network_interface_exposed is true."
+      },
+      {
+        "type": "command",
+        "instruction": "Check all listening sockets owned by the agent process PID to confirm the bind address directly from the process perspective.",
+        "command": "AGENT_PID=$(pgrep -f 'datadog-agent\\|prometheus\\|node_exporter\\|telegraf' | head -1); cat /proc/${AGENT_PID}/net/tcp6 /proc/${AGENT_PID}/net/tcp 2>/dev/null | awk 'NR>1 && $4==\"0A\" {print $2}' | while read addr; do python3 -c \"import socket,struct; a='$addr'.split(':'); print(socket.inet_ntoa(struct.pack('<I',int(a[0],16))))\"; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Decoded IP addresses for listening sockets. Any address other than 127.0.0.1 or ::1 confirms agent_network_interface_exposed is true."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the agent configuration file for the listen address or bind address parameter to determine the configured network interface.",
+        "command": "grep -rE 'listen_address|bind_addr|server_host|listen_host|listen:' /etc/datadog-agent/ /etc/prometheus/ /etc/telegraf/ /etc/zabbix/ 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/datadog-agent/datadog.yaml",
+        "navigation": null,
+        "expected_output": "Configuration lines such as 'listen_address: 0.0.0.0:8125' indicate exposed interfaces (true). 'listen_address: 127.0.0.1:8125' indicates loopback-only binding (false)."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a remote host within the same network segment, attempt a TCP connection to the agent's known port to confirm whether the service is reachable externally.",
+        "command": "nc -zv <agent_host_ip> 9090 2>&1 || nmap -sT -p 9090,8125,10050,5044 <agent_host_ip> --open",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful connection ('open' or 'Connection succeeded') from a remote host confirms agent_network_interface_exposed is true. A refused or filtered connection suggests false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "listener_bind_address",
+    "option_description": "The IP address string to which the monitoring agent's network listener socket is bound. This determines which network interfaces accept inbound connections to the agent's API or data collection endpoint. Common values include '0.0.0.0' (all IPv4 interfaces), '127.0.0.1' (loopback only), '::' (all IPv6), or a specific management network IP.",
+    "security_impact": "The Rego policy evaluates listener_bind_address=='0.0.0.0' in two conditions for the 'excessive_network_exposure_of_agent_listener' exposure. The first fires when this value is 0.0.0.0 and no network policy restricts the port, meaning the service is reachable from any host with network access (T1046 - Network Service Discovery). The second fires when 0.0.0.0 is combined with missing authentication, creating a fully unauthenticated and network-wide accessible service. The insecure default value of 0.0.0.0 means newly deployed agents are immediately over-exposed unless explicitly reconfigured.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use ss to display the exact bind address for all monitoring agent listener sockets currently active on the system.",
+        "command": "ss -tlnp | awk 'NR>1 {print $4, $6}' | grep -E 'datadog|prometheus|node_exporter|telegraf|zabbix|beats|fluentd' | awk '{print \"Bind address: \" $1}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output such as 'Bind address: 0.0.0.0:9090' confirms the listener is bound to all interfaces. 'Bind address: 127.0.0.1:9090' or a management IP confirms restricted binding."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read the agent configuration file directly to find the configured listen or bind address parameter before any runtime override.",
+        "command": "grep -rE '(listen_address|bind_addr|bind_address|server_host|host:|address:)\\s*[:=]' /etc/prometheus/prometheus.yml /etc/datadog-agent/datadog.yaml /etc/telegraf/telegraf.conf /etc/zabbix/zabbix_agentd.conf /etc/node_exporter/ 2>/dev/null | grep -v '^\\s*#'",
+        "file_path": "/etc/prometheus/prometheus.yml",
+        "navigation": null,
+        "expected_output": "A key-value pair such as '--web.listen-address=0.0.0.0:9090' or 'bind_addr: \"127.0.0.1\"'. The IP portion before the colon is the listener_bind_address value."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the systemd service unit file or startup script to capture any command-line flags that override the config file bind address at runtime.",
+        "command": "systemctl cat datadog-agent prometheus node_exporter telegraf 2>/dev/null | grep -E 'ExecStart|listen-address|bind|host' | grep -v '^#'",
+        "file_path": "/etc/systemd/system/prometheus.service",
+        "navigation": null,
+        "expected_output": "The ExecStart line may include flags like '--web.listen-address=:9090' (equivalent to 0.0.0.0:9090) or '--web.listen-address=10.0.1.5:9090' for a specific interface. This value takes precedence over config files."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the agent's own status or configuration API endpoint to retrieve the reported listen address from the running process.",
+        "command": "curl -s http://localhost:5002/agent/status 2>/dev/null | python3 -m json.tool | grep -i 'listen\\|bind\\|address' || curl -s http://localhost:9090/-/config 2>/dev/null | grep -i 'listen'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON or text response containing the active listen address, e.g., '\"listen_address\": \"0.0.0.0:5002\"'. This confirms the runtime value of listener_bind_address."
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "0.0.0.0",
+      "127.0.0.1",
+      "::",
+      "::1",
+      "10.0.1.5",
+      "192.168.100.10"
+    ]
+  },
+  {
+    "option_name": "network_policy_restricts_agent_port",
+    "option_description": "A boolean indicating whether an explicit firewall rule, OS-level packet filter, cloud security group, or Kubernetes NetworkPolicy is in place that limits inbound connections to the monitoring agent's listener port to only trusted source IP ranges or management networks.",
+    "security_impact": "The Rego policy uses this attribute as a compensating control in the 'excessive_network_exposure_of_agent_listener' exposure. When listener_bind_address is 0.0.0.0, the exposure fires only if network_policy_restricts_agent_port is false (or absent). If this is true, the broad bind address is partially mitigated by network-layer access controls, preventing the exposure from triggering on bind address alone. Without this restriction, the agent's listener is discoverable and reachable by any host on the network segment (T1046), enabling reconnaissance and targeted exploitation attempts.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect iptables or nftables rules to verify whether the agent's listener port has an explicit ACCEPT rule limited to trusted source addresses, with a DROP or REJECT default.",
+        "command": "AGENT_PORT=9090; iptables -L INPUT -n -v 2>/dev/null | grep $AGENT_PORT; nft list ruleset 2>/dev/null | grep -A2 -B2 \"$AGENT_PORT\"; ufw status verbose 2>/dev/null | grep $AGENT_PORT",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An iptables ACCEPT rule scoped to a specific source IP or subnet (e.g., '10.0.0.0/8') for the agent port indicates network_policy_restricts_agent_port is true. A blanket ACCEPT rule with no source restriction, or no rule at all, means false."
+      },
+      {
+        "type": "command",
+        "instruction": "For cloud-hosted agents, use the cloud CLI to inspect the security group or firewall rules associated with the instance and verify port-specific source restrictions.",
+        "command": "aws ec2 describe-security-groups --filters 'Name=ip-permission.from-port,Values=9090' --query 'SecurityGroups[*].{ID:GroupId,Rules:IpPermissions}' --output json 2>/dev/null || gcloud compute firewall-rules list --filter='allowed[].ports:9090' --format=json 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output showing 'IpRanges' or 'sourceRanges'. If source ranges include '0.0.0.0/0' or '::/0', the policy does not restrict the port (false). Specific CIDR blocks for management networks indicate true."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes-deployed agents, check for NetworkPolicy objects that restrict ingress to the agent pod on the relevant port.",
+        "command": "kubectl get networkpolicy -A -o json 2>/dev/null | python3 -c \"import sys,json; [print(p['metadata']['namespace'], p['metadata']['name'], p.get('spec',{}).get('ingress','')) for p in json.load(sys.stdin)['items']]\" | grep -i 'agent\\|monitor\\|prometheus'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NetworkPolicy objects with 'ingress' rules scoped to specific namespaces or pod selectors confirm restriction (true). Absence of any NetworkPolicy for the agent namespace means false."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the cloud provider console or network management GUI to check security group inbound rules for the monitoring agent's port.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → EC2 → Security Groups → Select agent instance SG → Inbound Rules → filter by port 9090 (or agent port) → inspect Source column for specific CIDR vs 0.0.0.0/0",
+        "expected_output": "Inbound rules showing a specific CIDR block (e.g., 10.10.0.0/24) as the source for the agent port confirm network_policy_restricts_agent_port is true. A source of '0.0.0.0/0' means false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "config_change_audit_logging_enabled",
+    "option_description": "Controls whether the monitoring or alerting platform records an audit trail entry whenever detection rules, alert configurations, notification settings, or suppression rules are created, modified, or deleted. This is typically a toggle in the platform's administration settings.",
+    "security_impact": "The Rego policy treats absent or disabled config_change_audit_logging as the primary trigger for the 'insufficient_logging_of_alert_and_config_changes' exposure. If this is false or unset, the policy immediately fires, since without any audit logging an attacker can modify alert thresholds or disable detection rules (T1562.001 - Disable or Modify Tools) and suppress indicators (T1562.006) with no forensic trail. Even when enabled, the policy continues checking audit_log_fields_captured for completeness, but the complete absence of audit logging is the most critical gap.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the monitoring platform's administration panel and locate the audit logging or security settings section to verify the audit log toggle state.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana: Configuration → Server Admin → Settings → search 'audit'; Prometheus/Alertmanager: no native UI - check config file; Datadog: Organization Settings → Audit Trail → verify 'Enabled' status; Splunk: Settings → System → Audit → Audit Log Settings",
+        "expected_output": "A toggle or checkbox labeled 'Audit Logging', 'Audit Trail', or 'Config Change Logging' in an enabled/active state confirms config_change_audit_logging_enabled is true. A disabled or absent toggle means false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the monitoring platform configuration file for audit logging directives and verify they are enabled.",
+        "command": "grep -rE '(audit|audit_log|auditlog|enable_audit|log_config_changes|audit_enabled)\\s*[:=]' /etc/grafana/grafana.ini /etc/prometheus/ /etc/alertmanager/ /etc/datadog-agent/ /opt/splunk/etc/system/local/ 2>/dev/null | grep -v '^\\s*#'",
+        "file_path": "/etc/grafana/grafana.ini",
+        "navigation": null,
+        "expected_output": "Lines such as '[auditing] enabled = true' in Grafana or 'audit_log_enabled: true' in other platforms confirm the feature is active. Missing or commented-out lines, or explicit 'false' values, mean config_change_audit_logging_enabled is false."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Perform a test configuration change (e.g., rename an alert rule) and then check the audit log destination to verify that an entry was generated.",
+        "command": "tail -50 /var/log/grafana/grafana.log 2>/dev/null | grep -i audit; tail -50 /var/log/datadog/agent.log 2>/dev/null | grep -i 'config change\\|audit'; journalctl -u grafana-server --since '5 minutes ago' 2>/dev/null | grep -i audit",
+        "file_path": "/var/log/grafana/grafana.log",
+        "navigation": null,
+        "expected_output": "A log entry timestamped after the test change that references 'audit', 'config_changed', or 'rule_modified' confirms the feature is functioning. No new entries after a known change confirms config_change_audit_logging_enabled is false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the monitoring platform's API to retrieve the current audit logging configuration state.",
+        "command": "curl -s -H 'Authorization: Bearer $GRAFANA_API_KEY' http://localhost:3000/api/admin/settings 2>/dev/null | python3 -m json.tool | grep -A5 'auditing'; curl -s -H 'DD-API-KEY: $DD_API_KEY' 'https://api.datadoghq.com/api/v1/settings' 2>/dev/null | python3 -m json.tool | grep -i audit",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON response with an 'auditing' or 'audit_log' section where 'enabled' is 'true'. If the key is absent or 'false', config_change_audit_logging_enabled is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "audit_log_fields_captured",
+    "option_description": "An array listing the data fields that are included in each audit log entry when a configuration or rule change is made. For forensic reconstruction of tampering events, the minimum required fields are: 'user' (who made the change), 'timestamp' (when), 'before_value' (prior state), and 'after_value' (new state).",
+    "security_impact": "The Rego policy evaluates this array with four separate conditions under 'insufficient_logging_of_alert_and_config_changes'. Even when config_change_audit_logging_enabled is true, the exposure fires independently for each missing required field: if 'user' is absent, 'before_value' is absent, or 'after_value' is absent. This reflects that incomplete audit logs undermine forensic reconstruction—an attacker who modifies suppression rules (T1562.006) or disables detection rules (T1562.001) leaves no attributable, reversible evidence if actor identity or change deltas are not captured. The 'timestamp' field is implicitly required but the policy specifically checks for user and both value fields.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Retrieve a sample audit log entry for a recent configuration change and enumerate the fields present in the log record.",
+        "command": "tail -20 /var/log/grafana/grafana.log 2>/dev/null | python3 -c \"import sys,json; [print(sorted(json.loads(l).keys())) for l in sys.stdin if 'audit' in l.lower()]\" 2>/dev/null; journalctl -u grafana-server -o json --since '1 hour ago' 2>/dev/null | python3 -c \"import sys,json; [print(sorted(json.loads(l).get('MESSAGE','{}') if isinstance(json.loads(l).get('MESSAGE','{}'),dict) else {})) for l in sys.stdin]\"",
+        "file_path": "/var/log/grafana/grafana.log",
+        "navigation": null,
+        "expected_output": "A list of field names present in the audit log JSON, e.g., ['action', 'after_value', 'before_value', 'timestamp', 'user']. Compare this against the required set to determine which fields are captured."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the monitoring platform's audit log API endpoint to retrieve recent audit entries and inspect their schema for required fields.",
+        "command": "curl -s -H 'Authorization: Bearer $GRAFANA_API_KEY' 'http://localhost:3000/api/audit/entries?limit=5' 2>/dev/null | python3 -m json.tool | python3 -c \"import sys,json; entries=json.load(sys.stdin); [print(sorted(e.keys())) for e in entries[:2]]\" 2>/dev/null; curl -s -H 'DD-API-KEY: $DD_API_KEY' -H 'DD-APPLICATION-KEY: $DD_APP_KEY' 'https://api.datadoghq.com/api/v2/audit/events?page[limit]=3' 2>/dev/null | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON audit event objects. Verify presence of keys mapping to 'user' (or 'actor', 'userId'), 'timestamp' (or '@timestamp', 'created'), 'before_value' (or 'old_value', 'previous'), and 'after_value' (or 'new_value', 'current'). Populate audit_log_fields_captured with the standardized names of present fields."
+      },
+      {
+        "type": "gui",
+        "instruction": "Access the monitoring platform's audit log viewer in the administration console and inspect a config change event to identify which fields are displayed.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana: Server Admin → Audit Logs → click a 'config_updated' event → review event detail panel for fields; Splunk: Apps → Monitoring Console → Audit → select a rule change event → expand event fields; Datadog: Organization Settings → Audit Trail → filter by 'type:rule_updated' → expand event",
+        "expected_output": "An event detail panel showing field names and values. Document which of 'user/actor', 'timestamp', 'before_value/old_value', and 'after_value/new_value' are present to populate the audit_log_fields_captured array."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the monitoring platform's documentation or interview the platform administrator to determine the configured audit log schema and any customization of captured fields.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Check vendor documentation for 'audit log schema' or 'audit trail fields'; review any custom log formatter configuration in /etc/grafana/grafana.ini [auditing] section or equivalent",
+        "expected_output": "A documented list of fields emitted by the audit logger. If documentation confirms 'user', 'timestamp', 'before_value', and 'after_value' are all included, the array is complete. Missing fields should be noted as gaps."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"user\", \"timestamp\", \"before_value\", \"after_value\"]",
+      "[\"user\", \"timestamp\", \"action\"]",
+      "[\"timestamp\", \"action\", \"resource\"]",
+      "[]"
+    ]
+  },
+  {
+    "option_name": "suppression_change_logging_enabled",
+    "option_description": "Controls whether the monitoring or alerting platform specifically and separately captures audit log entries for changes to alert suppression rules, silence windows, inhibition rules, or mute configurations—distinct from general configuration change logging. This targets the specific action of silencing or suppressing alerts.",
+    "security_impact": "The Rego policy fires a standalone condition in 'insufficient_logging_of_alert_and_config_changes' whenever suppression_change_logging_enabled is false, independent of whether general config_change_audit_logging_enabled is true. This separation exists because alert suppression changes are a primary attacker technique (T1562.006 - Indicator Blocking, T1562.011 - Spoof Security Alerting): an attacker who gains access to the monitoring platform will specifically silence alerts covering their malicious activity. Without dedicated logging of suppression changes, these targeted modifications may be excluded from general config audit logs, creating a blind spot. The corresponding MITRE technique T1070 (Indicator Removal) is also referenced, as suppression effectively removes indicators from operator visibility.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Create a test alert suppression or silence rule in the monitoring platform, then immediately search audit logs specifically for suppression-related entries.",
+        "command": "sleep 5; grep -iE 'silence|suppress|mute|inhibit' /var/log/grafana/grafana.log /var/log/alertmanager/alertmanager.log /var/log/datadog/agent.log 2>/dev/null | tail -10; journalctl -u alertmanager -u grafana-server --since '2 minutes ago' 2>/dev/null | grep -iE 'silence|suppress|mute'",
+        "file_path": "/var/log/alertmanager/alertmanager.log",
+        "navigation": null,
+        "expected_output": "A log entry timestamped after the test suppression creation containing fields like 'action': 'silence_created' or 'type': 'suppression_modified'. Presence of such an entry confirms suppression_change_logging_enabled is true. No entry means false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the alerting platform's API to create a test silence and then retrieve audit log entries filtered to suppression-type actions to verify they are recorded.",
+        "command": "curl -s -X POST 'http://localhost:9093/api/v2/silences' -H 'Content-Type: application/json' -d '{\"matchers\":[{\"name\":\"test\",\"value\":\"audit_test\",\"isRegex\":false}],\"startsAt\":\"2024-01-01T00:00:00Z\",\"endsAt\":\"2024-01-01T01:00:00Z\",\"comment\":\"audit test\",\"createdBy\":\"auditor\"}' 2>/dev/null; sleep 3; curl -s -H 'Authorization: Bearer $GRAFANA_API_KEY' 'http://localhost:3000/api/audit/entries?action=silence_created&limit=5' 2>/dev/null | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An audit log API response containing an entry for the silence creation with action type indicating suppression. If the API returns an empty array or no silence-related entries, suppression_change_logging_enabled is false."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the alert suppression or silence management interface, create a test silence, then immediately check the audit log viewer filtered for suppression actions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Alertmanager: Silences → New Silence → create test → check audit; Grafana: Alerting → Silences → Add Silence → create test; then Server Admin → Audit Logs → filter action='silence_created' or 'mute_added'; Datadog: Monitors → Manage Downtime → create test → Audit Trail → filter by 'type:downtime'",
+        "expected_output": "An audit log entry appearing immediately after the silence creation, showing the user who created it, the suppression rule details, and a timestamp. If no entry appears for suppression actions specifically, suppression_change_logging_enabled is false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the monitoring platform configuration for explicit settings governing suppression or silence audit logging, which may be separate from the general audit log enable flag.",
+        "command": "grep -rE '(suppression_log|silence_audit|mute_log|suppress_audit|log_silences|audit_silences|inhibit_log)\\s*[:=]' /etc/grafana/grafana.ini /etc/alertmanager/alertmanager.yml /etc/datadog-agent/ /opt/splunk/etc/ 2>/dev/null | grep -v '^\\s*#'; grep -A10 '\\[auditing\\]' /etc/grafana/grafana.ini 2>/dev/null",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "Configuration keys such as 'log_silences: true' or 'auditing.log_suppression_changes = true'. If no such key exists or it is set to false, suppression_change_logging_enabled should be evaluated as false. Note that many platforms do not separate this from general audit logging, which itself may be a finding."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "secret_storage_method",
+    "option_description": "Controls how credentials (API keys, tokens, passwords) used by the monitoring agent are stored and retrieved at runtime. Options range from plaintext files on disk to integration with dedicated secrets managers such as HashiCorp Vault or AWS Secrets Manager.",
+    "security_impact": "The Rego policy fires 'secrets_stored_in_plaintext_config_files' when secret_storage_method is 'plaintext_file' and either the config file is world-readable or plaintext_secret_patterns_found is true. Storing credentials in plaintext files means any process or user with filesystem read access to the config directory can harvest API keys and tokens without any additional exploitation steps, directly enabling T1552.001 (Credentials In Files).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the primary monitoring agent configuration file for credential fields and determine whether values are literal strings or references to a secrets manager path/environment variable.",
+        "command": "grep -E '(password|api_key|token|secret|credentials|auth_token)\\s*[:=]' /etc/prometheus/prometheus.yml /etc/grafana/grafana.ini /etc/alertmanager/alertmanager.yml /opt/datadog-agent/etc/datadog.yaml 2>/dev/null",
+        "file_path": "/etc/prometheus/prometheus.yml, /etc/grafana/grafana.ini, /etc/alertmanager/alertmanager.yml, /opt/datadog-agent/etc/datadog.yaml",
+        "navigation": null,
+        "expected_output": "If values are vault:// paths, $ENV_VAR references, or AWS Secrets Manager ARNs, the method is secrets_manager or environment_variable_from_secrets_backend. Literal strings indicate plaintext_file."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether the agent's environment variables are sourced from a secrets backend by inspecting the systemd unit file or init script for ExecStartPre hooks that fetch secrets.",
+        "command": "systemctl cat prometheus.service | grep -E '(ExecStartPre|Environment|EnvironmentFile|Vault|AWS_SECRET)'; cat /etc/systemd/system/datadog-agent.service 2>/dev/null | grep -i secret",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of ExecStartPre calls to vault agent or aws secretsmanager get-secret-value confirms environment_variable_from_secrets_backend. Plain EnvironmentFile= pointing to a static file suggests encrypted_file or plaintext_file."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform or infrastructure team to confirm whether a secrets management workflow (e.g., Vault dynamic secrets, AWS Secrets Manager rotation) is part of the monitoring agent deployment pipeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation or runbook confirming the secrets injection mechanism and rotation schedule."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "plaintext_file",
+      "environment_variable_from_secrets_backend",
+      "secrets_manager"
+    ]
+  },
+  {
+    "option_name": "plaintext_secret_patterns_found",
+    "option_description": "Indicates whether static analysis or manual inspection of the monitoring agent's configuration files reveals credential-like key-value pairs (e.g., api_key, token, password, secret) assigned to literal string values rather than to secrets manager references or environment variable placeholders.",
+    "security_impact": "The Rego policy triggers 'secrets_stored_in_plaintext_config_files' when this is true alongside secret_storage_method == 'plaintext_file'. A true value means credentials are directly embedded in config files on disk, making them recoverable by any process with read access to the config directory. This maps directly to T1552.001 and T1552.004 (Private Keys).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use grep with an extended regex to search for common credential key names followed by non-empty literal string values in all monitoring config files.",
+        "command": "grep -rEn '(password|api_key|token|secret|credentials|auth_token|passwd|api_secret)\\s*[:=]\\s*[\"\\x27]?[A-Za-z0-9+/=_\\-]{8,}[\"\\x27]?' /etc/prometheus/ /etc/alertmanager/ /etc/grafana/ /opt/datadog-agent/etc/ 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/prometheus/, /etc/alertmanager/, /etc/grafana/, /opt/datadog-agent/etc/",
+        "navigation": null,
+        "expected_output": "Any line containing a key=value pair where the value is a non-placeholder literal string confirms plaintext_secret_patterns_found = true."
+      },
+      {
+        "type": "command",
+        "instruction": "Run TruffleHog against the configuration directory to detect high-entropy strings and known credential patterns automatically.",
+        "command": "trufflehog filesystem /etc/prometheus/ /etc/alertmanager/ /etc/grafana/ --only-verified 2>/dev/null; trufflehog filesystem /opt/datadog-agent/etc/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TruffleHog findings with 'Verified: true' or detected credential types confirm plaintext_secret_patterns_found = true. No output or 'No results' confirms false."
+      },
+      {
+        "type": "command",
+        "instruction": "Use gitleaks to detect secret patterns if the config directory is version-controlled or to scan the filesystem directly.",
+        "command": "gitleaks detect --source /etc/prometheus/ --no-git 2>/dev/null; gitleaks detect --source /etc/alertmanager/ --no-git 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-zero findings report confirms true. Clean scan (exit 0, no leaks) confirms false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (legacy or developer-configured deployments)",
+      "false (secrets-manager-integrated deployments)"
+    ]
+  },
+  {
+    "option_name": "mutual_tls_enabled",
+    "option_description": "Controls whether the collector endpoint is configured to require and validate a client certificate presented by the monitoring agent during the TLS handshake, enforcing full mutual TLS (mTLS) rather than server-only authentication.",
+    "security_impact": "The Rego policy triggers 'missing_mutual_tls_for_agent_to_collector_communication' when mutual_tls_enabled is false. Without mTLS, any process that can reach the collector's network port can inject fabricated telemetry or alert events into the monitoring pipeline without presenting a valid identity, enabling T1557 (Adversary-in-the-Middle) and T1649 (Steal or Forge Authentication Certificates).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the collector TLS configuration block for client authentication directives. In OpenTelemetry Collector, look for 'client_ca_file' under the receiver TLS settings. In Prometheus remote_write or Alertmanager, look for 'tls_config' with 'client_auth_type'.",
+        "command": "grep -E '(client_auth|require_client_cert|client_ca_file|tls_client|mutual)' /etc/otelcol/config.yaml /etc/prometheus/prometheus.yml /etc/alertmanager/alertmanager.yml 2>/dev/null",
+        "file_path": "/etc/otelcol/config.yaml, /etc/prometheus/prometheus.yml, /etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "Presence of 'client_auth_type: RequireAndVerifyClientCert' or 'client_ca_file: /path/to/ca.crt' with a valid path confirms mutual_tls_enabled = true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a TLS connection to the collector without presenting a client certificate and observe whether the handshake is rejected, which would confirm mTLS is enforced.",
+        "command": "openssl s_client -connect <collector_host>:<port> -no_ssl3 2>&1 | grep -E '(handshake failure|certificate required|Verify return code)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'handshake failure' or 'certificate required' response confirms mTLS is enforced (true). A successful connection without a client cert confirms mTLS is not enforced (false)."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the OpenTelemetry Collector's zPages extension or inspect the running process arguments for TLS flags indicating client certificate requirements.",
+        "command": "curl -s http://localhost:55679/debug/servicez 2>/dev/null | grep -i tls; ps aux | grep otelcol | grep -E '(tls|client.ca|mutual)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "References to client CA or mTLS in service configuration confirm true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in most monitoring stack deployments)",
+      "true (hardened enterprise deployments with PKI infrastructure)"
+    ]
+  },
+  {
+    "option_name": "collector_client_ca_configured",
+    "option_description": "Indicates whether the monitoring collector has a trusted Certificate Authority (CA) certificate bundle configured that it uses to validate incoming client certificates presented by agents during mTLS handshakes.",
+    "security_impact": "The Rego policy independently triggers 'missing_mutual_tls_for_agent_to_collector_communication' when collector_client_ca_configured is false. Even if mTLS flags are set, the absence of a configured client CA means the collector cannot verify the identity of connecting agents, allowing any client to present a self-signed or forged certificate and inject data into the monitoring pipeline, directly enabling T1649.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search all collector configuration files for CA certificate path directives used to validate agent client certificates.",
+        "command": "grep -rE '(client_ca_file|ca_cert|ca_file|client_ca|tls_client_ca|trusted_ca)' /etc/otelcol/ /etc/prometheus/ /etc/alertmanager/ /etc/vector/ 2>/dev/null",
+        "file_path": "/etc/otelcol/config.yaml, /etc/prometheus/prometheus.yml, /etc/alertmanager/alertmanager.yml, /etc/vector/vector.toml",
+        "navigation": null,
+        "expected_output": "A non-empty path value pointing to an existing CA bundle file (e.g., 'client_ca_file: /etc/ssl/certs/internal-ca.crt') confirms collector_client_ca_configured = true."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the referenced CA certificate file actually exists and is non-empty to confirm the configuration is operative, not just syntactically present.",
+        "command": "CA_FILE=$(grep -rE 'client_ca_file|ca_cert' /etc/otelcol/ /etc/prometheus/ 2>/dev/null | awk -F: '{print $NF}' | tr -d ' '); [ -n \"$CA_FILE\" ] && [ -s \"$CA_FILE\" ] && echo 'CA file exists and is non-empty' || echo 'CA file missing or empty'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'CA file exists and is non-empty' confirms collector_client_ca_configured = true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Connect to the collector with a client certificate signed by an untrusted CA. If the collector rejects the connection, it has a CA configured for validation.",
+        "command": "openssl s_client -connect <collector_host>:<port> -cert /tmp/untrusted-client.crt -key /tmp/untrusted-client.key 2>&1 | grep -E '(alert|verify error|certificate unknown)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'certificate unknown' or 'alert handshake failure' error confirms the collector validates client CAs (true). Successful connection with an untrusted cert confirms false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in internal-network-only deployments)",
+      "true (PKI-enforced enterprise environments)"
+    ]
+  },
+  {
+    "option_name": "tls_mode",
+    "option_description": "Describes the overall TLS authentication mode in use between monitoring agents and the collector endpoint, indicating whether both parties authenticate each other (mutual_tls), only the server is authenticated (server_tls_only), or TLS is not used at all (disabled).",
+    "security_impact": "The Rego policy triggers 'missing_mutual_tls_for_agent_to_collector_communication' when tls_mode is 'server_tls_only' or 'disabled'. A value of 'disabled' exposes telemetry to interception (T1040, T1565.002) and allows rogue agents to inject data. A value of 'server_tls_only' permits unauthenticated agent connections, enabling fabricated telemetry injection (T1557). Only 'mutual_tls' prevents both threats.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the receiver or listener TLS configuration block in the collector config to determine the client authentication setting.",
+        "command": "grep -A5 -E '(tls:|grpc_server:|http_server:|receivers:)' /etc/otelcol/config.yaml 2>/dev/null | grep -E '(client_auth|client_ca|tls_mode|insecure)'; grep -E 'insecure|client_auth_type' /etc/otelcol/config.yaml 2>/dev/null",
+        "file_path": "/etc/otelcol/config.yaml, /etc/prometheus/prometheus.yml, /etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "'insecure: true' or absence of TLS block maps to 'disabled'. 'client_auth_type: NoClientCert' or 'client_auth_type: RequestClientCert' maps to 'server_tls_only'. 'client_auth_type: RequireAndVerifyClientCert' maps to 'mutual_tls'."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client to probe the collector port and inspect the TLS handshake to determine whether a certificate is requested from the client.",
+        "command": "openssl s_client -connect <collector_host>:<port> -status 2>&1 | grep -E '(No client certificate CA names sent|Acceptable client certificate CA names|Verify return code|no peer certificate)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'No client certificate CA names sent' with successful handshake = server_tls_only. 'Acceptable client certificate CA names' listed = mutual_tls. Connection refused or plaintext response = disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "For Prometheus-based stacks, inspect the web configuration file for TLS client authentication settings.",
+        "command": "cat /etc/prometheus/web-config.yml 2>/dev/null | grep -E '(client_auth_type|client_ca_file)'; cat /etc/alertmanager/web-config.yml 2>/dev/null | grep -E '(client_auth_type|client_ca_file)'",
+        "file_path": "/etc/prometheus/web-config.yml, /etc/alertmanager/web-config.yml",
+        "navigation": null,
+        "expected_output": "client_auth_type value directly maps to the tls_mode enum: RequireAndVerifyClientCert = mutual_tls, NoClientCert = server_tls_only, absent section = disabled."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "server_tls_only",
+      "disabled",
+      "mutual_tls"
+    ]
+  },
+  {
+    "option_name": "notification_channel_count",
+    "option_description": "Represents the total number of distinct alert notification channels (e.g., email, PagerDuty, Slack, webhooks) configured in the monitoring system's alerting backend, used to assess whether redundancy exists in alert delivery paths.",
+    "security_impact": "The Rego policy triggers 'single_point_of_failure_in_alert_delivery' when notification_channel_count is <= 1 and either failover_channel_configured or alert_delivery_health_check_enabled is absent/false. A single channel means a targeted disruption of that channel (e.g., revoking the Slack webhook token or blocking outbound email) silently disables all alerting, enabling T1562.006 (Indicator Blocking) without any detection mechanism.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Count the distinct receiver definitions in the Alertmanager configuration file, each representing an independent notification channel.",
+        "command": "grep -c '^ *- name:' /etc/alertmanager/alertmanager.yml 2>/dev/null; python3 -c \"import yaml; cfg=yaml.safe_load(open('/etc/alertmanager/alertmanager.yml')); print(len(cfg.get('receivers',[])))\" 2>/dev/null",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "An integer representing the count of named receiver blocks. Values of 0 or 1 indicate a single point of failure."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Grafana, navigate to the Alerting section and count the configured Contact Points. In PagerDuty or OpsGenie, review the number of integrated services and notification rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana UI → Alerting → Contact Points → count listed entries; PagerDuty → Services → count active integrations; OpsGenie → Settings → Integrations → count active",
+        "expected_output": "A count of uniquely configured outbound notification channels across all platforms."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Alertmanager API to retrieve all configured receivers and count them.",
+        "command": "curl -s http://localhost:9093/api/v2/receivers | python3 -c \"import sys,json; data=json.load(sys.stdin); print(f'Receiver count: {len(data)}')\" 2>/dev/null; curl -s http://localhost:9093/api/v1/receivers 2>/dev/null | python3 -m json.tool | grep '\"name\"' | wc -l",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer count of receiver objects returned. Each named receiver represents one notification channel."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1 (single PagerDuty or Slack receiver)",
+      "2-3 (email + PagerDuty + Slack)",
+      "0 (misconfigured or alerting not set up)"
+    ]
+  },
+  {
+    "option_name": "failover_channel_configured",
+    "option_description": "Indicates whether a secondary or fallback notification channel is explicitly configured to activate when the primary alert delivery channel fails or is unreachable, providing redundancy in the alert delivery pipeline.",
+    "security_impact": "The Rego policy triggers 'single_point_of_failure_in_alert_delivery' when notification_channel_count <= 1 and failover_channel_configured is false. Without a failover channel, an attacker who disrupts the primary channel (e.g., invalidating a webhook token, blocking an SMTP relay) can silently disable all alert delivery while continuing malicious activity. This enables T1562.006 (Indicator Blocking) and T1562.011 (Spoof Security Alerting).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Alertmanager route configuration for 'continue: true' directives that chain multiple receivers, or for explicitly defined fallback routes with secondary receiver references.",
+        "command": "python3 -c \"\nimport yaml\ncfg = yaml.safe_load(open('/etc/alertmanager/alertmanager.yml'))\nroutes = cfg.get('route', {})\ndef check_routes(r, depth=0):\n    print('  '*depth + f'Receiver: {r.get(\\\"receiver\\\",\\\"none\\\")}, continue: {r.get(\\\"continue\\\", False)}')\n    for sub in r.get('routes', []):\n        check_routes(sub, depth+1)\ncheck_routes(routes)\n\" 2>/dev/null",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "Lines showing 'continue: True' with multiple receiver assignments indicate a failover configuration. A flat single-receiver tree without 'continue' confirms failover_channel_configured = false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Search directly for 'continue: true' or secondary receiver definitions in the Alertmanager config that would activate on primary failure.",
+        "command": "grep -n 'continue:\\s*true' /etc/alertmanager/alertmanager.yml 2>/dev/null; grep -c 'receiver:' /etc/alertmanager/alertmanager.yml 2>/dev/null",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "At least one 'continue: true' entry combined with multiple receiver references confirms failover_channel_configured = true. Absence or a single receiver confirms false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Grafana Alerting, review Contact Points and Notification Policies for chained or fallback policy rules. In PagerDuty, check Escalation Policies for multi-tier escalation targets.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana UI → Alerting → Notification Policies → inspect policy tree for fallback routes; PagerDuty → Escalation Policies → verify multiple escalation layers exist",
+        "expected_output": "Presence of a fallback or secondary receiver in the notification policy tree confirms failover_channel_configured = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (majority of default Alertmanager deployments)",
+      "true (mature SOC-managed monitoring stacks)"
+    ]
+  },
+  {
+    "option_name": "alert_delivery_health_check_enabled",
+    "option_description": "Indicates whether a watchdog or dead-man's-switch alert is configured in the monitoring system that fires continuously and routes to an external health-check service (e.g., Healthchecks.io, PagerDuty heartbeat), so that a silent failure of the alerting pipeline itself is detected and escalated.",
+    "security_impact": "The Rego policy triggers 'single_point_of_failure_in_alert_delivery' when notification_channel_count <= 1 and alert_delivery_health_check_enabled is false. Without a watchdog alert, an attacker or failure that breaks the alerting pipeline goes completely undetected indefinitely. The absence of this control means Alertmanager could be down, misconfigured, or intentionally disrupted (T1562.006, T1562.011) with no automated detection of the monitoring blind spot.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search Prometheus alerting rules for a 'Watchdog' or 'DeadMansSwitch' alert that is always firing (expression evaluates to 1 or 'vector(1)').",
+        "command": "grep -rE '(Watchdog|DeadMansSwitch|dead.man|heartbeat|always_firing)' /etc/prometheus/rules/ /etc/prometheus/alerts/ 2>/dev/null; grep -rA3 'vector(1)' /etc/prometheus/rules/ 2>/dev/null",
+        "file_path": "/etc/prometheus/rules/, /etc/prometheus/alerts/",
+        "navigation": null,
+        "expected_output": "A rule with 'expr: vector(1)' or 'expr: 1==1' and a name like 'Watchdog' confirms the rule exists. Verify it routes to an external dead-man's-switch service in the Alertmanager config."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Prometheus API for currently active alerts and look for a perpetually firing watchdog alert.",
+        "command": "curl -s http://localhost:9090/api/v1/alerts | python3 -c \"import sys,json; alerts=json.load(sys.stdin)['data']['alerts']; watchdogs=[a for a in alerts if 'watchdog' in a.get('labels',{}).get('alertname','').lower() or 'deadman' in a.get('labels',{}).get('alertname','').lower()]; print(f'Watchdog alerts firing: {len(watchdogs)}'); [print(w['labels']) for w in watchdogs]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one watchdog-type alert in 'firing' state confirms the rule is active. Zero results confirms alert_delivery_health_check_enabled = false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Verify the watchdog alert routes to an external dead-man's-switch receiver in Alertmanager, not just an internal channel, by checking the route matching the Watchdog alertname.",
+        "command": "python3 -c \"\nimport yaml\ncfg = yaml.safe_load(open('/etc/alertmanager/alertmanager.yml'))\nreceivers = {r['name']: r for r in cfg.get('receivers', [])}\nprint('Receivers:', list(receivers.keys()))\nfor r in cfg.get('route', {}).get('routes', []):\n    if 'watchdog' in str(r.get('match', {})).lower() or 'watchdog' in str(r.get('matchers', [])).lower():\n        print('Watchdog route found:', r)\n\" 2>/dev/null",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "A route matching 'alertname: Watchdog' pointing to a receiver configured with a webhook to Healthchecks.io or equivalent dead-man's-switch service confirms alert_delivery_health_check_enabled = true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the monitoring team to determine whether a dead-man's-switch integration (e.g., Healthchecks.io, PagerDuty heartbeat endpoint) has been set up and is actively receiving heartbeat pings from the alerting pipeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation of an external heartbeat URL, last-ping timestamp, and alert escalation policy for missed heartbeats confirms alert_delivery_health_check_enabled = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (very common even in production environments)",
+      "true (SRE-mature organizations with SLO-driven monitoring)"
+    ]
+  },
+  {
+    "option_name": "alert_management_rbac_enabled",
+    "option_description": "Controls whether role-based access control is enforced on the alert management console, restricting alert acknowledgement, closure, and modification to authorized roles only. When disabled, any authenticated (or even unauthenticated) user may manipulate alert state.",
+    "security_impact": "The Rego policy fires the 'weak_role_based_access_to_alert_management_console' exposure when 'not input.alert_management_rbac_enabled' evaluates true. Without RBAC, low-privilege users can acknowledge or suppress security alerts, enabling adversaries to hide malicious activity (T1562.011 - Spoof Security Alerting). This is a high-criticality attribute because alert integrity is foundational to the monitoring service's purpose.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the alert management platform's primary configuration file for RBAC or authorization settings. Common locations vary by platform.",
+        "command": "grep -rEi 'rbac|role.based|authorization|access_control' /etc/alertmanager/alertmanager.yml /etc/grafana/grafana.ini /opt/prometheus/alertmanager.yml 2>/dev/null",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "Lines referencing 'rbac_enabled: true', 'auth.enabled = true', or equivalent role-enforcement directives. Absence of such lines suggests RBAC is not configured."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the alert management console's administration panel and locate the Access Control or Permissions section to verify RBAC configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana: Configuration → Security → Role-Based Access Control | PagerDuty: Account Settings → User Roles | Opsgenie: Settings → Roles & Permissions",
+        "expected_output": "A roles or permissions section that shows distinct roles with different write permissions on alerts. If only a single user class exists, RBAC is not enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the platform API to retrieve current authorization settings or role definitions.",
+        "command": "curl -s -u admin:password http://localhost:3000/api/access-control/roles | jq '.[] | {name, permissions}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON listing multiple roles with differentiated alert-write permissions. An empty array or single-role response indicates RBAC is absent or misconfigured."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the monitoring platform administrator and request documentation of access control policy. Ask whether unauthenticated or any-authenticated-user roles can modify alerts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written or verbal confirmation that a documented RBAC policy exists and is enforced, with role definitions distinguishing read-only from operator and security-operations tiers."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "minimum_role_required_for_alert_write",
+    "option_description": "Defines the lowest-privileged role that is permitted to perform write actions on alerts — including acknowledging, closing, modifying, assigning, or suppressing them. This sets the effective access control floor for alert manipulation.",
+    "security_impact": "The Rego policy triggers the 'weak_role_based_access_to_alert_management_console' exposure when 'input.minimum_role_required_for_alert_write in [\"unauthenticated\", \"any_authenticated_user\", \"read_only_user\"]'. Values at these low tiers allow any user with minimal or no credentials to manipulate alerts, enabling attackers who have compromised a low-privilege account to suppress detection events (T1562.006 - Indicator Blocking, T1562.011 - Spoof Security Alerting). Acceptable values are 'operator', 'security_operations', or 'admin_only'.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the role-permission mapping configuration file of the alert management platform to identify the minimum role that has write access to alerts.",
+        "command": "grep -A5 -B5 -Ei 'write|modify|acknowledge|close|suppress' /etc/alertmanager/alertmanager.yml /etc/grafana/grafana.ini /opt/alerting/roles.yaml 2>/dev/null",
+        "file_path": "/opt/alerting/roles.yaml",
+        "navigation": null,
+        "expected_output": "Role definitions showing which role tier is associated with alert-write operations. Confirm the lowest role with write access is 'operator' or higher."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve role-permission mappings from the platform API and filter for alert-write permissions.",
+        "command": "curl -s -H 'Authorization: Bearer $ADMIN_TOKEN' http://localhost:3000/api/access-control/roles | jq '.[] | select(.permissions[]?.action | test(\"alerts:write|alert.instances:write\")) | .name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Role names that possess alert-write permissions. The lowest-ranked role in the output is the effective minimum role for alert write actions."
+      },
+      {
+        "type": "gui",
+        "instruction": "Open the platform's role-permission matrix in the administration UI and identify the lowest role with any alert modification capability.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana: Administration → Users and Access → Roles → [each role] → Permissions tab | PagerDuty: Account Settings → User Roles → edit each role → check 'Manage Alerts'",
+        "expected_output": "A permission matrix where alert write actions (acknowledge, close, suppress) are restricted to 'Operator', 'Security Operations', or 'Admin' roles. Presence of these permissions at 'Viewer' or 'Editor' level indicates misconfiguration."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the formal access control documentation from the SOC team lead or platform administrator, specifically the role-permission matrix for alert write operations.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirming that only 'operator'-level or higher roles have alert-write permissions, with no exceptions for read-only or any-authenticated-user roles."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "any_authenticated_user",
+      "operator",
+      "security_operations",
+      "admin_only"
+    ]
+  },
+  {
+    "option_name": "exposed_alert_actions",
+    "option_description": "Lists specific privileged alert actions — such as 'acknowledge', 'close', 'modify', 'assign', and 'suppress' — that are accessible to users below the security_operations role. A non-empty list indicates that low-privilege users can perform these sensitive operations.",
+    "security_impact": "The Rego policy fires the 'weak_role_based_access_to_alert_management_console' exposure when 'count(input.exposed_alert_actions) > 0'. Each action in this list represents an attack surface: an adversary with a low-privilege account could suppress or close active security alerts to conceal malicious activity (T1562.011, T1548.005). The 'suppress' and 'close' actions are especially dangerous as they directly blind the security operations team.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the alert management console as a low-privilege user (e.g., read-only or standard user role) and inspect which action buttons or menu options are rendered and enabled for alerts.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana Alerting: Log in as Viewer → open an alert → check if 'Silence', 'Acknowledge', or 'Resolve' buttons are active | Alertmanager UI: log in as low-privilege user → check Alerts page for action controls",
+        "expected_output": "No action buttons (acknowledge, close, modify, assign, suppress) should be visible or enabled for users below the security_operations role. Presence of any active action button constitutes exposure."
+      },
+      {
+        "type": "api",
+        "instruction": "Attempt to perform each alert action via the API using low-privilege credentials and record which calls succeed (return 2xx) rather than receiving 403 Forbidden.",
+        "command": "for action in acknowledge close modify assign suppress; do echo \"Testing $action:\"; curl -s -o /dev/null -w \"%{http_code}\" -X POST -H 'Authorization: Bearer $LOW_PRIV_TOKEN' -H 'Content-Type: application/json' http://localhost:9093/api/v2/alerts/$action; echo; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All action endpoints should return HTTP 403 for low-privilege tokens. Any 200 or 204 response indicates that action is exposed to low-privilege users and should be added to the exposed_alert_actions list."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the platform's role-permission configuration file to enumerate which alert actions are mapped to roles below security_operations.",
+        "command": "python3 -c \"import yaml,sys; cfg=yaml.safe_load(open('/opt/alerting/roles.yaml')); [print(r['name'],r.get('permissions',[])) for r in cfg.get('roles',[]) if r.get('level',99)<3]\"",
+        "file_path": "/opt/alerting/roles.yaml",
+        "navigation": null,
+        "expected_output": "A list of roles below security_operations tier and their granted alert permissions. Any alert-write permission (acknowledge, close, modify, suppress, assign) in this output confirms exposure."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the alert management platform's audit logs for instances where low-privilege users performed write actions on alerts, revealing which actions are actually accessible.",
+        "command": "grep -E '(acknowledge|close|modify|assign|suppress)' /var/log/alertmanager/audit.log | awk '{print $5, $7}' | sort | uniq -c | sort -rn | head -30",
+        "file_path": "/var/log/alertmanager/audit.log",
+        "navigation": null,
+        "expected_output": "Log entries showing only operator or security_operations usernames performing alert write actions. Entries showing lower-privilege usernames indicate exposed actions."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[]",
+      "[\"acknowledge\"]",
+      "[\"acknowledge\", \"close\"]",
+      "[\"acknowledge\", \"close\", \"suppress\", \"modify\"]"
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Specifies the number of days that monitoring agent logs are retained on disk before deletion or overwrite. This governs how far back forensic investigation can reach into monitoring agent activity records.",
+    "security_impact": "The Rego policy triggers 'log_rotation_and_retention_misconfiguration' when 'input.log_retention_days < 30' and logs are not shipped to an external sink. Retention below 30 days means evidence of anomalous behavior, config tampering, or alert suppression events is destroyed before incident investigation can retrieve it (T1070 - Indicator Removal, T1070.002 - Clear Linux or Mac System Logs). Attackers who know retention is short can time actions to fall outside the forensic window.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the logrotate configuration for the monitoring agent to find the effective retention period, calculated as rotation frequency multiplied by kept files.",
+        "command": "grep -E 'rotate|daily|weekly|monthly|dateext' /etc/logrotate.d/prometheus /etc/logrotate.d/node-exporter /etc/logrotate.d/alertmanager /etc/logrotate.d/datadog-agent 2>/dev/null",
+        "file_path": "/etc/logrotate.d/prometheus",
+        "navigation": null,
+        "expected_output": "Directives like 'rotate 90' with 'daily' indicate 90-day retention. Multiply the rotation count by the frequency interval to determine total retention days. Values below 30 indicate misconfiguration."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the monitoring agent's own configuration file for built-in log retention settings, which may override or supplement logrotate.",
+        "command": "grep -Ei 'retention|log.retention|max.age|log.days|expire' /etc/prometheus/prometheus.yml /etc/datadog-agent/datadog.yaml /etc/telegraf/telegraf.conf /opt/monitoring-agent/config.yaml 2>/dev/null",
+        "file_path": "/etc/prometheus/prometheus.yml",
+        "navigation": null,
+        "expected_output": "A 'storage.tsdb.retention.time' or equivalent field showing the configured retention period. Prometheus default is 15 days, which is below the 30-day threshold."
+      },
+      {
+        "type": "api",
+        "instruction": "Query cloud logging service APIs to retrieve the log sink retention policy if logs are forwarded externally.",
+        "command": "gcloud logging sinks describe monitoring-agent-sink --format='value(destination)' && gcloud logging buckets describe _Default --location=global --format='value(retentionDays)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A retention period in days reported by the cloud logging service. For AWS CloudWatch: 'aws logs describe-log-groups --log-group-name-prefix /monitoring --query \"logGroups[].retentionInDays\"'"
+      },
+      {
+        "type": "gui",
+        "instruction": "Check the cloud log management console or SIEM for configured log retention policies on the monitoring agent's log streams.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS CloudWatch: CloudWatch → Log Groups → select monitoring agent log group → Actions → Edit Retention Setting | GCP Cloud Logging: Logging → Log Storage → Log Buckets → select bucket → view Retention period",
+        "expected_output": "A retention value of 30 days or greater is required. Values below 30 days, or 'Never Expire' not set, indicate a potential compliance and forensic gap."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "7",
+      "14",
+      "30",
+      "90",
+      "365"
+    ]
+  },
+  {
+    "option_name": "log_rotation_max_size_mb",
+    "option_description": "Sets the maximum size in megabytes that a monitoring agent log file can reach before log rotation is triggered. Excessively small values cause frequent rotation, which combined with low kept-file counts can rapidly overwrite forensic evidence.",
+    "security_impact": "The Rego policy fires 'log_rotation_and_retention_misconfiguration' when 'input.log_rotation_max_size_mb < 5' and logs are not shipped externally. Very small rotation thresholds — especially under high-volume alert conditions — cause log files to cycle rapidly, effectively shortening the real retention window far below the configured day count and enabling attacker activity to be overwritten before investigation (T1070 - Indicator Removal). A busy monitoring agent can exhaust a 1MB log file in minutes.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the logrotate configuration for the monitoring agent to find the 'size' directive controlling rotation trigger threshold.",
+        "command": "grep -E 'size|maxsize|minsize' /etc/logrotate.d/prometheus /etc/logrotate.d/alertmanager /etc/logrotate.d/node-exporter /etc/logrotate.d/datadog-agent /etc/logrotate.d/telegraf 2>/dev/null",
+        "file_path": "/etc/logrotate.d/prometheus",
+        "navigation": null,
+        "expected_output": "A 'size 100M' or 'maxsize 50M' directive. Values below '5M' (5 megabytes) indicate misconfiguration. Absence of a size directive means rotation is purely time-based."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the monitoring agent's native log management configuration for built-in rotation size limits.",
+        "command": "grep -Ei 'max.?size|file.?size|rotate.?size|log.?max' /etc/datadog-agent/datadog.yaml /etc/telegraf/telegraf.conf /opt/monitoring-agent/config.yaml /etc/vector/vector.toml 2>/dev/null",
+        "file_path": "/etc/datadog-agent/datadog.yaml",
+        "navigation": null,
+        "expected_output": "A size threshold setting in the agent's configuration. For Datadog, look for 'log_file_max_size'. Confirm the value is at least 5MB."
+      },
+      {
+        "type": "command",
+        "instruction": "Observe the actual sizes of current and rotated log files to infer the effective rotation threshold in practice.",
+        "command": "ls -lh /var/log/prometheus/ /var/log/alertmanager/ /var/log/datadog/ /var/log/telegraf/ 2>/dev/null | sort -k5 -h",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log files of at least 5-100MB before rotation occurred. Consistently tiny rotated files (under 1-5MB) indicate an overly aggressive size threshold or high rotation frequency."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review documented log management procedures with the operations team to determine if any scheduled jobs or custom scripts override logrotate size settings.",
+        "command": "crontab -l; ls -la /etc/cron.daily/ /etc/cron.hourly/ | grep -i log",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No custom cron jobs that truncate or rotate monitoring logs below the configured size threshold. Undocumented log management scripts are a red flag."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1",
+      "5",
+      "10",
+      "50",
+      "100",
+      "500"
+    ]
+  },
+  {
+    "option_name": "log_rotation_kept_files",
+    "option_description": "Defines how many rotated log file generations are retained on disk before the oldest is deleted. Combined with rotation frequency and file size limits, this determines the total effective on-disk log history available for forensic analysis.",
+    "security_impact": "The Rego policy triggers 'log_rotation_and_retention_misconfiguration' when 'input.log_rotation_kept_files <= 1' and logs are not shipped to an external sink. Keeping only one or zero rotated files means that at the next rotation event, the oldest log is immediately deleted. On active monitoring agents with high alert volumes, this can reduce the effective forensic window to hours or minutes regardless of the 'log_retention_days' setting, enabling attackers to exploit the gap between incident occurrence and investigation (T1070.002 - Clear Linux or Mac System Logs).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the logrotate configuration for the monitoring agent and locate the 'rotate' directive, which specifies how many rotated files are kept.",
+        "command": "grep -n 'rotate' /etc/logrotate.d/prometheus /etc/logrotate.d/alertmanager /etc/logrotate.d/node-exporter /etc/logrotate.d/datadog-agent /etc/logrotate.d/telegraf 2>/dev/null",
+        "file_path": "/etc/logrotate.d/alertmanager",
+        "navigation": null,
+        "expected_output": "A directive like 'rotate 30' indicating 30 generations are kept. Values of 0 or 1 are insufficient. A missing 'rotate' directive defaults to 0 in some logrotate versions, meaning no files are kept after rotation."
+      },
+      {
+        "type": "command",
+        "instruction": "Count the actual number of rotated log files present on disk to validate what is effectively being retained.",
+        "command": "find /var/log/prometheus /var/log/alertmanager /var/log/datadog /var/log/telegraf -name '*.log.*' -o -name '*.gz' 2>/dev/null | sort | head -30 | wc -l",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A count of rotated log files per service. If the count is consistently 0 or 1, the 'rotate' value is critically low. Compare this count against the configured 'rotate' directive value."
+      },
+      {
+        "type": "command",
+        "instruction": "Run logrotate in debug mode to display the current effective rotation settings without actually rotating files.",
+        "command": "logrotate --debug /etc/logrotate.d/prometheus 2>&1 | grep -E 'rotate|keeping|removing'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Debug output showing the number of rotations configured and how many files will be kept versus deleted at the next rotation. Confirm 'rotate' count is at least 7 (daily rotation) or proportionally higher."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review monitoring platform documentation and interview the operations team to confirm the intended log retention strategy and whether the 'rotate' setting aligns with compliance or incident response requirements.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written retention policy specifying a minimum number of kept rotations that ensures at least 30 days of log history is accessible locally, or confirmation that external log shipping compensates for limited local retention."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "1",
+      "4",
+      "7",
+      "30",
+      "52"
+    ]
+  },
+  {
+    "option_name": "logs_shipped_to_external_sink",
+    "option_description": "Indicates whether monitoring agent logs are forwarded to a centralized or external log management system — such as a SIEM, cloud logging service, or log aggregator — prior to local rotation. External shipping preserves logs beyond the local retention window and protects them from local tampering.",
+    "security_impact": "The Rego policy uses 'not input.logs_shipped_to_external_sink' as a mitigating condition in all three 'log_rotation_and_retention_misconfiguration' rules. When logs are not shipped externally, the policy flags configurations with short retention (< 30 days), low kept-file counts (<= 1), or small rotation sizes (< 5MB). External log shipping is the primary compensating control that can excuse aggressive local rotation, because logs preserved in an immutable or access-controlled external system remain available for incident response even if local copies are overwritten (T1070, T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the monitoring agent's configuration for log forwarding or shipping settings configured through common log shippers.",
+        "command": "grep -rEi 'forward|output|sink|ship|remote|siem|logstash|elasticsearch|splunk|cloudwatch|stackdriver|datadog' /etc/filebeat/filebeat.yml /etc/fluentd/fluent.conf /etc/fluentbit/fluent-bit.conf /etc/vector/vector.toml /etc/logstash/conf.d/ 2>/dev/null | head -30",
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "Output configuration blocks pointing to an external endpoint (e.g., Elasticsearch URL, Splunk HEC endpoint, CloudWatch log group, GCP Logging sink). An empty result or no output configuration indicates logs are not being shipped externally."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for active log shipping agent processes running on the system and verify their connectivity to the configured external destination.",
+        "command": "systemctl is-active filebeat fluentd fluent-bit vector logstash 2>/dev/null; ss -tnp | grep -E 'filebeat|fluentd|vector|logstash'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'active (running)' for at least one log shipper service and an established TCP connection to the external log destination. No active shippers and no connections confirm logs are not being forwarded."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the cloud logging service to verify that a log sink exists for the monitoring agent's log stream and is actively receiving data.",
+        "command": "aws logs describe-log-groups --log-group-name-prefix '/monitoring-agent' --query 'logGroups[].{name:logGroupName,retentionDays:retentionInDays}' --output table 2>/dev/null || gcloud logging sinks list --filter='name~monitoring' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more log groups or sinks associated with the monitoring agent showing recent ingestion activity. No results confirm that no external log sink is configured."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check the log shipper's own operational logs to verify recent successful deliveries to the external sink, confirming active forwarding is occurring.",
+        "command": "journalctl -u filebeat -u fluentd -u vector --since '1 hour ago' | grep -Ei 'published|sent|delivered|events:' | tail -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log lines such as 'Successfully published N events' or 'flushed 1 chunks' within the last hour confirming active log forwarding. Error messages about connection failures or no output at all indicate shipping is broken or absent."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "webhook_url_validation_enforced",
+    "option_description": "Controls whether the alert routing configuration validates or allowlists external webhook URLs and hostnames before using them in outbound HTTP requests. When disabled, any URL written into alert routing rules will be contacted by the monitoring service without restriction.",
+    "security_impact": "The Rego policy triggers 'unvalidated_external_input_to_alert_routing_rules' when 'not input.webhook_url_validation_enforced' is combined with either the absence of an allowlist ('not input.webhook_url_allowlist_configured') or unrestricted config write access ('not input.external_config_write_access_restricted'). Without URL validation, an attacker who gains write access to alert routing configuration can redirect alert webhooks to attacker-controlled infrastructure for data exfiltration (T1567.004 - Exfiltration Over Webhook) or use the monitoring service as a Server-Side Request Forgery proxy to reach internal services not otherwise accessible (T1564.008). The default value for this attribute is false, meaning validation is off unless explicitly enabled.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the alert routing configuration files for webhook receiver definitions and look for URL validation, schema restriction, or allowlisting directives.",
+        "command": "grep -A10 -B2 -Ei 'webhook|receiver|url|endpoint|hostname' /etc/alertmanager/alertmanager.yml /opt/grafana/conf/defaults.ini /opt/alerting/routing.yaml 2>/dev/null | grep -Ei 'valid|allowlist|whitelist|regex|scheme|restrict'",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "Configuration directives such as 'url_validation: true', a 'webhook_allowlist' block listing permitted hostnames, or a URL schema restriction (e.g., 'allow_schemes: [https]'). Absence of any such directive confirms validation is not enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Attempt to configure a webhook receiver with an obviously invalid or internal URL via the platform API and observe whether it is accepted or rejected.",
+        "command": "curl -s -X POST -H 'Authorization: Bearer $ADMIN_TOKEN' -H 'Content-Type: application/json' -d '{\"name\":\"test-ssrf\",\"url\":\"http://169.254.169.254/latest/meta-data/\"}' http://localhost:9093/api/v2/receivers | jq '{status: .status, error: .error}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 400 Bad Request or validation error response if URL validation is enforced, indicating the platform rejected the internal/metadata URL. A 200 or 201 response accepting the URL confirms validation is not enforced."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the alert routing or notification channel configuration UI and attempt to enter a webhook URL pointing to an internal IP address or localhost, then observe whether the system accepts or rejects it.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Grafana: Alerting → Contact Points → New Contact Point → Webhook → enter 'http://127.0.0.1:8080/test' as URL → Save | Alertmanager: Configuration → Receivers → add webhook receiver with local IP URL → Apply",
+        "expected_output": "A validation error message refusing internal IP addresses, non-HTTPS schemes, or URLs not on the allowlist. Successful saving of the internal URL confirms validation is not enforced."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the platform's webhook configuration documentation and interview the monitoring engineer to determine whether URL validation or allowlisting is part of the deployment configuration.",
+        "command": "grep -rEi 'webhook|url.valid|allowlist|whitelist' /opt/alerting/docs/ /etc/alertmanager/ --include='*.md' --include='*.txt' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation or configuration comments describing an explicit allowlist of permitted webhook domains/IPs, or a URL validation regex. The absence of any such documentation indicates this control is not implemented."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "external_config_write_access_restricted",
+    "option_description": "Controls whether write access to the alert routing configuration — such as the Alertmanager config file, its directory, or the Alertmanager management API endpoint — is restricted exclusively to authorized principals (dedicated service accounts, administrators) and denied to all other users or processes.",
+    "security_impact": "The Rego policy fires the 'unvalidated_external_input_to_alert_routing_rules' exposure when both webhook_url_validation_enforced and external_config_write_access_restricted are false. Without this control, any local user or process with filesystem or API access can rewrite alert routing rules to redirect notifications to attacker-controlled webhooks (T1567.004 – Exfiltration Over Webhook), suppress routes entirely (T1562.006 – Indicator Blocking), or inject forged destinations that trigger SSRF from the monitoring infrastructure itself. Because the default value is false, deployments that have not explicitly hardened permissions will satisfy the vulnerability condition.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check filesystem ownership and permissions on the Alertmanager configuration file and its parent directory. The file should be owned by the alertmanager service account and not writable by group or others.",
+        "command": "stat -c '%n  owner=%U group=%G mode=%a' /etc/alertmanager/alertmanager.yml /etc/alertmanager/ 2>/dev/null || ls -la /etc/alertmanager/",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "File mode 640 or stricter (e.g., -rw-r-----), owned by 'alertmanager' or the designated service account, with no write bits set for group or world."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether the Alertmanager HTTP management API (/-/reload and /api/v2/alerts routes) is protected. Query the /-/reload endpoint without credentials to see if unauthenticated writes are accepted, and verify any reverse-proxy auth layer in front of Alertmanager.",
+        "command": "curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:9093/-/reload; echo ''; curl -s -o /dev/null -w '%{http_code}' -X DELETE http://localhost:9093/api/v2/silence/test-id",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 401 or 403 returned for both requests, indicating that unauthenticated write operations are rejected."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the reverse proxy or authentication middleware configuration placed in front of Alertmanager (e.g., nginx, OAuth2 Proxy, or Grafana's alertmanager datasource settings) to confirm that POST/DELETE/PUT methods require authentication.",
+        "command": "grep -rE '(auth|restrict|allow|deny|limit_except|require)' /etc/nginx/conf.d/alertmanager*.conf /etc/nginx/sites-enabled/alertmanager* 2>/dev/null",
+        "file_path": "/etc/nginx/conf.d/alertmanager.conf",
+        "navigation": null,
+        "expected_output": "Configuration blocks showing authentication requirements or method restrictions (e.g., 'limit_except GET { deny all; }' or 'auth_basic' directives) applied to Alertmanager upstream routes."
+      },
+      {
+        "type": "api",
+        "instruction": "If using Kubernetes, audit the RBAC roles and bindings that grant access to the ConfigMap or Secret storing the Alertmanager configuration. Identify any ServiceAccounts, Groups, or wildcard subjects with 'update' or 'patch' verbs.",
+        "command": "kubectl get rolebindings,clusterrolebindings -A -o json | jq '.items[] | select(.roleRef.name | test(\"alertmanager|monitoring\")) | {name: .metadata.name, namespace: .metadata.namespace, subjects: .subjects}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists only the alertmanager controller ServiceAccount and designated admin principals with write verbs; no wildcard subjects ('system:authenticated', '*') should appear."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default — most bare-metal and containerized Alertmanager deployments ship with world-readable config files and an unauthenticated management API on localhost)",
+      "true (hardened deployments with a reverse proxy enforcing authentication and config files owned 640 by the alertmanager service account)"
+    ]
+  },
+  {
+    "option_name": "webhook_url_allowlist_configured",
+    "option_description": "Controls whether the alerting system is configured with an explicit allowlist of permitted webhook URL prefixes or domain patterns, so that alert routing rules can only dispatch notifications to pre-approved destinations and any attempt to route to an unlisted URL is blocked or rejected.",
+    "security_impact": "The Rego policy fires the 'unvalidated_external_input_to_alert_routing_rules' exposure when webhook_url_allowlist_configured is false and webhook_url_validation_enforced is also false. Without an allowlist, an attacker who gains write access to alert routing configuration (even briefly) can set webhook receiver URLs to attacker-controlled infrastructure, enabling data exfiltration of alert payloads over webhook (T1567.004) and using the monitoring host as an SSRF pivot to reach internal services that only accept connections from the monitoring network. Prometheus Alertmanager does not natively enforce webhook allowlists, making this control absent in the overwhelming majority of default deployments.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search the Alertmanager configuration and any template or receiver files for an allowlist, whitelist, or permitted-domains directive. Native Alertmanager (pre-0.28) has no built-in webhook allowlist — look for it in a wrapping proxy or admission webhook instead.",
+        "command": "grep -rEi '(allowlist|whitelist|permitted.domain|allowed.url|webhook.*allow)' /etc/alertmanager/ /etc/prometheus/ 2>/dev/null",
+        "file_path": "/etc/alertmanager/alertmanager.yml",
+        "navigation": null,
+        "expected_output": "One or more matching lines referencing an allowlist setting; if no output is returned, no native allowlist is configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For deployments using the Alertmanager Operator (Prometheus Operator on Kubernetes), inspect the AlertmanagerConfig custom resource and the global alertmanager spec for webhook allowlists introduced in newer operator versions (v0.68+).",
+        "command": "kubectl get alertmanagerconfig -A -o yaml | grep -A5 -i 'webhook\\|allowlist\\|permitted' 2>/dev/null; kubectl get alertmanager -A -o yaml | grep -A10 'webhookConfig\\|allowedUrls\\|urlAllowlist' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "YAML fields such as 'allowedUrls', 'webhookUrlAllowlist', or equivalent showing a list of permitted domain patterns; absence of these fields confirms the allowlist is not configured."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Grafana Alerting (if used as the routing layer), navigate to the Contact Points and Notification Policies sections and verify whether an administrator has applied URL restrictions through Grafana's alerting provisioning or RBAC. Check Grafana server configuration for outgoing webhook restrictions.",
+        "command": "grep -Ei '(external.url|allowed.url|webhook)' /etc/grafana/grafana.ini /etc/grafana/provisioning/alerting/*.yml 2>/dev/null",
+        "file_path": "/etc/grafana/grafana.ini",
+        "navigation": "Grafana UI → Alerting → Contact Points → review each webhook receiver URL; Admin → Server Admin → Settings → search for webhook or outbound URL restrictions",
+        "expected_output": "A restricted list of approved webhook destination URLs is present, or a config entry limiting outbound connections from Grafana's alerting engine to known domains."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to create a test receiver pointing to an obviously non-approved domain (e.g., http://attacker-test.example.com/hook) via the Alertmanager API and observe whether it is accepted or rejected. This confirms whether any enforcement layer is active.",
+        "command": "curl -s -X POST http://localhost:9093/api/v2/alerts -H 'Content-Type: application/json' -d '[{\"labels\":{\"alertname\":\"ssrf-allowlist-test\"},\"generatorURL\":\"http://attacker-test.example.com/hook\"}]'; echo exit:$?",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If an allowlist is enforced, the request should return HTTP 400 or 403 with an error message indicating the URL is not permitted. Acceptance (HTTP 200) confirms the allowlist is absent."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default — Alertmanager has no built-in webhook allowlist; virtually all out-of-the-box deployments accept arbitrary URLs in receiver configurations)",
+      "true (custom deployments wrapping Alertmanager with an admission controller, OPA policy, or reverse proxy that validates outbound webhook destinations against a known-good domain list)"
+    ]
+  }
+]

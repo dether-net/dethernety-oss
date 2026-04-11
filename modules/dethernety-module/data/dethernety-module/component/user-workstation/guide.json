@@ -1,0 +1,1720 @@
+[
+  {
+    "option_name": "full_disk_encryption_enabled",
+    "option_description": "Controls whether full-disk or volume-level encryption (e.g., BitLocker on Windows, FileVault on macOS, LUKS on Linux) is active on the device, ensuring all stored data is cryptographically protected at rest.",
+    "security_impact": "The Rego policy fires the 'disk_encryption_disabled_or_partial' exposure whenever this attribute is false or absent. Without encryption, a physically seized or stolen device exposes all stored credentials, organizational data, and cached secrets in cleartext. This is classified as high criticality (score 8) because physical access alone is sufficient to extract data without bypassing OS authentication.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, check BitLocker status for all volumes using the built-in manage-bde tool.",
+        "command": "manage-bde -status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each volume should report 'Protection Status: Protection On' and 'Conversion Status: Fully Encrypted'."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, query FileVault status using fdesetup.",
+        "command": "fdesetup status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should read 'FileVault is On.' for encryption to be considered active."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, check LUKS encryption status for the root or data block device using cryptsetup.",
+        "command": "cryptsetup status /dev/mapper/$(lsblk -o NAME,TYPE | awk '/crypt/{print $1}' | head -1)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show 'type: LUKS2' and 'cipher:' fields, confirming an active encrypted mapping."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the MDM/UEM compliance API (e.g., Microsoft Intune Graph API) to retrieve encryption compliance state for a specific device.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/<deviceId>?$select=isEncrypted,deviceName'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response should contain '\"isEncrypted\": true' for the device to be considered compliant."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "encryption_scope",
+    "option_description": "Describes how broadly disk encryption is applied across the device: 'full' means every volume and partition is encrypted, 'partial' means only selected partitions (e.g., only the OS drive, leaving secondary data drives unencrypted), and 'none' means no encryption is applied anywhere.",
+    "security_impact": "The Rego policy triggers 'disk_encryption_disabled_or_partial' not only when encryption is fully absent but also explicitly when encryption_scope is 'partial' even if full_disk_encryption_enabled is true. This prevents a false sense of security where an OS volume is encrypted but a secondary data drive holding organizational files, cached credentials, or downloaded documents remains readable after physical seizure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, enumerate all volumes and their BitLocker protection status to identify any unencrypted volumes.",
+        "command": "manage-bde -status | Select-String -Pattern 'Volume|Protection Status|Conversion Status'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every listed volume should show 'Protection Status: Protection On'. Any volume showing 'Protection Off' indicates partial scope."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, list all APFS volumes and check whether FileVault encryption extends to non-system volumes using diskutil.",
+        "command": "diskutil apfs list | grep -E 'Volume|Encryption'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All data volumes should report 'Encryption: Yes' or inherit FileVault from the container; any 'Encryption: No' indicates partial scope."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, list all block devices and identify which are backed by a LUKS crypt device versus exposed as plaintext partitions.",
+        "command": "lsblk -o NAME,TYPE,FSTYPE,MOUNTPOINT | grep -v 'loop'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Partitions with sensitive mount points (/, /home, /data) should show TYPE 'crypt' or be children of a crypt device. Plaintext partitions at sensitive mount points indicate partial scope."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune, navigate to Devices > Monitor > Encryption report to view per-device encryption coverage across all enrolled devices.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune Admin Center > Devices > Monitor > Encryption report",
+        "expected_output": "Devices with full encryption show status 'Encrypted'; devices showing 'Not encrypted' or with partial coverage are flagged."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "full",
+      "partial",
+      "none"
+    ]
+  },
+  {
+    "option_name": "screen_lock_enabled",
+    "option_description": "Controls whether the device enforces an automatic lock screen requiring authentication (PIN, password, pattern, or biometric) when the device is idle or after a defined timeout period, preventing unauthorized access to an unattended device.",
+    "security_impact": "The Rego policy triggers 'weak_or_absent_screen_lock_authentication' (high criticality, score 8) immediately when screen_lock_enabled is false or absent. Without a screen lock, any person with physical access to an unattended device gains immediate access to all applications, credentials, organizational email, and data. This is a prerequisite control that all subsequent screen lock strength checks depend on — if this is false, no further lock assessment is meaningful.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query Intune device compliance details via Microsoft Graph API to check whether the device satisfies the screen lock compliance policy.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/<deviceId>?$select=complianceState,deviceName,osVersion'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A compliant device with an active screen lock policy enforced will return 'complianceState: compliant'. Cross-reference with the assigned compliance policy to confirm screen lock is a requirement."
+      },
+      {
+        "type": "command",
+        "instruction": "On Android devices (via ADB), query the secure settings to confirm a screen lock type is configured.",
+        "command": "adb shell settings get secure lockscreen.password_type",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A value of 0 indicates no lock screen. Values 65536 (pattern), 131072 (PIN), or 262144 (password) indicate an active screen lock."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, check whether a screen saver password (lock-on-resume) is enforced via registry policy.",
+        "command": "reg query 'HKCU\\Control Panel\\Desktop' /v ScreenSaverIsSecure",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A value of '0x1' confirms the screen saver requires a password on resume, effectively enforcing a screen lock. A value of '0x0' or missing key indicates no enforced lock."
+      },
+      {
+        "type": "gui",
+        "instruction": "On iOS, inspect the MDM configuration profile assigned to the device to confirm a passcode policy is included.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Apple Configurator or MDM Console > Devices > [Select Device] > Profiles > Passcode Policy",
+        "expected_output": "A Passcode Policy profile present in the device profile list confirms screen lock is MDM-enforced. Absence of this profile indicates the device may have no enforced lock."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "screen_lock_type",
+    "option_description": "Specifies the authentication mechanism used to unlock the device screen, ranging from no lock or swipe (no security), through pattern or PIN, to password or biometric authentication. This determines the effective strength of physical access control on the device.",
+    "security_impact": "The Rego policy evaluates screen_lock_type in multiple conditions within 'weak_or_absent_screen_lock_authentication'. Values of 'none' or 'swipe' trigger the exposure regardless of other settings, as they provide no real authentication barrier. 'biometric_only' triggers the exposure when the fallback factor is weak, because biometrics can be bypassed (e.g., spoofing, forced unlock) and the fallback becomes the actual security boundary. 'pin' and 'password' types are further evaluated against minimum passcode length.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Android devices via ADB, retrieve the numeric lock type code from secure settings.",
+        "command": "adb shell settings get secure lockscreen.password_type",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Mapping: 0=none, 1=swipe, 65536=pattern, 131072=PIN, 262144=password. Values 327680 or 393216 indicate biometric-based locks depending on manufacturer."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve iOS/iPadOS passcode compliance settings from an MDM console (e.g., Jamf Pro) using the device management API.",
+        "command": "curl -s -u 'admin:password' -H 'Accept: application/json' 'https://<jamf-server>/JSSResource/mobiledevices/id/<deviceId>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The response JSON should include a 'PasscodePresent' boolean and 'PasscodeCompliant' field. Check the assigned MDM profile for the allowed passcode types (numeric, alphanumeric, biometric)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune, review the device compliance policy assigned to the device to see what lock types are permitted or required.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune Admin Center > Devices > Compliance Policies > [Policy Name] > Properties > System Security > Required password type",
+        "expected_output": "The policy should specify a minimum required type such as 'Alphanumeric' or 'Numeric with no repeating or ordered sequences'. A setting of 'Device default' or 'Low security biometric' indicates weak enforcement."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, check the Group Policy or Intune policy-applied setting for password complexity requirement enforced on the lock screen.",
+        "command": "secedit /export /cfg C:\\secpolicy.cfg && findstr /i 'PasswordComplexity MinimumPasswordLength' C:\\secpolicy.cfg",
+        "file_path": "C:\\secpolicy.cfg",
+        "navigation": null,
+        "expected_output": "PasswordComplexity=1 and MinimumPasswordLength>=8 indicate a strong password-type lock is enforced. PasswordComplexity=0 indicates simple or no complexity requirement."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "password",
+      "pin",
+      "biometric_with_fallback",
+      "biometric_only",
+      "pattern_simple",
+      "swipe",
+      "none"
+    ]
+  },
+  {
+    "option_name": "minimum_passcode_length",
+    "option_description": "Defines the minimum number of characters or digits required for the device screen lock passcode or PIN as enforced by MDM policy. This sets a floor on brute-force resistance for the lock screen credential.",
+    "security_impact": "The Rego policy triggers 'weak_or_absent_screen_lock_authentication' when screen_lock_type is 'pin', 'password', or 'pattern_simple' and minimum_passcode_length is less than 4. A 4-digit PIN has only 10,000 combinations and is considered a bare minimum threshold; policies should target 6+ digits for PINs and 8+ characters for passwords. Short PINs are trivially brute-forced offline if the encrypted device storage is extracted without the hardware throttling that makes online brute-force slower.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the Android EMM (Enterprise Mobility Management) API or Google Workspace MDM policy to retrieve the enforced minimum password length setting.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://androidmanagement.googleapis.com/v1/enterprises/<enterpriseId>/policies/<policyId>' | python3 -c \"import sys,json; p=json.load(sys.stdin); print(p.get('passwordPolicies', 'Not set'))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The 'passwordPolicies' object should include a 'passwordMinimumLength' field. A value below 6 for PIN or below 8 for password type should be flagged."
+      },
+      {
+        "type": "command",
+        "instruction": "For iOS/iPadOS devices managed by Jamf Pro, retrieve the minimum passcode length from the configuration profile XML.",
+        "command": "curl -s -u 'admin:password' -H 'Accept: application/xml' 'https://<jamf-server>/JSSResource/mobiledeviceConfigurationProfiles/id/<profileId>' | xmllint --xpath '//minPasscodeLength/text()' -",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The command should return an integer. A value of 0 or absence of the element indicates no minimum length is enforced by the profile."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune, inspect the iOS or Android compliance policy to view the enforced minimum password length.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune Admin Center > Devices > Compliance Policies > [Policy Name] > Properties > System Security > Minimum password length",
+        "expected_output": "The field should show a value of 6 or higher for PINs and 8 or higher for alphanumeric passwords. A value of 0 or 'Not configured' means no minimum is enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, export and inspect the local or domain security policy for the minimum password length requirement.",
+        "command": "net accounts | findstr /i 'Minimum password length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output such as 'Minimum password length: 8' indicates an enforced minimum. A value of 0 means no minimum is set and must be remediated via Group Policy (Computer Configuration > Windows Settings > Security Settings > Account Policies > Password Policy > Minimum password length)."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "4",
+      "6",
+      "8",
+      "12"
+    ]
+  },
+  {
+    "option_name": "biometric_fallback_factor",
+    "option_description": "Specifies the fallback authentication method that becomes active when biometric authentication fails, is exhausted after repeated attempts, or is deliberately bypassed. This is the actual security boundary when biometrics are circumvented, as the fallback credential is what an attacker must defeat if biometric spoofing is not viable.",
+    "security_impact": "The Rego policy explicitly triggers 'weak_or_absent_screen_lock_authentication' when screen_lock_type is 'biometric_only' or 'biometric_with_fallback' and biometric_fallback_factor is 'none', 'swipe', or 'weak_pin'. This reflects a critical security reality: biometric systems on mobile devices are designed to fall back to a PIN/password, and if that fallback is weak, the entire lock screen security collapses. Attackers can intentionally trigger biometric failures (e.g., multiple failed fingerprint attempts) to force the weaker fallback and exploit it via brute force or shoulder surfing.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the MDM policy for iOS/Android to determine what fallback is configured alongside biometric authentication in the passcode policy profile.",
+        "command": "curl -s -u 'admin:password' -H 'Accept: application/json' 'https://<jamf-server>/JSSResource/mobiledeviceConfigurationProfiles/id/<profileId>' | python3 -m json.tool | grep -A5 'passcodePol'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The passcode policy should show allowSimple=false, minLength>=6, and requireAlphanumeric=true if a strong password fallback is required. Simple numeric-only settings of length 4 or less indicate weak_pin fallback."
+      },
+      {
+        "type": "command",
+        "instruction": "On Android via ADB, query the password quality setting which reflects the effective fallback requirement when biometric fails.",
+        "command": "adb shell dpm get-password-quality",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PASSWORD_QUALITY_ALPHANUMERIC or PASSWORD_QUALITY_COMPLEX indicates a strong fallback. PASSWORD_QUALITY_NUMERIC_COMPLEX (minimum) maps to strong_pin. PASSWORD_QUALITY_SOMETHING or PASSWORD_QUALITY_NUMERIC maps to weak_pin or swipe."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune, inspect the Android or iOS compliance policy to confirm the fallback password type and minimum length are configured beyond basic PIN.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune Admin Center > Devices > Compliance Policies > [Policy Name] > System Security > Required password type and Minimum password length",
+        "expected_output": "The required password type should be set to 'Alphanumeric' or 'Numeric with no repeating or ordered sequences' with a minimum length of at least 6. A type of 'At least numeric' with length 4 or less indicates a weak_pin fallback configuration."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the organizational MDM policy documentation or enrollment profile specifications to confirm the biometric fallback strength requirement is explicitly defined and enforced.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy documentation should explicitly state that biometric authentication must be backed by a strong PIN (minimum 6 digits, no repeating sequences) or alphanumeric password. Absence of this requirement or a stated minimum below 6 digits indicates a policy gap."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "strong_pin",
+      "password",
+      "weak_pin",
+      "swipe",
+      "none"
+    ]
+  },
+  {
+    "option_name": "standard_users_have_local_admin",
+    "option_description": "Controls whether standard (non-IT) end users are members of the local Administrators group on their workstations. When true, the user has persistent elevated privileges over the entire operating system, including the ability to install software, modify security settings, and bypass standard user restrictions.",
+    "security_impact": "The Rego policy triggers the 'local_administrator_privileges_granted_to_standard_users' exposure when this attribute is true AND privileged_access_management_enforced is false. Persistent local admin rights allow malware to install without UAC prompts, attackers to disable security tools, and users to circumvent application controls — all without additional authentication. Eliminating persistent admin rights is a primary defense against lateral movement and privilege escalation chains.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, query the local Administrators group membership directly from an elevated command prompt or via remote PowerShell to list all members.",
+        "command": "net localgroup Administrators\n# OR via PowerShell for remote bulk query:\nGet-LocalGroupMember -Group 'Administrators' | Select-Object Name, PrincipalSource\n# For domain-wide inventory via PowerShell remoting:\nInvoke-Command -ComputerName (Get-ADComputer -Filter *).Name -ScriptBlock { Get-LocalGroupMember -Group 'Administrators' }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists group members; non-IT user accounts (e.g., DOMAIN\\jsmith) present in this list indicate standard_users_have_local_admin = true."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, use dscl to read the admin group membership and identify non-IT user accounts.",
+        "command": "dscl . -read /Groups/admin GroupMembership\n# Also check via:\ndscacheutil -q group -a name admin",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns a space-separated list of usernames; any standard end-user account listed confirms local admin membership."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune or a comparable MDM console, navigate to device compliance reports or endpoint analytics to review local administrator membership policy compliance across the fleet.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Intune Admin Center → Devices → All Devices → [Select Device] → Device configuration profiles → Account Protection profile → Review local admin settings; or Reports → Endpoint Analytics → Device compliance",
+        "expected_output": "Compliance report flags devices where standard users are in the local Administrators group, or where a local admin restriction policy is not applied."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Graph API to retrieve device compliance status or configuration profile assignment results for local administrator controls.",
+        "command": "curl -X GET 'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$select=deviceName,complianceState,userPrincipalName' -H 'Authorization: Bearer <token>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response listing managed devices with compliance state; cross-reference with GPO/Account Protection profile targeting local admin restrictions."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common in SMBs and legacy environments without MDM enforcement)",
+      "false (target state enforced via GPO, MDM, or PAM tooling)"
+    ]
+  },
+  {
+    "option_name": "privileged_access_management_enforced",
+    "option_description": "Indicates whether a Privileged Access Management solution — such as CyberArk Endpoint Privilege Manager, BeyondTrust EPM, or Ivanti Application Control — is deployed and actively enforcing just-in-time elevation or application allow-listing with elevation. This replaces persistent local administrator rights with on-demand, audited privilege grants.",
+    "security_impact": "The Rego policy only fires the 'local_administrator_privileges_granted_to_standard_users' exposure when standard_users_have_local_admin is true AND this attribute is false. A deployed PAM solution is the accepted compensating control: even if a user technically needs admin-level operations, those are mediated through policy-controlled elevation with logging, preventing uncontrolled persistent access. Without PAM enforcement, persistent admin rights remain a direct attack surface for malware, insider threats, and privilege escalation.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Check the PAM vendor management console (e.g., CyberArk EPM Console, BeyondTrust EPM Management Console) for agent deployment coverage and active policy enforcement status.",
+        "command": null,
+        "file_path": null,
+        "navigation": "CyberArk EPM Console → Computers → All Computers → Filter by 'Agent Status' = Active; or BeyondTrust EPM → Computers → Deployment Status → Confirm 'Managed' state and active policy applied",
+        "expected_output": "All enrolled workstations show agent status as 'Active' and a privilege management policy assigned and enforced; gaps indicate privileged_access_management_enforced = false for those devices."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows endpoints, verify that the PAM agent service is installed and running, and confirm an active policy is applied.",
+        "command": "# Check for CyberArk EPM agent:\nGet-Service -Name 'CyberArk Endpoint Privilege Manager Agent' | Select-Object Status\n# Check for BeyondTrust EPM:\nGet-Service -Name 'Defendpoint' | Select-Object Status\n# Verify Ivanti Application Control:\nGet-Service -Name 'AppSense Application Manager' | Select-Object Status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service status returns 'Running'; absence or 'Stopped' state confirms PAM is not enforced on that device."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the MDM or endpoint management API to retrieve compliance policy results for PAM agent deployment.",
+        "command": "# Example for Microsoft Intune Graph API — retrieve device configuration profile assignment:\ncurl -X GET 'https://graph.microsoft.com/v1.0/deviceManagement/deviceConfigurationDeviceStatuses' -H 'Authorization: Bearer <token>'\n# Filter for the PAM agent deployment profile to confirm 'succeeded' state per device",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Devices with 'succeeded' status for the PAM deployment configuration profile confirm enforcement; 'failed' or 'not applicable' devices are non-compliant."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the endpoint security or IT operations team to confirm whether a PAM product is licensed, deployed, and has active policies covering all workstation tiers, including privileged and BYOD devices.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation of PAM product name, version, deployment percentage across fleet, and active policy names; absence of documentation or partial deployment confirms the attribute may be false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (majority of organizations without mature endpoint privilege programs)",
+      "true (organizations with CyberArk EPM, BeyondTrust EPM, or Ivanti Application Control fully deployed)"
+    ]
+  },
+  {
+    "option_name": "endpoint_protection_status",
+    "option_description": "Captures the operational state of the antivirus, Endpoint Detection and Response (EDR), or host-based intrusion prevention system installed on the workstation. Valid states are 'active' (fully operational), 'disabled' (installed but turned off), 'tampered' (integrity of the agent has been compromised or its processes killed), and 'not_installed' (no protection agent present).",
+    "security_impact": "The Rego policy directly triggers the 'endpoint_protection_disabled_or_tampered' exposure for any status value of 'not_installed', 'disabled', or 'tampered'. Even when 'active', additional conditions on signature age and broad exclusions can still fire the exposure. A non-active status completely removes detection and prevention capability from the device, leaving it blind to malware execution, credential harvesting, and lateral movement activities that EDR telemetry would otherwise surface.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Review the endpoint security management console (e.g., Microsoft Defender for Endpoint, CrowdStrike Falcon, SentinelOne) for agent health status per device.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Defender Portal (security.microsoft.com) → Endpoints → Devices → Filter by 'Sensor health state' = Inactive or Misconfigured; CrowdStrike Falcon → Hosts → Host Management → Filter by 'Status' ≠ Normal",
+        "expected_output": "Devices not showing 'Active/Healthy' sensor status correspond to endpoint_protection_status values of 'disabled', 'tampered', or 'not_installed'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, query the Windows Security Center WMI namespace and the Defender service status to determine active protection state.",
+        "command": "# Check Windows Defender / Security Center status:\nGet-MpComputerStatus | Select-Object AMRunningMode, AMServiceEnabled, RealTimeProtectionEnabled, TamperProtectionSource\n# Check third-party AV registration:\nGet-CimInstance -Namespace root/SecurityCenter2 -ClassName AntivirusProduct | Select-Object displayName, productState\n# Check EDR service (CrowdStrike example):\nGet-Service -Name 'CSFalconService' | Select-Object Status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RealTimeProtectionEnabled = True and AMServiceEnabled = True indicates 'active'; False values or missing EDR service indicate 'disabled' or 'not_installed'; tampered state is indicated by productState hex code anomalies or service in a failed state with evidence of forceful termination."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the EDR vendor API or Microsoft Graph Security API for device sensor health telemetry across the fleet.",
+        "command": "# Microsoft Defender for Endpoint via Graph:\ncurl -X GET 'https://api.securitycenter.microsoft.com/api/machines?$filter=healthStatus ne 'Active'' -H 'Authorization: Bearer <token>'\n# CrowdStrike Falcon API:\ncurl -X GET 'https://api.crowdstrike.com/devices/queries/devices/v1?filter=status:!\"normal\"' -H 'Authorization: Bearer <token>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns a list of devices where sensor health is not 'Active'; these devices map to endpoint_protection_status values other than 'active'."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review SIEM alerts or endpoint security event logs for tamper protection events, service termination events (Event ID 7045, 7034, 7036), or absence of expected EDR telemetry heartbeats.",
+        "command": "Get-WinEvent -LogName System | Where-Object {$_.Id -in @(7034, 7036, 7045) -and $_.Message -like '*Falcon*' -or $_.Message -like '*Defender*'} | Select-Object TimeCreated, Id, Message",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Events showing EDR/AV service crash, stop, or unexpected termination indicate 'tampered' or 'disabled' status; absence of expected heartbeat events in SIEM confirms potential 'not_installed' state."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "active (well-managed corporate fleets with MDM enforcement)",
+      "disabled (devices with user-disabled protection or policy gaps)",
+      "tampered (targeted attacks or advanced malware attempting to blind EDR)",
+      "not_installed (unmanaged or newly provisioned devices, BYOD without MAM)"
+    ]
+  },
+  {
+    "option_name": "signature_age_days",
+    "option_description": "Records the number of days elapsed since the endpoint protection software last successfully downloaded and applied an updated threat signature or definition database. A high value indicates the device's AV/EDR detections are operating against an outdated threat landscape, missing newly discovered malware families and IOCs.",
+    "security_impact": "The Rego policy fires the 'endpoint_protection_disabled_or_tampered' exposure when endpoint_protection_status is 'active' but signature_age_days exceeds 7 days. Signatures older than one week miss hundreds of new malware variants released daily. Ransomware families, infostealers, and commodity trojans often evade older signatures by design, specifically targeting organizations with delayed update cadences. An active EDR with stale definitions provides false confidence while leaving detection gaps.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, query Windows Defender's last signature update time and compute the delta in days using PowerShell.",
+        "command": "# Get Defender signature age:\n$status = Get-MpComputerStatus\n$lastUpdate = $status.AntivirusSignatureLastUpdated\n$ageDays = (Get-Date) - $lastUpdate\nWrite-Output \"Signature age: $($ageDays.Days) days (Last updated: $lastUpdate)\"\n\n# For third-party AV, check product-specific WMI or registry:\nGet-ItemProperty 'HKLM:\\SOFTWARE\\Symantec\\Symantec Endpoint Protection\\AV\\PatternManager' | Select-Object 'LatestDefsDate'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns the last update timestamp; compute days delta against current date. Values > 7 indicate the threshold is breached per policy."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the AV/EDR management console for per-device definition update timestamps, filtering for devices with outdated signatures beyond the acceptable threshold.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Defender Portal → Reports → Endpoint protection report → Antivirus status → Filter 'Antivirus signature age' > 7 days; CrowdStrike Falcon → Hosts → Host Management → Add filter 'Last Seen' to identify stale agents; SentinelOne → Endpoints → Filter by 'Threat Intelligence Date'",
+        "expected_output": "Dashboard displays a list of devices with signature ages exceeding policy threshold; these devices have signature_age_days values triggering the Rego exposure rule."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Microsoft Defender for Endpoint REST API to retrieve antivirus definition version and update dates per machine.",
+        "command": "curl -X GET 'https://api.securitycenter.microsoft.com/api/machines' -H 'Authorization: Bearer <token>' | jq '.value[] | {computerDnsName, avSignatureVersion, avSignatureUpdateTime}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output showing avSignatureUpdateTime per device; calculate days since that timestamp to derive signature_age_days per machine."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query SIEM for AV signature update success/failure events forwarded from endpoints, looking for devices with no successful update event in the past 7 days.",
+        "command": "# Example Splunk SPL query:\nindex=endpoint sourcetype=WinEventLog:Microsoft-Windows-Windows Defender/Operational EventCode=2000\n| eval signature_update_time=strptime(_time, \"%Y-%m-%d\")\n| stats latest(signature_update_time) as last_update by host\n| eval age_days=round((now()-last_update)/86400,0)\n| where age_days > 7",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of hostnames where the last successful signature update event is older than 7 days, indicating elevated signature_age_days values."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0-1 (well-managed fleet with automatic updates and internet connectivity)",
+      "2-7 (acceptable range, typical for devices with intermittent connectivity)",
+      "8-30 (policy-violating; common on VPN-disconnected or offline devices)",
+      "30+ (severely outdated; common on BYOD or unmanaged machines, air-gapped devices)"
+    ]
+  },
+  {
+    "option_name": "broad_exclusion_paths",
+    "option_description": "Contains the list of filesystem paths or glob patterns configured as scan exclusions within the endpoint protection tool. Exclusions prevent the AV/EDR from inspecting files, processes, or directories matching these patterns. 'Broad' exclusions are those covering large attack surfaces such as root drives, system directories (%TEMP%, %APPDATA%, C:\\Windows\\System32), entire user profile trees, or application installation directories.",
+    "security_impact": "The Rego policy fires the 'endpoint_protection_disabled_or_tampered' exposure when endpoint_protection_status is 'active' but count(broad_exclusion_paths) > 0. Overly broad exclusions are a well-documented attacker technique: after gaining initial access, threat actors modify AV exclusion lists to stage malware in excluded directories where it will never be scanned. Even pre-existing broad exclusions set by IT (often to reduce false positives) create permanent blind spots that malware authors specifically target, placing payloads in %TEMP% or %APPDATA% precisely because these are commonly excluded.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, enumerate all configured Windows Defender exclusion paths, extensions, and processes using PowerShell to identify overly broad entries.",
+        "command": "# List all Defender exclusions:\nGet-MpPreference | Select-Object ExclusionPath, ExclusionExtension, ExclusionProcess, ExclusionIpAddress | Format-List\n\n# Flag high-risk exclusions with a filter:\n$exclusions = (Get-MpPreference).ExclusionPath\n$broadPatterns = @('C:\\\\', 'C:\\\\Windows', 'C:\\\\Users', '%TEMP%', '%APPDATA%', '*', 'C:\\\\Windows\\\\System32')\n$exclusions | Where-Object { $_ -in $broadPatterns -or $_ -match '\\*' }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lists all exclusion paths; entries matching root drives, system directories, or wildcard patterns populate the broad_exclusion_paths array."
+      },
+      {
+        "type": "gui",
+        "instruction": "Export or review the exclusion list from the AV/EDR management console, filtering for entries that cover broad or high-risk directories.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Defender Portal → Configuration Management → Endpoint Security Policies → Antivirus → Review 'Exclusions' configuration; CrowdStrike Falcon → Configure → Prevention Policies → Exclusions → Export list; Symantec/SEP Manager → Policies → Virus and Spyware Protection → Exceptions → Export",
+        "expected_output": "Exported exclusion list; analyst reviews for entries covering root volumes (C:\\), system paths (System32, Temp, AppData), or wildcard patterns (*.*, C:\\Users\\*)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On macOS with third-party EDR agents, review the agent's local configuration file for exclusion definitions.",
+        "command": "# CrowdStrike Falcon on macOS:\ncat /Library/CS/falconctl\n# Check exclusion configurations for SentinelOne:\nsentinelctl status\n# Symantec Endpoint Protection:\ncat '/Library/Application Support/Symantec/Symantec Endpoint Protection/exclusions.xml'",
+        "file_path": "/Library/Application Support/Symantec/Symantec Endpoint Protection/exclusions.xml",
+        "navigation": null,
+        "expected_output": "Configuration file contents reveal exclusion paths; entries covering /tmp, /var/folders, /Users, or / are considered broad and should be flagged."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the EDR platform API to retrieve the current exclusion list programmatically for bulk assessment across devices.",
+        "command": "# Microsoft Defender for Endpoint - retrieve indicators/exclusions:\ncurl -X GET 'https://api.securitycenter.microsoft.com/api/indicators?$filter=indicatorType eq 'FilePath'' -H 'Authorization: Bearer <token>' | jq '.value[] | {indicatorValue, action}'\n\n# CrowdStrike Falcon - retrieve exclusions:\ncurl -X GET 'https://api.crowdstrike.com/exclusions/queries/ml-exclusions/v1' -H 'Authorization: Bearer <token>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON list of configured exclusion paths; filter for entries matching broad path patterns to populate broad_exclusion_paths."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[] (well-configured deployments with no broad exclusions)",
+      "['C:\\\\Users\\\\%USERNAME%\\\\AppData\\\\Roaming'] (common misconfiguration for application compatibility)",
+      "['C:\\\\', 'C:\\\\Windows\\\\Temp', '%APPDATA%', 'C:\\\\Windows\\\\System32'] (severely misconfigured; often set to suppress false positives without risk assessment)",
+      "['C:\\\\ProgramData', 'C:\\\\Windows\\\\SoftwareDistribution'] (moderate risk; common in poorly scoped vendor-recommended exclusions)"
+    ]
+  },
+  {
+    "option_name": "days_since_critical_patch_available",
+    "option_description": "Measures the number of days that have elapsed since the vendor released a critical patch (OS, driver, or UEFI/BIOS firmware) that the workstation has not yet applied. This is a real-time lag indicator: a value of 0 means the device is fully current on critical patches, while higher values indicate increasingly stale patch state and growing window of exploitability for known vulnerabilities.",
+    "security_impact": "The Rego policy uses this attribute in the 'os_and_firmware_patching_lag' exposure rule, firing when days_since_critical_patch_available > 0 combined with a non-empty patch_scope. Critical patches address publicly disclosed CVEs — often with available public exploits — in OS components, kernel drivers, and firmware. Every day beyond the patch release date extends the window during which attackers can exploit known vulnerabilities using commodity exploit kits, wormable exploits (e.g., EternalBlue-class), or targeted attacks referencing public CVE PoC code.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Use the patch management or MDM console to compare each device's installed patch level against the latest critical patch release date from the vendor.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Intune → Reports → Windows Updates → Windows Feature and Quality Update Reports → Review 'Deployment status' and 'Days since update available'; WSUS → Update Services → Computers → [Select computer] → Needed Updates → Filter by 'Classification: Critical Updates'; Ivanti Patch Management → Scan Results → Filter by 'Severity: Critical' and 'Status: Missing'",
+        "expected_output": "Report shows per-device count of days since each critical patch was available but not applied; maximum value across all missing critical patches is the days_since_critical_patch_available value."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, query Windows Update history and the list of missing updates using PowerShell to calculate the oldest uninstalled critical patch date.",
+        "command": "# List missing critical updates and their release dates:\n$UpdateSession = New-Object -ComObject Microsoft.Update.Session\n$UpdateSearcher = $UpdateSession.CreateUpdateSearcher()\n$SearchResult = $UpdateSearcher.Search(\"IsInstalled=0 and Type='Software' and IsHidden=0\")\n$SearchResult.Updates | Where-Object {$_.MsrcSeverity -eq 'Critical'} | Select-Object Title, LastDeploymentChangeTime | Sort-Object LastDeploymentChangeTime\n\n# Calculate days since oldest critical patch:\n$oldest = ($SearchResult.Updates | Where-Object {$_.MsrcSeverity -eq 'Critical'} | Sort-Object LastDeploymentChangeTime | Select-Object -First 1).LastDeploymentChangeTime\n$daysDelta = (Get-Date) - $oldest\nWrite-Output \"Days since oldest critical patch available: $($daysDelta.Days)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows the release date of the oldest uninstalled critical patch and computes the lag in days; this is the days_since_critical_patch_available value for the device."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Graph API for Windows Update compliance reports or use the Defender for Endpoint vulnerability management API to retrieve missing patch data.",
+        "command": "# Defender for Endpoint - get software vulnerabilities and associated patch dates:\ncurl -X GET 'https://api.securitycenter.microsoft.com/api/machines/<machineId>/vulnerabilities?$filter=cvssV3 ge 7.0' -H 'Authorization: Bearer <token>' | jq '.value[] | {cveId, publishedOn, patchPublishedOn}'\n\n# Compute days since patchPublishedOn for each unpatched critical CVE",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON list of vulnerabilities per machine with patch publication dates; compute the maximum days delta between patchPublishedOn and current date across all critical unpatched vulnerabilities."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review patch management system logs or SIEM data for patch installation success/failure events to identify devices with the longest gap since a critical patch was applied.",
+        "command": "# Splunk SPL to identify devices with critical patches not applied within threshold:\nindex=patch_management severity=critical status=missing\n| eval days_lag=round((now()-strptime(patch_release_date,\"%Y-%m-%d\"))/86400,0)\n| stats max(days_lag) as max_days_since_patch by hostname\n| where max_days_since_patch > 0\n| sort -max_days_since_patch",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ranked list of devices with the number of days since the most recent uninstalled critical patch was released; highest values indicate worst patch lag."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (fully patched; achievable with auto-update enabled and healthy MDM connectivity)",
+      "1-14 (acceptable lag for patch testing and ring deployment cycles)",
+      "15-30 (approaching policy violation threshold; common in environments with manual patch approval workflows)",
+      "30-90 (policy-violating; frequently observed on BYOD, remote devices with poor MDM connectivity, or organizations with lengthy change management gates)",
+      "90+ (critical risk; common on legacy systems, air-gapped devices, or where patching is systematically deferred)"
+    ]
+  },
+  {
+    "option_name": "patch_scope",
+    "option_description": "Identifies which categories of critical patches remain unapplied on the device. Valid elements are 'os' (operating system updates), 'driver' (hardware driver updates), and 'uefi_bios' (firmware updates). An empty array indicates no outstanding critical patches.",
+    "security_impact": "The Rego policy triggers the 'Os And Firmware Patching Lag' exposure whenever patch_scope is non-empty and days_since_critical_patch_available is greater than zero. A non-empty patch_scope means known, exploitable vulnerabilities remain unpatched. The policy also applies a dedicated condition when 'uefi_bios' is present in the scope, reflecting the elevated risk of firmware-level vulnerabilities that persist across OS reinstalls and are not addressed by standard OS patch management.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune, navigate to Devices > All Devices, select the target device, then review 'Device compliance' and 'Windows Update rings' status. Cross-reference against the 'Update status' blade to identify pending OS, driver, and firmware updates.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Intune portal > Devices > All Devices > [Device] > Update status",
+        "expected_output": "A list of pending updates categorized by type (Quality, Driver, BIOS/Firmware). Any critical-severity pending item maps to an element in patch_scope."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, use PowerShell to query the Windows Update Agent for pending updates and classify them by category (OS, driver, UEFI/BIOS).",
+        "command": "Get-WindowsUpdate -Category 'Critical Updates','Driver','BIOS' -NotInstalled | Select-Object Title, KB, Categories | Format-List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of unapplied updates. Entries containing 'Driver' in Categories map to 'driver'; entries containing 'BIOS' or 'Firmware' map to 'uefi_bios'; remaining OS entries map to 'os'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, use the package manager to list available security updates. For UEFI firmware, query fwupd for pending firmware updates.",
+        "command": "apt-get -s upgrade 2>/dev/null | grep -i 'security' ; fwupdmgr get-updates 2>/dev/null | grep -E 'Name|Version|Urgency'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Security package lines indicate 'os' scope. fwupdmgr output listing available UEFI or driver firmware updates indicates 'uefi_bios' or 'driver' scope respectively."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Microsoft Graph API to query a device's Windows Update compliance state programmatically, suitable for bulk assessments.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/<deviceId>?$select=osVersion,complianceState,lastSyncDateTime' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response including osVersion and complianceState. Non-compliant devices require further investigation to classify patch gaps into os, driver, or uefi_bios."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[] (no outstanding critical patches — ideal state)",
+      "['os']",
+      "['os', 'driver']",
+      "['os', 'driver', 'uefi_bios']",
+      "['uefi_bios']"
+    ]
+  },
+  {
+    "option_name": "secure_boot_enabled",
+    "option_description": "Indicates whether UEFI Secure Boot is active on the device. When enabled, the firmware validates digital signatures of bootloaders and OS loaders before execution, preventing unsigned or tampered boot-time code from running.",
+    "security_impact": "The Rego policy triggers the 'Secure Boot Disabled Or Misconfigured' exposure (criticality: medium, score: 5) when secure_boot_enabled is false or absent. Without Secure Boot, an attacker with physical access or firmware-level write capability can implant bootkits or rootkits that persist below the OS layer and survive full OS reimaging. The policy also evaluates mdm_enrollment_status alongside this attribute, meaning managed devices are expected to enforce this control.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, run the Confirm-SecureBootUEFI PowerShell cmdlet. A return value of True confirms Secure Boot is active.",
+        "command": "Confirm-SecureBootUEFI",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "True indicates Secure Boot is enabled. False or a cmdlet-not-supported error indicates it is disabled or unavailable."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, use mokutil to query the Secure Boot state from the EFI runtime variables.",
+        "command": "mokutil --sb-state",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'SecureBoot enabled' confirms the control is active. 'SecureBoot disabled' requires remediation."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Windows, open msinfo32 (System Information) and locate 'Secure Boot State' under System Summary. On macOS, open System Information > Software section and check 'Secure Boot'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Windows: Start > msinfo32 > System Summary > Secure Boot State | macOS: Apple menu > About This Mac > System Report > Software > Secure Boot",
+        "expected_output": "Windows: 'On'. macOS: 'Full Security' or 'Medium Security' indicates Secure Boot is functional."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the MDM/UEM console API for the device's Secure Boot compliance attribute. In Intune, retrieve the device configuration state via Microsoft Graph.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/beta/deviceManagement/managedDevices/<deviceId>?$select=hardwareInformation' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('hardwareInformation',{}).get('secureBootEnabled'))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "true or false. A false value confirms the exposure condition is met."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (enabled — ideal for modern managed hardware)",
+      "false (disabled — legacy hardware, misconfiguration, or deliberate override)"
+    ]
+  },
+  {
+    "option_name": "secure_boot_custom_db_state",
+    "option_description": "Describes the trust state of the Secure Boot signature database (db) on the device. 'default_trusted' means only Microsoft and OEM certificates are present. 'custom_trusted' means additional enterprise or vendor certificates have been deliberately added. 'untrusted_or_unknown' means self-signed, expired, or unrecognized certificates are present in the database.",
+    "security_impact": "The Rego policy triggers 'Secure Boot Disabled Or Misconfigured' when secure_boot_enabled is true but secure_boot_custom_db_state equals 'untrusted_or_unknown'. This covers the attack scenario where Secure Boot appears enabled but has been subverted by enrolling a malicious or attacker-controlled certificate into the db, allowing unsigned bootloaders signed with that certificate to execute. Custom or unknown certificates in the db effectively nullify the boot integrity guarantee.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, enumerate the Secure Boot db using PowerShell to retrieve enrolled certificate thumbprints and validate them against known Microsoft/OEM root CA values.",
+        "command": "$db = Get-SecureBootUEFI -Name db; $db.bytes | ForEach-Object { [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($_).Thumbprint } 2>$null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Thumbprints matching Microsoft's known Secure Boot CA values (e.g., 13adbf4309bd82709c8cd54f316ed522988a1bd4) indicate 'default_trusted'. Unknown or self-signed thumbprints indicate 'untrusted_or_unknown'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, use efi-readvar or mokutil to enumerate the db contents and inspect certificate details.",
+        "command": "efi-readvar -v db 2>/dev/null || mokutil --list-enrolled 2>/dev/null | grep -E 'Subject|Issuer|Not After'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Certificates issued by Microsoft Corporation or the hardware OEM indicate 'default_trusted'. Self-signed, expired, or unrecognized issuers indicate 'untrusted_or_unknown'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the endpoint engineering team to determine whether any custom certificate enrollment scripts or MDM policies have modified the Secure Boot db, and if so, review the certificate chain of trust and expiry.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented change record showing enterprise PKI-issued, non-expired certificates were enrolled deliberately. Absence of records with unknown certs present indicates 'untrusted_or_unknown'."
+      },
+      {
+        "type": "gui",
+        "instruction": "Access the UEFI firmware setup (typically F2 or Del at boot) and navigate to the Secure Boot key management section to review db entries visually.",
+        "command": null,
+        "file_path": null,
+        "navigation": "UEFI Setup > Security > Secure Boot > Key Management > Authorized Signatures (db)",
+        "expected_output": "Only Microsoft UEFI CA and OEM certificates listed indicates 'default_trusted'. Any unlabeled or self-signed entries indicate 'untrusted_or_unknown'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "default_trusted (standard out-of-box configuration on managed hardware)",
+      "custom_trusted (enterprise environments with internal certificate authorities)",
+      "untrusted_or_unknown (tampered, development, or misconfigured devices)"
+    ]
+  },
+  {
+    "option_name": "mdm_enrollment_status",
+    "option_description": "Reflects whether the device is actively enrolled in a Mobile Device Management (MDM) or Unified Endpoint Management (UEM) platform such as Microsoft Intune, Jamf Pro, or VMware Workspace ONE, and whether compliance policies are being enforced against it.",
+    "security_impact": "The Rego policy references mdm_enrollment_status in three separate rules. It contributes to the 'Unmanaged BYOD Without MDM Enrollment' exposure when the value is 'not_enrolled' or 'enrollment_pending' combined with missing BYOD policy enforcement or remote wipe capability. It also contextually informs 'Weak Or Absent Screen Lock Authentication' and 'Secure Boot Disabled Or Misconfigured', as MDM enrollment is the primary mechanism for enforcing those controls remotely. Unenrolled devices cannot receive policy updates, compliance remediations, or remote wipe commands.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, run dsregcmd to determine the device's Azure AD and MDM join state.",
+        "command": "dsregcmd /status | findstr /i 'AzureAdJoined MDMEnrolled MDMUrl'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AzureAdJoined: YES and MDMEnrolled: YES indicates 'enrolled'. MDMEnrolled: NO maps to 'not_enrolled'. Partial enrollment flows may show MDMUrl without full compliance enforcement, indicating 'enrollment_pending'."
+      },
+      {
+        "type": "gui",
+        "instruction": "On macOS, verify MDM enrollment by checking installed configuration profiles in System Settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "macOS: System Settings > Privacy & Security > Profiles (if absent, not enrolled) | Jamf: Jamf Pro console > Computers > [Device] > Management",
+        "expected_output": "One or more MDM-installed profiles visible indicates 'enrolled'. No profiles present indicates 'not_enrolled'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the MDM console API to retrieve device enrollment status at scale. For Intune, use the Microsoft Graph managedDevices endpoint.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$filter=deviceName eq \"<hostname>\"&$select=deviceName,managementState,enrolledDateTime,complianceState' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "managementState of 'managed' indicates 'enrolled'. 'retirePending' or 'unknown' maps to 'enrollment_pending'. Device absent from results indicates 'not_enrolled'."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, use the profiles command-line tool to list active MDM configuration profiles.",
+        "command": "profiles list -all 2>/dev/null | grep -E 'profileIdentifier|MDM|Management'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output listing MDM-related profile identifiers confirms 'enrolled'. Empty output indicates 'not_enrolled'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "enrolled (corporate-managed devices with active MDM policy enforcement)",
+      "not_enrolled (BYOD or shadow devices, or devices that bypassed enrollment)",
+      "enrollment_pending (devices mid-onboarding or with lapsed enrollment)"
+    ]
+  },
+  {
+    "option_name": "byod_policy_enforced",
+    "option_description": "Indicates whether the organization has a formally enforced BYOD policy backed by technical controls such as Azure AD Conditional Access, Okta Device Trust, or equivalent identity provider mechanisms that actively block unenrolled or non-compliant personal devices from accessing corporate applications and data.",
+    "security_impact": "The Rego policy triggers 'Unmanaged BYOD Without MDM Enrollment' when mdm_enrollment_status is 'not_enrolled' or 'enrollment_pending' AND byod_policy_enforced is false. Without enforcement, unenrolled personal devices can access corporate resources with no security baseline applied — no patch requirements, no encryption verification, no EDR presence check. The absence of this control means the organization relies solely on user compliance with voluntary guidelines, which provides no technical enforcement boundary.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure Active Directory, review Conditional Access policies for rules that require device compliance or hybrid join, and verify they apply to all users or the BYOD user population.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Azure Active Directory > Security > Conditional Access > Policies > filter for 'Require device to be marked as compliant' or 'Require Hybrid Azure AD joined device' grant controls",
+        "expected_output": "At least one enabled CA policy targeting corporate apps with a 'Require compliant device' grant control and no broad exclusions indicates byod_policy_enforced = true."
+      },
+      {
+        "type": "api",
+        "instruction": "Use Microsoft Graph to retrieve all Conditional Access policies and inspect their conditions and grant controls programmatically.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' | python3 -c \"import sys,json; [print(p['displayName'], p['state'], p.get('grantControls')) for p in json.load(sys.stdin)['value']]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policies in 'enabled' state with grantControls containing 'compliantDevice' or 'domainJoinedDevice' confirm enforcement is active."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IAM or security team to confirm whether a BYOD policy document exists and whether it has corresponding technical enforcement in the identity provider, not merely as a user-acknowledged agreement.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation of a Conditional Access or Device Trust policy with defined enforcement actions (block vs. allow), effective date, and user scope confirms byod_policy_enforced = true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to access a corporate application (e.g., Microsoft 365, Salesforce) from an unenrolled device to verify whether access is blocked. Use a browser private mode session or a test device that is not MDM-enrolled.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Access denied with an error referencing device compliance or enrollment requirement confirms byod_policy_enforced = true. Successful unrestricted access indicates byod_policy_enforced = false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (organizations with mature IAM programs and zero-trust conditional access)",
+      "false (organizations relying on policy documents without technical enforcement, or small environments without enterprise IdP)"
+    ]
+  },
+  {
+    "option_name": "remote_wipe_capability_available",
+    "option_description": "Indicates whether the IT or security team has the technical capability to remotely wipe or selectively wipe corporate data from the device via the MDM/UEM platform. Selective wipe (supported by MAM-only enrollment) removes only managed app data, while a full wipe resets the device to factory state.",
+    "security_impact": "The Rego policy triggers 'Unmanaged BYOD Without MDM Enrollment' when the device is not enrolled AND remote_wipe_capability_available is false. Remote wipe is a critical incident response control for scenarios involving device loss, theft, employee termination, or confirmed compromise. Without this capability, corporate data on a lost device remains accessible indefinitely. For BYOD devices in particular, selective wipe allows corporate data removal without affecting personal data, making enrollment more acceptable to users while maintaining security.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune, navigate to the specific device record and verify the availability of 'Wipe' and 'Retire' actions in the top action bar, confirming full and selective wipe capability respectively.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Intune portal > Devices > All Devices > [Device] > Overview > action buttons (Wipe, Retire, Sync)",
+        "expected_output": "'Wipe' button present and active indicates full remote wipe capability. 'Retire' button present indicates selective/corporate data wipe is available."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Microsoft Graph API to verify available remote actions for a managed device, which includes wipe and retire actions.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/<deviceId>?$select=managementState,deviceActionResults,deviceName' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A managementState of 'managed' with a valid enrolledDateTime confirms wipe actions are available. Devices in 'unknown' or absent from inventory cannot be remotely wiped."
+      },
+      {
+        "type": "gui",
+        "instruction": "For Jamf Pro (macOS/iOS), check the device's management commands section to confirm remote wipe is available. For Workspace ONE, review the device details Actions menu.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Jamf Pro > Computers/Devices > [Device] > Management > Management Commands | VMware Workspace ONE > Devices > [Device] > More Actions > Enterprise Wipe",
+        "expected_output": "'Remote Wipe' or 'Enterprise Wipe' command available in the actions menu confirms remote_wipe_capability_available = true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the incident response runbook and verify whether a documented wipe procedure exists and has been tested within the past 12 months, including who holds the authorization to initiate a remote wipe.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A runbook entry with defined roles, authorization chain, and evidence of a test wipe confirms operational readiness. Absence of procedure despite technical capability may still indicate risk."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (MDM-enrolled devices with active Intune, Jamf, or Workspace ONE management)",
+      "false (unenrolled BYOD devices, MAM-only enrollment without wipe policy, or legacy device management)"
+    ]
+  },
+  {
+    "option_name": "plaintext_credential_files_found",
+    "option_description": "Indicates whether a scan of the device's user-accessible file system has discovered files containing credentials, API keys, private keys, or authentication tokens in unencrypted plaintext. This includes files such as .env, config.ini, credentials.txt, id_rsa, .aws/credentials, and similar artifacts left in home directories, application data folders, or desktop locations.",
+    "security_impact": "The Rego policy directly triggers 'Cleartext Credential Storage On Device' (criticality: high, score: 8) when plaintext_credential_files_found is true. This is the most direct indicator of credential exposure on the device. Plaintext credential files are high-value targets for malware, insider threats, and physical access attackers. A single compromised file can yield lateral movement credentials, cloud provider access keys, or service account tokens that extend the blast radius of a device compromise significantly beyond the device itself.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, use PowerShell to recursively scan user directories for files matching common credential file naming patterns.",
+        "command": "Get-ChildItem -Path $env:USERPROFILE -Recurse -Include '*.env','credentials','*.ini','*.cfg','id_rsa','*.pem' -ErrorAction SilentlyContinue | Select-Object FullName | ForEach-Object { Select-String -Path $_.FullName -Pattern 'password=|api_key=|secret=|token=|AWS_SECRET' -CaseSensitive:$false }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any matching lines output indicates plaintext_credential_files_found = true. No output indicates the paths are clean."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux/macOS, use grep to search home directories and common config paths for plaintext credential patterns, and also check .aws, .ssh, and .config directories.",
+        "command": "grep -rEl 'password=|api_key=|AWS_SECRET_ACCESS_KEY|PRIVATE KEY|token=' ~/.aws ~/.ssh ~/.config ~/Documents ~/Desktop 2>/dev/null | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of file paths containing matches indicates plaintext_credential_files_found = true. Empty output indicates no matches found in scanned locations."
+      },
+      {
+        "type": "command",
+        "instruction": "Use truffleHog or git-secrets on cloned repositories or local development directories to detect secrets committed or stored in project files.",
+        "command": "trufflehog filesystem --directory=$HOME/Projects --json 2>/dev/null | python3 -c \"import sys,json; [print(json.loads(l).get('SourceMetadata')) for l in sys.stdin if l.strip()]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output with SourceMetadata entries listing file paths confirms credential patterns were found, setting plaintext_credential_files_found = true."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the Windows Credential Manager and common application config directories for stored plaintext credentials using a targeted search.",
+        "command": "cmdkey /list ; Get-Content \"$env:APPDATA\\..\\Local\\*\\*.json\" -ErrorAction SilentlyContinue | Select-String -Pattern 'password|secret|token' | Select-Object -First 20",
+        "file_path": "%APPDATA%\\..\\Local\\",
+        "navigation": null,
+        "expected_output": "cmdkey output lists stored credentials (though these are in the Credential Manager vault). JSON content with credential-like patterns indicates plaintext_credential_files_found = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (well-managed developer workstations with secrets management tooling, or non-developer endpoints)",
+      "true (developer workstations, DevOps-heavy environments, or endpoints where users manually handle credentials)"
+    ]
+  },
+  {
+    "option_name": "browser_master_password_enforced",
+    "option_description": "Indicates whether the browser's saved password store is protected by an additional authentication layer. For Firefox, this is a Primary Password (formerly Master Password). For Chromium-based browsers (Chrome, Edge), this means the OS-level credential store (Windows DPAPI tied to user session, macOS Keychain, Linux Secret Service/Kwallet) is active and protecting the encrypted password database.",
+    "security_impact": "The Rego policy triggers 'Cleartext Credential Storage On Device' (criticality: high, score: 8) when browser_master_password_enforced is false. Without a master password or OS-level protection, browser-stored credentials can be decrypted by any process running in the user's session or by an attacker with physical access to the user profile directory. Browser password stores are a primary target for infostealer malware families (Redline, Vidar, Raccoon) that dump the SQLite login database and decrypt it using the accessible key. MDM policies can enforce this control on managed devices.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Firefox, check whether a Primary Password is set by examining the key4.db database — if a master password is set, a specific metadata record exists.",
+        "command": "python3 -c \"import sqlite3, os; db=os.path.expanduser('~/.mozilla/firefox/*.default*/key4.db'); import glob; path=glob.glob(db); conn=sqlite3.connect(path[0]) if path else None; print([r for r in conn.execute(\\\"SELECT item1 FROM metadata WHERE id='password'\\\").fetchall()] if conn else 'No Firefox profile found')\"",
+        "file_path": "~/.mozilla/firefox/*.default*/key4.db",
+        "navigation": null,
+        "expected_output": "If the query returns a non-empty item1 value, a Primary Password is set (browser_master_password_enforced = true). An empty password hash indicates no Primary Password."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, verify that Chrome/Edge uses DPAPI for password encryption by checking if the Local State file contains os_crypt configuration. The encryption key should be DPAPI-protected.",
+        "command": "python3 -c \"import json,os; f=open(os.path.expandvars('%LOCALAPPDATA%\\\\Google\\\\Chrome\\\\User Data\\\\Local State')); d=json.load(f); print('DPAPI protected:', d.get('os_crypt',{}).get('encrypted_key','')[:4]=='DPAPI')\"",
+        "file_path": "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Local State",
+        "navigation": null,
+        "expected_output": "'DPAPI protected: True' confirms OS-level credential protection is active (browser_master_password_enforced = true). False indicates the key may not be properly protected."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Firefox, navigate to Settings > Privacy & Security and check whether 'Use a Primary Password' checkbox is enabled. For Chrome/Edge on managed devices, check the GPO/MDM policy for PasswordManagerEnabled and related settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Firefox: Settings (about:preferences) > Privacy & Security > Logins and Passwords > Use a Primary Password | Chrome: Settings > Autofill > Password Manager | Edge: Settings > Passwords",
+        "expected_output": "Firefox: 'Primary Password is set' status indicator visible. Chrome/Edge: OS-level storage confirmation or managed policy indicating credential protection is active."
+      },
+      {
+        "type": "api",
+        "instruction": "For managed devices, query the MDM/UEM console or group policy for browser security settings. In Intune, check device configuration profiles assigned to the device for browser-related password policies.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/beta/deviceManagement/managedDevices/<deviceId>/deviceConfigurationStates' | python3 -c \"import sys,json; [print(p['displayName'], p['state']) for p in json.load(sys.stdin).get('value',[]) if 'browser' in p['displayName'].lower() or 'password' in p['displayName'].lower()]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Configuration profile entries for browser password policies in 'compliant' state confirm browser_master_password_enforced = true. Absence of browser security profiles indicates reliance on user configuration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (Firefox with Primary Password set, or Chromium browsers on Windows with DPAPI active and user session-bound encryption)",
+      "false (default browser configuration without Primary Password, unmanaged BYOD devices, or Firefox without Primary Password enabled)"
+    ]
+  },
+  {
+    "option_name": "os_credential_manager_protection_enabled",
+    "option_description": "Controls whether the operating system's built-in credential manager (Windows Credential Manager, macOS Keychain, Linux gnome-keyring/Secret Service) is actively encrypting stored credentials using session-bound keys, ensuring credentials are inaccessible when the user is not authenticated.",
+    "security_impact": "The Rego policy fires the cleartext_credential_storage_on_device exposure when os_credential_manager_protection_enabled is false or absent. An unprotected credential manager allows local attackers or malware running in user context to extract saved passwords, OAuth tokens, and certificates without requiring privilege escalation, directly enabling lateral movement and account takeover.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, verify DPAPI protection of Credential Manager by checking vault metadata and confirming vaultcmd lists encrypted entries.",
+        "command": "vaultcmd /listcreds:\"Windows Credentials\" /all && reg query HKLM\\SOFTWARE\\Microsoft\\Cryptography\\Protect\\Providers\\df9d8cd0-1501-11d1-8c7a-00c04fc297eb",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Credential entries listed with 'Protected: Yes' or DPAPI provider key present; absence of plaintext blobs in vault directory %LOCALAPPDATA%\\Microsoft\\Vault\\"
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, confirm Keychain is configured to lock when the screen locks by checking security settings and login keychain lock-on-sleep status.",
+        "command": "security show-keychain-info ~/Library/Keychains/login.keychain-db 2>&1 && defaults read com.apple.screensaver askForPassword",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'lock-on-sleep' and 'lock-after-timeout' flags set; askForPassword returns 1"
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, verify gnome-keyring is running and the default keyring is set to lock on session lock via PAM integration.",
+        "command": "ps aux | grep -E 'gnome-keyring|secret-service' && grep -r 'pam_gnome_keyring' /etc/pam.d/",
+        "file_path": "/etc/pam.d/login",
+        "navigation": null,
+        "expected_output": "gnome-keyring-daemon process visible; pam_gnome_keyring.so entries present in PAM configuration for session lock/unlock"
+      },
+      {
+        "type": "gui",
+        "instruction": "On Windows, open Credential Manager via Control Panel and verify stored credentials are shown as protected entries rather than plaintext.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Control Panel > User Accounts > Credential Manager > Windows Credentials — inspect each entry; protected entries show asterisks and cannot be revealed without re-authentication",
+        "expected_output": "All credential entries require current user authentication to view; no plaintext passwords exposed in the GUI"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (corporate-managed Windows with DPAPI active)",
+      "false (Linux systems without gnome-keyring PAM integration)",
+      "true (macOS with default Keychain configuration)"
+    ]
+  },
+  {
+    "option_name": "host_firewall_enabled",
+    "option_description": "Indicates whether the operating system's built-in host-based firewall is active and enforcing packet filtering rules, controlling which inbound and outbound network connections are permitted on the endpoint.",
+    "security_impact": "The Rego policy triggers host_firewall_disabled_or_overly_permissive when host_firewall_enabled is false or not present. A disabled host firewall exposes all listening services (SMB, RDP, mDNS, application ports) to every host on the local LAN or VPN segment, enabling network-based exploitation of unpatched services without requiring any user interaction.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, query the firewall state across all network profiles (Domain, Private, Public) using netsh.",
+        "command": "netsh advfirewall show allprofiles state",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each profile shows 'State ON'; any profile showing 'State OFF' indicates host_firewall_enabled = false"
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, check the application-layer firewall status using socketfilterfw.",
+        "command": "sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate && sudo defaults read /Library/Preferences/com.apple.alf globalstate",
+        "file_path": "/Library/Preferences/com.apple.alf.plist",
+        "navigation": null,
+        "expected_output": "socketfilterfw returns 'Firewall is enabled' and defaults read returns 1 or 2; value 0 means disabled"
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, check the status of ufw, firewalld, or raw iptables rules to determine if a host firewall is active.",
+        "command": "sudo ufw status verbose 2>/dev/null || sudo firewall-cmd --state 2>/dev/null || sudo iptables -L INPUT --line-numbers -n 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ufw returns 'Status: active'; firewalld returns 'running'; iptables shows policy DROP or explicit ACCEPT rules — empty INPUT chain or ACCEPT all indicates disabled"
+      },
+      {
+        "type": "gui",
+        "instruction": "On Windows, verify firewall status through Windows Security Center UI.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Windows Security > Firewall & network protection — each network profile (Domain, Private, Public) should show 'Firewall is on'; a red warning icon or 'Off' status maps to host_firewall_enabled = false",
+        "expected_output": "All three profiles display green status with 'on' indicator"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (corporate-managed Windows endpoints with GPO enforcement)",
+      "false (BYOD Linux workstations without firewall configuration)",
+      "true (macOS endpoints under MDM Jamf/Intune profile)",
+      "false (developer VMs with firewall intentionally disabled)"
+    ]
+  },
+  {
+    "option_name": "inbound_default_policy",
+    "option_description": "Defines the firewall's default action for inbound network connections that do not match any explicit allow or deny rule — either blocking all unmatched traffic (deny), passing all unmatched traffic (allow_all), or in an indeterminate state (unknown).",
+    "security_impact": "The Rego policy triggers host_firewall_disabled_or_overly_permissive when host_firewall_enabled is true but inbound_default_policy equals allow_all. A permissive default means even an active firewall provides no protection for services without explicit block rules, effectively negating the firewall's value and exposing listening ports to lateral movement from adjacent hosts.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, retrieve the inbound firewall policy for each profile to confirm block is the default action.",
+        "command": "netsh advfirewall show allprofiles firewallpolicy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each profile shows 'Firewall Policy: BlockInbound,...'; 'AllowInbound' indicates allow_all and a misconfiguration"
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, check the default policy on the INPUT chain of iptables, which governs unmatched inbound packets.",
+        "command": "sudo iptables -L INPUT -n | head -3 && sudo ip6tables -L INPUT -n | head -3",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "First line shows 'Chain INPUT (policy DROP)' or 'policy REJECT' for deny; 'policy ACCEPT' maps to allow_all"
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, inspect the pf (packet filter) configuration for the default pass or block rule on inbound interfaces.",
+        "command": "sudo pfctl -s rules 2>/dev/null | head -20 && sudo pfctl -s info 2>/dev/null | grep -i 'status\\|block'",
+        "file_path": "/etc/pf.conf",
+        "navigation": null,
+        "expected_output": "Rules output showing 'block in all' as implicit default; 'pass in all' or absence of block rules maps to allow_all"
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux with ufw, inspect the UFW default policy configuration file to determine the configured inbound default.",
+        "command": "grep -E '^DEFAULT_INPUT_POLICY' /etc/default/ufw",
+        "file_path": "/etc/default/ufw",
+        "navigation": null,
+        "expected_output": "DEFAULT_INPUT_POLICY=\"DROP\" or \"REJECT\" maps to deny; \"ACCEPT\" maps to allow_all"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "deny (GPO-managed Windows workstations)",
+      "allow_all (Linux developer machines with ufw misconfigured)",
+      "deny (macOS endpoints with MDM pf profile)",
+      "unknown (endpoints with third-party firewall replacing OS firewall)"
+    ]
+  },
+  {
+    "option_name": "usb_storage_policy",
+    "option_description": "Specifies the enforcement level applied to USB mass storage devices on the endpoint — whether all USB storage is blocked outright, restricted to read-only or an approved device allowlist, or entirely unrestricted with no controls applied.",
+    "security_impact": "The Rego policy fires removable_media_unrestricted directly when usb_storage_policy equals unrestricted. Unrestricted USB access enables data exfiltration of sensitive files, introduction of malware via infected drives, and BadUSB attacks where a device emulates a keyboard or network adapter. Even restricted (read-only) is insufficient for high-security environments where data ingress via USB poses supply-chain risk.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, check Group Policy registry keys that control removable storage device class access.",
+        "command": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\RemovableStorageDevices\" /s 2>nul && reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR\" /v Start",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "USBSTOR Start value of 4 means USB storage driver disabled (blocked); Deny_All or Deny_Write keys under RemovableStorageDevices indicate restricted or blocked policy; absence or Start=3 indicates unrestricted"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune, review the Device Configuration Profile assigned to the workstation for USB restriction settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Intune admin center > Devices > Configuration profiles > [Profile name] > Properties > Configuration settings > Device restrictions > General > USB connection (iOS) or Endpoint Protection > Device Control (Windows) — check 'Block removable storage' toggle",
+        "expected_output": "Block removable storage set to 'Yes' = blocked; 'Read only' = restricted; 'Not configured' = unrestricted"
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS with Jamf, check configuration profiles for USB storage restrictions or verify kernel extension policies blocking mass storage.",
+        "command": "sudo profiles show -all 2>/dev/null | grep -A5 -i 'usb\\|removable\\|storage' && system_profiler SPUSBDataType 2>/dev/null | grep -i 'mass storage'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Profile output showing PayloadType com.apple.systemuiserver with mount controls, or absence of USB storage devices in system_profiler despite device being connected"
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux, check udev rules or udisks2 configuration for USB storage mount policies.",
+        "command": "grep -rE '(DRIVER==\"usb-storage\"|udisks|SUBSYSTEM==\"usb\")' /etc/udev/rules.d/ && cat /etc/udisks2/udisks2.conf 2>/dev/null",
+        "file_path": "/etc/udev/rules.d/",
+        "navigation": null,
+        "expected_output": "udev rule with ACTION==\"add\", SUBSYSTEM==\"usb\", RUN+=\"/bin/false\" or similar block action = blocked; absence of rules = unrestricted"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "unrestricted (most BYOD and unmanaged endpoints)",
+      "blocked (high-security financial or government managed workstations)",
+      "restricted (standard corporate endpoints with read-only or allowlist policy)",
+      "unrestricted (developer workstations with GPO exceptions)"
+    ]
+  },
+  {
+    "option_name": "removable_media_audit_enabled",
+    "option_description": "Controls whether events related to removable media devices — including device connection, disconnection, file read, and file write operations — are captured in endpoint audit logs and forwarded to a centralized SIEM or log aggregation system.",
+    "security_impact": "The Rego policy fires removable_media_unrestricted when usb_storage_policy is not blocked and removable_media_audit_enabled is false. Without audit logging, data exfiltration via USB leaves no forensic trail, preventing incident detection and making post-incident investigation impossible. Even a restricted policy requires audit evidence to demonstrate compliance and detect policy bypass attempts.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, verify that audit policies for removable storage and Plug and Play events are enabled, and confirm Event ID 6416 (new external device) is being generated.",
+        "command": "auditpol /get /subcategory:\"Removable Storage\" && auditpol /get /subcategory:\"Plug and Play Events\" && wevtutil qe Security /q:\"*[System[EventID=6416]]\" /c:5 /f:text",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "auditpol shows 'Success and Failure' for Removable Storage; wevtutil returns recent Event ID 6416 entries confirming logging is active"
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, verify auditd rules are configured to log USB device insertion and file access on removable mount points.",
+        "command": "sudo auditctl -l | grep -E '(usb|removable|media)' && sudo grep -E '(usb|vfat|fat32)' /etc/audit/rules.d/*.rules 2>/dev/null",
+        "file_path": "/etc/audit/rules.d/",
+        "navigation": null,
+        "expected_output": "Audit rules present watching /media or /run/media with -p rwa flags; auditctl -l lists active rules for removable storage paths"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Defender for Endpoint or equivalent EDR console, verify device control audit events are visible in the timeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft 365 Defender portal > Device inventory > [Device name] > Timeline — filter by 'Device control' event category; presence of USB connection/disconnection events confirms audit is active",
+        "expected_output": "Timeline shows removable storage events with timestamps, device identifiers, and user context; no events despite USB activity indicates audit is disabled"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "In the SIEM, query for removable media events forwarded from the target endpoint to confirm both collection and forwarding are functioning.",
+        "command": "index=endpoints sourcetype=wineventlog EventCode=6416 | stats count by host, dest_nt_host | where count > 0",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SIEM query returns rows for the target host with recent event timestamps; zero results despite known USB activity indicates removable_media_audit_enabled = false"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most unmanaged BYOD and small-business endpoints)",
+      "true (enterprise endpoints with Microsoft Defender for Endpoint device control)",
+      "false (Linux workstations without auditd USB rules)",
+      "true (PCI-DSS or HIPAA regulated environments with mandatory DLP logging)"
+    ]
+  },
+  {
+    "option_name": "device_control_tool_deployed",
+    "option_description": "Indicates whether a dedicated device control enforcement mechanism — such as an endpoint DLP agent, MDM device restriction profile, or Group Policy-based USB device class blocking — is actively installed and enforcing policy on the endpoint rather than relying solely on OS defaults.",
+    "security_impact": "The Rego policy fires removable_media_unrestricted independently when device_control_tool_deployed is false, regardless of the usb_storage_policy value. Without a dedicated enforcement agent, USB policies may exist only as advisory registry keys that can be bypassed by users with local admin rights or by using alternative device classes (e.g., HID-based storage). A dedicated agent enforces policy at the kernel driver level and survives user-mode tampering.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, check for installed device control agents by querying installed software and running services associated with major DLP/device control vendors.",
+        "command": "Get-WmiObject Win32_Product | Where-Object {$_.Name -match 'Symantec DLP|Digital Guardian|Ivanti|McAfee Device|Forcepoint|Trellix'} | Select Name,Version && Get-Service | Where-Object {$_.DisplayName -match 'Device Control|DLP Agent'} | Select DisplayName,Status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one recognized device control product listed with running service status; no results suggests reliance on GPO-only controls or no controls"
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, verify Microsoft Defender for Endpoint device control policy is active by checking the MDE sensor and device control configuration registry keys.",
+        "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows Defender\\Features\" /v TamperProtection && reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\Policy Manager\" /v DeviceControlEnabled 2>nul",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TamperProtection value of 5 confirms MDE active; DeviceControlEnabled=1 confirms device control policy applied via Intune/MDE"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the MDM/UEM API (Intune or Jamf) to verify the device has a device control configuration profile successfully applied.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/<deviceId>/deviceConfigurationStates' | python3 -m json.tool | grep -A3 -i 'deviceControl\\|RemovableStorage'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response shows configuration state 'compliant' for a device control or removable storage restriction profile; 'notApplicable' or absent indicates device_control_tool_deployed = false"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Jamf Pro, verify a device control configuration profile is scoped to and installed on the target Mac.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Jamf Pro > Computers > [Computer name] > Management > Configuration Profiles — look for a profile containing Privacy Preferences Policy Control or USB restrictions payloads; verify 'Last installed' date is recent",
+        "expected_output": "Configuration profile with USB/removable storage payload listed as installed; absence indicates device_control_tool_deployed = false"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (BYOD devices and small-to-medium businesses)",
+      "true (enterprise endpoints with Microsoft Defender for Endpoint + Intune device control)",
+      "false (developer workstations with intentional exceptions)",
+      "true (financial services endpoints with Symantec DLP or Digital Guardian)"
+    ]
+  },
+  {
+    "option_name": "log_forwarding_enabled",
+    "option_description": "Controls whether endpoint security telemetry — including authentication events, process execution records, and network connection logs — is configured to stream in near-real-time to a centralized SIEM or log aggregation platform rather than being retained only on the local device.",
+    "security_impact": "The Rego policy fires endpoint_logging_and_telemetry_not_forwarded when log_forwarding_enabled is false. Logs stored only locally can be deleted or tampered with by an attacker who has compromised the device, eliminating forensic evidence of the intrusion. Centralized forwarding enables real-time detection through SIEM correlation rules, supports incident response timelines, and satisfies compliance requirements (SOC 2, PCI-DSS, ISO 27001) for log integrity.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, verify Windows Event Forwarding (WEF) subscription is active and the WinRM service is configured to forward logs to a collector.",
+        "command": "wecutil es && wevtutil gl ForwardedEvents && Get-Service WinRM | Select Status && reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\EventLog\\EventForwarding\\SubscriptionManager\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "wecutil es lists active subscriptions; SubscriptionManager registry key contains collector server URL; WinRM service is Running"
+      },
+      {
+        "type": "command",
+        "instruction": "Check for Sysmon, Splunk UF, Elastic Agent, or other forwarding agent processes and verify their configuration points to a live SIEM destination.",
+        "command": "Get-Process -Name 'sysmon*','splunkd','elastic-agent','nxlog','winlogbeat','filebeat' -ErrorAction SilentlyContinue | Select Name,Id && netstat -ano | findstr ':9997\\|:5044\\|:514\\|:6514'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one forwarding agent process running; netstat shows established connection to SIEM collector port (Splunk 9997, Elastic 5044, syslog 514/6514)"
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, verify syslog forwarding configuration (rsyslog or syslog-ng) or Elastic/Filebeat agent is active and connected.",
+        "command": "systemctl is-active rsyslog syslog-ng filebeat elastic-agent auditbeat 2>/dev/null && grep -E '^[^#].*@' /etc/rsyslog.conf /etc/rsyslog.d/*.conf 2>/dev/null | head -10",
+        "file_path": "/etc/rsyslog.conf",
+        "navigation": null,
+        "expected_output": "At least one log service active; rsyslog config shows remote forwarding directive (@@siem.corp.example.com:514); no remote target in config = log_forwarding_enabled = false"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "In the SIEM, confirm recent events are arriving from the target endpoint to validate active forwarding — absence of recent events despite an active device indicates forwarding is broken or disabled.",
+        "command": "index=endpoints host=\"<workstation-hostname>\" earliest=-1h | stats count by sourcetype | where count > 0",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SIEM query returns multiple sourcetypes (WinEventLog, Sysmon, etc.) with event counts > 0 within the last hour; zero results from an online device = log_forwarding_enabled = false"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (BYOD and unmanaged endpoints)",
+      "true (Intune-enrolled Windows endpoints with Defender for Endpoint + MMA/AMA agent)",
+      "false (standalone Linux workstations without auditd forwarding)",
+      "true (SOC-monitored enterprise endpoints with Splunk UF or Elastic Agent deployed via MDM)"
+    ]
+  },
+  {
+    "option_name": "siem_last_event_age_hours",
+    "option_description": "Tracks the elapsed time in hours since the SIEM or central log aggregator last received any event from this specific endpoint. A value of 9999 is assigned when the endpoint has never forwarded logs. This attribute directly reflects the health and continuity of the log forwarding pipeline from the endpoint.",
+    "security_impact": "The Rego policy fires the `endpoint_logging_and_telemetry_not_forwarded` exposure when `siem_last_event_age_hours > 24` even if `log_forwarding_enabled` is true, meaning a silently broken forwarder is treated as a full logging gap. Without timely SIEM ingestion, threat detection, incident response, and forensic reconstruction are all impaired. Attackers can operate undetected on endpoints that appear enrolled but are not actually reporting.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the SIEM REST API for the most recent event timestamp from the endpoint's hostname or IP address. Calculate elapsed hours from the current UTC time.",
+        "command": "curl -s -H 'Authorization: Bearer $SIEM_TOKEN' 'https://<siem-host>/api/search?query=host:<hostname>&limit=1&sort=timestamp:desc' | jq '(now - (.results[0].timestamp | fromdateiso8601)) / 3600'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A numeric value representing hours since the last event. Values under 24 are acceptable; values at or above 9999 indicate no events have ever been received."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "In Splunk, run a search to find the most recent indexed event from the endpoint and compute the age in hours.",
+        "command": "| makeresults | eval host=\"<hostname>\" | appendcols [search index=endpoints host=<hostname> | head 1 | eval age_hours=round((now()-_time)/3600,1) | table age_hours]",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A decimal hour value. Zero to 1 hour is healthy; above 24 hours triggers the exposure rule."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Sentinel, navigate to Logs > query the Heartbeat table for the specific Computer name and review the TimeGenerated field of the most recent row.",
+        "command": "Heartbeat | where Computer == '<hostname>' | summarize LastHeartbeat=max(TimeGenerated) | extend AgeHours=datetime_diff('hour', now(), LastHeartbeat)",
+        "file_path": null,
+        "navigation": "Microsoft Sentinel > Logs > Run KQL query above",
+        "expected_output": "AgeHours column shows elapsed time. Missing row indicates the endpoint has never sent a heartbeat (treat as 9999)."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows endpoints, check whether the log forwarding agent (e.g., Winlogbeat, NXLog, Azure Monitor Agent) service is running and review its own operational log for last successful send timestamp.",
+        "command": "Get-Service -Name 'AzureMonitorAgent','winlogbeat','nxlog' | Select-Object Name,Status; Get-WinEvent -LogName 'Microsoft-Windows-Azure Monitor Agent/Operational' -MaxEvents 5 | Select-Object TimeCreated,Message",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service status should be 'Running'. Event messages should show recent successful data uploads with timestamps within the last hour."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "1",
+      "6",
+      "24",
+      "72",
+      "9999"
+    ]
+  },
+  {
+    "option_name": "log_tamper_protection_enabled",
+    "option_description": "Indicates whether local endpoint logs are protected from unauthorized modification or deletion by non-privileged processes. Protection may be implemented via restrictive filesystem ACLs on log directories, EDR agent tamper-protection features, or write-once/append-only log storage configurations.",
+    "security_impact": "The Rego policy includes a condition that fires `endpoint_logging_and_telemetry_not_forwarded` specifically when both `log_forwarding_enabled` is false and `log_tamper_protection_enabled` is false. Without tamper protection, an attacker who gains code execution can delete or modify local logs before they are forwarded, eliminating forensic evidence and defeating incident response timelines. This is a defense-in-depth control that preserves log integrity even when forwarding is disrupted.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, check the ACLs on the Windows Event Log directory and the EDR agent installation directory to confirm non-admin users lack write or delete permissions.",
+        "command": "icacls 'C:\\Windows\\System32\\winevt\\Logs'; icacls 'C:\\Program Files\\<EDR_Vendor>\\' | findstr /i 'Everyone\\|Users\\|Authenticated'",
+        "file_path": "C:\\Windows\\System32\\winevt\\Logs",
+        "navigation": null,
+        "expected_output": "Users and Everyone groups should have no (W), (D), or (F) permissions on the Logs directory. EDR directory should restrict modifications to SYSTEM and local Administrators only."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, verify that the EDR agent tamper protection is active and that /var/log is owned by root with restrictive permissions.",
+        "command": "ls -la /var/log/ | head -20; sudo /Library/Application\\ Support/<EDR_Vendor>/agentctl status | grep -i tamper",
+        "file_path": "/var/log",
+        "navigation": null,
+        "expected_output": "/var/log should be owned by root:wheel with permissions 755 or more restrictive. The agentctl output should confirm tamper protection is 'enabled' or 'active'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the EDR management console (e.g., CrowdStrike Falcon, SentinelOne, Microsoft Defender for Endpoint), navigate to the device record and verify that 'Tamper Protection' is shown as enabled in the device policy settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "EDR Console > Devices > Select Endpoint > Policy Details > Tamper Protection Status",
+        "expected_output": "Tamper Protection field displays 'Enabled' or 'On'. A status of 'Disabled' or absent field indicates the control is not active."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the EDR management API for the tamper protection state of a specific device by its device ID.",
+        "command": "curl -s -H 'Authorization: Bearer $EDR_TOKEN' 'https://<edr-host>/api/v1/devices/<device_id>' | jq '.tamper_protection_enabled'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response should return `true`. A value of `false` or a missing field indicates tamper protection is not enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "auto_connect_to_open_networks_enabled",
+    "option_description": "Controls whether the device's Wi-Fi subsystem is configured to automatically join any open (unencrypted, no authentication required) wireless network that is within range without prompting the user for confirmation. This setting applies at the OS or MDM Wi-Fi profile level.",
+    "security_impact": "The Rego policy fires `automatic_wifi_association_with_untrusted_networks` when `auto_connect_to_open_networks_enabled == true` and no MDM Wi-Fi security policy is enforced. Automatic association with open networks eliminates the user as a last line of defense and exposes all unencrypted traffic to passive eavesdropping. Attackers operating rogue APs in public venues (airports, coffee shops, hotel lobbies) can silently intercept credential handshakes, session tokens, and sensitive data from devices that join automatically.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, enumerate saved Wi-Fi profiles and check whether any open-authentication profiles have connectionMode set to auto.",
+        "command": "netsh wlan show profiles | ForEach-Object { if ($_ -match 'Profile\\s*:\\s*(.+)') { $p=$matches[1].Trim(); $details = netsh wlan show profile name=$p; if ($details -match 'Authentication\\s*:\\s*Open' -and $details -match 'Connection mode\\s*:\\s*Connect automatically') { \"RISK: $p\" } } }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output indicates no open-network auto-connect profiles exist. Any line prefixed 'RISK:' identifies a profile requiring remediation."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, inspect the Airport preferences plist for networks with Security type 'Open' and AutoJoin set to true.",
+        "command": "sudo defaults read /Library/Preferences/SystemConfiguration/com.apple.airport.preferences | grep -A 10 'AutoJoin' | grep -B 5 '= 1'",
+        "file_path": "/Library/Preferences/SystemConfiguration/com.apple.airport.preferences.plist",
+        "navigation": null,
+        "expected_output": "No output is the secure state. Any network entry showing AutoJoin = 1 without an associated Security key or with Security = None should be flagged."
+      },
+      {
+        "type": "gui",
+        "instruction": "On iOS or Android managed devices, review the MDM-deployed Wi-Fi payload in the MDM console to confirm no profiles have Auto-Join enabled for open SSIDs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "MDM Console (Intune/Jamf/Workspace ONE) > Devices > Configuration Profiles > Wi-Fi Payload > Inspect each SSID entry for Auto-Join toggle and Security Type",
+        "expected_output": "All deployed Wi-Fi profiles should have Security Type set to WPA2/WPA3 or higher. Any profile with Security Type 'None' or 'Open' and Auto-Join enabled is a finding."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Intune Graph API to retrieve the Wi-Fi configuration profile assigned to the device and inspect the connectAutomatically and wiFiSecurityType fields.",
+        "command": "curl -s -H 'Authorization: Bearer $GRAPH_TOKEN' 'https://graph.microsoft.com/v1.0/deviceManagement/deviceConfigurations?$filter=displayName eq \"<profile_name>\"' | jq '.value[].wifiConfigurations[] | {ssid: .ssid, connectAutomatically: .connectAutomatically, securityType: .wiFiSecurityType}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "connectAutomatically should be false for all open-type entries, or no open-type SSIDs should exist in the deployed profile."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "auto_reconnect_to_known_networks_enabled",
+    "option_description": "Indicates whether the device automatically reconnects to any previously joined Wi-Fi network when an SSID matching its stored list is detected, relying solely on SSID name matching without certificate-based validation. This behavior persists in the preferred network list built up over time from user connections.",
+    "security_impact": "The Rego policy fires `automatic_wifi_association_with_untrusted_networks` when `auto_reconnect_to_known_networks_enabled == true` and `wifi_security_policy_enforced_via_mdm` is false. SSID-only matching is the classic precondition for evil-twin attacks: an adversary broadcasting a common SSID such as 'Starbucks', 'Airport_WiFi', or even a corporate guest network name causes the device to associate automatically. All subsequent traffic, including authentication to cloud services lacking HSTS, can be intercepted or manipulated.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, list all WLAN profiles and check each for 'Connect automatically' mode, which enables SSID-based auto-reconnect.",
+        "command": "netsh wlan show profiles | Select-String 'Profile' | ForEach-Object { $name = ($_ -split ':')[1].Trim(); netsh wlan show profile name=$name | Select-String 'Connection mode' }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure profiles show 'Connection mode: Connect only if this network is broadcasting' combined with certificate trust anchors. Profiles showing 'Connect automatically' with no certificate validation are findings."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On macOS, parse the Airport preferences plist to identify all networks with AutoJoin enabled, particularly those without a certificate trust anchor configured.",
+        "command": "sudo /usr/libexec/PlistBuddy -c 'Print :KnownNetworks' /Library/Preferences/SystemConfiguration/com.apple.airport.preferences.plist 2>/dev/null | grep -E 'AutoJoin|80211W|SSID_STR|SecurityType'",
+        "file_path": "/Library/Preferences/SystemConfiguration/com.apple.airport.preferences.plist",
+        "navigation": null,
+        "expected_output": "AutoJoin = true entries that also lack a TLSTrustExceptions or certificate configuration block should be treated as vulnerable to SSID-spoofing attacks."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Windows, review saved network profiles via the Settings UI and confirm that no profile is set to connect automatically without 802.1X certificate validation.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Settings > Network & Internet > Wi-Fi > Manage Known Networks > Select each network > Review 'Connect automatically when in range' checkbox and security type",
+        "expected_output": "The secure state is either auto-connect disabled for all non-enterprise networks, or enterprise networks enforcing certificate-based authentication (EAP-TLS)."
+      },
+      {
+        "type": "api",
+        "instruction": "Via Jamf Pro API, retrieve the Wi-Fi configuration profile for a device and check for AutoJoinEnabled on networks lacking certificate trust anchors.",
+        "command": "curl -s -u '$JAMF_USER:$JAMF_PASS' -H 'Accept: application/json' 'https://<jamf-host>/JSSResource/mobiledeviceconfigurations/id/<profile_id>' | python3 -c \"import sys,json; d=json.load(sys.stdin); [print(p) for p in d.get('payloads',[]) if 'AutoJoin' in str(p)]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AutoJoin entries should only be present for profiles that also specify a PayloadCertificateAnchorUUID or equivalent trust anchor, preventing SSID-spoofing association."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "wifi_security_policy_enforced_via_mdm",
+    "option_description": "Indicates whether an active MDM or UEM policy is deployed to the device that technically restricts Wi-Fi auto-join behavior and prohibits connections to open or untrusted wireless networks. This is a compensating control that can suppress the `automatic_wifi_association_with_untrusted_networks` exposure even when auto-connect settings exist at the OS level.",
+    "security_impact": "The Rego policy uses `wifi_security_policy_enforced_via_mdm` as a suppression condition: both `auto_connect_to_open_networks_enabled` and `auto_reconnect_to_known_networks_enabled` only trigger the exposure when this MDM control is absent. An MDM-enforced Wi-Fi policy provides a centrally managed, tamper-resistant layer that prevents users or local malware from re-enabling unsafe connectivity behaviors that the OS permits by default. Without it, any user-level change or OS reset can re-expose the device to evil-twin attacks.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune, verify that a Device Configuration Wi-Fi profile is assigned to the device's group, is in a Succeeded compliance state, and explicitly sets 'Connect automatically' to disabled for open networks.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune Admin Center > Devices > Configuration Profiles > Filter by Platform > Select Wi-Fi profile > Monitor > Device Status > Confirm 'Succeeded' for the target device",
+        "expected_output": "Device status should show 'Succeeded' for a profile that contains Wi-Fi restrictions. A status of 'Error', 'Conflict', or 'Not applicable' means the policy is not effectively enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Intune Graph API to check whether a Wi-Fi restriction configuration profile is assigned to the device and in a compliant state.",
+        "command": "curl -s -H 'Authorization: Bearer $GRAPH_TOKEN' 'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/<deviceId>/deviceConfigurationStates' | jq '.value[] | select(.settingName | test(\"wifi|network\"; \"i\")) | {displayName, state, settingName}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Relevant Wi-Fi setting states should show 'compliant'. Any setting showing 'notCompliant' or absent from the output indicates policy is not enforced."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Jamf Pro, confirm that a Wi-Fi configuration payload with restricted Auto-Join and open-network prohibition is scoped to the device and shows a 'Managed' installation status.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Jamf Pro > Computers/Mobile Devices > Search for device > Management > Configuration Profiles > Verify Wi-Fi payload presence and installation status",
+        "expected_output": "Profile installation status should be 'Managed' or 'Installed'. Status of 'Pending', 'Failed', or absence of a Wi-Fi payload means the control is not enforced."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the endpoint management team to confirm that a formally documented Wi-Fi restriction policy exists, is deployed to all applicable device groups (including BYOD enrollment profiles), and is reviewed periodically for scope completeness.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team should be able to show the policy document, the MDM assignment groups, and evidence of last policy review. Inability to produce these artifacts indicates the policy may exist in documentation only, not in enforced deployment."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "software_allowlisting_enforced",
+    "option_description": "Indicates whether a technical application allowlisting or whitelisting control is actively running in enforcement mode on the endpoint, preventing execution of any binary, script, or installer not explicitly approved. Relevant technologies include Windows Defender Application Control (WDAC), AppLocker, macOS Gatekeeper with MDM enforcement, or Linux SELinux/AppArmor policies.",
+    "security_impact": "The Rego policy fires `shadow_it_software_and_unvetted_application_installation` when `software_allowlisting_enforced` is false, and again when a user has local_admin or full_admin rights combined with the absence of allowlisting. Without this control, users can download and execute arbitrary binaries including bundled malware, browser-delivered payloads, or supply-chain-compromised installers. Allowlisting is the highest-efficacy control for preventing execution of unapproved code and is referenced as a mitigant across multiple exposure categories in this policy set.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, check whether WDAC is deployed and in Enforced mode by inspecting the CiPolicy status via PowerShell.",
+        "command": "Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\\Microsoft\\Windows\\DeviceGuard | Select-Object -ExpandProperty CodeIntegrityPolicyEnforcementStatus; Get-AppLockerPolicy -Effective | Select-Object -ExpandProperty RuleCollections | Select-Object RuleCollectionType, EnforcementMode",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "WDAC: CodeIntegrityPolicyEnforcementStatus should be '2' (Enforced). AppLocker: EnforcementMode should be 'Enabled' (not 'AuditOnly') for Exe, Script, Msi, and AppX rule collections."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, check the Gatekeeper enforcement state and verify it is MDM-managed (cannot be disabled by the user).",
+        "command": "spctl --status; profiles -P | grep -i 'gatekeeper\\|allowIdentifiedDevelopers\\|EnableAssessment'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'spctl --status' should return 'assessments enabled'. The profiles output should show a configuration profile restricting Gatekeeper overrides, indicating MDM enforcement rather than user-configurable state."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the MDM console (Intune, Jamf, Workspace ONE), review the Endpoint Security or Device Restrictions policy applied to the device to confirm application control is in Enforce mode, not Audit mode.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune Admin Center > Endpoint Security > Attack Surface Reduction > Application Control Profiles > Verify policy mode is 'Enforce' not 'Audit Only'",
+        "expected_output": "Policy mode displays 'Enforce'. A mode of 'Audit Only' means the control is monitoring but not blocking unapproved software execution, which does not satisfy this attribute."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Intune Graph API to retrieve the Windows Defender Application Control policy assigned to the device and check its appLockerApplicationControl or codeIntegrityPolicies enforcement setting.",
+        "command": "curl -s -H 'Authorization: Bearer $GRAPH_TOKEN' 'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/<deviceId>/deviceConfigurationStates' | jq '.value[] | select(.settingName | test(\"applicationControl|codeIntegrity|appLocker\"; \"i\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "State should be 'compliant' with setting values indicating enforce mode. Settings showing 'notCompliant' or audit-only mode indicate the control is not fully enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "it_approved_software_policy_exists",
+    "option_description": "Indicates whether a formally documented and technically backed software vetting policy is in place that requires IT review and approval before any software can be installed on corporate or BYOD endpoints. The policy must be supported by a managed software catalog, MDM-level installation restrictions, or OS-level controls preventing self-installation without elevated approval.",
+    "security_impact": "The Rego policy fires `shadow_it_software_and_unvetted_application_installation` when `it_approved_software_policy_exists` is false, independent of other controls. Even when allowlisting is enforced, the absence of a documented and enforced approval policy creates governance gaps where exceptions proliferate or controls are inconsistently applied across device populations. This control addresses supply-chain risk by ensuring all installed software passes a vetting gate before deployment, reducing exposure to bundled malware, spyware-laden freeware, and compromised open-source packages.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request documentation of the IT software approval policy from the IT governance or endpoint management team. Verify that the policy specifies an approval workflow, a maintained software catalog, and defined consequences for non-compliance.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A formal policy document should exist, be version-controlled, reference an approved software catalog URL or location, and specify the approval workflow. Verbal confirmation without documentation does not satisfy this attribute."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the MDM console for device restriction policies that block user-initiated software installation and enforce installation only from an IT-managed catalog or app store.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune Admin Center > Devices > Configuration Profiles > Device Restrictions > General > 'Block users from installing apps from unknown sources' and 'Block Google Play Store' or equivalent per-platform restriction",
+        "expected_output": "Installation-blocking restrictions should be enabled. Additionally, a managed apps catalog (Company Portal, Self Service, etc.) should be deployed so users have an approved channel for software requests."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Intune Graph API to enumerate the device compliance policies and configuration restrictions applied to the device and verify that app installation restrictions are present and in a compliant state.",
+        "command": "curl -s -H 'Authorization: Bearer $GRAPH_TOKEN' 'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/<deviceId>/deviceConfigurationStates' | jq '.value[] | select(.settingName | test(\"app|install|store\"; \"i\")) | {settingName, state, setting}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Settings related to app installation should show state 'compliant' with values indicating restrictions are active. Missing entries or 'notCompliant' states indicate the policy is either absent or not enforced on this device."
+      },
+      {
+        "type": "gui",
+        "instruction": "Check whether a corporate app catalog (Microsoft Company Portal, Jamf Self Service, VMware Workspace ONE Catalog) is deployed and whether it is the designated channel for software requests, confirming a vetting workflow exists behind it.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Jamf Pro > Self Service > Apps > Review available catalog; or Intune Admin Center > Apps > All Apps > Review approved app list and assignment status",
+        "expected_output": "A populated approved software catalog should exist with documented owner and review dates per application. An empty or unmanaged catalog indicates the policy exists in name only without technical enforcement of the approval workflow."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "endpoint_admin_rights_scope",
+    "option_description": "Describes the privilege level of the primary end user's account on the device. 'standard_user' means the user cannot install software or modify system settings without admin credential elevation. 'local_admin' means the user's account is a member of the local Administrators group. 'full_admin' means the user has unrestricted control including the ability to disable security tooling. This directly governs whether security controls can be bypassed unilaterally by the user or malware running in their context.",
+    "security_impact": "The Rego policy fires `shadow_it_software_and_unvetted_application_installation` specifically when `endpoint_admin_rights_scope` is 'local_admin' or 'full_admin' and `software_allowlisting_enforced` is false. Admin rights amplify every other risk: malware inherits the user's token, meaning it can disable EDR agents, modify firewall rules, delete local logs (compounding the `log_tamper_protection_enabled` weakness), and install persistent backdoors. The `local_administrator_privileges_granted_to_standard_users` exposure in the Rego policy also fires when `standard_users_have_local_admin == true` without PAM enforcement, establishing this as a high-criticality standalone finding.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, determine whether the currently logged-in user is a member of the local Administrators group.",
+        "command": "net localgroup administrators; whoami /groups | findstr /i 'S-1-5-32-544\\|Administrators'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the user's account appears in 'net localgroup administrators' output or the SID S-1-5-32-544 appears in whoami output, endpoint_admin_rights_scope is 'local_admin' or 'full_admin'. Standard users will not appear in either output."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, check whether the current user is in the admin group and whether they have unrestricted sudo access.",
+        "command": "dseditgroup -o checkmember -m $(whoami) admin; sudo -l 2>/dev/null | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'dseditgroup' returns 'yes' if the user is an admin. 'sudo -l' output showing '(ALL) ALL' indicates full_admin. A standard user will see 'no' from dseditgroup and restricted or no sudo entries."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Azure AD or Active Directory via the Graph API or LDAP to retrieve the user's group memberships and identify local admin or privileged role assignments.",
+        "command": "curl -s -H 'Authorization: Bearer $GRAPH_TOKEN' 'https://graph.microsoft.com/v1.0/users/<userPrincipalName>/memberOf?$select=displayName,groupTypes' | jq '.value[].displayName' | grep -i 'admin\\|endpoint admin\\|local admin'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output indicates the user holds no admin group memberships in Azure AD. Any match on admin-related group names warrants verification of whether that group grants local admin rights on the endpoint."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the MDM/UEM console, review the device record and check whether a Local Administrator Password Solution (LAPS) or privilege escalation management tool (CyberArk EPM, BeyondTrust, Defendpoint) is deployed and whether the user account type is reported as standard.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune Admin Center > Devices > Select Device > Overview > Enrolled user > Check user role; or Jamf Pro > Computer > Local Accounts > Review group membership of primary user account",
+        "expected_output": "Primary user account should show account type 'Standard'. Accounts listed as 'Administrator' or 'Admin' map to local_admin. Presence of a LAPS or PAM tool indicates managed elevation rather than persistent admin rights."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "standard_user",
+      "local_admin",
+      "full_admin"
+    ]
+  },
+  {
+    "option_name": "nac_or_conditional_access_enabled",
+    "option_description": "Controls whether a Network Access Control system (e.g., Cisco ISE, Aruba ClearPass) or an identity provider conditional access policy (e.g., Azure AD Conditional Access, Okta) is actively enforced to gate access to corporate applications, VPN, and network resources. When enabled, devices must pass an initial policy check before any resource access is permitted.",
+    "security_impact": "The Rego policy flags the 'absence_of_device_compliance_check_before_resource_access' exposure when 'nac_or_conditional_access_enabled' is false or absent. Without this control, any device — including compromised, unpatched, or personally owned devices with no security controls — can freely connect to corporate resources. This is the foundational gate that makes all downstream device health checks possible; disabling it renders the entire compliance verification chain inert.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD (Entra ID), navigate to Azure Portal > Azure Active Directory > Security > Conditional Access > Policies. Confirm at least one policy exists in 'On' state targeting cloud apps or All Cloud Apps and assigned to relevant users/groups. Note any policies in 'Report-only' mode — these are NOT enforcing and must not be counted as enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Azure Active Directory > Security > Conditional Access > Policies",
+        "expected_output": "One or more policies with State = 'On' covering corporate application assignments, not merely 'Report-only'"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Graph API to enumerate conditional access policies and their enabled state. Authenticate with appropriate Graph API permissions (Policy.Read.All) and filter for policies where 'state' equals 'enabled'.",
+        "command": "az rest --method GET --url 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' --query \"value[?state=='enabled'].[displayName,state,conditions.applications.includeApplications]\" --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table listing enabled policies with their display names and targeted applications; empty output or all 'disabled'/'enabledForReportingButNotEnforced' states indicates no enforcement"
+      },
+      {
+        "type": "gui",
+        "instruction": "For Cisco ISE deployments, log into the ISE Admin console and navigate to Administration > Network Resources > Network Access Devices to confirm devices are registered, then check Policy > Policy Sets to verify active authorization policies exist. For Aruba ClearPass, navigate to Configuration > Service and confirm at least one service is enabled with enforcement profiles assigned.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ISE: Administration > Network Resources > Network Access Devices; ClearPass: Configuration > Services",
+        "expected_output": "Active network access devices registered and at least one enforcement policy set in 'enabled' status"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network or identity team to determine which NAC or conditional access product is in use and request evidence of enforcement mode. Ask specifically: 'Is there any bypass or emergency access path that allows devices to connect without passing through NAC or conditional access?' Document whether any legacy VPN profiles or application endpoints are excluded from policy scope.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented confirmation that all corporate application and VPN entry points are covered by an enforced (not advisory) NAC or conditional access policy with no unguarded bypass paths"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "device_health_checks_enforced",
+    "option_description": "Controls whether the active NAC or conditional access policy mandates verification of specific device health signals — including OS patch level, full-disk encryption status, and EDR/antivirus agent health — as a non-negotiable condition before access is granted. This is distinct from merely having conditional access enabled; the policy must be configured to evaluate and enforce device compliance state, not just user identity.",
+    "security_impact": "The Rego policy triggers the 'absence_of_device_compliance_check_before_resource_access' exposure when 'nac_or_conditional_access_enabled' is true but 'device_health_checks_enforced' is false. This scenario is particularly dangerous because it creates a false sense of security — the organization believes access is controlled, but unpatched, unencrypted, or EDR-absent devices pass through unchecked. The control must validate patch currency, encryption status, and endpoint protection agent health to close the compliance verification gap exploited by this rule.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD Conditional Access, open each enabled policy and inspect the 'Grant' conditions. Confirm 'Require device to be marked as compliant' or 'Require Hybrid Azure AD joined device' is selected. Then navigate to Endpoint Manager (Intune) > Devices > Compliance Policies to verify compliance policies are created that check encryption status (BitLocker), OS patch level (minimum OS version), and EDR health (Microsoft Defender health or third-party connector). Confirm policies are assigned to device groups.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Azure AD > Security > Conditional Access > [Policy] > Grant; Microsoft Intune > Devices > Compliance Policies",
+        "expected_output": "'Require device to be marked as compliant' is checked in Grant controls, and corresponding compliance policies evaluate patch level, encryption, and EDR health"
+      },
+      {
+        "type": "api",
+        "instruction": "Query Microsoft Graph to retrieve conditional access grant controls and Intune compliance policy settings to verify health signals are required, not advisory.",
+        "command": "az rest --method GET --url 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' --query \"value[?state=='enabled'].{Name:displayName, GrantControls:grantControls.builtInControls}\" --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Grant controls include 'compliantDevice' or 'domainJoinedDevice' for enforced policies; absence of these values means health checks are not a grant condition"
+      },
+      {
+        "type": "api",
+        "instruction": "For Okta deployments, use the Okta API to inspect device assurance policies which define health signal requirements. Confirm policies check platform patch version, disk encryption, and security software presence, and that these policies are bound to application sign-on rules.",
+        "command": "curl -s -H 'Authorization: SSWS <api_token>' -H 'Accept: application/json' 'https://<okta_domain>/api/v1/device-assurances' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response listing device assurance policies with diskEncryptionType, osVersion constraints, and secureHardwarePresent conditions defined; policies must be referenced in app sign-on rules to be enforced"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the compliance policy configuration documentation from the endpoint management team. Specifically ask for evidence that non-compliant devices (e.g., those missing EDR, unencrypted, or behind on patches) are actually blocked or quarantined rather than receiving a warning and proceeding. Request a compliance report showing what percentage of devices are currently flagged non-compliant and what their access status is.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirming specific health signal checks (patch level, encryption, EDR) are required conditions in compliance policy, with evidence that non-compliant devices do not receive unrestricted access"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "non_compliant_device_action",
+    "option_description": "Defines the enforcement action applied by the NAC or conditional access policy when a device fails device health posture checks. The four possible actions are: 'block' (access is denied entirely), 'quarantine' (device is isolated to a restricted network segment, typically for remediation), 'allow_with_warning' (access is permitted but the user receives a notification), and 'allow_unrestricted' (access is fully granted despite compliance failure, effectively bypassing enforcement).",
+    "security_impact": "The Rego policy explicitly triggers the 'absence_of_device_compliance_check_before_resource_access' exposure when 'non_compliant_device_action' is set to 'allow_with_warning' or 'allow_unrestricted', even if 'nac_or_conditional_access_enabled' and 'device_health_checks_enforced' are both true. This is a critical subtlety: an organization can have both prior controls correctly enabled but completely negate their value by choosing a permissive action for non-compliant devices. Only 'block' or 'quarantine' constitutes genuine enforcement; the other two values mean compromised, unencrypted, or EDR-absent devices can freely access corporate resources, satisfying the letter but not the intent of compliance policy.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD Conditional Access, open each enforced policy and review the 'Grant' section. If 'Require device to be marked as compliant' is set, the platform action for non-compliant devices is 'block' by default. However, also check for any named locations, terms-of-use bypass, or session controls that might allow access with reduced controls. In Microsoft Intune, navigate to Devices > Compliance Policies > [Policy] > Actions for noncompliance to review whether the action is 'Mark device noncompliant' (block access via conditional access) or merely 'Send email to end user' (allow with warning only).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune Admin Center > Devices > Compliance Policies > [Policy] > Actions for noncompliance",
+        "expected_output": "Actions for noncompliance should show 'Mark device noncompliant' with a grace period of 0 days (immediate) or a very short window; actions limited to 'Send email' without noncompliant marking indicate allow_with_warning behavior"
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve Intune compliance policy scheduled actions via Microsoft Graph to confirm the noncompliance action and grace period configured for each policy.",
+        "command": "az rest --method GET --url 'https://graph.microsoft.com/v1.0/deviceManagement/deviceCompliancePolicies' --query \"value[].{Name:displayName, ScheduledActions:scheduledActionsForRule[].scheduledActionConfigurations[].{Action:actionType,GracePeriodHours:gracePeriodHours}}\" --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each compliance policy should show 'block' as actionType with gracePeriodHours of 0 or a minimal value; 'notification' without a corresponding 'block' action maps to allow_with_warning"
+      },
+      {
+        "type": "gui",
+        "instruction": "For Cisco ISE, navigate to Policy > Policy Sets > [Relevant Policy Set] > Authorization Policy and inspect the authorization profile assigned to devices that fail posture assessment. The profile should assign a 'Quarantine' VLAN or ACL (e.g., dACL DENY_ALL or redirect to remediation portal) rather than a 'PermitAccess' profile. For Aruba ClearPass, review Configuration > Enforcement > Enforcement Profiles assigned to the 'Unhealthy' posture condition and confirm it enforces VLAN quarantine or blocks access.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ISE: Policy > Policy Sets > Authorization Policy (posture noncompliant condition); ClearPass: Configuration > Enforcement > Enforcement Profiles",
+        "expected_output": "Non-compliant posture condition maps to a Quarantine VLAN, dACL DENY_ALL, or captive portal redirect — not a PermitAccess profile or no-enforcement profile"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review NAC or conditional access sign-in logs to observe what actually happens to non-compliant devices in practice. In Azure AD, use the Sign-in logs filtered by 'Device compliant = No' to see the resulting access outcome. Devices that successfully sign in despite non-compliant status indicate the enforcement action is 'allow_with_warning' or 'allow_unrestricted' in practice.",
+        "command": "az rest --method GET --url \"https://graph.microsoft.com/v1.0/auditLogs/signIns?\\$filter=deviceDetail/isCompliant eq false&\\$top=50\" --query \"value[].{User:userPrincipalName, App:appDisplayName, Compliant:deviceDetail.isCompliant, Result:status.errorCode}\" --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sign-ins from non-compliant devices should show errorCode 53003 (blocked by conditional access) or equivalent block/quarantine indicator; errorCode 0 (success) for non-compliant devices confirms the enforcement action is permissive"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "block",
+      "quarantine",
+      "allow_with_warning",
+      "allow_unrestricted"
+    ]
+  }
+]

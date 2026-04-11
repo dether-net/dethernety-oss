@@ -1,0 +1,1213 @@
+[
+  {
+    "option_name": "transport_encryption_enabled",
+    "option_description": "Controls whether TLS/SSL is enforced for all API communication, preventing plaintext HTTP transmission. When enabled, all API traffic must traverse an encrypted channel; HTTP requests are either rejected or redirected to HTTPS.",
+    "security_impact": "The Rego policy triggers the `unencrypted_transport` exposure when `input.transport_encryption_enabled` is falsy. This is the primary gate for the unencrypted transport rule (score 8, high criticality). Without this flag, API payloads, authentication tokens, and session data are transmitted in cleartext and are trivially interceptable via T1040 (Network Sniffing) or T1048.003 (Exfiltration Over Unencrypted Non-C2 Protocol).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Test whether the API endpoint enforces HTTPS by attempting a plaintext HTTP connection and observing whether it is rejected or redirected.",
+        "command": "curl -v -o /dev/null -s http://<api-host>:<port>/healthz 2>&1 | grep -E 'HTTP/|Location:|< HTTP'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A secure deployment returns HTTP/1.1 301 or 308 with a Location: https:// header, or a TCP connection refusal on port 80. A misconfigured deployment returns HTTP/1.1 200 or serves API content directly."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the nginx server block or Apache VirtualHost configuration for HTTPS-only directives and HSTS headers.",
+        "command": "grep -rE 'ssl_certificate|return 301 https|add_header Strict-Transport-Security|SSLEngine|Redirect permanent https' /etc/nginx/sites-enabled/ /etc/apache2/sites-enabled/ 2>/dev/null",
+        "file_path": "/etc/nginx/sites-enabled/ or /etc/apache2/sites-enabled/",
+        "navigation": null,
+        "expected_output": "Presence of `return 301 https://$host$request_uri;` in nginx or `Redirect permanent / https://` in Apache confirms HTTP-to-HTTPS redirection. `add_header Strict-Transport-Security` confirms HSTS is active."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS API Gateway, navigate to the API stage and verify the endpoint type. For Azure API Management, check the 'Custom domains' and 'Protocols' settings to confirm HTTP is disabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → API Gateway → Select API → Stages → Select Stage → Settings → verify 'HTTPS only'. Azure Portal → API Management → APIs → Settings → Protocols → confirm only 'HTTPS' is checked.",
+        "expected_output": "Only HTTPS is listed as an accepted protocol; HTTP is absent or shows as redirected."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the AWS API Gateway REST API to retrieve stage settings and confirm HTTP is not permitted.",
+        "command": "aws apigateway get-stage --rest-api-id <api-id> --stage-name <stage> --query 'methodSettings' | jq '.'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Stage settings should not include any method overrides permitting unencrypted traffic. Cross-reference with the API endpoint URL, which should begin with https://."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (hardened production APIs)",
+      "false (default for newly provisioned services, internal development environments, or legacy HTTP-only services)"
+    ]
+  },
+  {
+    "option_name": "minimum_tls_version",
+    "option_description": "Specifies the lowest TLS protocol version the API endpoint will accept during handshake negotiation. Versions below TLS 1.2 (SSL2, SSL3, TLS1.0, TLS1.1) contain known cryptographic vulnerabilities including POODLE, BEAST, and DROWN attacks.",
+    "security_impact": "The Rego policy fires the `unencrypted_transport` rule when `minimum_tls_version` is in [SSL2, SSL3, TLS1.0, TLS1.1] and independently fires `weak_tls_protocol_negotiation` for SSL3/TLS1_0 and again for TLS1_1. This means a TLS1_1 minimum satisfies 'technically encrypted' but still triggers the weak negotiation exposure (score 8). Both rules reference T1562.010 (Downgrade Attack) and T1600 (Weaken Encryption). The default expected value is TLS1_2; TLS1_3 is preferred.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use openssl s_client to probe which TLS versions the server accepts by attempting handshakes with specific protocol versions.",
+        "command": "for proto in ssl2 ssl3 tls1 tls1_1 tls1_2 tls1_3; do echo -n \"$proto: \"; openssl s_client -connect <api-host>:443 -$proto </dev/null 2>&1 | grep -E 'Protocol|handshake failure|no protocols' | head -1; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Versions below TLS1_2 should show 'handshake failure' or connection refusal. TLS1_2 and/or TLS1_3 should show 'Protocol : TLSv1.2' or 'TLSv1.3'. Any successful handshake on TLS1_1 or below is a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "Use nmap's ssl-enum-ciphers script to enumerate all accepted TLS versions and the minimum in a single scan.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 <api-host> | grep -E 'TLSv|SSLv|least strength'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists each protocol version with an accepted cipher list. Only TLSv1.2 and/or TLSv1.3 sections should appear. Presence of SSLv3, TLSv1.0, or TLSv1.1 sections indicates a finding."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the TLS configuration in the web server or reverse proxy config files for protocol directives.",
+        "command": "grep -rE 'ssl_protocols|SSLProtocol|MinProtocol|MinVersion|tls_minimum_version|min_tls_version' /etc/nginx/ /etc/apache2/ /etc/haproxy/ /etc/envoy/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/apache2/ssl.conf, /etc/haproxy/haproxy.cfg, or application TLS config",
+        "navigation": null,
+        "expected_output": "nginx: `ssl_protocols TLSv1.2 TLSv1.3;` — absence of TLSv1 and TLSv1.1 is secure. Apache: `SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1`. Go services: `MinVersion: tls.VersionTLS12` in tls.Config struct."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the AWS CLI to inspect the security policy on an API Gateway custom domain, which defines minimum TLS version.",
+        "command": "aws apigateway get-domain-name --domain-name <api-domain> --query 'securityPolicy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns 'TLS_1_2' for compliant configurations. 'TLS_1_0' indicates a finding requiring remediation."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLS1_2 (common baseline for production APIs)",
+      "TLS1_3 (modern hardened deployments)",
+      "TLS1_0 (legacy enterprise APIs, payment processors with old clients)",
+      "TLS1_1 (transitional environments, often an oversight during migration)"
+    ]
+  },
+  {
+    "option_name": "plaintext_port_exposed",
+    "option_description": "Indicates whether the API service is actively listening and accepting connections on a plaintext HTTP port (typically port 80) in addition to or instead of HTTPS port 443. Even if HTTPS is configured, an open plaintext port can serve API content directly or leak sensitive request details before any redirect occurs.",
+    "security_impact": "The Rego policy fires the `unencrypted_transport` rule (score 8, high) when `input.plaintext_port_exposed == true`, independent of whether TLS is also configured. This is significant because a service may have `transport_encryption_enabled = true` yet still expose port 80, allowing an attacker to bypass HTTPS entirely by targeting the plaintext port directly. This enables T1040 (Network Sniffing) and T1048.003 (Exfiltration Over Unencrypted Non-C2 Protocol) without needing to perform a downgrade attack.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Scan the API host for open plaintext HTTP ports using nmap to determine if port 80 or other common HTTP ports are listening.",
+        "command": "nmap -sT -p 80,8080,8000,3000,5000 --open <api-host> -oG - | grep 'open'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A hardened service shows no open ports in the HTTP plaintext range, or port 80 open but serving only a redirect (verify with curl). Any port returning API content directly over HTTP is a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "On the API server host, check locally bound ports to confirm whether the application process is listening on port 80 or HTTP alternatives.",
+        "command": "ss -tlnp | grep -E ':80 |:8080 |:8000 ' ; netstat -tlnp 2>/dev/null | grep -E ':80 |:8080 |:8000 '",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If no process is bound to port 80/8080/8000, the plaintext port is not exposed. If a process such as nginx, node, or java appears on these ports, confirm whether it serves API content or only redirects."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the service configuration files to identify listen directives for plaintext ports and determine if API routes are defined on them.",
+        "command": "grep -rn 'listen 80\\|listen 8080\\|listen 8000\\|\"port\": 80\\|port: 80' /etc/nginx/sites-enabled/ /etc/apache2/sites-enabled/ /app/config/ 2>/dev/null",
+        "file_path": "/etc/nginx/sites-enabled/, /etc/apache2/sites-enabled/, application config directory",
+        "navigation": null,
+        "expected_output": "A listen directive on port 80 is acceptable only if the server block contains exclusively a return 301/308 redirect to HTTPS with no location blocks serving API content. Any API route defined in a plaintext server block is a finding."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to retrieve an API endpoint directly over HTTP and check if a full API response (not a redirect) is returned.",
+        "command": "curl -v --max-redirs 0 http://<api-host>/api/v1/health 2>&1 | grep -E 'HTTP/|Content-Type|{'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A secure API returns HTTP/1.1 301 or 308 with no body. A misconfigured API returns HTTP/1.1 200 with a JSON or XML response body, confirming the plaintext port is actively serving API traffic."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (correct — HTTPS-only services, port 80 closed or redirect-only)",
+      "true (legacy APIs, developer environments, containerized services with default HTTP listeners, internal APIs behind a load balancer where the operator assumed network controls were sufficient)"
+    ]
+  },
+  {
+    "option_name": "enabled_cipher_suites",
+    "option_description": "The list of cipher suites currently enabled on the TLS termination point for handshake negotiation with API clients. Determines the cryptographic algorithms used for key exchange, bulk encryption, and message authentication. Weak ciphers such as RC4, 3DES, NULL, EXPORT-grade, and anonymous suites undermine the confidentiality and integrity guarantees of TLS even when a modern protocol version is in use.",
+    "security_impact": "The Rego policy fires `weak_tls_protocol_negotiation` (score 8, high) if 'RC4', '3DES', or 'EXP' appear anywhere in `input.enabled_cipher_suites`. This means that even a TLS1_3-minimum API with an otherwise perfect configuration will be flagged if these ciphers remain enabled for backward compatibility. The exposure references T1562.010 (Downgrade Attack) and T1600 (Weaken Encryption) — an attacker can force cipher negotiation to the weakest mutually supported cipher, meaning the cipher list directly controls the floor of achievable security. RC4 is fully broken for stream decryption; 3DES is vulnerable to SWEET32; EXPORT ciphers are trivially breakable.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use openssl to enumerate all ciphers the server accepts by iterating through the full cipher list.",
+        "command": "openssl ciphers -v 'ALL:eNULL' | awk '{print $1}' | while read cipher; do result=$(echo Q | timeout 3 openssl s_client -connect <api-host>:443 -cipher $cipher 2>&1); echo $result | grep -q 'Cipher is' && echo \"ACCEPTED: $cipher\"; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists each accepted cipher. Any line containing RC4, DES, 3DES, EXPORT, EXP, NULL, anon, ADH, or AECDH is a finding. Secure configurations should only show ECDHE-RSA-AES*, ECDHE-ECDSA-AES*, or TLS_AES_*_GCM_SHA* (TLS1.3 suites)."
+      },
+      {
+        "type": "command",
+        "instruction": "Use nmap's ssl-enum-ciphers script to obtain the full cipher list with individual strength ratings in a single command.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 <api-host> 2>/dev/null | grep -E 'TLS_|SSL_|RC4|3DES|DES|EXP|NULL|strength'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each cipher is rated A, B, C, D, or F. Any cipher rated C or below, or any cipher name containing RC4, 3DES, DES-CBC, EXP, or NULL, is a finding. A clean result shows only A-rated ECDHE/AES-GCM/ChaCha20 suites."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read the cipher suite configuration directly from the TLS termination configuration file.",
+        "command": "grep -rE 'ssl_ciphers|SSLCipherSuite|ciphers|cipher_suites|tls_cipher_suites' /etc/nginx/ /etc/apache2/ /etc/haproxy/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/apache2/ssl.conf, /etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "A secure nginx configuration reads: `ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305';`. Presence of RC4, 3DES, DES, or EXPORT in the cipher string is a finding."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use testssl.sh for a comprehensive cipher sweep with clear pass/fail output suitable for evidence capture.",
+        "command": "testssl.sh --cipher-per-proto --warnings off <api-host>:443 2>/dev/null | grep -E 'RC4|3DES|DES-CBC|EXPORT|NULL|WEAK|LOW|MEDIUM'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A clean result returns no output (no weak ciphers). Any line returned indicates a weak cipher is enabled and represents a finding. The tool also reports the overall rating."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['ECDHE-RSA-AES256-GCM-SHA384', 'ECDHE-RSA-AES128-GCM-SHA256', 'TLS_AES_256_GCM_SHA384'] (hardened)",
+      "['AES256-SHA', 'AES128-SHA', 'DES-CBC3-SHA', 'RC4-SHA'] (legacy compatibility builds — common in financial sector APIs supporting old clients)",
+      "['ECDHE-RSA-AES256-GCM-SHA384', 'ECDHE-RSA-AES128-GCM-SHA256'] (standard modern deployment)",
+      "[] (empty or null — often seen when TLS is terminated upstream and the application trusts the load balancer to enforce cipher policy)"
+    ]
+  },
+  {
+    "option_name": "tls_downgrade_protection_enabled",
+    "option_description": "Controls whether the TLS_FALLBACK_SCSV (Signaling Cipher Suite Value) pseudo-cipher suite or equivalent mechanism is sent by the server to prevent protocol downgrade attacks. When a client supports a higher TLS version but an attacker manipulates the handshake to negotiate a lower version, TLS_FALLBACK_SCSV causes the server to abort the connection if it detects the client is capable of a higher version.",
+    "security_impact": "The Rego policy fires `weak_tls_protocol_negotiation` (score 8, high) when `not input.tls_downgrade_protection_enabled` AND `minimum_tls_version` is in [SSL3, TLS1_0, TLS1_1]. This compound condition captures the scenario where deprecated versions are still permitted AND no fallback protection exists — the maximum risk configuration. Without TLS_FALLBACK_SCSV, a network-positioned attacker (T1562.010 Downgrade Attack) can force a TLS1_3-capable client to negotiate TLS1_0 by injecting ClientHello modification, enabling BEAST, POODLE, or other version-specific exploits. Modern TLS1.3-only configurations do not require this as downgrade is prevented by the protocol itself, but mixed-version environments critically depend on it.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use openssl s_client with the -fallback_scsv flag to test whether the server enforces downgrade protection by rejecting a fallback attempt.",
+        "command": "openssl s_client -connect <api-host>:443 -no_tls1_3 -no_tls1_2 -fallback_scsv </dev/null 2>&1 | grep -E 'tlsv1 alert|handshake failure|CONNECTED|no protocols'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A correctly protected server returns 'tlsv1 alert inappropriate fallback' or 'handshake failure', indicating TLS_FALLBACK_SCSV is honored and the downgrade attempt was rejected. A vulnerable server returns 'CONNECTED' with a negotiated protocol, meaning the downgrade succeeded."
+      },
+      {
+        "type": "command",
+        "instruction": "Use testssl.sh to specifically check TLS_FALLBACK_SCSV support with a clear pass/fail indicator.",
+        "command": "testssl.sh --protocols --warnings off <api-host>:443 2>/dev/null | grep -i 'fallback\\|SCSV\\|downgrade'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "testssl.sh reports 'TLS_FALLBACK_SCSV (RFC 7507)' as supported (green/OK) or not supported (red/WARN). A supported result confirms downgrade protection is active."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the TLS library or server configuration for explicit downgrade protection settings. Most modern libraries enable this by default; look for explicit disablement.",
+        "command": "grep -rE 'FALLBACK_SCSV|fallback_scsv|downgrade|OP_NO_SSLv2|OP_NO_SSLv3|SSL_OP_NO_SSLv' /etc/nginx/ /etc/ssl/ /app/config/ /etc/openssl/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/ssl/openssl.cnf, application TLS configuration",
+        "navigation": null,
+        "expected_output": "Absence of any explicit disablement of FALLBACK_SCSV, combined with a current OpenSSL version (1.0.1j+), implies it is enabled by default. If `SSL_OP_NO_SSLv2` and `SSL_OP_NO_SSLv3` are set without FALLBACK_SCSV exclusion, protection is active."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap's ssl-dh-params script and ssl-enum-ciphers to indirectly identify whether TLS_FALLBACK_SCSV appears in the server's cipher list response.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 <api-host> 2>/dev/null | grep -i 'fallback\\|SCSV'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If TLS_FALLBACK_SCSV is present in the cipher list output, downgrade protection is active. Note that this method is less reliable than the openssl s_client -fallback_scsv method and should be used as a supplementary check."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (default in OpenSSL 1.0.1j+, nginx 1.5.6+, most modern configurations)",
+      "false (older OpenSSL versions < 1.0.1j, custom TLS stacks that pre-date RFC 7507, manually patched or stripped library builds, some embedded API servers)"
+    ]
+  },
+  {
+    "option_name": "mtls_enabled",
+    "option_description": "Controls whether mutual TLS (mTLS) authentication is configured for the API endpoint, requiring both the server to present a certificate to the client and the client to present a certificate to the server. This provides cryptographic proof of client identity at the transport layer, independent of application-level authentication tokens.",
+    "security_impact": "The Rego policy fires `missing_mutual_tls_authentication` (score 8, high) when `not input.mtls_enabled` — this is the first and primary condition, meaning any API without mTLS enabled triggers the exposure. It also fires `bgp_route_hijacking_exposure` when `api_traffic_uses_public_internet == true AND not input.mtls_enabled`, demonstrating that mTLS serves as the cryptographic binding that makes intercepted traffic useless to a BGP hijacker. Without mTLS, T1557 (Adversary-in-the-Middle) and T1649 (Steal or Forge Authentication Certificates) become viable: a spoofed client can connect to the API using only knowledge of the endpoint URL and any bearer token, while T1001.003 (Protocol or Service Impersonation) enables a fake server to receive client requests if only server authentication is verified.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Attempt to connect to the API endpoint without providing a client certificate and observe whether the connection is accepted or rejected.",
+        "command": "curl -v --cert /dev/null https://<api-host>/api/v1/health 2>&1 | grep -E 'HTTP/|SSL_ERROR|alert|certificate required|400|403'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An mTLS-enforced endpoint returns SSL alert 'certificate required' (TLS alert 116) or a TCP RST during handshake, or HTTP 400 'No required SSL certificate was sent'. Acceptance of the request without a client certificate confirms mTLS is not enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the TLS server configuration for client certificate requirements.",
+        "command": "grep -rE 'ssl_verify_client|clientAuth|client_certificate|ssl_client_certificate|peer_authentication|requireClientCert|client_cert_required' /etc/nginx/ /etc/apache2/ /etc/envoy/ /etc/istio/ 2>/dev/null",
+        "file_path": "/etc/nginx/sites-enabled/, /etc/apache2/ssl.conf, Envoy/Istio PeerAuthentication YAML",
+        "navigation": null,
+        "expected_output": "nginx: `ssl_verify_client on;` with `ssl_client_certificate /path/to/ca.crt;` confirms mTLS is enabled. Istio: `PeerAuthentication` with `mtls.mode: STRICT`. Apache: `SSLVerifyClient require`. Any value of 'off', 'none', or 'NONE' disables client verification."
+      },
+      {
+        "type": "gui",
+        "instruction": "For service mesh deployments (Istio/Linkerd) or API gateways (Kong, AWS API Gateway), check the mTLS policy in the management console.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Istio: kubectl get peerauthentication --all-namespaces -o yaml | grep -A5 'mtls'. AWS API Gateway: Console → API Gateway → Select API → Authorizers → check for mTLS configuration. Kong: Admin API → Services → Plugins → check for mtls-auth plugin.",
+        "expected_output": "Istio PeerAuthentication shows `mode: STRICT` for enforced mTLS. Kong shows the `mtls-auth` plugin is enabled on the service. AWS shows a truststore URI is configured for the custom domain."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Kubernetes PeerAuthentication resources in the Istio service mesh to determine mTLS enforcement mode for the API namespace.",
+        "command": "kubectl get peerauthentication -n <api-namespace> -o jsonpath='{.items[*].spec.mtls.mode}' 2>/dev/null; kubectl get destinationrule -n <api-namespace> -o jsonpath='{.items[*].spec.trafficPolicy.tls.mode}' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PeerAuthentication mode should be 'STRICT'. DestinationRule TLS mode should be 'ISTIO_MUTUAL' or 'MUTUAL'. 'PERMISSIVE' or 'DISABLE' modes indicate mTLS is not enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default — most public-facing APIs, developer portals, and services relying on bearer token auth alone)",
+      "true (service-to-service communication in zero-trust architectures, financial APIs, healthcare interoperability APIs, Kubernetes service mesh deployments with STRICT mode)"
+    ]
+  },
+  {
+    "option_name": "client_certificate_validation_mode",
+    "option_description": "Specifies the mode for validating client certificates during the TLS handshake at the API endpoint. 'required' means the server demands and validates a client certificate before completing the handshake; 'optional' means the server requests but does not require one; 'none' means client certificates are not requested at all. This is the granular control beneath the boolean mtls_enabled flag.",
+    "security_impact": "The Rego policy fires `missing_mutual_tls_authentication` (score 8, high) when `input.client_certificate_validation_mode` is 'optional' or 'none'. Critically, 'optional' mode is explicitly flagged as a finding — not just 'none'. This is because 'optional' creates a false sense of security: the configuration technically supports client certificates but does not enforce them, allowing unauthenticated clients to connect freely. Even if `mtls_enabled` is true, if this mode is 'optional', the mTLS protection is entirely bypassable. T1557 (Adversary-in-the-Middle) and T1649 (Steal or Forge Authentication Certificates) exploits succeed against optional mode because attackers can simply connect without presenting any certificate.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the client authentication mode directly from the TLS server configuration.",
+        "command": "grep -rE 'ssl_verify_client|SSLVerifyClient|clientAuth|ssl_client_auth|client_certificate|peer_authentication' /etc/nginx/ /etc/apache2/ /etc/haproxy/ /etc/envoy/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/apache2/ssl.conf, /etc/haproxy/haproxy.cfg, Envoy bootstrap config",
+        "navigation": null,
+        "expected_output": "nginx: `ssl_verify_client on` = required, `ssl_verify_client optional` = optional, `ssl_verify_client off` = none. Apache: `SSLVerifyClient require` = required, `SSLVerifyClient optional` = optional, `SSLVerifyClient none` = none. Envoy: `REQUIRE_AND_VERIFY_CLIENT_CERT` = required, `REQUEST_AND_VERIFY_CLIENT_CERT` = optional, `NO_CLIENT_CERT` = none."
+      },
+      {
+        "type": "command",
+        "instruction": "Test optional vs required mode by connecting with and without a client certificate and comparing server responses.",
+        "command": "echo 'Testing without client cert:'; curl -sk --cert /dev/null https://<api-host>/api/v1/health -o /dev/null -w '%{http_code}'; echo ''; echo 'Testing with valid client cert:'; curl -sk --cert /path/to/client.crt --key /path/to/client.key https://<api-host>/api/v1/health -o /dev/null -w '%{http_code}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If 'required': connection without cert returns TLS alert or HTTP 400. If 'optional': both connections succeed (possibly different HTTP status codes for authorization). If 'none': server never requests a certificate. Required mode should reject unauthenticated clients before HTTP processing begins."
+      },
+      {
+        "type": "api",
+        "instruction": "For Java-based API servers, retrieve the SSLParameters or SSLContext configuration to identify the client authentication requirement.",
+        "command": "jcmd <pid> VM.system_properties 2>/dev/null | grep -E 'ssl|tls|clientAuth'; cat /proc/<pid>/environ 2>/dev/null | tr '\\0' '\\n' | grep -iE 'ssl|tls|client'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Java TLS configurations expose `javax.net.ssl` properties. Look for `clientAuth=REQUIRE` (required), `clientAuth=WANT` (optional), or absence of clientAuth setting (none). Spring Boot: check `server.ssl.client-auth` property value."
+      },
+      {
+        "type": "gui",
+        "instruction": "For AWS ALB with mTLS, check the mutual authentication configuration on the load balancer listener.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → EC2 → Load Balancers → Select ALB → Listeners → Select HTTPS:443 → View/Edit Mutual Authentication → check 'Verify with Trust Store'. For GCP: Load Balancing → Select Backend Service → Edit → check 'Client TLS Policy'.",
+        "expected_output": "AWS ALB: 'Mutual TLS' shows 'Verify with trust store' for required mode, 'Passthrough' for none. GCP: Client TLS Policy shows MUTUAL for required, or is absent for none/optional."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (default — most public API gateways, RESTful APIs relying on OAuth/JWT)",
+      "optional (transitional configurations during mTLS rollout, APIs supporting both cert-authenticated and non-cert clients)",
+      "required (service mesh east-west traffic, B2B API integrations, financial sector inter-system APIs, zero-trust microservices)"
+    ]
+  },
+  {
+    "option_name": "trusted_client_ca_configured",
+    "option_description": "Indicates whether a trusted Certificate Authority (CA) bundle is configured at the TLS termination point for validating client certificates. Without a CA trust anchor, the server cannot verify whether a presented client certificate was issued by an authorized CA, making client certificate validation meaningless — any self-signed or rogue certificate would be accepted or the validation would fail entirely.",
+    "security_impact": "The Rego policy fires `missing_mutual_tls_authentication` (score 8, high) specifically when `input.mtls_enabled == true AND not input.trusted_client_ca_configured`. This is a subtle but critical condition: an operator may enable mTLS (`mtls_enabled = true`) and set `client_certificate_validation_mode = required`, yet if no CA bundle is configured, the certificate chain validation has no root of trust. This creates a scenario where certificates are technically required but cannot be properly verified, potentially allowing any certificate (or causing connection failures). T1649 (Steal or Forge Authentication Certificates) is directly enabled — a forged certificate signed by any CA would pass validation if no trusted CA bundle constrains which issuers are accepted.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check for the presence and content of the client CA certificate file referenced in the TLS configuration.",
+        "command": "grep -rE 'ssl_client_certificate|SSLCACertificateFile|client_ca_file|trustedCA|clientCAFile|ca_bundle|trust_store' /etc/nginx/ /etc/apache2/ /etc/kubernetes/ /etc/istio/ 2>/dev/null; [ -f /path/to/client-ca.crt ] && openssl x509 -in /path/to/client-ca.crt -noout -subject -issuer -dates 2>/dev/null || echo 'CA FILE NOT FOUND'",
+        "file_path": "/etc/nginx/ssl/client-ca.crt, /etc/apache2/ssl/ca-bundle.crt, /etc/kubernetes/pki/ca.crt, Istio PeerAuthentication spec",
+        "navigation": null,
+        "expected_output": "A properly configured system shows the CA file path exists, the file is non-empty, and openssl x509 outputs valid Subject/Issuer/Dates. A misconfigured system shows a missing file, an empty file, or a path that does not exist on the filesystem."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the TLS handshake to see which CA names the server advertises as acceptable for client certificates.",
+        "command": "openssl s_client -connect <api-host>:443 </dev/null 2>&1 | grep -A 20 'Acceptable client certificate CA names\\|Client Certificate CA names\\|requested\\|Acceptable'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A correctly configured server lists one or more CA distinguished names (e.g., '/CN=Internal API CA/O=Company'). Output 'No client certificate CA names sent' or an empty list indicates no trusted CA is configured, meaning the server cannot properly validate client certificates."
+      },
+      {
+        "type": "api",
+        "instruction": "For Kubernetes API server or Istio, check whether the client CA file or PeerAuthentication trust domain is configured.",
+        "command": "kubectl get peerauthentication -n <namespace> -o yaml 2>/dev/null | grep -A5 'portLevelMtls\\|mtls'; kubectl -n kube-system get configmap kube-apiserver-config -o yaml 2>/dev/null | grep 'client-ca-file'; ps aux | grep kube-apiserver | grep -o 'client-ca-file=[^ ]*'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Kubernetes API server: `--client-ca-file=/etc/kubernetes/pki/ca.crt` in the process arguments confirms a CA is configured. Istio: `PeerAuthentication` with `selector` labels and `mtls.mode: STRICT` without an explicit CA reference relies on the mesh CA. Absence of `client-ca-file` argument or an empty CA file is a finding."
+      },
+      {
+        "type": "gui",
+        "instruction": "For AWS API Gateway mTLS, verify the truststore S3 bucket reference is populated and the certificate bundle has been validated.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → API Gateway → Custom domain names → Select domain → Mutual TLS authentication → check 'Truststore URI' field shows a valid s3:// path and 'Truststore version' is populated. Verify the S3 object exists: AWS Console → S3 → navigate to the referenced bucket and key.",
+        "expected_output": "The Truststore URI field should contain a valid S3 URI pointing to a PEM-formatted CA bundle. An empty URI, a URI pointing to a non-existent object, or a 'validation failed' status indicates the trusted CA is not properly configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default — mTLS features enabled without completing CA configuration, common during initial rollout or infrastructure-as-code deployments where the CA bundle provisioning step was missed)",
+      "true (fully configured mTLS deployments with internal PKI, Istio mesh CA auto-configuration, AWS API Gateway with a populated truststore, enterprise PKI-backed service authentication)"
+    ]
+  },
+  {
+    "option_name": "certificate_chain_validation_enabled",
+    "option_description": "Controls whether the API client enforces full certificate chain validation, including CA store checks and hostname verification, when establishing TLS connections to API servers. When disabled, the client accepts any certificate presented by the server without verifying its authenticity against a trusted CA.",
+    "security_impact": "The Rego policy flags `tls_certificate_validation_bypass` and `bearer_token_interception_in_transit` when `not input.certificate_chain_validation_enabled` evaluates to true. A disabled chain validation allows a rogue server presenting any certificate to complete the TLS handshake, enabling man-in-the-middle interception of all API traffic including bearer tokens, API keys, and response payloads. Both high-criticality exposures (score 8) trigger simultaneously, making this the highest-priority TLS client hardening control.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search Python codebases for requests library calls with verify=False, which disables certificate chain validation entirely.",
+        "command": "grep -rn 'verify=False' --include='*.py' /path/to/project/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any match indicates certificate_chain_validation_enabled should be set to false. Zero matches suggests validation is active."
+      },
+      {
+        "type": "command",
+        "instruction": "Search Node.js codebases for rejectUnauthorized=false in HTTPS agent configurations or environment variable NODE_TLS_REJECT_UNAUTHORIZED set to 0.",
+        "command": "grep -rn 'rejectUnauthorized.*false\\|NODE_TLS_REJECT_UNAUTHORIZED.*0' --include='*.js' --include='*.ts' /path/to/project/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any match indicates validation bypass. Check also process.env.NODE_TLS_REJECT_UNAUTHORIZED in runtime configs."
+      },
+      {
+        "type": "command",
+        "instruction": "Search Go codebases for InsecureSkipVerify=true in tls.Config structs, which disables both certificate chain and hostname verification.",
+        "command": "grep -rn 'InsecureSkipVerify.*true' --include='*.go' /path/to/project/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any occurrence sets certificate_chain_validation_enabled to false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Java HttpsURLConnection or Apache HttpClient configurations for custom TrustManagers or SSLContext initialized with CERT_NONE or NullTrustManager patterns in application property files and SSL factory configurations.",
+        "command": "grep -rn 'CERT_NONE\\|TrustAllCerts\\|NullTrustManager\\|X509TrustManager' --include='*.java' --include='*.xml' --include='*.properties' /path/to/project/",
+        "file_path": "/path/to/project/src",
+        "navigation": null,
+        "expected_output": "Matches to NullTrustManager or CERT_NONE patterns confirm validation is disabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (production, hardened)",
+      "false (development/test environments, misconfigured production clients)"
+    ]
+  },
+  {
+    "option_name": "hostname_verification_enabled",
+    "option_description": "Controls whether the API client verifies that the CN or SAN fields in the server's TLS certificate match the hostname used in the API request. When disabled, a certificate issued for any domain is accepted, even if it does not match the intended API endpoint.",
+    "security_impact": "The Rego policy triggers `tls_certificate_validation_bypass` (criticality: high, score 8) when `not input.hostname_verification_enabled`. Without hostname verification, an attacker performing DNS poisoning or ARP spoofing can redirect API traffic to a server presenting a valid-but-mismatched certificate and complete the TLS handshake successfully, achieving full traffic interception even when certificate chain validation is otherwise enabled.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for CURLOPT_SSL_VERIFYHOST set to 0 in C/PHP curl-based API clients, which disables hostname matching.",
+        "command": "grep -rn 'CURLOPT_SSL_VERIFYHOST.*0\\|CURLOPT_SSL_VERIFYPEER.*0' --include='*.php' --include='*.c' --include='*.cpp' /path/to/project/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CURLOPT_SSL_VERIFYHOST=0 or CURLOPT_SSL_VERIFYHOST=1 (both bypass full verification; only value 2 is secure) confirms disabled hostname verification."
+      },
+      {
+        "type": "command",
+        "instruction": "Search Java codebases for ALLOW_ALL_HOSTNAME_VERIFIER or custom HostnameVerifier implementations that return true unconditionally.",
+        "command": "grep -rn 'ALLOW_ALL_HOSTNAME_VERIFIER\\|AllowAllHostnameVerifier\\|return true' --include='*.java' /path/to/project/ | grep -i 'hostname\\|verif'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Matches indicate hostname verification is bypassed; set attribute to false."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Go HTTP transport configurations for AllowInsecureTLSRedirects or combined InsecureSkipVerify patterns that bypass hostname matching.",
+        "command": "grep -rn 'InsecureSkipVerify\\|AllowInsecureTLS\\|VerifyHostname' --include='*.go' /path/to/project/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "InsecureSkipVerify=true disables hostname verification; VerifyHostname=false is an explicit bypass."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client to connect to the API endpoint with a mismatched SNI value and observe whether the client rejects or accepts the handshake in test environment client libraries.",
+        "command": "openssl s_client -connect api.example.com:443 -servername wrong.hostname.example.com 2>&1 | grep -E 'Verify|hostname|error'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If client-side code accepts a response when SNI deliberately mismatches, hostname_verification_enabled is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (default in well-configured HTTP clients)",
+      "false (development shortcuts, legacy Java clients using deprecated HostnameVerifier APIs)"
+    ]
+  },
+  {
+    "option_name": "self_signed_certificate_accepted",
+    "option_description": "Controls whether the API client accepts TLS certificates that are not signed by a recognized CA but are self-issued, without requiring certificate pinning to bind to a specific known certificate or public key. Accepting self-signed certificates without pinning removes the third-party trust anchor from the authentication chain.",
+    "security_impact": "The Rego policy triggers `tls_certificate_validation_bypass` (criticality: high, score 8) when `input.self_signed_certificate_accepted == true`. Any attacker who can generate a self-signed certificate can present it to an accepting client and complete TLS negotiation, enabling complete traffic decryption. Unlike misconfigured CA validation, self-signed acceptance requires no compromised CA — any certificate generation tool suffices for the attack.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Scan for custom X509TrustManager implementations where checkServerTrusted is a no-op or empty method body, which causes all certificates including self-signed to be accepted.",
+        "command": "grep -rn -A 5 'checkServerTrusted' --include='*.java' /path/to/project/ | grep -E 'void|return|//|{}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An empty method body or single-line return in checkServerTrusted confirms self-signed certificates are accepted."
+      },
+      {
+        "type": "command",
+        "instruction": "Locate Python SSL context configurations that add self-signed certs to the trust store or set verify=False, indicating self-signed acceptance.",
+        "command": "grep -rn 'ssl.create_default_context\\|SSLContext\\|load_verify_locations\\|verify=False\\|CERT_NONE' --include='*.py' /path/to/project/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CERT_NONE or absence of load_verify_locations with a CA bundle, combined with custom cert loading, confirms self-signed acceptance."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review API gateway or HTTP client configuration files for trust store entries containing non-CA certificates or wildcard trust patterns that would include self-signed certs.",
+        "command": "keytool -list -keystore /path/to/truststore.jks -storepass changeit 2>/dev/null | grep -E 'trustedCertEntry|self|unknown'",
+        "file_path": "/etc/ssl/certs/ or application-specific truststore path",
+        "navigation": null,
+        "expected_output": "Self-signed certificates appearing as trustedCertEntry without an associated pinning mechanism confirms the attribute is true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test the API client by pointing it at a test server presenting a freshly generated self-signed certificate and verify whether the connection is accepted or rejected.",
+        "command": "openssl req -x509 -newkey rsa:2048 -keyout /tmp/test.key -out /tmp/test.crt -days 1 -nodes -subj '/CN=test' && openssl s_server -key /tmp/test.key -cert /tmp/test.crt -port 8443 &",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the API client successfully connects and exchanges data with this test server, self_signed_certificate_accepted is true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (production hardened clients)",
+      "true (internal microservice meshes without proper PKI, development environments, legacy integrations)"
+    ]
+  },
+  {
+    "option_name": "message_integrity_mechanism",
+    "option_description": "Specifies the cryptographic mechanism applied to API message bodies to detect tampering in transit. 'hmac' uses a shared secret to generate a keyed hash over the payload; 'digital_signature' uses asymmetric cryptography (RSA/ECDSA) to sign payloads; 'none' means the system relies exclusively on TLS transport-layer protection without per-message integrity verification.",
+    "security_impact": "The Rego policy triggers `message_integrity_absence` (criticality: medium, score 5) when `input.message_integrity_mechanism == 'none'`. TLS protects the channel but does not authenticate individual message bodies at the application layer — a compromised TLS terminator (e.g., a misconfigured API gateway) or a TLS MITM enabled by certificate validation bypass can modify payloads without detection. HMAC or digital signatures provide end-to-end integrity independent of transport security.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect API request and response headers in transit for HMAC signature headers such as X-Signature, X-Hub-Signature-256, X-HMAC, or Authorization headers using HMAC schemes.",
+        "command": "curl -v -H 'Content-Type: application/json' -d '{\"test\":\"payload\"}' https://api.example.com/endpoint 2>&1 | grep -iE 'x-signature|x-hmac|x-hub-signature|digest|authorization.*hmac'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of X-Signature or X-Hub-Signature-256 headers with HMAC-SHA256 values indicates 'hmac'. Absence of any integrity header indicates 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review API gateway policy files (Kong, AWS API Gateway, Apigee) for request signing plugins or HMAC policy attachments.",
+        "command": "grep -rn 'hmac\\|request-signing\\|message-integrity\\|payload-signature\\|digest' --include='*.yaml' --include='*.json' /path/to/gateway/config/",
+        "file_path": "/etc/kong/declarative/ or /path/to/apigee/proxies/",
+        "navigation": null,
+        "expected_output": "HMAC or signing policy plugins attached to API routes confirm 'hmac' or 'digital_signature' values. No matching policies confirm 'none'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS API Gateway console, navigate to the target API, select the integration request, and check if request validators or Lambda authorizers implement HMAC body verification. In Apigee, check proxy policies for VerifyApiKey or HMAC policy steps.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → API Gateway → APIs → [target API] → Resources → Integration Request → Request Validators; Apigee Edge → API Proxies → [proxy name] → Develop → Proxy Endpoints → PreFlow",
+        "expected_output": "HMAC or signature validation policy steps in the request flow confirm a mechanism is in place. Absence of such steps indicates 'none'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review API SDK documentation and developer onboarding guides to determine if request signing is documented as required, and interview backend developers to confirm server-side signature verification is implemented.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented HMAC signing requirements with server-side verification code confirms 'hmac' or 'digital_signature'. No documentation or code confirms 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (majority of REST APIs)",
+      "hmac (webhook receivers, AWS Signature V4 signed requests, payment APIs)",
+      "digital_signature (high-value financial APIs, open banking PSD2 implementations)"
+    ]
+  },
+  {
+    "option_name": "replay_protection_mechanism",
+    "option_description": "Specifies the anti-replay control applied to API requests. 'nonce' embeds a unique single-use value per request; 'timestamp' includes a request timestamp rejected if outside a time window; 'signed_token' uses short-lived cryptographically signed tokens (e.g., JWT with short exp); 'none' means captured requests can be retransmitted without detection.",
+    "security_impact": "The Rego policy triggers `replay_attack_susceptibility` (criticality: medium, score 5) in multiple conditions: when the mechanism is 'none'; when 'timestamp' or 'signed_token' is used but token_expiry_window_seconds exceeds 300 without idempotency enforcement; and when 'nonce' is used without request_idempotency_enforced. A captured API request (e.g., a fund transfer, state mutation, or authentication request) can be replayed indefinitely without replay protection, causing repeated execution of authorized operations.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Capture a live API request and inspect headers for nonce fields, X-Request-Timestamp, X-Nonce, or short-lived JWT tokens in the Authorization header.",
+        "command": "curl -v -H 'Authorization: Bearer <token>' https://api.example.com/v1/resource 2>&1 | grep -iE 'nonce|timestamp|x-request-id|x-correlation|exp|iat'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "X-Nonce header present → 'nonce'. X-Timestamp or X-Request-Timestamp present → 'timestamp'. JWT with short exp claim → 'signed_token'. None of these → 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review API request signing libraries or middleware configuration files for nonce generation, timestamp injection, or JWT issuance with short expiry settings.",
+        "command": "grep -rn 'nonce\\|replay\\|idempotency\\|x-timestamp\\|request.timestamp\\|exp.*60\\|exp.*300' --include='*.yaml' --include='*.json' --include='*.conf' /path/to/project/config/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Nonce or timestamp injection middleware configuration confirms the corresponding mechanism. Absence of any replay control configuration indicates 'none'."
+      },
+      {
+        "type": "api",
+        "instruction": "Submit the same API request twice using identical headers and body, then observe whether the server accepts or rejects the second submission, indicating nonce tracking.",
+        "command": "REQUEST_ID=$(uuidgen); curl -s -o /dev/null -w '%{http_code}' -X POST -H \"X-Nonce: $REQUEST_ID\" -H 'Content-Type: application/json' -d '{\"amount\":100}' https://api.example.com/v1/transfer; sleep 1; curl -s -o /dev/null -w '%{http_code}' -X POST -H \"X-Nonce: $REQUEST_ID\" -H 'Content-Type: application/json' -d '{\"amount\":100}' https://api.example.com/v1/transfer",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "First request returns 200/201; second returns 409 (Conflict) or 400 (Bad Request) → nonce with idempotency enforced. Both return 200 → replay protection is absent or not enforced server-side."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review API gateway or application logs for replay detection log entries, duplicate request rejections, or nonce cache hit events that indicate server-side replay tracking.",
+        "command": "grep -E 'replay|duplicate.request|nonce.used|idempotency.key.conflict|token.already.used' /var/log/api-gateway/access.log | tail -50",
+        "file_path": "/var/log/api-gateway/access.log or application-specific log path",
+        "navigation": null,
+        "expected_output": "Log entries showing replay or duplicate request rejection events confirm the mechanism is active. No such entries suggest 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (most public REST APIs)",
+      "signed_token (OAuth2 JWT-based APIs with short-lived tokens)",
+      "timestamp (AWS Signature V4, Azure SAS tokens)",
+      "nonce (payment processing APIs, high-security financial services)"
+    ]
+  },
+  {
+    "option_name": "request_idempotency_enforced",
+    "option_description": "Controls whether the API server tracks submitted request identifiers (idempotency keys, nonce values, or replay cache entries) and rejects duplicate submissions of the same request within an appropriate time window. This is the server-side enforcement complement to client-side replay protection mechanisms.",
+    "security_impact": "The Rego policy triggers `replay_attack_susceptibility` in three conditions that all require `not input.request_idempotency_enforced`: when replay_protection is 'nonce' without idempotency enforcement (the nonce check has no backing store); when using 'timestamp'/'signed_token' with expiry > 300 seconds without idempotency (the long window allows replay); and when token_expiry_window_seconds is 0 without idempotency (no expiry at all). Without server-side idempotency tracking, client-side replay controls are unenforceable since the server has no memory of previous requests.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check database schema or cache configuration for idempotency key tables, nonce stores, or replay caches used to track processed request identifiers.",
+        "command": "grep -rn 'idempotency_key\\|nonce_store\\|replay_cache\\|processed_requests\\|request_id' --include='*.sql' --include='*.py' --include='*.js' --include='*.go' /path/to/project/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Database table definitions or cache key patterns for storing request IDs confirm idempotency is enforced. Absence indicates the attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Redis or Memcached usage in API middleware for nonce or request-ID caching patterns that implement replay detection.",
+        "command": "grep -rn 'redis\\|memcache\\|cache.set\\|cache.get' --include='*.py' --include='*.js' --include='*.go' /path/to/project/ | grep -iE 'nonce|idempotency|request.id|replay'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Redis SET operations on nonce or request-ID keys with TTL expiry confirm server-side idempotency tracking is active."
+      },
+      {
+        "type": "api",
+        "instruction": "Submit two identical requests with the same Idempotency-Key header value and verify that the server returns an idempotent response (same result, no double processing) or a 409 conflict on the duplicate.",
+        "command": "KEY=$(uuidgen); for i in 1 2; do curl -s -w '\\nHTTP_STATUS:%{http_code}\\n' -X POST -H \"Idempotency-Key: $KEY\" -H 'Content-Type: application/json' -d '{\"amount\": 50, \"to\": \"account123\"}' https://api.example.com/v1/payments; sleep 0.5; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Second request returning 200 with identical response body (cached idempotent response) or 409 confirms idempotency is enforced. Two distinct successful 201 responses indicate it is not enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review API gateway deduplication plugin configurations (e.g., Kong request-termination or custom idempotency plugin) or middleware configuration files for idempotency key enforcement settings.",
+        "command": "grep -rn 'idempotency\\|dedup\\|request.deduplication\\|replay.protection' --include='*.yaml' --include='*.json' /path/to/gateway/plugins/",
+        "file_path": "/etc/kong/plugins/ or /path/to/express/middleware/",
+        "navigation": null,
+        "expected_output": "Idempotency plugin enabled with a configured TTL window confirms enforcement. No matching plugin or middleware confirms the attribute is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (majority of REST APIs)",
+      "true (payment processing APIs following Stripe/Adyen patterns, financial transaction APIs, Kubernetes API server for resource mutations)"
+    ]
+  },
+  {
+    "option_name": "token_expiry_window_seconds",
+    "option_description": "Defines the maximum age in seconds that the server will accept for a timestamped request or signed token. A value of 0 means no expiry is enforced, allowing tokens to be valid indefinitely. This control bounds the replay attack window when using timestamp or signed_token replay protection mechanisms.",
+    "security_impact": "The Rego policy triggers `replay_attack_susceptibility` (criticality: medium, score 5) in two conditions involving this attribute: when token_expiry_window_seconds > 300 without idempotency enforcement (a window longer than 5 minutes provides attackers substantial time to replay captured requests); and when token_expiry_window_seconds == 0 without idempotency enforcement (no expiry means indefinite replay window). The policy implicitly treats values > 300 as insufficiently tight for high-value operations. This attribute is only evaluated when replay_protection_mechanism is 'timestamp' or 'signed_token'.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review JWT validation middleware or API gateway configuration for the maximum accepted token age, expressed as max_age, exp tolerance, clock skew tolerance, or leeway settings.",
+        "command": "grep -rn 'leeway\\|clock.skew\\|max.age\\|expiry.window\\|token.ttl\\|timestamp.tolerance\\|exp.*window' --include='*.yaml' --include='*.json' --include='*.conf' --include='*.py' --include='*.js' --include='*.go' /path/to/project/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Numeric values in seconds attached to expiry or skew settings. 0 indicates no expiry enforcement; values above 300 warrant review."
+      },
+      {
+        "type": "command",
+        "instruction": "Decode a JWT token used in API requests and inspect the exp and iat claims to calculate the token lifetime issued by the authentication service.",
+        "command": "TOKEN=$(curl -s -X POST https://auth.example.com/token -d 'grant_type=client_credentials&client_id=test&client_secret=test' | jq -r '.access_token'); echo $TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | jq '{iat,exp,lifetime_seconds: (.exp - .iat)}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "lifetime_seconds value represents the token_expiry_window_seconds. Values like 3600 (1 hour) are common but too long for high-security replay protection."
+      },
+      {
+        "type": "command",
+        "instruction": "Test server-side expiry enforcement by replaying a deliberately expired token and observing whether the server rejects it with a 401 Unauthorized response.",
+        "command": "OLD_TOKEN='<captured-token-older-than-5-minutes>'; curl -s -o /dev/null -w '%{http_code}' -H \"Authorization: Bearer $OLD_TOKEN\" https://api.example.com/v1/protected",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 401 with error body indicating token expiry confirms server-side window enforcement. HTTP 200 with an old token confirms token_expiry_window_seconds is 0 or very large."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS API Gateway console, check Lambda authorizer configurations for TTL cache settings. In Auth0, check the API settings for token expiration. In Okta, review the authorization server access policy rule token lifetime settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Auth0 Dashboard → APIs → [API name] → Settings → Token Expiration (Seconds); Okta Admin → Security → API → Authorization Servers → [server] → Access Policies → [policy] → Rules → Access Token Lifetime",
+        "expected_output": "Token expiration values displayed in the UI. Values of 3600 or above are typical but insufficient for replay protection without idempotency enforcement."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (no expiry enforced - dangerous)",
+      "300 (5 minutes - adequate for high-security APIs)",
+      "3600 (1 hour - typical OAuth2 access token, insufficient alone for replay protection)",
+      "86400 (24 hours - long-lived API keys, replay risk without idempotency)"
+    ]
+  },
+  {
+    "option_name": "transport_protocol_enforced",
+    "option_description": "Specifies the minimum transport security protocol enforced for API communication at the gateway, load balancer, or service mesh level. 'tls_1_3_only' allows only TLS 1.3; 'tls_1_2_or_higher' permits TLS 1.2 and 1.3; 'tls_1_0_or_1_1' includes deprecated versions vulnerable to downgrade; 'plaintext_allowed' permits unencrypted HTTP connections.",
+    "security_impact": "The Rego policy triggers `bearer_token_interception_in_transit` (criticality: high, score 8) for both 'plaintext_allowed' and 'tls_1_0_or_1_1' values, recognizing that deprecated TLS versions are subject to practical downgrade and decryption attacks (POODLE, BEAST, DROWN). Plaintext transport directly exposes all API headers, tokens, and payloads to passive network sniffing (T1040). The policy treats TLS 1.0/1.1 as equivalent to plaintext for bearer token protection purposes given known cryptographic weaknesses.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Use nmap ssl-enum-ciphers script or testssl.sh to enumerate supported TLS protocol versions on the API endpoint and identify whether deprecated versions or plaintext are accepted.",
+        "command": "testssl.sh --protocols --quiet --color 0 https://api.example.com:443 2>/dev/null | grep -E 'TLS|SSL|HTTPS|not offered|offered'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'TLS 1.3 offered', 'TLS 1.2 offered', 'TLS 1.1 not offered', 'TLS 1.0 not offered' indicates tls_1_2_or_higher. 'TLS 1.0 offered' or 'HTTP' responses indicate weaker settings."
+      },
+      {
+        "type": "command",
+        "instruction": "Check nginx, Apache, or HAProxy configuration files for ssl_protocols or SSLProtocol directives that define minimum TLS versions, and for server blocks listening on port 80 without redirect.",
+        "command": "grep -rn 'ssl_protocols\\|SSLProtocol\\|ssl-default-bind-options\\|TLSv1\\|TLSv1.1\\|TLSv1.2\\|TLSv1.3\\|listen.*80' /etc/nginx/ /etc/apache2/ /etc/haproxy/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf or /etc/haproxy/haproxy.cfg or /etc/apache2/sites-enabled/",
+        "navigation": null,
+        "expected_output": "'ssl_protocols TLSv1.2 TLSv1.3' → tls_1_2_or_higher. 'ssl_protocols TLSv1.3' → tls_1_3_only. Presence of TLSv1 or TLSv1.1 → tls_1_0_or_1_1. Port 80 listener without redirect → plaintext_allowed."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Application Load Balancer console, check the HTTPS listener's security policy. In AWS API Gateway, check the minimum TLS version in the custom domain settings. In Cloudflare, check TLS minimum version in SSL/TLS settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → EC2 → Load Balancers → [ALB] → Listeners → HTTPS:443 → Security Policy; AWS Console → API Gateway → Custom Domain Names → [domain] → Minimum TLS Version; Cloudflare Dashboard → SSL/TLS → Edge Certificates → Minimum TLS Version",
+        "expected_output": "Security policy name such as ELBSecurityPolicy-TLS13-1-2-2021-06 indicates tls_1_2_or_higher. ELBSecurityPolicy-2016-08 indicates TLS 1.0 is permitted. Cloudflare setting 'TLS 1.2' or 'TLS 1.3' maps directly to enum values."
+      },
+      {
+        "type": "command",
+        "instruction": "Check service mesh policies (Istio, Linkerd) for PeerAuthentication and DestinationRule TLS mode settings that enforce minimum protocol versions across service-to-service API calls.",
+        "command": "kubectl get peerauthentication,destinationrule -A -o yaml 2>/dev/null | grep -E 'mode:|minProtocolVersion:|STRICT|PERMISSIVE|tlsMode'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'mode: STRICT' with 'minProtocolVersion: TLSV1_3' → tls_1_3_only. 'mode: STRICT' with 'minProtocolVersion: TLSV1_2' → tls_1_2_or_higher. 'mode: PERMISSIVE' → plaintext_allowed."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls_1_2_or_higher (most production API gateways)",
+      "plaintext_allowed (internal microservices without service mesh, legacy systems)",
+      "tls_1_3_only (high-security financial APIs, modern zero-trust architectures)",
+      "tls_1_0_or_1_1 (legacy enterprise APIs with older client requirements)"
+    ]
+  },
+  {
+    "option_name": "token_transmitted_in_query_string",
+    "option_description": "Controls whether bearer tokens, API keys, or OAuth access tokens are passed as URL query parameters (e.g., ?api_key=abc123) rather than in the HTTP Authorization header. When true, credentials appear in server access logs, browser history, referrer headers, and upstream proxy logs.",
+    "security_impact": "The Rego policy fires bearer_token_interception_in_transit when token_transmitted_in_query_string == true, assigning a criticality:high score of 8. This condition is independent of transport encryption — even over TLS, tokens in query strings are logged in plaintext by web servers, CDNs, and load balancers, creating persistent credential exposure across every node that records request URIs.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Capture live API traffic using a proxy or packet capture and search for authentication credentials in query strings.",
+        "command": "mitmproxy --mode transparent --showhost 2>/dev/null | grep -E '(token=|api_key=|access_token=|bearer=|apikey=)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any match indicates tokens are being transmitted in query strings. No output means tokens are likely in headers."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect OpenAPI/Swagger specification files for securitySchemes that define apiKey with 'in: query', which indicates query-string token transmission.",
+        "command": "grep -rn 'in: query' /path/to/openapi-specs/ | grep -i -A2 -B2 'apikey\\|token\\|api_key'",
+        "file_path": "/path/to/openapi-specs/*.yaml",
+        "navigation": null,
+        "expected_output": "Entries showing 'in: query' under securitySchemes confirm the vulnerability. Secure configs should show 'in: header'."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search web server and API gateway access logs for request URIs containing authentication tokens in query parameters.",
+        "command": "grep -E '(GET|POST|PUT|DELETE).*\\?(.*&)?(token|api_key|access_token|bearer|apikey)=' /var/log/nginx/access.log | head -20",
+        "file_path": "/var/log/nginx/access.log",
+        "navigation": null,
+        "expected_output": "Log lines showing tokens in the URL path confirm the misconfiguration. Secure APIs show only Authorization header usage with no token parameters in URIs."
+      },
+      {
+        "type": "api",
+        "instruction": "Use curl with verbose output to inspect how the client SDK or API consumer constructs authentication headers versus query parameters.",
+        "command": "curl -sv 'https://api.example.com/endpoint' -H 'Authorization: Bearer test' 2>&1 | grep -E '(> GET|> Authorization|\\?.*token)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure output shows '> Authorization: Bearer ...' in request headers. Presence of token= in the request line indicates the misconfiguration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "rate_limiting_enabled",
+    "option_description": "Indicates whether rate limiting or throttling controls are actively configured at the API gateway or transport layer to cap the number of requests a client or IP can make within a time window. This is a top-level flag indicating any rate limiting is present.",
+    "security_impact": "The Rego policy fires missing_transport_rate_limiting when rate_limiting_enabled is false (via 'not input.rate_limiting_enabled'), assigning criticality:medium with a score of 5. Without this control, the API is fully exposed to application exhaustion floods (T1499.003) and brute-force enumeration. The policy evaluates this independently of rate_limit_scope, so rate_limiting_enabled must be true AND scope must be non-'none' to avoid the exposure.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect API response headers for standard rate limit headers that indicate enforcement is active.",
+        "command": "curl -si 'https://api.example.com/health' | grep -iE '(x-ratelimit|x-rate-limit|retry-after|ratelimit-limit|ratelimit-remaining)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of headers like 'X-RateLimit-Limit: 1000' confirms rate limiting is enabled. No such headers strongly suggest it is disabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the API Gateway console to verify rate limiting policy assignment. For AWS API Gateway: open the AWS Console → API Gateway → select your API → select a Stage → view 'Default Method Throttling' and 'Usage Plans'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → API Gateway → APIs → [Your API] → Stages → [Stage Name] → Default Method Throttling",
+        "expected_output": "Rate Limit and Burst Limit fields populated with non-zero values confirm rate limiting is enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the Kong Admin API to check if a rate-limiting plugin is enabled globally or on a specific service.",
+        "command": "curl -s http://localhost:8001/plugins | jq '.data[] | select(.name == \"rate-limiting\") | {name, enabled, config}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON object with 'enabled: true' confirms rate limiting is active. Empty results or 'enabled: false' means it is not enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect NGINX configuration for limit_req_zone and limit_req directives that implement rate limiting.",
+        "command": "grep -rn 'limit_req' /etc/nginx/conf.d/ /etc/nginx/nginx.conf",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Presence of 'limit_req_zone' and 'limit_req zone=' directives confirms rate limiting is configured. Their absence means no NGINX-level rate limiting exists."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null"
+    ]
+  },
+  {
+    "option_name": "rate_limit_scope",
+    "option_description": "Defines the granularity at which rate limiting is enforced: 'none' means no enforcement exists; 'global' applies a single aggregate cap across all clients; 'per_client' enforces limits per IP address or API key; 'per_endpoint' applies distinct limits per API route or operation.",
+    "security_impact": "The Rego policy fires missing_transport_rate_limiting for rate_limit_scope == 'none', and additionally when api_traffic_uses_public_internet is true combined with scope of 'none'. A 'global' scope provides minimal protection — a single abusive client can consume the entire quota. Only 'per_client' or 'per_endpoint' scoping adequately prevents targeted brute-force or enumeration attacks (T1499.002, T1499.003) against individual API operations.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query AWS API Gateway usage plans to determine if throttling is defined per API key (per_client) or only at the stage level (global).",
+        "command": "aws apigateway get-usage-plans --query 'items[*].{name:name,throttle:throttle,quota:quota}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Plans associated with API keys indicate per_client scope. A single stage-level throttle without usage plans indicates global scope."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Kong declarative configuration or plugin configs to determine if rate-limiting is scoped by consumer, IP, or service/route.",
+        "command": "cat /etc/kong/kong.yaml | grep -A 20 'rate-limiting' | grep -E '(policy|limit_by|consumer|route|service)'",
+        "file_path": "/etc/kong/kong.yaml",
+        "navigation": null,
+        "expected_output": "'limit_by: consumer' or 'limit_by: credential' indicates per_client. 'limit_by: ip' also indicates per_client. No consumer/route association indicates global scope."
+      },
+      {
+        "type": "api",
+        "instruction": "Inspect Apigee proxy policies to identify the scope of quota or spike arrest policies applied.",
+        "command": "curl -s -H 'Authorization: Bearer $TOKEN' 'https://apigee.googleapis.com/v1/organizations/$ORG/apis/$API/revisions/$REV/policies' | jq '.[]' | grep -i -E '(quota|spikearrest)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Quota policies referencing 'identifier' elements (like app ID or developer) indicate per_client. Spike arrest at the proxy level without identifiers is global."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Azure API Management portal, check if rate-limit-by-key policies are defined per subscription (per_client) or applied globally at the product/API level.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → API Management → [Your Instance] → APIs → [API Name] → Policies → Inbound processing → review rate-limit vs rate-limit-by-key",
+        "expected_output": "'rate-limit-by-key' with a counter-key referencing subscription ID or IP indicates per_client scope. 'rate-limit' alone is global scope."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "global",
+      "per_client",
+      "per_endpoint"
+    ]
+  },
+  {
+    "option_name": "api_traffic_uses_public_internet",
+    "option_description": "Indicates whether API traffic between services crosses the public internet rather than remaining within private network infrastructure such as VPC peering, AWS PrivateLink, GCP Private Service Connect, Azure Private Endpoints, or dedicated interconnects.",
+    "security_impact": "The Rego policy uses this attribute as a prerequisite for two exposures: bgp_route_hijacking_exposure (fires when api_traffic_uses_public_internet == true AND bgp_route_origin_validation is absent or mTLS is missing) and as an aggravating factor in missing_transport_rate_limiting. Public internet routing exposes API traffic to BGP prefix hijacking (T1557, T1599), where malicious ASes can divert traffic through attacker-controlled infrastructure for mass interception.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Perform a traceroute to the API endpoint to determine if traffic traverses public internet hops or stays within private/cloud infrastructure.",
+        "command": "traceroute -n api.example.com | awk '{print $1, $2, $3}' | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Hops resolving to RFC1918 addresses (10.x, 172.16-31.x, 192.168.x) or cloud-internal ranges throughout indicate private routing. Public IP hops in the path confirm internet traversal."
+      },
+      {
+        "type": "api",
+        "instruction": "Check AWS VPC endpoint configurations to determine if the target service has a private endpoint, avoiding public internet routing.",
+        "command": "aws ec2 describe-vpc-endpoints --query 'VpcEndpoints[*].{ServiceName:ServiceName,State:State,VpcId:VpcId}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Relevant service endpoints in 'available' state indicate private connectivity. Absence means traffic uses public internet."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect service DNS configuration or client SDK base URLs to determine if endpoints resolve to public or private IP addresses.",
+        "command": "dig +short api.example.com | xargs -I{} sh -c 'echo {} && ipcalc -n {} 2>/dev/null'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Addresses in private RFC1918 ranges confirm private network routing. Public routable IPs confirm internet traversal."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, verify if an API Gateway REST API uses a private endpoint type or if services connect via VPC peering rather than public URLs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → API Gateway → [Your API] → Settings → Endpoint Type (look for 'Private' vs 'Regional'/'Edge Optimized')",
+        "expected_output": "'Private' endpoint type means traffic stays within VPC. 'Regional' or 'Edge Optimized' endpoints route over the public internet."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null"
+    ]
+  },
+  {
+    "option_name": "bgp_route_origin_validation_enforced",
+    "option_description": "Indicates whether the network provider or organization actively enforces RPKI-based Route Origin Validation (ROV), meaning that BGP routes with invalid or unverifiable origin AS/prefix combinations are rejected (dropped), not merely flagged or monitored.",
+    "security_impact": "The Rego policy fires bgp_route_hijacking_exposure when api_traffic_uses_public_internet is true AND bgp_route_origin_validation_enforced is false. RPKI ROV is the primary technical control preventing BGP prefix hijacking — without it, a malicious AS can announce a more-specific prefix for the API's IP space, diverting all traffic through attacker infrastructure (T1557 Adversary-in-the-Middle, T1599 Network Boundary Bridging) before TLS or application controls have any opportunity to protect the session.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Contact the upstream ISP or cloud provider network team to confirm whether RPKI ROV is enforced (invalid routes dropped) or only monitored. Request written confirmation referencing their ASN's RPKI enforcement policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation that 'invalid' RPKI state routes are dropped (not just tagged) constitutes enforcement. 'Monitoring only' is not enforcement."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the RPKI validator REST API to check whether your organization's IP prefixes have valid Route Origin Authorizations (ROAs) published.",
+        "command": "curl -s 'https://rpki-validator.ripe.net/api/v1/validity/AS64496/192.0.2.0/24' | jq '{state: .validated_route.validity.state, description: .validated_route.validity.description}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'state: valid' confirms ROAs exist for your prefixes. 'state: unknown' or 'invalid' means RPKI coverage is absent or misconfigured."
+      },
+      {
+        "type": "command",
+        "instruction": "Check if your organization's routers or cloud provider enforces RPKI by querying BGP route tables for the validation state attribute.",
+        "command": "ssh router.example.com 'show bgp ipv4 unicast 192.0.2.0/24 detail | grep -i rpki'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'rpki state: valid' and routes marked 'invalid' being absent from the routing table confirms enforcement. Routers without RPKI state output have no validation."
+      },
+      {
+        "type": "api",
+        "instruction": "Use Cloudflare's RPKI monitoring API to check the RPKI validity of routes toward your API endpoints.",
+        "command": "curl -s 'https://rpki.cloudflare.com/api/v1/rpsl?prefix=192.0.2.0/24' | jq '.'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Valid ROA records covering your prefix confirm RPKI coverage. Check with your provider that 'invalid' routes are dropped, not just tagged."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true",
+      "null"
+    ]
+  },
+  {
+    "option_name": "trusted_proxy_header_validation",
+    "option_description": "Controls whether the API gateway or application enforces an allowlist or validation policy on inbound forwarding headers (e.g., X-Forwarded-For, X-Real-IP, Host, Forwarded) by rejecting or sanitizing header values from untrusted sources before they influence routing, IP determination, or access control decisions.",
+    "security_impact": "The Rego policy fires http_header_injection_in_transit when trusted_proxy_header_validation is false AND accepted_forwarding_headers is non-empty. Without this control, an attacker can inject arbitrary X-Forwarded-For or Host header values to spoof their source IP, bypass IP-based access controls, or trigger request smuggling (T1557 Adversary-in-the-Middle). This attribute must be true alongside a restrictive proxy_trust_scope to fully mitigate the exposure.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect NGINX configuration for set_real_ip_from and real_ip_header directives that define which proxy IPs are trusted to set forwarding headers.",
+        "command": "grep -rn 'set_real_ip_from\\|real_ip_header\\|real_ip_recursive' /etc/nginx/conf.d/ /etc/nginx/nginx.conf",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Presence of 'set_real_ip_from' with specific CIDR ranges and 'real_ip_header X-Forwarded-For' confirms trusted proxy header validation. Absence means all header values are accepted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check application framework trusted proxy configuration. For example, inspect Django ALLOWED_HOSTS and NUM_PROXIES, or Express.js trust proxy settings.",
+        "command": "grep -rn 'trust.*proxy\\|trusted_proxies\\|ALLOWED_HOSTS\\|real_ip\\|forwarded' /app/config/ /etc/app/ --include='*.py' --include='*.js' --include='*.yml' --include='*.json'",
+        "file_path": "/app/config/",
+        "navigation": null,
+        "expected_output": "Explicit trusted proxy IP lists or counts confirm validation is enforced. 'trust proxy: true' in Express without IP restriction means all sources are trusted (false)."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test whether the API accepts and acts upon a spoofed X-Forwarded-For header from an untrusted client by sending a crafted request and observing if the application logs or responds based on the injected IP.",
+        "command": "curl -s -H 'X-Forwarded-For: 127.0.0.1' -H 'X-Forwarded-For: 10.0.0.1' https://api.example.com/whoami | jq '.client_ip // .remote_addr // .ip'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the API returns the injected IP (127.0.0.1 or 10.0.0.1) rather than the actual client IP, trusted_proxy_header_validation is false. Returning the real client IP or rejecting the request indicates validation is enforced."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS ALB or CloudFront, verify that the X-Forwarded-For header configuration restricts which values are forwarded and whether client-supplied headers are stripped.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → EC2 → Load Balancers → [ALB Name] → Listeners → Rules → check for header manipulation rules; or CloudFront → Distribution → Cache Behavior → Headers whitelist",
+        "expected_output": "Explicit header stripping or allowlist rules for forwarding headers confirm validation is enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "accepted_forwarding_headers",
+    "option_description": "An enumerated list of the specific forwarding and routing headers that the API accepts and acts upon when making decisions about client IP, routing, authentication, or request context. Examples include X-Forwarded-For, X-Forwarded-Host, X-Real-IP, Forwarded, and Host override headers.",
+    "security_impact": "The Rego policy uses count(input.accepted_forwarding_headers) > 0 as a prerequisite for all three http_header_injection_in_transit conditions. A larger attack surface exists when more headers are accepted — each accepted header is a potential injection vector. The policy checks this alongside trusted_proxy_header_validation and proxy_trust_scope, meaning even with some validation, accepting unnecessary forwarding headers increases risk of IP spoofing and request smuggling (T1557).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect reverse proxy and application server configurations to enumerate all forwarding headers that are read, passed, or acted upon.",
+        "command": "grep -rn 'proxy_set_header\\|add_header\\|X-Forwarded\\|X-Real-IP\\|Forwarded\\|HTTP_X_FORWARDED' /etc/nginx/ /etc/apache2/ /etc/haproxy/ 2>/dev/null",
+        "file_path": "/etc/nginx/conf.d/",
+        "navigation": null,
+        "expected_output": "A list of all headers being set or forwarded. Each 'proxy_set_header' or 'http_acl' entry identifying a forwarding header should be added to the accepted_forwarding_headers array."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the application source code or middleware configuration to identify which headers the application reads for IP determination or routing decisions.",
+        "command": "grep -rn 'getHeader\\|request.headers\\|HTTP_X_FORWARDED_FOR\\|HTTP_X_REAL_IP\\|X-Forwarded-Host\\|HTTP_HOST' /app/src/ --include='*.py' --include='*.js' --include='*.java' --include='*.go' | grep -v '.pyc'",
+        "file_path": "/app/src/",
+        "navigation": null,
+        "expected_output": "Each distinct header name found in the source code represents an accepted forwarding header that should be included in the array."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send API requests with various forwarding headers and observe which ones are echoed back, logged, or influence response behavior to empirically determine accepted headers.",
+        "command": "for header in 'X-Forwarded-For' 'X-Forwarded-Host' 'X-Real-IP' 'Forwarded' 'X-Original-Forwarded-For' 'True-Client-IP'; do echo \"Testing $header:\"; curl -si -H \"$header: 10.99.99.99\" https://api.example.com/debug/headers 2>/dev/null | grep -i \"$header\\|client.ip\\|remote_addr\"; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Headers that appear reflected in the response or influence the client IP shown indicate accepted forwarding headers. Collect all that produce behavioral changes."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the Kong route or service configuration to identify which request headers are preserved and forwarded to the upstream backend.",
+        "command": "curl -s http://localhost:8001/routes | jq '.data[] | {name: .name, headers: .headers, preserved_host: .preserve_host}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Routes with 'preserve_host: true' forward the Host header. Additional headers specified in gateway plugins reveal which forwarding headers are accepted and passed upstream."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"X-Forwarded-For\", \"X-Real-IP\"]",
+      "[\"X-Forwarded-For\", \"X-Forwarded-Host\", \"X-Real-IP\", \"Forwarded\"]",
+      "[]"
+    ]
+  },
+  {
+    "option_name": "proxy_trust_scope",
+    "option_description": "Defines the set of source IP addresses from which the API trusts forwarding headers. 'none' ignores all forwarding headers; 'loopback_only' trusts only 127.0.0.1 and ::1; 'internal_cidr' trusts defined internal IP ranges; 'all' trusts forwarding headers from any source, including external clients.",
+    "security_impact": "The Rego policy fires http_header_injection_in_transit when proxy_trust_scope == 'all' AND accepted_forwarding_headers is non-empty. The default value of 'all' is the most dangerous setting — it means any external client can inject arbitrary values into forwarding headers and the API will treat them as legitimate proxy-sourced metadata. This enables IP spoofing to bypass IP-based rate limiting, access controls, or geo-restrictions, and facilitates adversary-in-the-middle positioning (T1557). Only 'loopback_only' or 'internal_cidr' with verified CIDR ranges are acceptable values.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect NGINX set_real_ip_from directives to determine which source IPs are trusted for real IP header processing, mapping to the trust scope.",
+        "command": "grep -n 'set_real_ip_from' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf 2>/dev/null",
+        "file_path": "/etc/nginx/conf.d/",
+        "navigation": null,
+        "expected_output": "No 'set_real_ip_from' means the default 'all' scope. 'set_real_ip_from 127.0.0.1' maps to loopback_only. Specific CIDR ranges map to internal_cidr. 'set_real_ip_from 0.0.0.0/0' maps to 'all'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check application framework trusted proxy settings in Django, Express, Laravel, or Spring Boot to determine which sources are trusted for forwarding headers.",
+        "command": "grep -rn 'TRUSTED_PROXIES\\|trust_proxy\\|trusted_proxies\\|ProxyFix\\|setTrustedProxies\\|TrustedSubnets' /app/ --include='*.py' --include='*.js' --include='*.php' --include='*.java' --include='*.yml'",
+        "file_path": "/app/",
+        "navigation": null,
+        "expected_output": "Explicit IP lists or CIDR blocks indicate internal_cidr scope. 'ProxyFix(app, x_for=1)' without IP restriction in Flask/Django defaults to trusting all. '127.0.0.1' only maps to loopback_only."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS ALB or CloudFront to determine if there are source IP conditions on how forwarding headers are set or trusted.",
+        "command": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn $ALB_ARN --query 'Attributes[?Key==`routing.http.xff_client_port.enabled` || Key==`routing.http.xff_header_processing.mode`]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'xff_header_processing.mode: append' means ALB appends to existing XFF (all sources trusted for original value). 'replace' or 'remove' modes indicate more restrictive trust handling."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test the effective proxy trust scope by sending requests with a spoofed X-Forwarded-For header from an external IP and checking if the application trusts it.",
+        "command": "curl -s -H 'X-Forwarded-For: 192.168.1.100' https://api.example.com/api/whoami && echo '---' && curl -s https://api.example.com/api/whoami",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If both responses show client_ip as 192.168.1.100 from the injected header, proxy_trust_scope is 'all'. If only the actual client IP is returned, the scope is properly restricted."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "all",
+      "internal_cidr",
+      "loopback_only",
+      "none"
+    ]
+  },
+  {
+    "option_name": "header_overwrite_protection_enabled",
+    "option_description": "Controls whether the proxy or API gateway actively strips or overwrites client-supplied forwarding headers (X-Forwarded-For, Host, X-Real-IP, etc.) before forwarding requests to upstream backend services, preventing end-users from injecting false routing metadata.",
+    "security_impact": "The Rego policy fires the http_header_injection_in_transit exposure when input.header_overwrite_protection_enabled is false and accepted_forwarding_headers is non-empty. Without this protection, attackers can supply crafted X-Forwarded-For or Host headers that propagate to backend services, enabling IP spoofing, access-control bypass, or request smuggling. The default value is false, meaning protection is off unless explicitly configured.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the nginx proxy configuration for proxy_set_header directives that explicitly overwrite or clear forwarding headers. Look for directives that set X-Forwarded-For to $remote_addr (overwrite) or remove it entirely, indicating protection is enabled.",
+        "command": "grep -rn 'proxy_set_header\\|X-Forwarded-For\\|X-Real-IP\\|Host' /etc/nginx/conf.d/ /etc/nginx/nginx.conf",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Lines such as 'proxy_set_header X-Forwarded-For $remote_addr;' or 'proxy_set_header X-Real-IP $remote_addr;' indicate overwrite protection. Absence of these directives indicates the attribute is false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy, inspect the frontend and backend sections for del-header or http-request set-header rules targeting X-Forwarded-For, X-Real-IP, and Host headers received from clients.",
+        "command": "grep -rn 'del-header\\|set-header\\|X-Forwarded-For\\|X-Real-IP' /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "Lines such as 'http-request del-header X-Forwarded-For' or 'http-request set-header X-Forwarded-For %[src]' confirm protection is active. No such lines indicate the attribute should be set to false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query a managed API gateway (e.g., AWS API Gateway) for request header transformations or mapping templates that overwrite or remove forwarding headers before reaching the integration backend.",
+        "command": "aws apigateway get-integration --rest-api-id <api-id> --resource-id <resource-id> --http-method GET --query 'requestParameters'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A requestParameters map containing 'integration.request.header.X-Forwarded-For' mapped to a fixed value or absent from forwarded parameters confirms overwrite protection."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send a crafted HTTP request with a spoofed X-Forwarded-For header through the proxy to a test backend endpoint that echoes received headers, and confirm whether the injected value is replaced or removed.",
+        "command": "curl -s -H 'X-Forwarded-For: 1.2.3.4' https://<api-gateway-host>/echo-headers | jq '.headers[\"x-forwarded-for\"]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the echoed X-Forwarded-For value is the actual client IP (not 1.2.3.4) or the header is absent, overwrite protection is enabled (true). If '1.2.3.4' is echoed, the attribute is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "backend_transport_protocol",
+    "option_description": "Identifies the protocol used for the internal communication leg between the API gateway and the backend service — for example, HTTP (plaintext), HTTPS (TLS-encrypted), gRPC (plaintext gRPC), or gRPCS (gRPC over TLS). This covers the hop that exists after TLS termination at the gateway.",
+    "security_impact": "The Rego policy triggers insecure_api_gateway_to_backend_leg when backend_transport_protocol is HTTP or TCP (plaintext leg), or when it is HTTPS or GRPCS but backend_tls_verification_enabled is false. An HTTP or TCP backend protocol means TLS is terminated at the gateway and traffic traverses the internal segment in cleartext, allowing any actor with access to that segment to intercept decrypted API traffic including sensitive payloads and tokens.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the nginx upstream or proxy_pass directive to determine whether the backend URL scheme is http:// or https://, and for gRPC, whether grpc:// or grpcs:// is used.",
+        "command": "grep -rn 'proxy_pass\\|grpc_pass\\|upstream' /etc/nginx/conf.d/ /etc/nginx/nginx.conf | grep -E 'http://|https://|grpc://|grpcs://'",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "A proxy_pass value beginning with 'https://' maps to HTTPS; 'http://' maps to HTTP; 'grpcs://' maps to GRPCS; 'grpc://' maps to GRPC. TCP proxying without a URL scheme maps to TCP."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Kong Gateway, inspect the service object definition in the declarative config file or database export for the protocol field.",
+        "command": "cat /etc/kong/kong.yml | python3 -c \"import sys,yaml; [print(s.get('name'), s.get('protocol')) for s in yaml.safe_load(sys.stdin).get('services',[])]\" 2>/dev/null || kubectl get kongservice -o jsonpath='{range .items[*]}{.metadata.name} {.spec.protocol}{\"\\n\"}{end}'",
+        "file_path": "/etc/kong/kong.yml",
+        "navigation": null,
+        "expected_output": "Each service entry showing 'protocol: https' or 'protocol: grpcs' is encrypted; 'protocol: http', 'protocol: grpc', or 'protocol: tcp' indicates a plaintext or unverified backend leg."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS API Gateway, navigate to the integration settings for each method to inspect the Integration URI and determine whether it uses HTTPS or HTTP for the backend endpoint.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → API Gateway → Select API → Resources → Select Method → Integration Request → Endpoint URL (check for https:// vs http://)",
+        "expected_output": "Integration URIs beginning with 'https://' map to HTTPS; those beginning with 'http://' map to HTTP."
+      },
+      {
+        "type": "api",
+        "instruction": "For Envoy-based service meshes or API gateways, inspect the cluster configuration to determine whether TLS context is defined for upstream connections.",
+        "command": "kubectl exec -n <namespace> <envoy-pod> -- curl -s http://localhost:15000/config_dump | python3 -c \"import sys,json; [print(c['name'], 'HTTPS' if c.get('transport_socket') else 'HTTP') for c in json.load(sys.stdin)['configs'][1]['static_clusters']]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Clusters with a transport_socket section containing tls_context use HTTPS/GRPCS; clusters without it use HTTP/GRPC/TCP."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "HTTP",
+      "HTTPS",
+      "GRPC",
+      "GRPCS",
+      "TCP"
+    ]
+  },
+  {
+    "option_name": "backend_tls_verification_enabled",
+    "option_description": "Controls whether the API gateway validates the backend service's TLS certificate, including CA chain validation and hostname verification, when connecting over HTTPS or gRPCS. When disabled, the gateway establishes an encrypted channel but does not confirm it is communicating with the legitimate backend.",
+    "security_impact": "The Rego policy triggers insecure_api_gateway_to_backend_leg when backend_transport_protocol is HTTPS or GRPCS but backend_tls_verification_enabled is false. Disabling certificate verification means the encrypted channel provides no authentication guarantee — a network-resident attacker can intercept the TLS session with a self-signed or forged certificate and perform a man-in-the-middle attack on the internal leg, decrypting traffic that appears protected. The default value is false, so this must be explicitly enabled.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the nginx upstream TLS settings for proxy_ssl_verify. A value of 'on' enables verification; 'off' disables it. Also check for proxy_ssl_trusted_certificate and proxy_ssl_verify_depth.",
+        "command": "grep -rn 'proxy_ssl_verify\\|proxy_ssl_trusted_certificate\\|proxy_ssl_server_name' /etc/nginx/conf.d/ /etc/nginx/nginx.conf",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "'proxy_ssl_verify on;' with a configured proxy_ssl_trusted_certificate path confirms verification is enabled (true). 'proxy_ssl_verify off;' or the directive being absent indicates false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Kong Gateway, check the service object for the tls_verify field and the ca_certificates association in the declarative configuration or admin API output.",
+        "command": "curl -s http://localhost:8001/services | python3 -c \"import sys,json; [print(s['name'], 'tls_verify:', s.get('tls_verify')) for s in json.load(sys.stdin)['data']]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'tls_verify: True' with ca_certificates populated maps to true. 'tls_verify: False' or null maps to false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Envoy, inspect the cluster UpstreamTlsContext for validation_context and trusted_ca. If validation_context is absent or trust_chain_verification is set to ACCEPT_UNTRUSTED, verification is disabled.",
+        "command": "kubectl exec -n <namespace> <envoy-pod> -- curl -s http://localhost:15000/config_dump | python3 -c \"import sys,json; d=json.load(sys.stdin); [print(c['name'], json.dumps(c.get('transport_socket',{}).get('typed_config',{}).get('common_tls_context',{}).get('validation_context',{}))) for c in d['configs'][1]['static_clusters']]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Clusters showing a validation_context with a trusted_ca CA bundle map to true. Empty validation_context or trust_chain_verification ACCEPT_UNTRUSTED maps to false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Replace the backend service's certificate with a self-signed certificate not in the gateway's trust store and observe whether the gateway rejects the connection, confirming that verification is enforced.",
+        "command": "openssl s_client -connect <backend-host>:<port> -verify 5 -CAfile /etc/ssl/certs/ca-certificates.crt 2>&1 | grep -E 'Verify return code|certificate verify'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Verify return code: 0 (ok)' from the backend confirms a valid cert. If the gateway does NOT reject a self-signed backend cert in a controlled test, backend_tls_verification_enabled is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "name": "Data Recovery Procedures",
+  "classType": "control",
+  "type": "Data Recovery Procedures",
+  "description": "Data recovery policies and processes provide structured capability to restore data integrity and availability following storage failures, ensuring business continuity through documented procedures, validated backups, and defined recovery objectives.",
+  "category": "Recovery and Availability",
+  "status": "reviewed"
+}

@@ -1,0 +1,1935 @@
+[
+  {
+    "option_name": "default_credentials_unchanged",
+    "option_description": "Controls whether the NAS management interface and share access still use the manufacturer-supplied factory-default credentials (e.g., admin/admin, admin/password, root/root) that were never changed after deployment.",
+    "security_impact": "The Rego policy fires the 'default_or_weak_admin_credentials' exposure immediately when this attribute is true (input.default_credentials_unchanged == true), regardless of any other controls. This represents a critical, zero-effort takeover path where any attacker with knowledge of the vendor's default credentials — publicly documented in manuals and databases like CIRT.net — can gain full administrative access or read/write share access. This is the most common initial access vector for ransomware targeting NAS devices.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Attempt login to the NAS management web UI using documented factory defaults for the specific vendor and model. Common defaults include admin/admin (Synology, QNAP older models), admin/password (Buffalo), root/root (some Netgear ReadyNAS), admin/<blank> (Zyxel). Success confirms the attribute is true.",
+        "command": "curl -sk -c /tmp/nas_cookies.txt -d 'username=admin&passwd=admin' https://<NAS_IP>:5001/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login 2>&1 | grep -i '\"success\":true'",
+        "file_path": null,
+        "navigation": "Navigate to https://<NAS_IP>:<mgmt_port>/ and attempt login with vendor-documented defaults; success = default credentials unchanged",
+        "expected_output": "HTTP 200 with authentication success token or dashboard redirect confirms default credentials are active"
+      },
+      {
+        "type": "gui",
+        "instruction": "Open the NAS management interface, navigate to Control Panel > User & Group (Synology) or Users > Administrator (QNAP), and check if the 'admin' account password was last changed at a date after the device deployment date, or review the password change history if available.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology DSM: Control Panel > User & Group > User > admin > Edit; QNAP QTS: Control Panel > Users > admin > Edit Account Profile",
+        "expected_output": "If no password change date is shown or it predates deployment, treat as potentially unchanged; if the field shows 'never changed', attribute is true"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the device owner or administrator responsible for initial NAS setup and ask to confirm: (1) whether a post-deployment credential change procedure was followed, (2) whether a build or hardening checklist was used that includes default password change as a step.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented evidence of credential change procedure with a date; absence of such documentation suggests attribute may be true"
+      },
+      {
+        "type": "command",
+        "instruction": "For NAS devices with SSH enabled, attempt SSH login with common defaults and check /etc/shadow or equivalent for the admin account hash — a blank or well-known hash (e.g., $1$... MD5 of 'admin') confirms unchanged defaults.",
+        "command": "ssh admin@<NAS_IP> 'cat /etc/shadow 2>/dev/null | grep -E \"^(admin|root):\"' 2>&1",
+        "file_path": "/etc/shadow",
+        "navigation": null,
+        "expected_output": "If SSH login succeeds with default credentials the attribute is true; known weak hash values also confirm unchanged defaults"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (newly deployed or unmanaged devices)",
+      "false (after hardening)",
+      "true (SMB/NAS devices in SOHO environments ~40-60% of unmanaged deployments)"
+    ]
+  },
+  {
+    "option_name": "password_complexity_policy_enforced",
+    "option_description": "Controls whether the NAS appliance enforces a password complexity policy that prevents weak passwords from being configured on administrative or share access accounts, typically requiring minimum length, character class mixing (uppercase, lowercase, digits, special characters), and rejection of common dictionary words.",
+    "security_impact": "The Rego policy evaluates this as part of the 'default_or_weak_admin_credentials' exposure: when BOTH password_complexity_policy_enforced is false AND admin_account_lockout_enabled is false, the exposure fires. Without complexity enforcement, administrators can set trivially guessable passwords and there is no technical control preventing credential reuse of known-compromised passwords. Combined with the absence of lockout, this creates an environment where dictionary attacks and credential stuffing succeed without resistance.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the NAS password policy settings and check the active complexity requirements. Attempt to set a known-weak password (e.g., 'password', '12345678', or a single character) on a test account — rejection confirms enforcement is active.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology DSM: Control Panel > User & Group > Advanced > Password Strength; QNAP QTS: Control Panel > Users > Password Policy; Netgear ReadyNAS: System > Users > Password Policy",
+        "expected_output": "Policy panel shows minimum length >= 8 and at least 2-3 character class requirements enabled; weak password test is rejected with an error message"
+      },
+      {
+        "type": "command",
+        "instruction": "On Synology DSM, use the synowebapi or check the synouser configuration to read the password policy settings directly from the system configuration.",
+        "command": "ssh admin@<NAS_IP> 'cat /etc/synoinfo.conf 2>/dev/null | grep -i password; synowebapi --exec api=SYNO.Core.User.PasswordPolicy version=1 method=get 2>/dev/null'",
+        "file_path": "/etc/synoinfo.conf",
+        "navigation": null,
+        "expected_output": "Output shows password_min_length, password_complexity flags; empty output or all-zero values indicates no policy enforced"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the NAS management API for password policy configuration. For QNAP, query the QTS REST API; for Synology, use the SYNO.Core.User.PasswordPolicy API endpoint to retrieve active policy parameters.",
+        "command": "curl -sk 'https://<NAS_IP>:5001/webapi/entry.cgi?api=SYNO.Core.User.PasswordPolicy&version=1&method=get&_sid=<session_sid>' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response with enable_password_strength_check: true and min_length >= 8 indicates enforcement is active; false or absence indicates not enforced"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to create or modify a test account with a single-character or all-lowercase short password via the management UI or API. If the system accepts it without error, complexity enforcement is absent.",
+        "command": "curl -sk -X POST 'https://<NAS_IP>:5001/webapi/entry.cgi' -d 'api=SYNO.Core.User&version=1&method=create&name=testuser&password=a&_sid=<session_sid>' | grep -i error",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Error response referencing password requirements = policy enforced (false); success response accepting weak password = policy not enforced (true, meaning attribute should be false)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default on many NAS devices out of box)",
+      "true (after explicit hardening)",
+      "false (SOHO and SMB NAS deployments without IT administration commonly 60-70%)"
+    ]
+  },
+  {
+    "option_name": "admin_account_lockout_enabled",
+    "option_description": "Controls whether the NAS management interface and authentication system will automatically lock an account or rate-limit login attempts after a configurable number of consecutive failed authentication attempts, preventing brute-force and password spray attacks against administrative and user accounts.",
+    "security_impact": "The Rego policy uses this attribute in two rules: (1) 'default_or_weak_admin_credentials' fires when BOTH this is false AND password_complexity_policy_enforced is false — together they remove all password-guessing resistance; (2) 'missing_multi_factor_authentication_on_management' uses this as a signal that the authentication layer lacks compensating controls. Without lockout, automated tools like Hydra or Medusa can attempt thousands of passwords per minute against the web UI, SMB, or SSH interfaces with no throttling or detection signal.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Locate the account lockout or login security settings in the NAS management UI and verify that a lockout threshold (maximum failed attempts) and lockout duration are both configured and enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology DSM: Control Panel > Security > Account > Enable account expiration / Auto block after N failures; QNAP QTS: Control Panel > Security > IP Access Protection; Netgear ReadyNAS: System > Security > Login Attempts",
+        "expected_output": "Lockout enabled checkbox is checked, threshold set to 3-10 attempts, duration set to >= 30 minutes; any 'disabled' or blank threshold indicates false"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a controlled brute-force test: attempt 10-15 consecutive failed logins with wrong passwords against the management web interface and observe whether subsequent attempts are blocked or rate-limited. Use a controlled tool such as curl in a loop.",
+        "command": "for i in $(seq 1 12); do curl -sk -o /dev/null -w \"%{http_code}\\n\" -d 'username=admin&passwd=wrongpassword' 'https://<NAS_IP>:5001/webapi/auth.cgi?api=SYNO.API.Auth&version=3&method=login'; sleep 0.5; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 403 or account_locked error after threshold attempts = lockout enabled (true); continued HTTP 200 with invalid credential errors throughout = no lockout (false)"
+      },
+      {
+        "type": "command",
+        "instruction": "SSH into the NAS and check system-level lockout configuration in PAM settings or the NAS-specific security configuration files that govern authentication failure handling.",
+        "command": "ssh admin@<NAS_IP> 'cat /etc/pam.d/common-auth 2>/dev/null | grep -i pam_tally; cat /etc/pam.d/common-auth 2>/dev/null | grep faillock; grep -r \"auto_block\\|lockout\\|max_fail\" /etc/synoinfo.conf /etc/samba/smb.conf 2>/dev/null'",
+        "file_path": "/etc/pam.d/common-auth",
+        "navigation": null,
+        "expected_output": "pam_tally2 or pam_faillock module present with deny=N and unlock_time=N parameters = lockout configured; absent or deny=0 = not configured"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review authentication logs for evidence of repeated failed logins that were NOT followed by a lockout event, which would confirm lockout is not functioning regardless of configuration claims.",
+        "command": "ssh admin@<NAS_IP> 'grep -i \"failed\\|invalid\\|authentication failure\" /var/log/auth.log /var/log/syslog 2>/dev/null | tail -50 | grep -v \"locked\\|blocked\"'",
+        "file_path": "/var/log/auth.log",
+        "navigation": null,
+        "expected_output": "Long sequences of failed login entries without any subsequent 'account locked' or 'IP blocked' log entries indicates lockout is not functioning"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (many NAS devices ship without lockout enabled by default)",
+      "true (after security hardening)",
+      "false (IP-based auto-block often disabled by default in QNAP and Synology factory config)"
+    ]
+  },
+  {
+    "option_name": "guest_access_enabled",
+    "option_description": "Controls whether any network share protocol on the NAS — SMB, NFS, or FTP — is configured to allow connections without requiring credentials, through mechanisms such as SMB guest accounts, NFS exports without client authentication, or FTP anonymous login.",
+    "security_impact": "The Rego policy fires the 'unauthenticated_or_guest_share_access' exposure when guest_access_enabled is true combined with EITHER: network_exposure_scope being 'external' (any internet host can access shares unauthenticated), network_exposure_scope being 'internal' (any internal host can access without credentials), OR share_write_permission_granted being true (unauthenticated users can write files — the primary ransomware staging vector). Any of these combinations constitute a critical finding. Guest-enabled shares with write permissions are the number one ransomware delivery mechanism targeting NAS devices.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Samba configuration file for guest-enabled shares. Any share with 'guest ok = yes', 'public = yes', or 'browseable = yes' combined with no 'valid users' restriction indicates guest SMB access is enabled.",
+        "command": "ssh admin@<NAS_IP> 'grep -n -E \"guest ok|public|guest account|map to guest\" /etc/samba/smb.conf /usr/syno/etc/smb.conf 2>/dev/null'",
+        "file_path": "/etc/samba/smb.conf",
+        "navigation": null,
+        "expected_output": "'guest ok = yes' or 'public = yes' in any share stanza = guest SMB access enabled (true); all shares show 'guest ok = no' or no guest directives = false"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review NFS exports configuration for world-accessible exports without host restrictions, which constitute unauthenticated NFS access.",
+        "command": "ssh admin@<NAS_IP> 'cat /etc/exports 2>/dev/null; exportfs -v 2>/dev/null | grep -E \"\\*|everyone\"'",
+        "file_path": "/etc/exports",
+        "navigation": null,
+        "expected_output": "Export lines with '*' as the allowed host, or no host restriction at all = guest/unauthenticated NFS access (true); all exports show specific IP or hostname restrictions = false"
+      },
+      {
+        "type": "gui",
+        "instruction": "Check each configured share in the NAS management UI for guest or anonymous access settings, and verify FTP service configuration for anonymous login capability.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology DSM: Control Panel > Shared Folder > select each folder > Edit > Permissions (check for guest/everyone); Control Panel > File Services > SMB > Advanced > Guest account; Control Panel > File Services > FTP > check 'Allow anonymous login'; QNAP QTS: Control Panel > Privilege > Shared Folders > each folder permissions; Control Panel > Network & File Services > FTP > Anonymous access",
+        "expected_output": "Any share showing 'guest' or 'everyone' with non-deny permission, or FTP anonymous enabled = attribute is true"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to mount an SMB share or connect via FTP without providing credentials from a test host. A successful connection or file listing without authentication confirms guest access is enabled.",
+        "command": "smbclient -N -L //<NAS_IP>/ 2>&1; smbclient -N //<NAS_IP>/<share_name> -c 'ls' 2>&1; curl -s --user anonymous: ftp://<NAS_IP>/ 2>&1 | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "smbclient listing shares without password prompt, or FTP directory listing without credential challenge = guest access enabled (true)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (secure default on modern Synology DSM 7.x and QNAP QTS 5.x)",
+      "true (common in legacy deployments and home NAS setups, estimated 25-40% of SMB-facing NAS)",
+      "true (NFS exports frequently configured with wildcard hosts in multi-VM lab and development environments)"
+    ]
+  },
+  {
+    "option_name": "network_exposure_scope",
+    "option_description": "Describes the network reach from which unauthenticated or guest share access on the NAS is reachable, categorized as: 'external' (directly reachable from the internet through firewall rules or direct public IP binding), 'internal' (reachable from any host on the internal corporate or home network without subnet restriction), or 'restricted' (accessible only from a specific defined subnet, VLAN, or named host list).",
+    "security_impact": "The Rego policy uses this attribute to determine the severity and trigger conditions for 'unauthenticated_or_guest_share_access': both 'external' and 'internal' scopes independently trigger the exposure when guest_access is enabled, while 'restricted' is the only safe value. 'External' represents an immediately exploitable critical path — any internet-connected threat actor can access shares without authentication. 'Internal' still triggers the exposure because any compromised internal host, insider threat, or lateral movement path can reach the shares without credentials.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Attempt to reach the NAS management port and share ports (445/TCP for SMB, 2049/TCP for NFS, 21/TCP for FTP) from an external IP address (e.g., using a cloud VM or external proxy) to determine if the device is internet-accessible.",
+        "command": "nmap -sT -p 80,443,445,548,2049,21,5000,5001,8080,8443 <NAS_PUBLIC_IP_OR_HOSTNAME> --open 2>&1; curl -sk --max-time 5 https://<NAS_PUBLIC_IP>:5001/ 2>&1 | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Open ports reachable from external IP = 'external'; connection refused or timeout from external = proceed to check internal scope"
+      },
+      {
+        "type": "gui",
+        "instruction": "Check the NAS built-in firewall rules and interface bindings to determine which network segments can reach share services and the management interface.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology DSM: Control Panel > Security > Firewall > Edit Rules (check source IP ranges); Control Panel > Network > Network Interface (check which NICs are active and their IPs); QNAP QTS: Control Panel > Security > Security Level > Allow/Deny rules; Control Panel > Network & File Services > check bound interfaces per protocol",
+        "expected_output": "'Allow all' or no firewall rules = 'internal'; rules restricting to specific subnet = 'restricted'; WAN interface active with no inbound block = 'external'"
+      },
+      {
+        "type": "command",
+        "instruction": "Review active network interfaces, routing table, and listening services on the NAS to determine interface bindings and whether any share service is bound to a publicly routable interface.",
+        "command": "ssh admin@<NAS_IP> 'ip addr show; ip route; ss -tlnp | grep -E \":445|:2049|:21|:80|:443|:5000|:5001\"; iptables -L -n 2>/dev/null | head -30'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Services listening on 0.0.0.0 with no iptables DROP rules for external subnets = 'internal' or 'external'; services bound to specific internal IPs only = 'restricted'"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Samba and NFS interface binding configuration to determine if file sharing services are restricted to specific network interfaces or subnets.",
+        "command": "ssh admin@<NAS_IP> 'grep -E \"interfaces|bind interfaces|hosts allow|hosts deny\" /etc/samba/smb.conf 2>/dev/null; grep -E \"\\d+\\.\\d+\\.\\d+\\.\\d+\" /etc/exports 2>/dev/null'",
+        "file_path": "/etc/samba/smb.conf",
+        "navigation": null,
+        "expected_output": "'interfaces = lo eth1' with 'bind interfaces only = yes' = restricted; 'hosts allow = 192.168.1.0/24' = restricted; no interface restrictions in smb.conf = internal; public-IP interface listed = external"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "internal (most common — corporate NAS without VLAN segmentation)",
+      "restricted (hardened enterprise deployments with dedicated storage VLANs)",
+      "external (cloud-hosted NAS or poorly configured home NAS with port forwarding, estimated 5-10% of consumer NAS)"
+    ]
+  },
+  {
+    "option_name": "share_write_permission_granted",
+    "option_description": "Controls whether unauthenticated or guest sessions are granted write (or higher) access permissions to one or more network shares, enabling anonymous users to create, modify, or delete files — the primary mechanism for ransomware payload staging, unauthorized data upload, and destructive attacks on NAS storage.",
+    "security_impact": "The Rego policy fires 'unauthenticated_or_guest_share_access' when guest_access_enabled is true AND this attribute is true, regardless of network_exposure_scope — making this the most dangerous combination assessed. Even a 'restricted' network scope does not prevent the exposure when write access is granted to unauthenticated users. Write-accessible guest shares allow ransomware to encrypt files directly over SMB, threat actors to upload malware or exfiltration scripts, and attackers to overwrite backups stored on the NAS, eliminating recovery capability.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect Samba share configuration for write permissions granted to guest or anonymous connections. Look for 'writable = yes', 'read only = no', or 'write list' including guest accounts in shares that also have 'guest ok = yes'.",
+        "command": "ssh admin@<NAS_IP> 'python3 -c \"import configparser; c=configparser.ConfigParser(); c.read([\\\"/etc/samba/smb.conf\\\",\\\"/usr/syno/etc/smb.conf\\\"]); [print(s, dict(c[s])) for s in c.sections() if c.get(s,\\\"guest ok\\\",fallback=\\\"no\\\").lower()==\\\"yes\\\"]\" 2>/dev/null'",
+        "file_path": "/etc/samba/smb.conf",
+        "navigation": null,
+        "expected_output": "Shares with 'guest ok = yes' AND ('writable = yes' OR 'read only = no') confirm write permission to unauthenticated users (true)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check NFS exports for write ('rw') option on world-accessible or broadly accessible exports, which grants write access without authentication.",
+        "command": "ssh admin@<NAS_IP> 'cat /etc/exports | grep -E \"\\(.*rw.*\\)\"; exportfs -v 2>/dev/null | grep rw'",
+        "file_path": "/etc/exports",
+        "navigation": null,
+        "expected_output": "Export entries showing '(rw,...)' without squash options or host restrictions = write permission granted to unauthenticated (true); all exports show '(ro,...)' = false"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to write a test file to a guest-accessible share using smbclient or FTP without credentials. Clean up the test file immediately after. Successful write confirms the attribute is true.",
+        "command": "echo 'security_test' > /tmp/nas_write_test.txt; smbclient -N //<NAS_IP>/<share_name> -c 'put /tmp/nas_write_test.txt nas_security_test_DELETE_ME.txt; del nas_security_test_DELETE_ME.txt' 2>&1; rm /tmp/nas_write_test.txt",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Successful 'putting file' and 'deleting' messages without authentication = write permission granted (true); 'NT_STATUS_ACCESS_DENIED' on write = false"
+      },
+      {
+        "type": "gui",
+        "instruction": "Review each share's permission settings in the NAS management UI, specifically checking the access level granted to 'guest', 'anonymous', 'everyone', or the built-in guest account.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology DSM: Control Panel > Shared Folder > select share > Edit > Permissions tab > locate 'guest' or 'Everyone' entry and check Read/Write vs Read Only; QNAP QTS: Control Panel > Privilege > Shared Folders > folder permissions > guest user column",
+        "expected_output": "Guest/Everyone permission showing 'Read/Write' or 'Full Control' = true; 'Read Only' or 'No Access' = false"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in modern NAS firmware when guest access is disabled)",
+      "true (common in home NAS and small business setups where a 'public' share is intentionally writable)",
+      "true (NFS exports in development/lab environments frequently set rw for convenience, estimated 30-50% of NFS-using deployments)"
+    ]
+  },
+  {
+    "option_name": "volume_encryption_enabled",
+    "option_description": "Controls whether storage-layer encryption (typically AES-256) is actively enabled and applied to NAS volumes or shares, encrypting all data written to disk so that physical removal of drives or direct block-level storage access yields ciphertext rather than plaintext data.",
+    "security_impact": "The Rego policy evaluates this in two rules: (1) 'unencrypted_data_at_rest' fires when this is false (not input.volume_encryption_enabled) — meaning any physical or block-level access to storage yields plaintext data immediately without needing to bypass NAS OS authentication; (2) 'physical_access_without_disk_lock_or_chassis_security' fires when this is false combined with absent drive hot-removal authentication or chassis intrusion detection. Volume encryption is the only technical control that protects data when the operating system is bypassed, the NAS OS is compromised, or drives are physically stolen — common vectors in targeted attacks and insider threats.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the volume/disk management section of the NAS UI and check encryption status for each configured volume. Note that encryption must be 'active' or 'mounted' to protect data — 'available but not mounted' encryption keys mean data is accessible on reboot without key entry.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology DSM: Storage Manager > Volume > select volume > (key icon or 'Encrypted' badge); Control Panel > Encryption Manager for key management status; QNAP QTS: Storage & Snapshots > Storage > Storage/Snapshots > select pool/volume > Manage > Encryption; Netgear ReadyNAS: Volumes > select volume > Encryption settings",
+        "expected_output": "Volume shows 'Encrypted' status with key icon and status 'Mounted/Active' = true; 'Not Encrypted' or no encryption indicator = false"
+      },
+      {
+        "type": "command",
+        "instruction": "SSH into the NAS and check for active encrypted volume mounts using filesystem and block device tools to confirm encryption is active, not just configured.",
+        "command": "ssh admin@<NAS_IP> 'cat /proc/mounts | grep -i crypt; dmsetup ls --target crypt 2>/dev/null; ls /dev/mapper/ | grep -v control; synoacltool --get-volume-encrypt 2>/dev/null; ecryptfs-stat 2>/dev/null'",
+        "file_path": "/proc/mounts",
+        "navigation": null,
+        "expected_output": "Active dm-crypt or eCryptfs mounts listed = encryption enabled and active (true); no crypt entries in /proc/mounts or dmsetup = encryption not active (false)"
+      },
+      {
+        "type": "command",
+        "instruction": "On Synology NAS, use the synowebapi to query volume encryption status programmatically through the management API.",
+        "command": "curl -sk 'https://<NAS_IP>:5001/webapi/entry.cgi?api=SYNO.Storage.CGI.Storage&version=1&method=load_info&_sid=<session_sid>' | python3 -c \"import sys,json; d=json.load(sys.stdin); [print(v.get('vol_desc'), v.get('encrypt')) for v in d.get('data',{}).get('volumes',[])]\" 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each volume entry showing 'encrypt: true' or encryption status field = true; 'encrypt: false' or field absent = false"
+      },
+      {
+        "type": "api",
+        "instruction": "For QNAP NAS, query the QTS API for volume encryption status across all configured storage pools and volumes.",
+        "command": "curl -sk -b 'NAS_SID=<session_token>' 'https://<NAS_IP>:8080/cgi-bin/storage.cgi?operation=GetVolumeInfo' | python3 -m json.tool | grep -i -A2 encrypt",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response with encryption_status field showing 'encrypted' or 'enabled' per volume = true; 'none' or 'disabled' = false"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default on most NAS appliances — encryption is opt-in and rarely enabled at deployment)",
+      "true (enterprise NAS in regulated environments with data-at-rest requirements)",
+      "false (estimated 70-85% of NAS deployments lack volume encryption based on vendor telemetry and security assessments)"
+    ]
+  },
+  {
+    "option_name": "encryption_scope",
+    "option_description": "Describes the completeness of storage encryption coverage across all NAS volumes and shares — 'all' meaning every volume is encrypted, 'partial' meaning some volumes are encrypted but others are not, and 'none' meaning no encryption is applied to any volume, providing granularity beyond the boolean encryption flag to identify incomplete encryption coverage.",
+    "security_impact": "The Rego policy fires 'unencrypted_data_at_rest' when encryption_scope is 'partial' OR 'none' (input.encryption_scope in [\"partial\", \"none\"]). This means even deployments that have encryption enabled on some volumes but not all are flagged as exposed — partial encryption leaves whatever data resides on unencrypted volumes fully accessible via physical disk removal. Sensitive data has a tendency to migrate to the most accessible (typically least-secured) volumes. Only a scope of 'all' satisfies the policy requirement, ensuring no data volume exists that could yield plaintext on physical access.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Enumerate all configured volumes and shares in the NAS storage manager and document the encryption status of each individually. Map which volumes are encrypted versus unencrypted to determine if coverage is complete ('all'), partial ('partial'), or absent ('none').",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology DSM: Storage Manager > Volume (list all volumes and check 'Encrypted' column for each); Storage Manager > iSCSI LUN (check LUN encryption); QNAP QTS: Storage & Snapshots > Storage > Storage/Snapshots (expand each pool to show volumes and their encryption status); Netgear ReadyNAS: Storage > Volumes (review each volume entry for encryption status badge)",
+        "expected_output": "All volumes show 'Encrypted' = 'all'; mix of encrypted and unencrypted = 'partial'; no volumes show encrypted status = 'none'"
+      },
+      {
+        "type": "command",
+        "instruction": "SSH into the NAS and enumerate all mounted block devices and filesystems, comparing the total number of volumes against those with active dm-crypt or equivalent encryption layer to determine coverage scope.",
+        "command": "ssh admin@<NAS_IP> 'echo \"=== ALL VOLUMES ===\"; lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE; echo \"=== ENCRYPTED ===\"; dmsetup ls --target crypt 2>/dev/null; ls /dev/mapper/ 2>/dev/null | grep -v control; echo \"=== CRYPT MOUNTS ===\"; grep crypt /proc/mounts 2>/dev/null'",
+        "file_path": "/proc/mounts",
+        "navigation": null,
+        "expected_output": "Number of dm-crypt devices matches number of data volumes = 'all'; some volumes lack crypt layer = 'partial'; no dm-crypt entries = 'none'"
+      },
+      {
+        "type": "command",
+        "instruction": "On Synology systems, use the built-in volume management CLI to list all volumes and their encryption states in a structured format, providing a complete inventory for scope determination.",
+        "command": "ssh admin@<NAS_IP> 'synodiskport -list 2>/dev/null; cat /proc/mdstat 2>/dev/null; ls /volume*/ 2>/dev/null | head -5; synoacltool --list-volumes 2>/dev/null'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of all /volume1, /volume2, etc. mounts; cross-reference with dmsetup output — all volumes having crypt backing = 'all'; partial overlap = 'partial'; no overlap = 'none'"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the NAS API to retrieve a structured list of all volumes with their encryption status, enabling programmatic determination of encryption scope across the entire storage configuration.",
+        "command": "curl -sk 'https://<NAS_IP>:5001/webapi/entry.cgi?api=SYNO.Storage.CGI.Storage&version=1&method=load_info&_sid=<session_sid>' | python3 -c \"\nimport sys, json\nd = json.load(sys.stdin)\nvols = d.get('data', {}).get('volumes', [])\nencrypted = sum(1 for v in vols if v.get('encrypt'))\ntotal = len(vols)\nprint(f'Total: {total}, Encrypted: {encrypted}')\nif encrypted == 0: print('Scope: none')\nelif encrypted == total: print('Scope: all')\nelse: print('Scope: partial')\n\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Python script output showing 'Scope: all', 'Scope: partial', or 'Scope: none' based on encrypted/total volume count ratio"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (most common — estimated 70-85% of NAS deployments have no volume encryption)",
+      "partial (common in environments where encryption was added later or applied only to 'sensitive' shares)",
+      "all (uncommon outside regulated industries; requires encryption setup at volume creation time on most platforms)"
+    ]
+  },
+  {
+    "option_name": "backup_encryption_enabled",
+    "option_description": "Controls whether the backup job applies encryption to data as it is transmitted to a remote destination or written to external/removable media. This is a job-level configuration flag distinct from volume-level encryption and specifically protects backup streams from interception or media theft.",
+    "security_impact": "Directly evaluated by the unencrypted_backup_streams Rego rule. When backup_destination_type is 'network' and backup_encryption_enabled is false, the exposure fires regardless of transport protocol — the policy treats absence of encryption as a definitive misconfiguration. When backup_destination_type is 'local_media' and this flag is false, the same exposure triggers, covering the physical theft vector. A false value on any non-local-internal backup job means backup data is plaintext, making it a target for network interception or media seizure.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the NAS management console and navigate to the backup job configuration. Open each backup task and inspect the encryption settings section for options such as 'Enable encryption', 'AES-256', or 'Encrypt backup data'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "NAS Admin Console → Backup & Restore → Backup Tasks → Select Job → Settings → Encryption tab",
+        "expected_output": "A checkbox or toggle labeled 'Encryption enabled' or equivalent showing enabled/disabled state."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On appliances with SSH access (e.g., Synology, QNAP), inspect the backup job configuration files for encryption-related parameters.",
+        "command": "grep -rEi 'encrypt|cipher|aes' /etc/synobackup.conf /etc/qpkg/HybridBackup/ 2>/dev/null",
+        "file_path": "/etc/synobackup.conf",
+        "navigation": null,
+        "expected_output": "Lines containing 'encrypt=yes', 'encryption=true', or cipher references indicating encryption is active; absence indicates disabled."
+      },
+      {
+        "type": "api",
+        "instruction": "On Synology NAS, query the backup API to retrieve job configuration including encryption status.",
+        "command": "curl -sk 'https://<NAS_IP>:5001/webapi/entry.cgi?api=SYNO.Backup.Task&method=list&version=1&_sid=<SESSION_ID>' | python3 -m json.tool | grep -i encry",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output containing 'encryption': true or equivalent field indicating backup job encryption state."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "backup_destination_type",
+    "option_description": "Identifies where backup data is written: to a remote network location (SMB share, NFS mount, SFTP server, cloud bucket), to local removable media (USB drive, tape, external disk), or to local internal storage on the same appliance. This determines which encryption and transport controls are relevant and which attack vectors apply.",
+    "security_impact": "The unencrypted_backup_streams Rego rule applies different sub-conditions based on this value. Network destinations trigger evaluation of both backup_encryption_enabled and transport_protocol for plaintext protocols. Local_media destinations trigger evaluation of backup_encryption_enabled alone (protecting against physical media theft). Local_internal destinations do not trigger the backup stream exposure — but may still be covered by snapshot misconfiguration rules. Miscategorizing this value (e.g., recording local_internal when backups actually go to a network share) would mask real exposure.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Open each backup job in the NAS management console and identify the destination field. Classify network paths (UNC paths, SFTP URLs, cloud endpoints) as 'network'; USB/tape as 'local_media'; internal volume mounts as 'local_internal'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "NAS Admin Console → Backup & Restore → Backup Tasks → Select Job → Destination field",
+        "expected_output": "A destination path such as '\\\\backupserver\\share' (network), '/dev/sdc1' or USB device (local_media), or an internal volume path (local_internal)."
+      },
+      {
+        "type": "command",
+        "instruction": "On SSH-accessible appliances, inspect running backup job configurations to identify destination types by examining mount points or target paths.",
+        "command": "cat /etc/synobackup.conf | grep -E 'dest_type|dest_path|destination|target' && mount | grep -E 'usb|tape|cifs|nfs|sshfs'",
+        "file_path": "/etc/synobackup.conf",
+        "navigation": null,
+        "expected_output": "Lines showing destination type identifiers such as 'dest_type=network', 'dest_type=usb', or mount output showing cifs/nfs for network, sd*/usb for local media."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the storage administrator or review change management tickets for the most recent backup job configuration to confirm destination type and whether it has changed from initial setup.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented confirmation of backup destination type (network share, USB rotation schedule, or same-appliance volume)."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "network",
+      "local_media"
+    ]
+  },
+  {
+    "option_name": "transport_protocol",
+    "option_description": "Specifies the network protocol used to transmit backup data when the destination is a remote network location. Secure options (SFTP, SCP, HTTPS, rsync_tls, smb_encrypted) protect data in transit; insecure options (FTP, HTTP, rsync_unencrypted, smb_unencrypted, nfs_unencrypted) transmit data in cleartext and are vulnerable to interception.",
+    "security_impact": "The unencrypted_backup_streams Rego rule explicitly checks this value when backup_destination_type is 'network'. If transport_protocol is any of ftp, http, rsync_unencrypted, smb_unencrypted, or nfs_unencrypted, the exposure fires regardless of the backup_encryption_enabled flag. This means even if the job-level encryption toggle is enabled, using FTP as the transport still triggers the finding because the protocol itself is cleartext. An attacker with network access between the NAS and backup destination can perform a man-in-the-middle capture of backup streams using tools like Wireshark or tcpdump.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the NAS backup job configuration, review the protocol or transfer method field for the remote destination. Note the exact protocol name selected (FTP, SFTP, rsync, SMB, etc.).",
+        "command": null,
+        "file_path": null,
+        "navigation": "NAS Admin Console → Backup & Restore → Backup Tasks → Select Job → Remote Server Settings → Transfer Protocol",
+        "expected_output": "A dropdown or field showing the selected protocol, e.g., 'SFTP', 'rsync over SSH', 'FTP', or 'SMB'."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Capture network traffic during a scheduled or manually triggered backup job to confirm the actual protocol in use, verifying it matches the configured value and that traffic is encrypted.",
+        "command": "tcpdump -i <backup_vlan_interface> -nn host <backup_destination_ip> and port not 22 -w /tmp/backup_capture.pcap && tshark -r /tmp/backup_capture.pcap -Y 'ftp or http or rsync'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No FTP, HTTP, or plaintext rsync traffic visible during backup window. If encrypted (SFTP/HTTPS), only TLS handshake and encrypted application data should appear."
+      },
+      {
+        "type": "command",
+        "instruction": "Check backup job configuration files or rsync/FTP daemon configuration to identify the protocol used for remote backup transfers.",
+        "command": "grep -rEi 'protocol|ftp|sftp|rsync|smb|nfs|http' /etc/synobackup.conf /etc/rsyncd.conf /etc/vsftpd.conf 2>/dev/null",
+        "file_path": "/etc/rsyncd.conf",
+        "navigation": null,
+        "expected_output": "Configuration lines confirming the transfer protocol, e.g., 'use_ssl=YES' in vsftpd.conf (FTPS), or absence of '--rsh=ssh' in rsync invocations indicating unencrypted rsync."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For QNAP appliances, inspect the Hybrid Backup Sync job configuration XML or JSON files for protocol parameters.",
+        "command": "find /etc/config/hybridbackup -name '*.json' -exec grep -l 'protocol\\|transfer' {} \\; | xargs grep -i 'ftp\\|sftp\\|smb\\|rsync\\|http'",
+        "file_path": "/etc/config/hybridbackup/",
+        "navigation": null,
+        "expected_output": "JSON fields such as 'protocol': 'sftp' or 'protocol': 'ftp' identifying the configured transport for each backup job."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "rsync_unencrypted",
+      "smb_unencrypted",
+      "sftp",
+      "rsync_tls"
+    ]
+  },
+  {
+    "option_name": "management_interface_tls_enabled",
+    "option_description": "Controls whether the NAS web-based administration interface and API endpoints require HTTPS (TLS) for all connections, or whether plain HTTP is also accepted. When disabled, all administrative credentials and session tokens are transmitted in cleartext over the network.",
+    "security_impact": "The insecure_management_interface_exposure Rego rule fires immediately if management_interface_tls_enabled is false (or not set), making this a standalone sufficient condition for the exposure regardless of network binding or certificate settings. An attacker on the same network segment can perform passive credential capture against HTTP management sessions using ARP poisoning or port mirroring, obtaining administrative credentials without any active exploit. This is particularly critical for NAS appliances storing confidential or restricted data.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the NAS admin console and navigate to network or security settings. Look for 'HTTPS only', 'Redirect HTTP to HTTPS', or 'Disable HTTP' options and verify their enabled state.",
+        "command": null,
+        "file_path": null,
+        "navigation": "NAS Admin Console → Control Panel → Network → DSM Settings (Synology) OR System → Security → Certificate & Private Key (QNAP) → Verify 'Enable HTTPS' checkbox state and 'Automatically redirect HTTP connections to HTTPS'",
+        "expected_output": "HTTPS enabled and HTTP redirect enforced, with port 5001 (Synology) or 8080/443 (QNAP) serving TLS traffic exclusively."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a direct HTTP connection to the NAS management port to verify whether plain HTTP is accepted or redirected to HTTPS.",
+        "command": "curl -v --max-time 10 http://<NAS_IP>:5000/ 2>&1 | grep -E 'HTTP/|Location:|< |Connected'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 301 or 302 redirect to https:// indicates HTTP-to-HTTPS redirection is active. A 200 OK response on HTTP indicates TLS is NOT enforced and plain HTTP management is accessible."
+      },
+      {
+        "type": "command",
+        "instruction": "On SSH-accessible NAS appliances, check the web server configuration for HTTP listener bindings to confirm whether port 80/5000 (HTTP) is active alongside HTTPS.",
+        "command": "ss -tlnp | grep -E ':80|:5000|:8080' && cat /etc/nginx/sites-enabled/*.conf 2>/dev/null | grep -E 'listen|ssl|https' | head -30",
+        "file_path": "/etc/nginx/sites-enabled/",
+        "navigation": null,
+        "expected_output": "Only HTTPS ports (443, 5001) should appear in ss output. If port 80 or 5000 appears as an active listener, HTTP management is enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "management_interface_network_binding",
+    "option_description": "Defines which network interfaces the NAS management web interface and API listen on: all_interfaces (0.0.0.0, any connected network), management_interface_only (a dedicated management VLAN or IP), or loopback_only (127.0.0.1, accessible only via local or SSH tunnel). This controls network reachability of the administrative attack surface.",
+    "security_impact": "The insecure_management_interface_exposure Rego rule fires when this value is all_interfaces, creating a standalone sufficient condition for the exposure. Binding to all interfaces means the management UI is reachable from storage VLANs, guest networks, or any segment the NAS is connected to — not just the intended admin network. Combined with weak or default credentials, this is the primary enabler of remote administrative takeover. Even with TLS enabled, unnecessarily broad binding increases exposure to credential brute-force and vulnerability exploitation against the management service.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "SSH into the NAS appliance and use ss or netstat to identify which local IP addresses the management web server process is bound to.",
+        "command": "ss -tlnp | grep -E ':443|:5001|:8080|:5000' && netstat -tlnp 2>/dev/null | grep -E 'nginx|lighttpd|apache|qthttpd'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing '0.0.0.0:5001' indicates all_interfaces binding. An IP like '192.168.10.1:5001' (management VLAN IP) indicates management_interface_only. '127.0.0.1:5001' indicates loopback_only."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the NAS admin console, check network interface settings or management access controls for options to restrict which network interfaces can access the management portal.",
+        "command": null,
+        "file_path": null,
+        "navigation": "NAS Admin Console → Control Panel → Network Interface → DSM Access (Synology) OR System Administration → Management VLAN (QNAP) → Review which interfaces have management enabled",
+        "expected_output": "Management access should be restricted to the designated management interface only. If 'Allow management from all interfaces' or equivalent is checked, binding is all_interfaces."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a non-management network segment (e.g., a storage VLAN or user VLAN), attempt to reach the NAS management port to verify whether binding is restricted.",
+        "command": "nc -zv -w 5 <NAS_IP_storage_vlan> 5001 && curl -sk --max-time 5 https://<NAS_IP_storage_vlan>:5001/ -o /dev/null -w '%{http_code}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused or timeout from non-management VLANs indicates restricted binding. A successful connection (200 or login page) from a storage/user VLAN indicates all_interfaces binding."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "all_interfaces",
+      "management_interface_only"
+    ]
+  },
+  {
+    "option_name": "certificate_validation_enforced",
+    "option_description": "Indicates whether the NAS management interface uses a CA-signed TLS certificate and whether clients (browsers, API tools) are prevented from bypassing certificate validation errors. When false, self-signed certificates are used without enforcement, allowing MITM attackers to substitute fraudulent certificates that administrators silently accept.",
+    "security_impact": "The insecure_management_interface_exposure Rego rule includes a specific sub-condition: when management_interface_tls_enabled is true but certificate_validation_enforced is false, the exposure still fires. This reflects the security reality that TLS with an unvalidated certificate provides no protection against MITM attacks — an attacker can intercept the connection, present their own certificate, and capture credentials if administrators have trained themselves to click through certificate warnings. The condition is only evaluated when TLS is enabled, making it a secondary check that catches the common misconfiguration of enabling HTTPS but continuing to use the factory self-signed certificate.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Connect to the NAS management interface via HTTPS and inspect the TLS certificate details. Verify whether the certificate is issued by a recognized CA or is self-signed, and whether the browser presents a certificate warning.",
+        "command": "openssl s_client -connect <NAS_IP>:5001 -servername <NAS_HOSTNAME> </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject -dates -fingerprint",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Issuer and Subject should differ (CA-signed) and issuer should be a trusted CA. If Issuer equals Subject, the certificate is self-signed. Certificate should not be expired."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the NAS admin console, navigate to the certificate management section and verify whether a CA-signed certificate is installed, or whether the default self-signed certificate remains in use.",
+        "command": null,
+        "file_path": null,
+        "navigation": "NAS Admin Console → Control Panel → Security → Certificate (Synology) OR System → Security → SSL Certificate (QNAP) → Check certificate issuer and expiry date",
+        "expected_output": "A certificate issued by Let's Encrypt, an internal PKI CA, or a commercial CA. If 'Synology Inc.' or 'QNAP Systems' appears as both issuer and subject, the factory self-signed certificate is in use."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test whether the NAS management interface enforces HSTS (HTTP Strict Transport Security), which is an indicator of certificate enforcement posture.",
+        "command": "curl -skI https://<NAS_IP>:5001/ | grep -i 'strict-transport-security\\|hsts'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'Strict-Transport-Security: max-age=...' header indicates HSTS enforcement. Absence does not confirm certificate validation failure but represents a weaker posture."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Ask the NAS administrator whether administrators have been instructed to accept certificate warnings or whether certificate errors cause login failures. Review any browser security exception records for the management URL.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation that no certificate warnings appear during normal management access, and that a CA-signed certificate is in use with no browser exceptions required."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "firmware_version_has_known_cve",
+    "option_description": "Indicates whether the currently installed NAS firmware version is listed as affected in one or more public CVE records in the NVD or vendor security advisory database. A true value means the device is running software with published exploit paths that may include remote code execution, authentication bypass, or privilege escalation.",
+    "security_impact": "The unpatched_firmware_and_os Rego rule fires immediately when this flag is true, independent of patch recency or update settings. NAS firmware CVEs are frequently weaponized by ransomware operators (e.g., QLocker, DeadBolt targeting QNAP; multiple Synology DSS CVEs). Unlike many vulnerability classes, NAS firmware CVEs often have public proof-of-concept exploits and are actively scanned for by mass-internet scanners within days of disclosure. A device with a known CVE in its firmware version should be treated as actively at risk even if not yet exploited.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the NAS management console, navigate to the system information or update section, and record the exact firmware version string including build number. Then cross-reference against the vendor's security advisory page.",
+        "command": null,
+        "file_path": null,
+        "navigation": "NAS Admin Console → Control Panel → Update & Restore → Current Version (Synology DSM) OR System → Firmware Update → Current Firmware Version (QNAP QTS) — Record full version string",
+        "expected_output": "A version string such as 'DSM 7.1.1-42962 Update 4' or 'QTS 5.0.1.2145'. Search this on https://www.synology.com/en-global/security/advisory or https://www.qnap.com/en/security-advisory."
+      },
+      {
+        "type": "command",
+        "instruction": "SSH into the NAS and retrieve the firmware version programmatically, then query the NVD API for CVEs affecting that product and version.",
+        "command": "cat /etc/VERSION 2>/dev/null || cat /etc/platform.conf 2>/dev/null | grep -i version; curl -s 'https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=Synology+DSM+7.1&resultsPerPage=10' | python3 -m json.tool | grep -E 'CVE-|description' | head -20",
+        "file_path": "/etc/VERSION",
+        "navigation": null,
+        "expected_output": "The firmware version string from /etc/VERSION, followed by NVD results showing whether that version appears in CVE affected ranges. Any CVE match confirms firmware_version_has_known_cve = true."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the NVD CVE API directly with the NAS vendor and product name to retrieve CVEs and manually verify whether the installed version falls within the affected version ranges.",
+        "command": "curl -s 'https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName=cpe:2.3:o:synology:diskstation_manager:*:*:*:*:*:*:*:*&resultsPerPage=20' | python3 -c \"import sys,json; data=json.load(sys.stdin); [print(v['cve']['id'], v['cve']['descriptions'][0]['value'][:100]) for v in data.get('vulnerabilities', [])]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of CVE IDs with descriptions. Cross-reference each CVE's affected version range against the installed firmware version to confirm exposure."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's vulnerability management tool (e.g., Tenable, Rapid7, Qualys) for scan results against the NAS IP to identify CVEs detected via authenticated or unauthenticated firmware fingerprinting.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Vulnerability Management Console → Assets → Search by NAS IP → View Vulnerabilities → Filter by CVSS ≥ 7.0 → Review NAS/firmware-related findings",
+        "expected_output": "Vulnerability scan results listing CVE IDs detected on the NAS appliance. Any finding with a CVE identifier confirms firmware_version_has_known_cve = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "days_since_last_firmware_update",
+    "option_description": "Tracks the number of days elapsed since the NAS appliance's firmware or embedded OS was last updated, providing a direct indicator of patch currency and exposure to known vulnerabilities.",
+    "security_impact": "The Rego policy triggers the 'unpatched_firmware_and_os' exposure when this value exceeds 180 and auto_update_enabled is false. Firmware older than 180 days is statistically likely to contain publicly disclosed CVEs, enabling remote code execution or privilege escalation against the NAS. Firmware staleness combined with disabled auto-update represents a compounding risk since no compensating control exists to close the window.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the NAS management web console and navigate to Control Panel > Update & Restore (Synology) or System > Firmware Update (QNAP). Note the 'Current Version' and its release date, then calculate elapsed days from today.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Control Panel > Update & Restore > Current Version (Synology) | System > Firmware Update > Installed Version (QNAP)",
+        "expected_output": "A firmware version string with an associated release date, e.g., 'DSM 7.2.1-69057 Update 5, Released 2024-03-15'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Synology DSM via SSH, query the firmware version and release date using the synoinfo and release files. Calculate days elapsed using shell date arithmetic.",
+        "command": "cat /etc/VERSION && stat -c '%y' /etc/VERSION | awk '{print $1}' && echo \"Days since update: $(( ( $(date +%s) - $(date -d $(stat -c '%y' /etc/VERSION | awk '{print $1}') +%s) ) / 86400 ))\"",
+        "file_path": "/etc/VERSION",
+        "navigation": null,
+        "expected_output": "Output includes 'builddate' and 'buildtime' fields plus a computed elapsed-days integer, e.g., 'Days since update: 47'."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Synology DSM REST API to query firmware information programmatically and parse the build date for staleness calculation.",
+        "command": "curl -sk 'https://<NAS_IP>:5001/webapi/query.cgi?api=SYNO.API.Info&version=1&method=query&query=SYNO.Core.Upgrade' -b 'id=<session_token>' | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response containing version and release metadata fields. Extract the build date and compute delta from current date."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the system event log for the most recent firmware update entry to determine the last update timestamp, useful when the management console displays only current version without build date.",
+        "command": "grep -i 'firmware\\|upgrade\\|update' /var/log/messages | tail -20",
+        "file_path": "/var/log/messages",
+        "navigation": null,
+        "expected_output": "Log lines referencing firmware upgrade events with timestamps, e.g., 'Jan 15 10:23:45 nas kernel: firmware upgrade completed version 7.2.1'."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0-30 (actively maintained)",
+      "31-90 (moderate lag)",
+      "91-180 (borderline)",
+      "181-365 (stale, policy violation)",
+      "365+ (severely unpatched, common in unmanaged deployments)"
+    ]
+  },
+  {
+    "option_name": "auto_update_enabled",
+    "option_description": "Controls whether the NAS device is configured to automatically download and install firmware and security patches from the vendor without requiring manual administrator action.",
+    "security_impact": "The Rego policy uses this as a compensating control: if days_since_last_firmware_update exceeds 180 AND auto_update_enabled is false, the 'unpatched_firmware_and_os' exposure fires. Auto-update enabled provides evidence that the device actively attempts to close the firmware gap even if an administrator has not manually triggered updates. Disabled auto-update combined with stale firmware indicates both a technical gap and a procedural failure, compounding the patching risk.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the NAS update settings panel and inspect the automatic update toggle. On Synology DSM go to Control Panel > Update & Restore > DSM Update > Update Settings and check if 'Automatically install the new update' is selected. On QNAP navigate to System > Firmware Update > Auto Update.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology: Control Panel > Update & Restore > DSM Update > Update Settings | QNAP: System > Firmware Update > Auto Update",
+        "expected_output": "A toggle or radio button indicating 'Automatically install important updates' or equivalent is enabled or disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "On Synology DSM via SSH, inspect the autoupdate configuration file to determine if automatic update is enabled.",
+        "command": "cat /etc/synoinfo.conf | grep -i 'autoupdate\\|auto_update' ; synopkg list --name DSMupdate 2>/dev/null",
+        "file_path": "/etc/synoinfo.conf",
+        "navigation": null,
+        "expected_output": "Key-value pair such as 'autoupdate=\"yes\"' or 'autoupdate=\"no\"' indicating the configured state."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On QNAP devices, inspect the system configuration XML or ini files that store update preferences to determine auto-update state.",
+        "command": "grep -i 'autoupdate\\|auto_update\\|AutoUpdate' /etc/config/qpkg.conf /etc/config/uLinux.conf 2>/dev/null",
+        "file_path": "/etc/config/uLinux.conf",
+        "navigation": null,
+        "expected_output": "Configuration entry such as 'AutoUpdateEnabled=TRUE' or 'AutoUpdateEnabled=FALSE'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the NAS administrator or review the device management runbook to confirm whether automatic updates are intentionally disabled for change-management reasons and whether a compensating manual patching schedule exists.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented policy either confirming auto-update is enabled or providing evidence of a scheduled manual patching process with frequency no greater than 90 days."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (less common in enterprise due to change control concerns)",
+      "false (very common in both SMB and enterprise NAS deployments)"
+    ]
+  },
+  {
+    "option_name": "broad_write_principals",
+    "option_description": "Captures the list of overly broad security principals—such as 'Everyone', 'Domain Users', 'Authenticated Users', or 'BUILTIN\\Users'—that have been granted write, modify, or full-control permissions on one or more NAS shares or filesystem ACLs.",
+    "security_impact": "The Rego policy triggers 'overly_permissive_share_acls' when this array is non-empty AND permission_level_granted is 'read_write' or 'full_control'. Broad write principals create the direct precondition for ransomware encryption of network shares: any authenticated user account, including a compromised service account, can encrypt or delete all files on the share. The combination of broad principals and high permission levels is one of the primary enablers of mass-impact ransomware events.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Windows host with access to the NAS shares, use PowerShell to enumerate share ACLs and identify any broad group principals with write access.",
+        "command": "Get-SmbShare | ForEach-Object { $share = $_; Get-SmbShareAccess -Name $share.Name | Where-Object { $_.AccountName -match 'Everyone|Domain Users|Authenticated Users|BUILTIN' -and $_.AccessRight -ne 'Read' } | Select-Object @{N='Share';E={$share.Name}}, AccountName, AccessRight }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table listing share names, principal names (e.g., 'Everyone', 'BUILTIN\\Users'), and their access rights (Change, Full) for any broad principals with write access."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based NAS (Samba), inspect smb.conf for 'write list', 'valid users', and 'force user' directives that indicate broad write grants, then verify POSIX ACLs on underlying mount points.",
+        "command": "grep -E 'write list|valid users|force user|read only' /etc/samba/smb.conf ; for share_path in $(grep 'path' /etc/samba/smb.conf | awk '{print $3}'); do echo \"--- $share_path ---\"; getfacl \"$share_path\" 2>/dev/null; done",
+        "file_path": "/etc/samba/smb.conf",
+        "navigation": null,
+        "expected_output": "Lines showing 'write list = @domain users' or 'read only = no' combined with ACL entries showing group write permissions for broad groups."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the NAS management web UI, navigate to the shared folder permission panel for each share and inspect which users or groups have write or full-control permissions. Look for catch-all groups.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology: Control Panel > Shared Folder > [Select Share] > Edit > Permissions | QNAP: Control Panel > Shared Folders > [Select Share] > Edit Shared Folder Permissions",
+        "expected_output": "A permissions grid listing principals and their assigned rights. Any entry showing 'Everyone', 'All users', or domain-wide groups with Read/Write or Full Access constitutes a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "Use icacls on Windows or nfs4_getfacl on Linux to enumerate ACLs on share root paths and extract broad principal entries.",
+        "command": "icacls \\\\<NAS_IP>\\<ShareName> /T /C 2>&1 | Select-String -Pattern 'Everyone|BUILTIN\\\\Users|Domain Users|Authenticated Users' | Where-Object { $_ -match 'W|F|M' }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing broad principals followed by permission flags containing W (write), F (full), or M (modify)."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[] (secure, no broad write principals)",
+      "[\"Everyone\"] (common default in SMB workgroup setups)",
+      "[\"Domain Users\"] (very common in AD-joined deployments)",
+      "[\"Authenticated Users\", \"Everyone\"] (worst-case, frequently found in legacy NAS configs)"
+    ]
+  },
+  {
+    "option_name": "permission_level_granted",
+    "option_description": "Records the highest permission level assigned to any broad or catch-all principal on any share or filesystem ACL, expressed as a severity-ordered enum: none, read_only, read_write, or full_control.",
+    "security_impact": "The Rego policy fires 'overly_permissive_share_acls' when broad_write_principals is non-empty AND this value is 'read_write' or 'full_control'. The distinction from read_only is critical: read_only broad access may expose sensitive data but cannot enable ransomware encryption or data tampering. read_write or full_control grants allow any user in the broad group to modify, delete, encrypt, or exfiltrate all share content. full_control additionally allows ACL modification, enabling privilege escalation by altering permissions on the share.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, enumerate share access rights for broad principals and map the output to the enum values. 'Full' maps to full_control, 'Change' maps to read_write, 'Read' maps to read_only.",
+        "command": "Get-SmbShare | ForEach-Object { Get-SmbShareAccess -Name $_.Name } | Where-Object { $_.AccountName -match 'Everyone|Domain Users|Authenticated Users|BUILTIN' } | Select AccountName, AccessRight | Sort-Object AccessRight -Descending | Select-Object -First 1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Single record showing the highest access right for any broad principal, e.g., 'AccountName: Everyone, AccessRight: Full'."
+      },
+      {
+        "type": "command",
+        "instruction": "On Samba/Linux NAS, determine if broad groups have write access by inspecting smb.conf 'read only' setting and POSIX ACL write bits for world-accessible groups.",
+        "command": "testparm -s 2>/dev/null | grep -A5 '\\[' | grep -E 'read only|write list|create mask' ; getfacl /volume1/share 2>/dev/null | grep -E 'group::|other::' | grep -v '---'",
+        "file_path": "/etc/samba/smb.conf",
+        "navigation": null,
+        "expected_output": "Output showing 'read only = No' (indicating read_write or higher) or POSIX ACL entries with 'rwx' for group or other, confirming write-level access."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the NAS share permissions panel, locate the highest-privilege assignment for any broad group and map it to the enum. Look for columns or dropdowns labeled No Access, Read Only, Read/Write, or Administrator/Full Control.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology: Control Panel > Shared Folder > [Share] > Edit > Permissions > [inspect group row] | QNAP: Control Panel > Privilege > Shared Folders > [Share] > Edit",
+        "expected_output": "A permission assignment showing 'Read/Write' or 'Full Access' for a broad group such as 'All local users' or 'Domain Users'."
+      },
+      {
+        "type": "command",
+        "instruction": "Use icacls to retrieve the detailed NTFS ACL on the share root path and identify the highest access mask applied to any broad principal.",
+        "command": "icacls \\\\<NAS_IP>\\<ShareName> 2>&1 | Where-Object { $_ -match 'Everyone|BUILTIN|Domain Users|Authenticated' } | ForEach-Object { if ($_ -match '\\(F\\)') {'full_control'} elseif ($_ -match '\\(M\\)|\\(W\\)') {'read_write'} elseif ($_ -match '\\(R\\)') {'read_only'} }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Mapped enum string such as 'full_control' or 'read_write' derived from the NTFS access mask flags present in icacls output."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "read_only (acceptable for broad principals)",
+      "read_write (common finding, policy violation)",
+      "full_control (critical finding, frequently seen in workgroup NAS deployments)",
+      "none (ideal, broad principals explicitly denied)"
+    ]
+  },
+  {
+    "option_name": "enabled_protocols",
+    "option_description": "Enumerates all network file-sharing and management protocols currently active on the NAS appliance, including legacy and insecure options such as SMBv1, NFSv2, FTP, and Telnet alongside modern secure alternatives.",
+    "security_impact": "The Rego policy triggers 'insecure_legacy_protocol_enablement' individually for each of SMBv1, NFSv2, FTP, and Telnet appearing in this array. SMBv1 directly enables EternalBlue/WannaCry-class exploitation. NFSv2 lacks authentication improvements present in NFSv4. FTP transmits credentials and data in cleartext, enabling passive interception. The array is evaluated per-element, meaning a single legacy protocol in the list is sufficient to generate the exposure regardless of what other secure protocols are also enabled.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the NAS file services configuration panel to enumerate all enabled protocols. On Synology check Control Panel > File Services for SMB, NFS, FTP, and SSH/Telnet tabs. On QNAP check Control Panel > Network & File Services for each protocol service.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology: Control Panel > File Services > SMB / NFS / FTP / SFTP tabs | QNAP: Control Panel > Network & File Services > Win/Mac/NFS / FTP / SSH",
+        "expected_output": "A list of protocols each showing an enabled/disabled status indicator. Document all protocols showing 'Enabled' or active status."
+      },
+      {
+        "type": "command",
+        "instruction": "On the NAS Linux shell, use netstat or ss to list all listening ports and map them to protocol services. Cross-reference well-known ports: 21=FTP, 23=Telnet, 111/2049=NFS, 445=SMB, 22=SSH.",
+        "command": "ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null | grep -E ':21|:23|:111|:445|:2049|:22|:990' | awk '{print $4, $7}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing listening ports and associated process names, e.g., '0.0.0.0:21 vsftpd', '0.0.0.0:23 telnetd', '0.0.0.0:445 smbd'."
+      },
+      {
+        "type": "command",
+        "instruction": "Specifically check for SMBv1 enablement on Synology or Linux Samba by inspecting the minimum protocol setting in smb.conf.",
+        "command": "grep -iE 'min protocol|server min protocol|ntlm auth|lanman auth' /etc/samba/smb.conf ; smbclient -L localhost -N 2>&1 | head -5",
+        "file_path": "/etc/samba/smb.conf",
+        "navigation": null,
+        "expected_output": "If 'min protocol = NT1' or 'min protocol = LANMAN1' is present, SMBv1 is enabled. Absence of 'min protocol' with a modern floor also indicates potential SMBv1 availability."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a remote host, use nmap to perform a protocol-specific scan against the NAS to identify listening legacy protocol services regardless of management console claims.",
+        "command": "nmap -sV -p 21,23,111,445,2049,22,69 --script smb-protocols,nfs-showmount <NAS_IP>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service version output per port plus SMB protocol negotiation results showing minimum supported version, e.g., 'SMBv1 enabled: true' or open port 23 for Telnet."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"SMBv2\", \"SMBv3\", \"NFSv4\", \"SFTP\", \"SSH\"] (hardened)",
+      "[\"SMBv1\", \"SMBv2\", \"SMBv3\", \"NFS\", \"FTP\"] (common default in older firmware)",
+      "[\"SMBv1\", \"SMBv2\", \"NFSv2\", \"NFSv3\", \"FTP\", \"Telnet\"] (worst-case, legacy default config)",
+      "[\"SMBv3\", \"NFSv4\", \"SSH\"] (minimal secure set)"
+    ]
+  },
+  {
+    "option_name": "plaintext_management_enabled",
+    "option_description": "Indicates whether Telnet or other cleartext administrative management protocols are active and accepting connections on the NAS appliance, allowing credential-bearing management sessions to be transmitted without encryption.",
+    "security_impact": "The Rego policy includes 'plaintext_management_enabled == true' as a standalone condition for triggering 'insecure_legacy_protocol_enablement'. Unlike other conditions in that rule which check the enabled_protocols array, this boolean directly represents the administrative access risk. Telnet sessions transmit administrator credentials in cleartext, enabling any host on the same network segment to capture credentials via ARP poisoning or passive sniffing—a critical escalation path since NAS admin credentials typically grant full data access.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Check the NAS management UI for Terminal or SSH/Telnet service settings. On Synology navigate to Control Panel > Terminal & SNMP and verify if 'Enable Telnet service' is checked. On QNAP navigate to Control Panel > Telnet/SSH.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology: Control Panel > Terminal & SNMP > Terminal tab > Enable Telnet service | QNAP: Control Panel > Telnet/SSH > Telnet",
+        "expected_output": "A checkbox or toggle labeled 'Enable Telnet service'. If checked/enabled, plaintext_management_enabled = true."
+      },
+      {
+        "type": "command",
+        "instruction": "On the NAS shell, verify if a Telnet daemon is running and listening on port 23 using process inspection and port binding checks.",
+        "command": "ps aux | grep -iE 'telnetd|in.telnetd' | grep -v grep ; ss -tlnp | grep ':23' ; netstat -tlnp 2>/dev/null | grep ':23'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If 'telnetd' appears in ps output or port 23 shows LISTEN state, Telnet is active. Empty output indicates Telnet is disabled."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a network-adjacent host, attempt a TCP connection to port 23 on the NAS to confirm whether Telnet is externally accessible, providing ground-truth verification independent of the management console.",
+        "command": "timeout 3 bash -c 'echo > /dev/tcp/<NAS_IP>/23' 2>/dev/null && echo 'Telnet port OPEN' || echo 'Telnet port CLOSED/FILTERED' ; nmap -p 23 --open <NAS_IP>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Telnet port OPEN' or nmap showing '23/tcp open telnet' indicates plaintext_management_enabled is effectively true from a network perspective."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux-based NAS appliances, inspect inetd or xinetd configuration to determine if Telnet is configured as a network service, which may be active even if the management UI does not show it.",
+        "command": "grep -r 'telnet' /etc/inetd.conf /etc/xinetd.d/ /etc/xinetd.conf 2>/dev/null | grep -v '^#'",
+        "file_path": "/etc/inetd.conf",
+        "navigation": null,
+        "expected_output": "An uncommented line referencing 'telnet' in inetd.conf or an xinetd.d file with 'disable = no', confirming Telnet is inetd-managed and active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (expected secure state, default on modern firmware)",
+      "true (common finding on older NAS firmware pre-2018 and on appliances where Telnet was enabled for initial setup and never disabled)"
+    ]
+  },
+  {
+    "option_name": "insecure_protocol_enforcement_disabled",
+    "option_description": "Indicates whether the NAS has explicitly removed or bypassed minimum protocol version floors, allowing client-negotiated downgrade to legacy insecure protocol versions (e.g., SMBv1, NFSv2) even if those versions are not explicitly listed as enabled in the configuration.",
+    "security_impact": "The Rego policy treats 'insecure_protocol_enforcement_disabled == true' as an independent trigger for 'insecure_legacy_protocol_enablement'. This is distinct from the enabled_protocols array because a NAS may not explicitly list SMBv1 as enabled while still permitting downgrade negotiation if no minimum version floor is enforced. Protocol downgrade attacks allow an attacker to force SMBv1 negotiation with a client that supports it, enabling EternalBlue exploitation even on a NAS that appears to have modern protocol settings.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Samba-based NAS, inspect smb.conf for the presence and value of 'server min protocol' or 'min protocol' directive. Absence of this setting or a value below SMB2 indicates enforcement is disabled.",
+        "command": "grep -iE 'min protocol|server min protocol|max protocol|server max protocol' /etc/samba/smb.conf ; testparm -s 2>/dev/null | grep -iE 'min protocol|max protocol'",
+        "file_path": "/etc/samba/smb.conf",
+        "navigation": null,
+        "expected_output": "Expected secure output: 'server min protocol = SMB2' or 'min protocol = SMB2_02'. If this line is absent or shows NT1/LANMAN values, enforcement is disabled. Absence of the directive entirely also indicates no floor is set."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the NAS SMB settings panel, check for a minimum SMB version dropdown or selector. On Synology navigate to Control Panel > File Services > SMB > Advanced Settings and verify the 'Minimum SMB protocol' is set to SMB2 or higher. Verify NFS minimum version similarly.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology: Control Panel > File Services > SMB > Advanced Settings > Minimum SMB protocol | QNAP: Control Panel > Network & File Services > Win/Mac/NFS > Advanced Options > Minimum SMB Version",
+        "expected_output": "A dropdown showing 'SMB2' or 'SMB3' as the minimum version. If set to 'SMB1' or if no minimum is configured, insecure_protocol_enforcement_disabled = true."
+      },
+      {
+        "type": "command",
+        "instruction": "For NFS, verify that NFSv2 is explicitly disabled in the NFS server configuration, as absence of version restriction means clients can request NFSv2.",
+        "command": "grep -iE 'vers|version|nfsvers|RPCNFSDOPTS|vers3|vers4' /etc/nfs.conf /etc/default/nfs-kernel-server /etc/sysconfig/nfs 2>/dev/null ; cat /proc/fs/nfsd/versions 2>/dev/null",
+        "file_path": "/etc/nfs.conf",
+        "navigation": null,
+        "expected_output": "'/proc/fs/nfsd/versions' output showing '-2' (NFSv2 disabled) and '+3 +4' (v3/v4 enabled) is secure. '+2' present indicates NFSv2 is active and no floor is enforced."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap SMB protocol detection script to determine what SMB protocol versions the NAS will negotiate, providing empirical evidence of whether a minimum version floor is enforced.",
+        "command": "nmap -p 445 --script smb-protocols <NAS_IP>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Script output listing negotiated SMB dialects. If SMBv1 (NT LM 0.12) appears in the list, the minimum version floor is not enforced and insecure_protocol_enforcement_disabled = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (expected, minimum version floors configured)",
+      "true (common finding, especially when NAS was upgraded in place without hardening the protocol minimum settings, or when legacy clients are present that prompted administrators to relax version requirements)"
+    ]
+  },
+  {
+    "option_name": "audit_logging_enabled",
+    "option_description": "Controls whether the NAS appliance records security-relevant events including file access operations, authentication successes and failures, administrative configuration changes, and share permission modifications to a persistent log facility.",
+    "security_impact": "The Rego policy fires 'missing_or_disabled_audit_logging' directly when this value is false. Without audit logging, there is no forensic record of data exfiltration (which files were accessed and by whom), ransomware activity (mass file modifications or deletions), unauthorized administrative changes, or failed authentication attempts that would indicate brute-force activity. The policy also evaluates additional conditions when logging is enabled but log forwarding or specific event categories are missing, meaning this boolean is a prerequisite gate—all deeper logging quality checks are contingent on this being true.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the NAS logging or audit settings in the management console. On Synology check Control Panel > Log Center > Log Sending and the Log Center application for enabled log types. On QNAP check Control Panel > System Logs and Security Counselor for audit log configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology: Control Panel > Log Center > Log Sending (for forwarding) + Log Center app > Logs tab (for local logging status) | QNAP: Control Panel > System Logs > Event Log configuration",
+        "expected_output": "Log Center showing active log collection with event categories such as 'File Access', 'Connection', 'System' listed as monitored. An empty or unconfigured log facility indicates audit_logging_enabled = false."
+      },
+      {
+        "type": "command",
+        "instruction": "On the NAS shell, verify whether syslog or an audit daemon is active and receiving events, and check whether the audit log files contain recent entries.",
+        "command": "ps aux | grep -iE 'syslog|rsyslog|syslog-ng|auditd' | grep -v grep ; ls -lh /var/log/audit/ /var/log/messages /var/log/synolog/ 2>/dev/null | tail -10 ; tail -20 /var/log/messages 2>/dev/null",
+        "file_path": "/var/log/messages",
+        "navigation": null,
+        "expected_output": "An active syslog process in ps output and log files with recent modification timestamps and non-empty content indicates logging is operational. Empty log directories or absent syslog processes indicate audit_logging_enabled = false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the NAS syslog and audit daemon configuration files to determine what event classes are configured for capture, confirming that logging is both enabled and configured for security-relevant categories.",
+        "command": "cat /etc/rsyslog.conf /etc/rsyslog.d/*.conf 2>/dev/null | grep -v '^#' | grep -v '^$' ; cat /etc/audit/auditd.conf 2>/dev/null | grep -iE 'log_file|write_logs|log_format'",
+        "file_path": "/etc/rsyslog.conf",
+        "navigation": null,
+        "expected_output": "rsyslog.conf showing active facility/severity rules (e.g., 'auth.* /var/log/auth.log', '*.* @@siem.example.com:514') and auditd.conf showing 'write_logs = yes'. Absent or commented-out rules indicate logging is not capturing security events."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Perform a live test by generating a known authentication event (failed login attempt) and verify it appears in the audit log within 60 seconds, confirming that event capture is functional end-to-end.",
+        "command": "logger -p auth.warning 'AUDIT_TEST: manual audit verification test' ; sleep 5 ; grep 'AUDIT_TEST' /var/log/messages /var/log/auth.log /var/log/synolog/synologd.log 2>/dev/null | tail -5",
+        "file_path": "/var/log/auth.log",
+        "navigation": null,
+        "expected_output": "The test log entry 'AUDIT_TEST: manual audit verification test' appearing in the log file within 10 seconds confirms that the logging pipeline is active. Absence of the entry indicates logging is broken or disabled despite apparent configuration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (very common finding—majority of SMB and prosumer NAS deployments ship with logging disabled or minimally configured)",
+      "true (found in enterprise deployments and when security hardening has been applied, but frequently misconfigured at the category or forwarding level even when the base toggle is on)"
+    ]
+  },
+  {
+    "option_name": "log_forwarding_configured",
+    "option_description": "Controls whether the NAS device actively forwards audit and system logs to a remote SIEM or syslog server, ensuring log availability independent of the appliance's local storage and health.",
+    "security_impact": "The Rego policy flags missing_or_disabled_audit_logging when audit_logging_enabled is true but log_forwarding_configured is false, meaning locally-stored-only logs can be destroyed during a ransomware attack or disk failure, eliminating forensic evidence and incident detection capability. Remote forwarding is a prerequisite for the logging posture to be considered adequate even when other log settings are correct.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the NAS management web UI and navigate to the logging or monitoring settings section. On Synology DSM, go to Control Panel > Log Center > Log Sending; on QNAP QTS, navigate to Control Panel > System Log > Syslog Server. Verify a remote syslog destination IP or FQDN and port are populated and the feature toggle is enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Control Panel > Log Center > Log Sending (Synology) | Control Panel > System Log > Syslog Server (QNAP)",
+        "expected_output": "A valid remote syslog destination is shown with status Active or Enabled; test connectivity button returns success."
+      },
+      {
+        "type": "command",
+        "instruction": "SSH into the NAS appliance and inspect the syslog daemon configuration file to confirm a remote forwarding target is defined. On Linux-based NAS firmware, check rsyslog or syslog-ng configuration for an '@@' (TCP) or '@' (UDP) remote destination directive.",
+        "command": "cat /etc/rsyslog.conf | grep -E '^[*@]' ; grep -r 'remote' /etc/rsyslog.d/ 2>/dev/null",
+        "file_path": "/etc/rsyslog.conf",
+        "navigation": null,
+        "expected_output": "Output contains a line such as '*.* @@192.168.1.100:514' or '*.* @siem.corp.local:514' indicating an active remote destination."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the NAS vendor REST API for syslog configuration. On Synology DSM, use the SYNO.Core.Syslog API to retrieve current forwarding destinations.",
+        "command": "curl -sk 'https://<NAS_IP>:5001/webapi/entry.cgi?api=SYNO.Core.Syslog&method=get&version=1' -d 'session=<SESSION_TOKEN>' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response includes a 'remote_server' field with a non-null, non-empty IP or hostname and 'enabled: true'."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "On the SIEM or syslog receiver, verify recent log entries originating from the NAS appliance IP address. Absence of events from the NAS IP within the expected timeframe confirms forwarding is not active.",
+        "command": "grep '<NAS_IP>' /var/log/syslog | tail -20",
+        "file_path": "/var/log/syslog",
+        "navigation": null,
+        "expected_output": "Recent log entries (within last 15 minutes for a busy NAS) are visible from the NAS source IP on the syslog server."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logged_event_categories",
+    "option_description": "Defines the specific categories of events the NAS audit subsystem captures, such as file access operations, authentication attempts, administrative configuration changes, and share permission modifications.",
+    "security_impact": "The Rego policy evaluates two critical conditions: if log_forwarding_configured is true but 'file_access' is absent from logged_event_categories, or 'authentication' is absent, the missing_or_disabled_audit_logging exposure is still triggered. This reflects that incomplete event coverage—even with forwarding enabled—leaves blind spots for detecting ransomware file encryption activity (file_access) and credential abuse (authentication). Both categories are mandatory for the policy to consider logging adequate.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Access the NAS audit or event log configuration page. On Synology DSM navigate to Control Panel > Log Center > General and review which event categories are checked under 'File Access', 'Authorization', 'System', and 'File Sharing'. On QNAP QTS go to Control Panel > System Log and check the enabled event types.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Control Panel > Log Center > General (Synology) | Control Panel > System Log > Event Log (QNAP)",
+        "expected_output": "Checkboxes or toggles for file_access, authentication, admin_changes, and share_permission_modifications are all enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "On Synology NAS via SSH, query the audit configuration database to enumerate which event types are active. The audit daemon configuration is stored in a SQLite database or config file depending on DSM version.",
+        "command": "grep -iE 'file_access|auth|admin|share|permission' /etc/synoauditd.conf 2>/dev/null || sqlite3 /var/packages/LogCenter/target/db/synaudi.db 'SELECT category, enabled FROM audit_categories;'",
+        "file_path": "/etc/synoauditd.conf",
+        "navigation": null,
+        "expected_output": "Output lists each category with enabled=1 or equivalent for all four required categories: file_access, authentication, admin_changes, share_permission_modifications."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the NAS vendor API to retrieve the current audit category configuration. On Synology DSM, call the SYNO.Core.Audit API.",
+        "command": "curl -sk 'https://<NAS_IP>:5001/webapi/entry.cgi?api=SYNO.Core.Audit&method=get_category&version=1' -d 'session=<SESSION_TOKEN>' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response contains a list of audit category objects where 'enabled' is true for file_access, authentication, admin_changes, and share_permission_modifications."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review recent forwarded logs on the SIEM to empirically verify which event categories are arriving. Search for log entries representing file access events and authentication events from the NAS source IP within the past 24 hours to confirm both are actually being generated.",
+        "command": "grep '<NAS_IP>' /var/log/syslog | grep -iE 'file_access|login|auth|admin|permission' | awk '{print $5}' | sort | uniq -c | sort -rn",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Distinct log entries for file access operations and authentication events appear, confirming those categories are enabled and forwarding."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"file_access\", \"authentication\", \"admin_changes\", \"share_permission_modifications\"]",
+      "[]",
+      "[\"authentication\"]",
+      "[\"admin_changes\", \"authentication\"]"
+    ]
+  },
+  {
+    "option_name": "snapshots_enabled",
+    "option_description": "Controls whether the NAS volume or share is configured with an automated snapshot schedule, creating point-in-time recovery copies of data without requiring a full backup cycle.",
+    "security_impact": "The Rego policy triggers snapshot_and_backup_misconfiguration immediately when snapshots_enabled is false, regardless of any other backup configuration. Snapshots are the primary rapid-recovery mechanism against ransomware encryption events on NAS shares; without them, recovery requires restore from a full backup—which may be hours or days old—and the time window during which data is unrecoverable is maximized. The policy treats absence of snapshots as an unambiguous misconfiguration.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the NAS management interface and navigate to the snapshot or data protection section. On Synology DSM go to Storage Manager > Snapshot Replication and verify at least one snapshot task exists with a scheduled state. On QNAP QTS go to Storage & Snapshots > Snapshot > Snapshot Manager and check for active scheduled snapshot tasks per volume.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Storage Manager > Snapshot Replication > Snapshots (Synology) | Storage & Snapshots > Snapshot > Snapshot Manager (QNAP)",
+        "expected_output": "At least one snapshot task is shown with status 'Scheduled' or 'Enabled' for the target volume."
+      },
+      {
+        "type": "command",
+        "instruction": "SSH into the NAS and query the snapshot scheduler using the vendor CLI tools to list configured snapshot schedules across all volumes.",
+        "command": "synoschedtask --get | grep -i snapshot ; snapshotctl list-tasks 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists one or more snapshot tasks with an active cron-style schedule and a target volume specified."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Synology DSM API or QNAP QTS API to retrieve snapshot task configuration for all storage pools.",
+        "command": "curl -sk 'https://<NAS_IP>:5001/webapi/entry.cgi?api=SYNO.Core.Share.Snapshot&method=list&version=1' -d 'session=<SESSION_TOKEN>' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response contains one or more snapshot schedule objects with 'status': 'enabled' and a non-null schedule definition."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the snapshot configuration or scheduler configuration file on the NAS filesystem to determine whether snapshot jobs are defined.",
+        "command": "cat /etc/synosnaptask.conf 2>/dev/null || ls -la /etc/snaptask.d/ 2>/dev/null",
+        "file_path": "/etc/synosnaptask.conf",
+        "navigation": null,
+        "expected_output": "Configuration file exists and contains at least one [task] section with enabled=yes and a schedule defined."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "snapshot_retention_days",
+    "option_description": "Specifies how many calendar days the NAS retains snapshot copies before automatically purging them, directly controlling the maximum look-back window available for ransomware recovery or accidental deletion recovery.",
+    "security_impact": "The Rego policy triggers snapshot_and_backup_misconfiguration when snapshots_enabled is true but snapshot_retention_days is less than 3, recognizing that ultra-short retention windows—such as 1-day or 2-day configurations—provide negligible recovery value because ransomware infections and data corruption events frequently go undetected for longer than the retention window before incident response begins. A value of 0 is recorded when snapshots are disabled entirely. The policy enforces a minimum meaningful retention floor.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the snapshot schedule configuration and inspect the retention policy settings for each active snapshot task. On Synology DSM go to Storage Manager > Snapshot Replication > Snapshots > select the target share > Settings and read the 'Retention Policy' or 'Keep for' value. On QNAP QTS go to Storage & Snapshots > Snapshot > Snapshot Manager > the volume > Schedule & Retention and read the retention duration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Storage Manager > Snapshot Replication > [share] > Settings > Retention Policy (Synology) | Storage & Snapshots > Snapshot > [volume] > Schedule & Retention (QNAP)",
+        "expected_output": "A numeric retention period is shown in days, weeks, or months that can be converted to days for assessment."
+      },
+      {
+        "type": "command",
+        "instruction": "SSH into the NAS and query snapshot task retention settings from the configuration database or CLI.",
+        "command": "synoschedtask --get | grep -A5 -i 'snapshot' | grep -i 'retain\\|keep\\|days\\|retention'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows a retention value such as 'retention_days=30' or 'keep=14d' for each snapshot task."
+      },
+      {
+        "type": "api",
+        "instruction": "Call the NAS vendor API to retrieve the detailed retention configuration for each snapshot task, including the numeric retention period.",
+        "command": "curl -sk 'https://<NAS_IP>:5001/webapi/entry.cgi?api=SYNO.Core.Share.Snapshot&method=get_task&version=1&task_id=1' -d 'session=<SESSION_TOKEN>' | python3 -m json.tool | grep -i 'retain\\|days'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response includes a 'retention_days' or equivalent integer field indicating the configured retention window."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Parse the snapshot task configuration file to extract the retention period value directly from the stored task definition.",
+        "command": "grep -iE 'retain|keep|days|retention' /etc/synosnaptask.conf 2>/dev/null || grep -r 'retention' /etc/snaptask.d/ 2>/dev/null",
+        "file_path": "/etc/synosnaptask.conf",
+        "navigation": null,
+        "expected_output": "A line such as 'retention_days=30' or 'max_snapshots=10' is present, from which retention duration can be calculated."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "1",
+      "7",
+      "14",
+      "30",
+      "90"
+    ]
+  },
+  {
+    "option_name": "snapshot_stored_on_same_volume",
+    "option_description": "Indicates whether snapshot data is written to the same underlying volume or disk pool as the source data it is meant to protect, or whether it is isolated on a separate volume, RAID group, or offsite destination.",
+    "security_impact": "The Rego policy triggers snapshot_and_backup_misconfiguration when snapshots_enabled is true and snapshot_stored_on_same_volume is true. Co-location of snapshots and source data means a ransomware attack that encrypts the source volume will also encrypt or delete the snapshots stored on that same volume—entirely defeating their recovery purpose. Disk failure events similarly destroy both the live data and its snapshots simultaneously. Isolation is the security control; same-volume storage is the default on many NAS platforms unless explicitly reconfigured.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Inspect the snapshot destination configuration in the NAS management interface. On Synology DSM go to Storage Manager > Snapshot Replication and check whether the snapshot destination is the same storage pool as the source share or a different one. On QNAP QTS go to Storage & Snapshots > Snapshot > Snapshot Manager and verify whether snapshot storage is allocated on a separate volume or the same volume tier.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Storage Manager > Snapshot Replication > [task] > Destination (Synology) | Storage & Snapshots > Snapshot > Snapshot Manager > [volume] > Snapshot Storage (QNAP)",
+        "expected_output": "Destination shows a different volume name, pool ID, or offsite/cloud location than the source volume being protected."
+      },
+      {
+        "type": "command",
+        "instruction": "SSH into the NAS and enumerate snapshot storage mappings to determine if any snapshot job writes to the same underlying block device or volume group as its source.",
+        "command": "btrfs subvolume list / | grep -i snapshot ; df -h | grep -i snap ; synoschedtask --get | grep -E 'src_share|dst_share|destination'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Source and destination volume identifiers differ; if they reference the same device node or pool name, snapshots are co-located."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the snapshot task details via the NAS API to retrieve source and destination volume identifiers and compare them to determine co-location.",
+        "command": "curl -sk 'https://<NAS_IP>:5001/webapi/entry.cgi?api=SYNO.Core.Share.Snapshot&method=list&version=1' -d 'session=<SESSION_TOKEN>' | python3 -m json.tool | grep -E 'src|dst|source|destination|volume'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response shows distinct source_volume and destination_volume identifiers, or destination_type indicating 'remote' or 'offsite'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the storage administrator responsible for the NAS and ask whether snapshot replication to a separate physical volume, offsite NAS, or cloud object storage has been deliberately configured as part of the backup design. Review any documented backup architecture diagrams.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Administrator confirms and can demonstrate that snapshots replicate to a physically separate volume or remote system, with documentation supporting that architecture decision."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "local_admin_account_count",
+    "option_description": "Counts the total number of local user accounts on the NAS device that have been granted administrator-level or root-equivalent privileges, excluding domain or LDAP-sourced accounts.",
+    "security_impact": "The Rego policy triggers excessive_privileged_local_accounts when local_admin_account_count exceeds 2, reflecting that legitimate operations typically require at most one named primary admin and one break-glass emergency account. Each additional local admin account expands the blast radius: if any single account's credentials are compromised via phishing, credential stuffing, or password reuse, the attacker gains full NAS administrative access. More accounts also increase the probability that at least one account has a weak or unchanged password, particularly if the NAS was deployed with vendor default secondary accounts still present.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Access the NAS user management interface and filter for accounts with administrator roles. On Synology DSM go to Control Panel > User & Group and sort by group membership, identifying all accounts in the 'administrators' group. On QNAP QTS go to Control Panel > Privilege > Users and filter by role to identify admin-role accounts.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Control Panel > User & Group > User list (Synology) | Control Panel > Privilege > Users > filter by Administrator role (QNAP)",
+        "expected_output": "A list of local accounts is shown; count all entries with 'Administrator' group membership or admin role assigned. Record the total count."
+      },
+      {
+        "type": "command",
+        "instruction": "SSH into the NAS and query the local user database to enumerate all accounts with UID 0 or membership in the admin/wheel group.",
+        "command": "awk -F: '$3 == 0 {print $1}' /etc/passwd ; grep -E '^(admin|wheel|administrators)' /etc/group | cut -d: -f4 | tr ',' '\n' | sort -u",
+        "file_path": "/etc/passwd",
+        "navigation": null,
+        "expected_output": "Output lists all accounts with UID 0 (root-equivalent) and all accounts in administrative groups. Count the unique entries to get local_admin_account_count."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the NAS management API to enumerate local users and their group memberships, filtering for administrator group membership.",
+        "command": "curl -sk 'https://<NAS_IP>:5001/webapi/entry.cgi?api=SYNO.Core.User&method=list&version=1&group=administrators' -d 'session=<SESSION_TOKEN>' | python3 -m json.tool | grep -c '\"name\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response contains a 'users' array; the count of entries in that array represents local_admin_account_count."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the NAS group configuration file directly to count members of the administrators or admin group without relying on the management UI.",
+        "command": "grep -E '^admin' /etc/group ; getent group administrators 2>/dev/null || getent group admin 2>/dev/null",
+        "file_path": "/etc/group",
+        "navigation": null,
+        "expected_output": "Output shows the administrators group entry with a comma-separated member list; count the members for local_admin_account_count."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1",
+      "2",
+      "3",
+      "5",
+      "10"
+    ]
+  },
+  {
+    "option_name": "service_accounts_with_admin_role",
+    "option_description": "Indicates whether any accounts used by automated processes, backup jobs, application integrations, or scheduled scripts have been granted full administrator-level privileges on the NAS rather than operating with scoped least-privilege permissions.",
+    "security_impact": "The Rego policy triggers excessive_privileged_local_accounts when service_accounts_with_admin_role is true, because service accounts are high-value credential targets: they are frequently embedded in scripts, configuration files, or automation platforms where they may be exposed. If such an account also holds administrator privileges on the NAS, a credential exposure in any connected system grants an attacker complete NAS control, including the ability to disable snapshots, modify share permissions, delete data, and disable audit logging—all with the service account's credentials. Least-privilege service account design is a critical mitigating control.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the NAS user management interface, enumerate all local accounts and cross-reference each account's role with its apparent purpose. Accounts with names indicating service usage (e.g., 'backup_svc', 'veeam', 'monitoring', 'replication') that appear in the administrators group should be flagged. On Synology DSM check Control Panel > User & Group > Users, then click each service-named account to view group membership.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Control Panel > User & Group > Users > [each service account] > Groups tab (Synology) | Control Panel > Privilege > Users > [service account] > Edit Permissions (QNAP)",
+        "expected_output": "Service-named accounts do NOT appear in the 'administrators' group. If any do, service_accounts_with_admin_role is true."
+      },
+      {
+        "type": "command",
+        "instruction": "SSH into the NAS and compare the admin group membership list against a pattern-matched list of known service account naming conventions to identify service accounts with elevated privileges.",
+        "command": "for user in $(getent group admin administrators 2>/dev/null | cut -d: -f4 | tr ',' ' '); do echo $user; done | grep -iE 'svc|service|backup|monitor|replicate|sync|veeam|commvault|zabbix|nagios|automation|app'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output means no pattern-matched service accounts hold admin roles. Any output indicates service_accounts_with_admin_role is true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the NAS administrator and any application team members who have configured integrations with the NAS (backup software, monitoring agents, cloud sync tools). Ask explicitly what credentials each integration uses and what privilege level those accounts hold.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All integration and automation accounts are confirmed to use dedicated non-admin accounts with only the specific permissions required for their function (e.g., read-only for monitoring, write to specific share for backup)."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review NAS authentication logs and admin action logs to identify whether any service-named accounts have performed administrative operations such as configuration changes, user management, or share ACL modifications, which would indicate admin-level access is being actively used.",
+        "command": "grep -iE 'svc|service|backup|replication' /var/log/synolog/synologd.log 2>/dev/null | grep -iE 'admin|config|modify|delete|create' | tail -50",
+        "file_path": "/var/log/synolog/synologd.log",
+        "navigation": null,
+        "expected_output": "No administrative action log entries attributed to service-named accounts. Presence of such entries confirms admin role usage."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "shared_admin_credentials_in_use",
+    "option_description": "Indicates whether two or more personnel or automated systems authenticate to the NAS using identical shared administrative credentials—such as a generic 'admin' or 'nasadmin' account—rather than each administrator having a uniquely named, individually accountable account.",
+    "security_impact": "The Rego policy triggers excessive_privileged_local_accounts when shared_admin_credentials_in_use is true, because shared credentials eliminate individual accountability: if the shared admin account performs a destructive action or is used by an attacker, audit logs cannot attribute the activity to a specific person, defeating forensic investigation and non-repudiation requirements. Additionally, shared passwords are statistically more likely to be exposed because they must be communicated across multiple people and may be documented in shared runbooks, ticket systems, or chat logs. Password rotation also becomes organizationally difficult, leading to long-lived weak credentials.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview all staff members with NAS administrative access and ask whether each person has their own uniquely named administrator account or whether they share a common admin account. Review IT onboarding runbooks, team wikis, and password manager vaults for entries indicating a shared 'admin' or 'nasadmin' credential is distributed to multiple staff.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each administrator confirms they use a personally named account (e.g., 'jsmith_admin') rather than a shared generic account. Absence of a shared credential entry in documentation supports shared_admin_credentials_in_use = false."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review admin account naming conventions in the NAS user management interface. Accounts with generic names such as 'admin', 'administrator', 'nas_admin', 'root', or 'sysadmin' with no individual name association are indicators of shared credential use. Check the number of admin accounts against the known number of administrators: if there are 5 admins but only 1 admin account, sharing is almost certain.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Control Panel > User & Group > Users > filter by administrators group (Synology) | Control Panel > Privilege > Users (QNAP)",
+        "expected_output": "The count of uniquely named admin accounts equals the count of individuals with administrative responsibilities. Generic account names are absent or exist only as disabled break-glass accounts."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Analyze NAS authentication logs for the admin account to detect simultaneous or near-simultaneous login sessions from multiple distinct source IP addresses, which would indicate multiple individuals sharing the same account credentials.",
+        "command": "grep -E 'admin.*login|admin.*auth' /var/log/synolog/synologd.log 2>/dev/null | awk '{print $1, $2, $NF}' | sort | uniq | grep -v '127.0.0.1'",
+        "file_path": "/var/log/synolog/synologd.log",
+        "navigation": null,
+        "expected_output": "Login entries for the generic admin account show logins from only one source IP at a time. Multiple distinct source IPs authenticating as 'admin' within the same business day strongly suggests shared credential use."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the NAS audit log API for recent authentication events attributed to generic admin account names and correlate the source IP addresses across multiple sessions to identify multi-user sharing patterns.",
+        "command": "curl -sk 'https://<NAS_IP>:5001/webapi/entry.cgi?api=SYNO.Core.Log&method=list&version=1&category=AUTH&account=admin' -d 'session=<SESSION_TOKEN>' | python3 -m json.tool | grep -E 'ip|time|user'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response shows authentication events for the generic 'admin' account; if source IPs vary across events from multiple days or hours, this is indicative of credential sharing."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "credential_files_encrypted",
+    "option_description": "Controls whether configuration files that store service credentials — including backup job configs, LDAP bind passwords, and replication credentials — are encrypted at rest on the appliance filesystem rather than written as human-readable plaintext.",
+    "security_impact": "The Rego rule `hardcoded_or_plaintext_stored_credentials` fires when `credential_files_encrypted` is false or absent, triggering the exposure. Plaintext credential files on a NAS filesystem are trivially readable by any process or user with filesystem access, enabling lateral movement by extracting LDAP bind passwords, backup service accounts, or replication keys from a single compromised shell session.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "SSH into the NAS appliance and inspect common credential-bearing configuration files for readable password fields.",
+        "command": "grep -rEi 'password|passwd|bindpw|secret|credential' /etc/backup.conf /etc/ldap.conf /etc/bacula/ /etc/rsnapshot.conf /etc/rsyncd.secrets 2>/dev/null | head -60",
+        "file_path": "/etc/backup.conf, /etc/ldap.conf, /etc/bacula/, /etc/rsyncd.secrets",
+        "navigation": null,
+        "expected_output": "Secure result: values appear as encrypted ciphertext strings (e.g., ENC[AES256,...] or $6$... style hashes). Insecure result: visible plaintext strings such as 'password=MyP@ssw0rd' or 'bindpw secretvalue'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the LDAP client configuration file directly for plaintext bind password fields.",
+        "command": "cat /etc/ldap.conf | grep -i 'bindpw\\|bind_passwd\\|password'",
+        "file_path": "/etc/ldap.conf",
+        "navigation": null,
+        "expected_output": "Secure result: field is absent, blank, or references an external secrets provider. Insecure result: 'bindpw <plaintext_password>' visible in the file."
+      },
+      {
+        "type": "command",
+        "instruction": "Check file permissions and content of replication configuration files to verify they are not world-readable and do not store plaintext credentials.",
+        "command": "find /etc /opt /var/lib -name '*.conf' -o -name '*.cfg' -o -name '*.ini' 2>/dev/null | xargs ls -la 2>/dev/null | grep -v '^d'; find /etc /opt -name '*.conf' 2>/dev/null | xargs grep -li 'password\\|passwd\\|secret' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure result: no world-readable config files containing password fields, or all password fields show encrypted values."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default on most NAS appliances)",
+      "true (requires explicit hardening)"
+    ]
+  },
+  {
+    "option_name": "scripts_contain_hardcoded_credentials",
+    "option_description": "Indicates whether shell scripts, Python scripts, or other automation scripts present on the appliance filesystem embed usernames, passwords, API tokens, or other secrets directly in plaintext within the script body rather than sourcing them from a secrets store or environment variable.",
+    "security_impact": "The Rego rule `hardcoded_or_plaintext_stored_credentials` triggers when `scripts_contain_hardcoded_credentials` is true, raising the exposure regardless of whether config files are encrypted. Hardcoded credentials in scripts are especially dangerous on NAS appliances because cron directories and /usr/local/bin are often writable by service accounts, meaning an attacker who reads a backup or replication script immediately obtains valid credentials for downstream systems.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Scan all scripts in common NAS automation directories for patterns that indicate embedded credentials.",
+        "command": "grep -rEn 'PASSWORD[[:space:]]*=|PASS[[:space:]]*=|PASSWD[[:space:]]*=|TOKEN[[:space:]]*=|SECRET[[:space:]]*=|-p[[:space:]]+[^$]' /usr/local/bin /opt /root /home /etc/cron* /var/spool/cron 2>/dev/null",
+        "file_path": "/usr/local/bin, /opt, /root, /home, /etc/cron.d, /etc/cron.daily, /var/spool/cron",
+        "navigation": null,
+        "expected_output": "Secure result: no output, or matched lines reference environment variables (e.g., PASSWORD=$VAULT_SECRET) or external credential files. Insecure result: lines such as 'PASSWORD=Backup123!' or 'rsync -e ssh user:MyPass@host'."
+      },
+      {
+        "type": "command",
+        "instruction": "Search specifically for credentials passed inline to command-line tools such as rsync, mysql, curl, or smbclient within scripts.",
+        "command": "grep -rEn -- '-p[[:space:]]+[^$[:space:]]|-password[[:space:]]+[^$[:space:]]|--passwd[[:space:]]+[^$[:space:]]|://[^@]+:[^@]+@' /usr/local/bin /opt /root /etc/cron* 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure result: no matches or all matches use variable substitution. Insecure result: literal credential values embedded in command arguments."
+      },
+      {
+        "type": "command",
+        "instruction": "List all executable scripts under relevant directories and inspect those modified recently for newly introduced credentials.",
+        "command": "find /usr/local/bin /opt /root /home /etc/cron.d /etc/cron.daily /etc/cron.weekly -type f \\( -name '*.sh' -o -name '*.py' -o -name '*.pl' \\) -newer /etc/passwd 2>/dev/null | xargs grep -lEi 'password|passwd|secret|token' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure result: no recently modified scripts contain credential-related keywords. Insecure result: list of scripts that embed credentials and have been recently changed."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common in legacy NAS deployments with hand-crafted backup scripts)",
+      "false (hardened or vault-integrated deployments)"
+    ]
+  },
+  {
+    "option_name": "credential_store_type",
+    "option_description": "Describes the mechanism the NAS appliance uses to store service credentials such as LDAP bind passwords, backup account passwords, and replication credentials. Valid values are plaintext_file (credentials in readable text), encrypted_file (credentials encrypted on disk), secrets_manager (credentials fetched from an external vault), hashed (one-way hash, applicable mainly to local auth passwords), or unknown (mechanism cannot be determined).",
+    "security_impact": "The Rego rule `hardcoded_or_plaintext_stored_credentials` fires explicitly when `credential_store_type == 'plaintext_file'`, making this attribute a direct trigger for the exposure. A plaintext_file store means any filesystem read — whether by an authenticated attacker, a malicious process, or a forensic image of a stolen drive — yields usable credentials for backup targets, directory services, and replication partners.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the primary NAS credential storage files and determine whether values are human-readable plaintext, ciphertext blobs, or references to external stores.",
+        "command": "cat /etc/shadow 2>/dev/null | head -5; cat /etc/ldap.conf 2>/dev/null | grep -i pass; cat /etc/backup.conf 2>/dev/null; ls -la /etc/credentials* /etc/.secrets* /opt/*/conf/*.conf 2>/dev/null",
+        "file_path": "/etc/shadow, /etc/ldap.conf, /etc/backup.conf, /opt/*/conf/*.conf",
+        "navigation": null,
+        "expected_output": "encrypted_file: values show as ciphertext prefixes such as ENC[ or {ENC}. secrets_manager: values contain vault:// URIs or references to HashiCorp Vault / AWS Secrets Manager endpoints. hashed: values begin with $6$ or $2b$ (shadow format). plaintext_file: raw human-readable strings."
+      },
+      {
+        "type": "gui",
+        "instruction": "Log in to the NAS management web interface and navigate to the credential or integration settings page to review how stored passwords are displayed.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management UI → System → Integrations (or Directory Services) → LDAP / Backup → Credential Storage. Check whether the password field shows masked ciphertext, a secrets-manager reference, or a readable password hint that suggests plaintext storage.",
+        "expected_output": "Secure result: password fields show '***' with a note indicating encrypted or vault-backed storage. Insecure result: password field shows a recoverable or displayable value indicating plaintext_file storage."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the NAS vendor API to retrieve configuration objects and inspect the credential representation in the response payload.",
+        "command": "curl -sk -u admin:<password> https://<nas-ip>/api/v1/system/integrations/ldap | python3 -m json.tool | grep -i 'password\\|credential\\|secret\\|store_type'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure result: password field returns a masked value, a KMS key ARN, or a secrets-manager path. Insecure result: password field returns the literal credential value."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "plaintext_file (most common default)",
+      "encrypted_file (vendor-specific encryption)",
+      "secrets_manager (enterprise integrations)",
+      "hashed (local account stores only)",
+      "unknown (default when appliance cannot be directly inspected)"
+    ]
+  },
+  {
+    "option_name": "export_host_specification",
+    "option_description": "Captures the client or host restriction field from the NFS export configuration — the value in /etc/exports (or equivalent) that determines which hosts are permitted to mount the exported filesystem. Examples range from '*' (any host) and broad CIDR ranges to specific IP addresses or hostnames.",
+    "security_impact": "The Rego rule `unrestricted_nfs_exports_by_host` fires when the specification is '*', contains a wildcard, or matches CIDR masks of /16 or broader (regex patterns in the policy), directly producing the exposure. Overly broad host specifications mean any host on a reachable network can mount the NFS share without further authentication, enabling mass data exfiltration or ransomware encryption of shared volumes.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the /etc/exports file and extract the host/client specification field from each export line.",
+        "command": "cat /etc/exports; showmount -e localhost 2>/dev/null",
+        "file_path": "/etc/exports",
+        "navigation": null,
+        "expected_output": "Secure result: entries show specific IPs or hostnames such as '/data 10.10.5.20(rw,sync,root_squash)'. Insecure result: entries show '/data *(rw)' or '/data 10.0.0.0/8(rw)'."
+      },
+      {
+        "type": "command",
+        "instruction": "Use nfsstat or exportfs to display currently active exports and their client specifications.",
+        "command": "exportfs -v 2>/dev/null || /usr/sbin/exportfs -v 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists each exported path with its client specification and options. Insecure result: client field shows '*' or a CIDR with prefix /16 or shorter."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the NFS Shares section in the NAS management interface to review each share's allowed hosts setting.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management UI → Shared Folders → NFS → [Select share] → Allowed Hosts / Client Specification. Review each export entry for wildcard or broad range values.",
+        "expected_output": "Secure result: each share lists specific trusted IP addresses or hostnames. Insecure result: shares list '*' or a subnet such as '0.0.0.0/0' or '10.0.0.0/8'."
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "* (wildcard, insecure default on many appliances)",
+      "192.168.0.0/24 (acceptable narrow CIDR)",
+      "10.0.0.0/8 (overly broad, flagged by policy)",
+      "10.10.5.20 (specific host, secure)",
+      "backup-server.internal (hostname, secure)"
+    ]
+  },
+  {
+    "option_name": "export_options_include_no_root_squash",
+    "option_description": "Indicates whether the NFS export is configured with the `no_root_squash` option, which causes the NFS server to honour root-level UIDs from mounting clients rather than remapping them to the anonymous user (nobody). When enabled, a client mounting the share as root retains root-equivalent access on the server-side filesystem.",
+    "security_impact": "The Rego rule `unrestricted_nfs_exports_by_host` has a combined condition that fires when `export_host_specification` contains a wildcard AND `export_options_include_no_root_squash` is true, compounding the exposure. Even without the wildcard combination, no_root_squash allows any client permitted to mount the share — particularly one already compromised — to read, overwrite, or delete any file on the exported filesystem regardless of POSIX ownership, enabling full data exfiltration or ransomware deployment with root access.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect /etc/exports for the no_root_squash option on each export line.",
+        "command": "grep -i 'no_root_squash' /etc/exports",
+        "file_path": "/etc/exports",
+        "navigation": null,
+        "expected_output": "Secure result: no output (option absent, meaning root_squash is in effect by default). Insecure result: one or more export lines include 'no_root_squash'."
+      },
+      {
+        "type": "command",
+        "instruction": "Use exportfs to display verbose active export options and filter for no_root_squash.",
+        "command": "exportfs -v 2>/dev/null | grep -i 'no_root_squash'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure result: no output. Insecure result: lines listing the exported path followed by options including 'no_root_squash'."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review NFS share advanced options in the management UI to check root squashing settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management UI → Shared Folders → NFS → [Select share] → Advanced Options → Root Squash. Verify that 'Root Squash' or 'Squash Root' is enabled (not 'No Root Squash').",
+        "expected_output": "Secure result: 'Root Squash' is selected or enabled. Insecure result: 'No Root Squash' option is selected."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default, root_squash active)",
+      "true (explicitly set for legacy application compatibility, insecure)"
+    ]
+  },
+  {
+    "option_name": "mfa_enforced_on_management_ui",
+    "option_description": "Controls whether multi-factor authentication is mandatory for every administrative login to the NAS management interface (web UI or API). When true, successful login requires both a valid password and a second factor; when false, password-only authentication is accepted.",
+    "security_impact": "The Rego rule `missing_multi_factor_authentication_on_management` fires when `mfa_enforced_on_management_ui` is false or absent, directly triggering the exposure. NAS management interfaces that accept password-only authentication are vulnerable to credential stuffing attacks (using breached password databases), phishing-captured passwords, or brute-force — especially when exposed on internal networks accessible from lateral movement paths.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log in to the NAS management portal and navigate to the account security or authentication policy settings to check MFA enforcement status.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management UI → Control Panel → Security → Account (or 2-Step Verification) → Enforce 2-Step Verification for administrators. Check whether the enforcement toggle is enabled and applies to all admin accounts.",
+        "expected_output": "Secure result: MFA enforcement toggle is 'On' and scoped to 'All users' or 'Administrators'. Insecure result: toggle is 'Off' or set to 'Optional'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the NAS management API for the MFA enforcement policy configuration.",
+        "command": "curl -sk -u admin:<password> 'https://<nas-ip>/api/v1/security/mfa' | python3 -m json.tool | grep -iE 'enforced|required|mfa_enabled|two_factor'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure result: response contains 'enforced': true or 'mfa_required': true. Insecure result: field is false, null, or absent."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the NAS administrator and request documented evidence (screenshot or policy export) confirming MFA is enforced for all admin accounts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure result: administrator can demonstrate that login without a second factor fails for admin accounts. Insecure result: administrator confirms MFA is optional or only applied to specific accounts."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default on most NAS appliances out of the box)",
+      "true (explicitly configured in hardened deployments)"
+    ]
+  },
+  {
+    "option_name": "authentication_methods_enabled",
+    "option_description": "Lists all authentication methods currently enabled for the NAS management interface login flow, such as 'password', 'totp', 'hardware_token', 'push_notification', 'ldap', or 'saml_mfa'. The presence or absence of MFA-capable methods in this list determines whether strong authentication is technically possible regardless of enforcement policy.",
+    "security_impact": "The Rego rule `missing_multi_factor_authentication_on_management` has a second condition that fires when none of 'totp', 'hardware_token', 'push_notification', or 'saml_mfa' appear in `authentication_methods_enabled` — meaning even if MFA enforcement is intended, no MFA method is technically available. A management interface limited to password and ldap methods cannot enforce MFA, leaving the appliance exposed to single-factor credential attacks.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the authentication or two-factor verification settings in the management portal and document all listed and enabled login methods.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management UI → Control Panel → Security → 2-Step Verification (or Authentication Settings). List all methods shown as 'Enabled' or 'Active', including TOTP apps, hardware keys (FIDO2/YubiKey), push notification services, and SAML providers.",
+        "expected_output": "Secure result: at least one of TOTP, hardware_token, push_notification, or SAML MFA is listed as enabled. Insecure result: only 'password' and optionally 'ldap' are enabled."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the authentication methods configuration via the NAS REST API.",
+        "command": "curl -sk -u admin:<password> 'https://<nas-ip>/api/v1/security/auth/methods' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure result: JSON array contains objects with method names including 'totp', 'hardware_token', 'push_notification', or 'saml_mfa' with enabled status true. Insecure result: only 'password' or 'ldap' methods appear."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On appliances that write authentication configuration to disk, inspect the auth configuration file for enabled method entries.",
+        "command": "cat /etc/nas/auth.conf 2>/dev/null || cat /etc/synology/auth.conf 2>/dev/null || grep -rEi 'auth_method|two_factor|totp|otp|saml' /etc/nas/ /etc/config/ 2>/dev/null | head -30",
+        "file_path": "/etc/nas/auth.conf, /etc/synology/auth.conf, /etc/config/",
+        "navigation": null,
+        "expected_output": "Secure result: configuration entries show enabled MFA methods. Insecure result: only password or ldap entries are present."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"password\"] (factory default)",
+      "[\"password\", \"ldap\"] (directory-integrated but no MFA)",
+      "[\"password\", \"totp\"] (TOTP MFA enabled)",
+      "[\"password\", \"saml_mfa\", \"hardware_token\"] (enterprise hardened)"
+    ]
+  },
+  {
+    "option_name": "storage_protocol_bound_interfaces",
+    "option_description": "Lists the network interface names (or identifiers) to which storage protocols — SMB, NFS, iSCSI, AFP, FTP — are bound and listening. Should contain only trusted internal VLAN interface names; the presence of 'all', 'dmz', 'internet-facing', or equivalent untrusted interface designators directly indicates an over-exposed attack surface.",
+    "security_impact": "The Rego rule `network_binding_to_untrusted_interfaces` fires when 'all', 'dmz', or 'internet-facing' appear in `storage_protocol_bound_interfaces`, producing the network exposure finding. Storage protocols bound to DMZ or all-interfaces configurations allow any host on those segments — including internet-sourced traffic — to interact with SMB, NFS, or iSCSI ports, making the NAS reachable for ransomware campaigns, credential brute-force, and data exfiltration without requiring internal network access.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check which network interfaces each storage protocol is listening on using ss or netstat.",
+        "command": "ss -tlnp | grep -E ':445|:139|:2049|:3260|:21|:548'; ip addr show; cat /proc/net/if_inet6 2>/dev/null | awk '{print $5}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure result: storage protocol ports (445, 139, 2049, 3260, 21, 548) bind to specific trusted VLAN IP addresses only. Insecure result: ports show '0.0.0.0' or ':::' indicating all-interface binding."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect SMB and NFS configuration files for interface binding directives.",
+        "command": "grep -iE 'interfaces|bind interfaces|listen|hosts allow|bind address' /etc/samba/smb.conf 2>/dev/null; grep -iE 'RPCBIND_ARGS|STATD_OPTS' /etc/sysconfig/nfs /etc/default/nfs-common 2>/dev/null",
+        "file_path": "/etc/samba/smb.conf, /etc/sysconfig/nfs, /etc/default/nfs-common",
+        "navigation": null,
+        "expected_output": "Secure result: smb.conf shows 'interfaces = eth1 10.10.5.0/24' and 'bind interfaces only = yes'. Insecure result: no binding directives present (defaults to all interfaces) or explicit '0.0.0.0' entries."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the network binding settings for each storage protocol in the NAS management interface.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management UI → Control Panel → File Services → [SMB / NFS / iSCSI / FTP] → Network Interface. For each enabled protocol, verify that only internal VLAN interface names are selected and that 'All Interfaces' is not chosen.",
+        "expected_output": "Secure result: each protocol shows specific trusted VLAN interface names such as 'LAN1 (10.10.5.0/24)'. Insecure result: 'All Interfaces' is selected or untrusted interfaces such as 'DMZ' or 'WAN' are included."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Conduct an external or DMZ-perspective port scan to verify that storage protocol ports are not reachable from untrusted network segments.",
+        "command": "nmap -p 445,139,2049,3260,21,548 --open <nas-management-ip> -Pn 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure result: all storage protocol ports show as filtered or closed from the DMZ or external scan source. Insecure result: one or more ports show as open from the untrusted segment."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"all\"] (insecure default on many appliances)",
+      "[\"eth0\", \"eth1\"] (interface-specific but requires validation of VLAN trust)",
+      "[\"lan1_trusted_vlan\"] (secure, scoped to storage VLAN)",
+      "[\"dmz\", \"lan1\"] (insecure, includes DMZ interface)",
+      "[\"bond0.100\"] (VLAN-tagged trusted interface, secure)"
+    ]
+  },
+  {
+    "option_name": "management_interface_bound_to_all",
+    "option_description": "Controls whether the NAS management interface (web UI, SSH, SNMP) listens on all available network interfaces (0.0.0.0 or ::) rather than being restricted to a specific trusted management VLAN adapter. When bound to all interfaces, any network segment reachable to the appliance can initiate management-plane connections.",
+    "security_impact": "The Rego rule network_binding_to_untrusted_interfaces fires when management_interface_bound_to_all is true AND untrusted_interface_types_present is non-empty. This combination means the management UI is reachable from DMZ, guest, or internet-facing segments, dramatically expanding the attack surface for credential attacks, CVE exploitation against the management daemon, and lateral movement pivoting through the storage appliance.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "SSH into the NAS and run ss or netstat to identify which addresses the management service is bound to. Look for the web UI port (5000/5001 on Synology, 8080/443 on QNAP, 80/443 generic) and check whether the local address column shows 0.0.0.0 or *.",
+        "command": "ss -tlnp | grep -E ':(443|5000|5001|8080|8443|80)' && netstat -tlnp 2>/dev/null | grep -E ':(443|5000|5001|8080)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-vulnerable result shows a specific IP (e.g., 192.168.10.5:5001) rather than 0.0.0.0:5001 or :::5001, indicating the service is bound to one interface only."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the NAS management daemon configuration file for the listen address directive. On Synology DSM check /etc/nginx/app.d/ or /usr/syno/etc/. On QNAP inspect /etc/config/apache/ or the qthttpd configuration.",
+        "command": "grep -rE 'listen|bind|address' /etc/nginx/app.d/ /usr/syno/etc/nginx/ /etc/config/apache/ 2>/dev/null",
+        "file_path": "/etc/nginx/app.d/ or /etc/config/apache/",
+        "navigation": null,
+        "expected_output": "Listen directives should reference a specific management IP rather than 0.0.0.0 or all. Any 0.0.0.0 entry confirms the attribute is true."
+      },
+      {
+        "type": "gui",
+        "instruction": "On Synology DSM navigate to Control Panel > Network > Network Interface, then cross-reference with Control Panel > Security > Firewall to see which interfaces management ports are exposed on. On QNAP go to System > Network > TCP/IP and review the service binding settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology: Control Panel > Security > Firewall | QNAP: Control Panel > System > Security > Allow/Deny List",
+        "expected_output": "Management services should explicitly list only the management VLAN interface IP. Absence of interface binding configuration implies all-interface binding."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a host on an untrusted VLAN (e.g., a guest or DMZ segment), attempt to reach the NAS management port. A successful TCP connection confirms the interface is bound to all adapters.",
+        "command": "nc -zv <NAS_IP_ON_UNTRUSTED_SEGMENT> 5000 && nc -zv <NAS_IP_ON_UNTRUSTED_SEGMENT> 443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A hardened NAS should return connection refused or timeout from untrusted segments. A successful connect means management_interface_bound_to_all is effectively true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (default on most consumer/prosumer NAS)",
+      "false (hardened enterprise deployment)"
+    ]
+  },
+  {
+    "option_name": "untrusted_interface_types_present",
+    "option_description": "An array listing the network interface classifications present on the NAS device that are considered untrusted or outside the storage VLAN boundary, such as 'dmz', 'internet-facing', 'guest', or 'public'. This attribute captures the actual network zone membership of the appliance's physical or logical adapters.",
+    "security_impact": "The Rego rule network_binding_to_untrusted_interfaces evaluates this array in two conditions: when storage_protocol_bound_interfaces includes 'all' and this array is non-empty, and when management_interface_bound_to_all is true and this array is non-empty. A non-empty array means the device has a foothold in an untrusted zone, and any all-interface binding then exposes management or data protocols to that zone, enabling direct attack from hostile network segments.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all network interfaces on the NAS and capture their IP addresses, then cross-reference against your network zone documentation to classify each interface. On Linux-based NAS platforms use ip addr or ifconfig.",
+        "command": "ip addr show && ip route show && cat /proc/net/if_inet6 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each interface with its IP subnet. Map each subnet to your zone registry (e.g., 10.0.50.0/24 = DMZ). Any interface in a non-storage-VLAN zone should be added to this array."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the network configuration section of the NAS management UI and review each configured adapter's IP assignment. Compare the subnet of each interface against your network segmentation diagram to identify DMZ, guest, or internet-facing subnets.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology: Control Panel > Network > Network Interface | QNAP: System > Network > TCP/IP | Generic: Management UI > System > Network Settings",
+        "expected_output": "Each interface entry should show an IP and subnet. Any interface whose subnet falls outside the dedicated storage VLAN range should be classified as untrusted."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network or storage administrator to obtain the VLAN and zone assignments for each physical NIC port on the NAS chassis. Request the network diagram showing switch port VLAN membership for the NAS uplinks.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A zone-annotated list of all NAS network interfaces. If any interface lands in a DMZ, guest, public Wi-Fi, or internet-routable VLAN, the array should include that zone label."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Run a network scan from hosts in each suspected zone to determine reachability of the NAS IP(s). Reachability from a DMZ or guest VLAN confirms an interface exists in that zone.",
+        "command": "nmap -sn <suspected_NAS_DMZ_IP> && nmap -sn <suspected_NAS_guest_IP>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the NAS responds to pings or port scans from a non-storage VLAN host, that zone type should appear in untrusted_interface_types_present."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[] (isolated storage VLAN only)",
+      "['dmz']",
+      "['guest', 'internet-facing']",
+      "['public', 'dmz']"
+    ]
+  },
+  {
+    "option_name": "chassis_intrusion_detection_enabled",
+    "option_description": "Controls whether the NAS appliance has chassis intrusion detection configured—either via hardware sensors (chassis-open microswitch) or software drive-presence monitoring—that generates an alert when the enclosure is physically opened or drives are removed without authorization. Alerts should be routed to a monitoring system or SIEM.",
+    "security_impact": "The Rego rule physical_access_without_disk_lock_or_chassis_security fires when volume_encryption_enabled is false AND chassis_intrusion_detection_enabled is false. Without chassis intrusion detection, a physical attacker can silently remove drives and walk away with storage media. Even if drives are later discovered missing, the absence of a timestamped alert prevents forensic reconstruction of when the event occurred and which actor was on-site, eliminating accountability for physical data theft.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log into the NAS management interface and navigate to the hardware monitoring or notification section. Look for chassis sensor, drive removal alert, or physical security settings. On Synology check Control Panel > Notification and Hardware & Power > HDD/SSD. On QNAP check System > Hardware > General and the Notification Center.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology: Control Panel > Notification > Rules > Hardware Events | QNAP: Control Panel > Notification Center > System Events > Disk Removal",
+        "expected_output": "An enabled alert rule for 'disk removal', 'chassis opened', or 'drive disconnected' events routed to email, SNMP trap, or syslog confirms this is enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux-based NAS platforms, check if a chassis intrusion kernel module or smartmontools disk monitoring daemon is running and whether it has alert hooks configured.",
+        "command": "lsmod | grep -i chassis; systemctl status smartd 2>/dev/null; cat /etc/smartd.conf 2>/dev/null | grep -i remove",
+        "file_path": "/etc/smartd.conf",
+        "navigation": null,
+        "expected_output": "smartd running with drive removal directives (e.g., -n standby,q) and alert commands configured confirms software-based detection. Absence of any chassis module or smartd alert hooks means the attribute is false."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review system event logs for any historical chassis or drive removal events. If no such event categories exist in the log schema, the feature is not configured. Check for syslog entries with keywords related to disk hot-plug events.",
+        "command": "grep -iE 'chassis|intrusion|hot.?remov|disk.?pull|drive.?remov' /var/log/messages /var/log/syslog 2>/dev/null | tail -50",
+        "file_path": "/var/log/messages or /var/log/syslog",
+        "navigation": null,
+        "expected_output": "Presence of timestamped chassis or drive-removal log entries confirms the detection mechanism is active. A total absence of such event types in historical logs suggests the feature is disabled or unconfigured."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Ask the NAS administrator whether chassis intrusion alerts have been tested and whether they are integrated with the SIEM or monitoring platform. Request evidence of a test alert (e.g., a SIEM ticket or email notification from a simulated drive removal).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A test alert record or SIEM event showing a drive-removal notification with timestamp confirms operational chassis intrusion detection. No evidence of testing should be treated as not effectively enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default on most NAS appliances)",
+      "true (enterprise models with hardware sensors or configured smartd alerts)"
+    ]
+  },
+  {
+    "option_name": "drive_hot_removal_authentication_required",
+    "option_description": "Controls whether the NAS appliance requires an authentication challenge—such as administrator credentials entered via the management interface, a physical key lock, or an out-of-band confirmation—before permitting hot-removal of drives from the chassis. This prevents unauthorized personnel with physical access from extracting storage media while the system is running.",
+    "security_impact": "The Rego rule physical_access_without_disk_lock_or_chassis_security fires when volume_encryption_enabled is false AND drive_hot_removal_authentication_required is false. Without drive removal authentication, any individual with physical access to the server room can pull drives from a running NAS and obtain all data without needing network credentials, bypassing all software-layer access controls. This is a direct data exfiltration path requiring no technical skill.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Check the NAS management console for drive lock or hot-swap authentication settings. On enterprise NAS platforms such as Synology SA series or QNAP enterprise models, look in Storage & Snapshots > Storage > Disk or in the hardware security settings for drive lock options.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology Enterprise: Storage Manager > HDD/SSD > Disk Lock | QNAP Enterprise: Storage & Snapshots > Storage > Disks > Disk Security | Generic: Management UI > Storage > Drive Security",
+        "expected_output": "A 'Disk Lock' or 'Drive Removal Authentication' setting shown as enabled with a configured PIN or password confirms the attribute is true. Most consumer NAS models will not have this option at all, implying false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review vendor hardware specifications for the NAS model to determine whether drive hot-removal authentication is a supported feature. Consult the NAS administrator to verify whether physical key locks have been installed on drive bays and whether that constitutes an authentication requirement per policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Vendor documentation confirming the feature exists combined with administrator confirmation it is enabled. For models where the feature does not exist in hardware, the attribute is false by default and compensating controls (volume encryption, physical cage locks) should be documented."
+      },
+      {
+        "type": "command",
+        "instruction": "On Synology NAS with DSM, use the synodiskpowerctl or synostorage CLI tools to check disk lock status if available. For QNAP use the QCLI tool.",
+        "command": "synodiskpowerctl --get-lock-status 2>/dev/null || qcli --disk --get-lock 2>/dev/null || echo 'Command not supported on this model'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output indicating 'locked' or 'authentication required' confirms the feature is enabled. 'Command not found' or 'not supported' indicates the model does not support this feature and the attribute is false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a physical security review of the NAS enclosure by visually inspecting drive bays for physical key locks or anti-tamper mechanisms. Verify with the facilities or security team that key custody procedures are documented if physical locks are the control.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Visible key lock cylinders in drive bays in the locked position, combined with documented key custody, is an acceptable physical control. Open drive bays with no locking mechanism means the attribute is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default and most common, especially consumer/prosumer models)",
+      "true (enterprise NAS with disk lock feature enabled, or physical key locks installed)"
+    ]
+  },
+  {
+    "option_name": "account_lockout_enabled",
+    "option_description": "Controls whether the NAS management interface and share authentication layer enforce automatic account lockout after a configurable number of consecutive failed login attempts. When enabled, accounts are temporarily or permanently locked following repeated failures, requiring administrator intervention or a cooldown period before further authentication attempts are permitted.",
+    "security_impact": "The Rego rule absence_of_failed_login_lockout_or_rate_limiting fires when BOTH account_lockout_enabled is false AND rate_limiting_enabled is false. Without either control, the management interface and file-sharing endpoints accept an unlimited number of authentication attempts, making them fully susceptible to brute-force and password-spray attacks. Combined with management_interface_exposure of 'internet_facing' or 'internal', this creates a practical path to credential compromise on all local accounts including admin.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On Synology DSM, navigate to Control Panel > Security > Account and locate the 'Enable account lockout' checkbox. Verify the lockout threshold (number of attempts) and lockout duration are set to policy-compliant values. On QNAP go to Control Panel > System Security > Account Access and check the brute-force protection settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology: Control Panel > Security > Account > Account Lockout | QNAP: Control Panel > System > Security > Account Access Protection | Generic: Management UI > Security > Authentication Policy",
+        "expected_output": "Account lockout enabled with a threshold of 5 or fewer failed attempts and a lockout duration of at least 10 minutes represents a compliant configuration. Disabled or absent settings confirm account_lockout_enabled is false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect PAM configuration files or the NAS-specific authentication policy configuration files to determine if pam_tally2, pam_faillock, or equivalent modules are configured with deny thresholds.",
+        "command": "grep -rE 'deny|lock_time|faillock|tally' /etc/pam.d/ /etc/security/faillock.conf 2>/dev/null",
+        "file_path": "/etc/pam.d/ and /etc/security/faillock.conf",
+        "navigation": null,
+        "expected_output": "Lines such as 'auth required pam_faillock.so deny=5 unlock_time=600' confirm lockout is enforced at the OS level. Absence of deny directives means account_lockout_enabled is false at the system layer."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Synology DSM security policy via synosetkeyvalue or the Synology DSM configuration database for the account lockout parameters.",
+        "command": "cat /etc/synoinfo.conf 2>/dev/null | grep -iE 'lockout|lock|fail'; synogetkeyvalue /etc/synoinfo.conf account_lockout 2>/dev/null",
+        "file_path": "/etc/synoinfo.conf",
+        "navigation": null,
+        "expected_output": "A key-value entry confirming lockout is enabled with a threshold value. Absence or a value of 'no'/'0' means account_lockout_enabled is false."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review authentication logs for evidence of lockout events. The presence of lockout-related log entries would confirm the feature has fired historically, indicating it is configured. Their total absence after reviewing auth logs with multiple failure sequences could indicate it is not enabled.",
+        "command": "grep -iE 'account.?lock|too many fail|locked out|authentication failure' /var/log/auth.log /var/log/secure /var/log/messages 2>/dev/null | tail -30",
+        "file_path": "/var/log/auth.log or /var/log/secure",
+        "navigation": null,
+        "expected_output": "Log entries showing 'account locked' events after repeated failures confirm lockout is operational. This method alone is insufficient—lack of log entries does not confirm the setting is enabled if no lockout events have occurred."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default on most NAS platforms without explicit hardening)",
+      "true (explicitly configured in security settings with defined threshold and duration)"
+    ]
+  },
+  {
+    "option_name": "rate_limiting_enabled",
+    "option_description": "Controls whether the NAS enforces rate limiting or auto-block mechanisms on authentication attempts to the management interface and share access endpoints. Rate limiting may include progressive delays between attempts, temporary IP-based blocking after threshold failure counts, or CAPTCHA challenges. This is a complementary control to account lockout that operates at the network/session layer rather than the account layer.",
+    "security_impact": "The Rego rule absence_of_failed_login_lockout_or_rate_limiting fires only when BOTH account_lockout_enabled and rate_limiting_enabled are false. Either control alone satisfies the rule, but when neither is present, brute-force attacks can proceed at wire speed against all authentication endpoints. The rule also considers management_interface_exposure as contextual severity—internet-facing exposure with no rate limiting or lockout creates a critical-severity unauthenticated brute-force attack surface.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "On Synology DSM navigate to Control Panel > Security > Auto Block and verify it is enabled with a defined failure count threshold and block period. On QNAP navigate to Control Panel > System > Security > IP Access Protection and confirm rate limiting or auto-blocking is active for management and file services.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Synology: Control Panel > Security > Auto Block (enable, set attempts threshold and block period) | QNAP: Control Panel > System > Security > IP Access Protection | TrueNAS: System > Advanced > Login Attempts",
+        "expected_output": "Auto Block enabled with 5 or fewer allowed failures within a 5-minute window, resulting in a block period of at least 30 minutes, represents a compliant rate-limiting configuration."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the NAS auto-block or IP-deny configuration file. On Synology, the auto-block list and configuration are stored in /etc/synoautoblock.conf or managed via the security daemon.",
+        "command": "cat /etc/synoautoblock.conf 2>/dev/null; ls -la /usr/syno/etc/autoblock* 2>/dev/null; cat /etc/hosts.deny 2>/dev/null",
+        "file_path": "/etc/synoautoblock.conf or /etc/hosts.deny",
+        "navigation": null,
+        "expected_output": "A configuration file with enabled=yes and threshold/period values confirms rate limiting is configured. An empty or absent file, or enabled=no, means rate_limiting_enabled is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether fail2ban, sshguard, or an equivalent rate-limiting daemon is running on the NAS operating system, which would provide IP-level rate limiting for SSH and web management ports.",
+        "command": "systemctl status fail2ban 2>/dev/null; systemctl status sshguard 2>/dev/null; fail2ban-client status 2>/dev/null | grep 'Jail list'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "fail2ban or sshguard running with active jails covering the management port and SSH confirms rate limiting is enabled. Neither service present or both stopped means rate_limiting_enabled depends entirely on any built-in NAS UI setting."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a controlled authentication rate test against the management interface from an authorized test host. Send 10 rapid consecutive failed login attempts and observe whether subsequent attempts are throttled, delayed, or result in a source IP block.",
+        "command": "for i in $(seq 1 10); do curl -s -o /dev/null -w '%{http_code} %{time_total}s\\n' -X POST https://<NAS_IP>:5001/webapi/auth.cgi -d 'api=SYNO.API.Auth&method=login&version=3&account=admin&passwd=wrongpass&session=FileStation&format=cookie'; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Increasing response times (progressive delay) or HTTP 429 / connection refused responses after the threshold number of attempts confirm rate limiting is active. Consistent fast responses across all 10 attempts indicate rate_limiting_enabled is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default on many NAS platforms, particularly older firmware versions)",
+      "true (explicitly enabled via Auto Block or IP Access Protection in management UI)"
+    ]
+  }
+]

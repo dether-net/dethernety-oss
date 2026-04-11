@@ -1,0 +1,1039 @@
+[
+  {
+    "option_name": "encryption_at_rest_enabled",
+    "option_description": "Controls whether full-volume or full-disk encryption is actively enabled and enforced on the storage medium containing sensitive data. This is the master switch that determines if data is protected at rest.",
+    "security_impact": "This is the foundational control for the entire Encryption at Rest class. The Rego policy references this attribute in data_at_rest_access_prevention, decommissioning_data_sanitization, and transparent_application_integration rules. If false, no downstream encryption countermeasures can be satisfied, leaving raw storage contents readable to anyone with physical or low-level logical access to the medium — including disk theft, unauthorized mounting, and decommissioning scenarios.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux, check if block devices are encrypted using lsblk with filesystem type output; LUKS-encrypted devices show 'crypto_LUKS' as the type.",
+        "command": "lsblk -o NAME,TYPE,FSTYPE,MOUNTPOINT | grep -i luks; cryptsetup status $(lsblk -o NAME,TYPE | awk '/crypt/{print $1}')",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active LUKS devices will show 'device: /dev/sdX is active' with cipher and keysize fields. If no LUKS devices exist, encryption is not enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, check BitLocker status for all drives using manage-bde to confirm protection is active, not just configured.",
+        "command": "manage-bde -status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Look for 'Protection Status: Protection On' for each drive. 'Protection Off' means encryption exists but is suspended; 'Fully Decrypted' means not enabled."
+      },
+      {
+        "type": "api",
+        "instruction": "On AWS, query EBS volume encryption status for all volumes in the account to confirm active encryption flags.",
+        "command": "aws ec2 describe-volumes --query 'Volumes[*].{VolumeId:VolumeId,Encrypted:Encrypted,State:State}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Encrypted column should show 'True' for all volumes containing sensitive data. 'False' indicates encryption is not enabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "On macOS, verify FileVault status via System Settings to confirm encryption is active and not merely in progress.",
+        "command": "fdesetup status",
+        "file_path": null,
+        "navigation": "System Settings > Privacy & Security > FileVault — status should read 'FileVault is turned on'",
+        "expected_output": "Command output 'FileVault is On' confirms active encryption. 'FileVault is Off' or 'Encryption in progress' requires follow-up."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "encryption_algorithm",
+    "option_description": "Specifies the symmetric encryption algorithm and operational mode configured for data at rest protection on the volume or storage system. Determines the mathematical strength and mode of operation applied to all stored data blocks.",
+    "security_impact": "The Rego cipher_algorithm_strength rule requires the algorithm to be in approved families (AES-256 or ChaCha20-256 for full strength; AES-128 as minimum acceptable) combined with an approved mode (XTS, GCM, CBC, or CTR). Weak algorithms like DES, 3DES, and RC4 are broken and provide no meaningful protection. The data_at_rest_access_prevention and transparent_application_integration rules also gate on approved algorithm selections — choosing 'none' or a weak algorithm will fail multiple countermeasure checks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux with LUKS, inspect the LUKS header to retrieve the exact cipher, cipher mode, and hash specification in use.",
+        "command": "cryptsetup luksDump /dev/sdX | grep -E 'Cipher name|Cipher mode|Hash spec|MK bits'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows fields like 'Cipher name: aes', 'Cipher mode: xts-plain64', 'MK bits: 256' — map these to the enum value (e.g., AES-256-XTS)."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows with BitLocker, retrieve the encryption method currently applied to each protected volume.",
+        "command": "Get-BitLockerVolume | Select-Object MountPoint, EncryptionMethod, VolumeStatus",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EncryptionMethod field returns values like 'XtsAes256' or 'Aes256' — map to corresponding enum value. 'None' indicates no encryption."
+      },
+      {
+        "type": "api",
+        "instruction": "On AWS, query EBS volume or RDS instance encryption details to confirm which KMS CMK and implicitly AES-256 is in use (AWS always uses AES-256 for EBS).",
+        "command": "aws ec2 describe-volumes --volume-ids vol-XXXXXXXX --query 'Volumes[*].{Encrypted:Encrypted,KmsKeyId:KmsKeyId}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS EBS always uses AES-256; confirm Encrypted is true. For algorithm specifics on custom platforms, review the KMS key spec via: aws kms describe-key --key-id <key-arn> --query 'KeyMetadata.KeySpec'"
+      },
+      {
+        "type": "gui",
+        "instruction": "On GCP, inspect the disk encryption settings in the Cloud Console to identify CMEK configuration and confirm Google's AES-256 default or customer-supplied key algorithm.",
+        "command": "gcloud compute disks describe DISK_NAME --zone ZONE --format='get(diskEncryptionKey,name)'",
+        "file_path": null,
+        "navigation": "GCP Console > Compute Engine > Disks > [Disk Name] > Encryption section shows encryption type and key reference",
+        "expected_output": "Output includes diskEncryptionKey details. GCP uses AES-256-XTS by default for persistent disks. CSEK configurations will show the SHA256 of the provided key."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "AES-256-XTS",
+      "AES-256-GCM",
+      "AES-256-CBC",
+      "AES-128-XTS",
+      "none"
+    ]
+  },
+  {
+    "option_name": "key_length_bits",
+    "option_description": "Specifies the length of the symmetric encryption key in bits used for data at rest encryption. Directly determines the computational resistance of the encrypted data against brute-force exhaustion attacks.",
+    "security_impact": "The Rego cipher_algorithm_strength rule enforces minimum key lengths: 256 bits for AES-256 and ChaCha20-256 families, and 128 bits for AES-128. Keys shorter than these thresholds fail the countermeasure check. A 128-bit key provides approximately 2^128 brute-force resistance (acceptable minimum); 256-bit doubles the security margin to 2^256, considered computationally infeasible against quantum and classical adversaries for the foreseeable future. Keys below 128 bits (e.g., 56-bit DES) are broken by modern hardware.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux with LUKS, extract the master key size directly from the LUKS volume header.",
+        "command": "cryptsetup luksDump /dev/sdX | grep 'MK bits'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output 'MK bits: 256' indicates a 256-bit key. 'MK bits: 128' is the minimum acceptable value."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, retrieve the BitLocker key size implicitly from the encryption method — XtsAes256 and Aes256 indicate 256-bit keys; Aes128 indicates 128-bit.",
+        "command": "Get-BitLockerVolume | Select-Object MountPoint, EncryptionMethod | ForEach-Object { $km = $_.EncryptionMethod; $bits = if ($km -match '256') { 256 } elseif ($km -match '128') { 128 } else { 'unknown' }; [PSCustomObject]@{MountPoint=$_.MountPoint; KeyBits=$bits} }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows KeyBits value per mount point. 256 is the target; 128 is acceptable minimum; 'unknown' or absent requires investigation."
+      },
+      {
+        "type": "api",
+        "instruction": "For cloud-managed encryption, query the KMS key spec to determine the key length — AWS KMS SYMMETRIC_DEFAULT is AES-256.",
+        "command": "aws kms describe-key --key-id <key-id-or-arn> --query 'KeyMetadata.{KeySpec:KeySpec,KeyUsage:KeyUsage,KeyState:KeyState}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KeySpec 'SYMMETRIC_DEFAULT' confirms AES-256 (256 bits). Any response indicating 'AES_128' or RSA key specs for symmetric data encryption warrants review."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux systems using dm-crypt with a configuration file, inspect the crypttab and any custom cipher specification to determine key size.",
+        "command": "grep -E 'aes-|cipher' /etc/crypttab; dmsetup table --target crypt | awk '{print $4}'",
+        "file_path": "/etc/crypttab",
+        "navigation": null,
+        "expected_output": "Cipher spec like 'aes-xts-plain64:256' or 'aes-cbc-essiv:sha256' in the table output shows the key length explicitly. The number after the colon represents bits."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "256",
+      "128",
+      "192"
+    ]
+  },
+  {
+    "option_name": "encryption_coverage_scope",
+    "option_description": "Indicates which portions of the storage volume are protected by encryption — full volume coverage (all partitions, OS, data, temp), partial coverage (specific directories or partitions only), or none. Determines whether gaps exist where sensitive data could persist unencrypted.",
+    "security_impact": "The Rego full_volume_coverage rule triggers a high-criticality finding for both 'partial' and 'none' values, making this a critical configuration attribute. Partial coverage creates data leakage paths through unencrypted OS partitions, temporary file directories, or application caches. The data_at_rest_access_prevention rule also references this attribute. File-level or folder-level encryption solutions (e.g., eCryptfs, EFS without full-disk coverage) are classified as partial and fail the full_volume_coverage countermeasure, as an attacker mounting the disk raw can still access unencrypted filesystem metadata and non-covered regions.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux, map all block devices and their encryption status to identify any unencrypted partitions — compare against mounted filesystems containing sensitive data.",
+        "command": "lsblk -o NAME,TYPE,FSTYPE,MOUNTPOINT,SIZE; lsblk -f | grep -v crypto_LUKS | grep -v dm-; blkid | grep -v LUKS",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All partitions containing sensitive data (/, /var, /home, /tmp) should reside on dm-crypt/LUKS devices. Partitions showing direct ext4/xfs without an underlying LUKS device indicate partial or no coverage."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, enumerate all volumes and their BitLocker protection status to identify any drive with FullyDecrypted or unprotected status.",
+        "command": "Get-BitLockerVolume | Select-Object MountPoint, EncryptionPercentage, VolumeStatus, ProtectionStatus | Format-Table -AutoSize",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All volumes should show VolumeStatus 'FullyEncrypted' and ProtectionStatus 'On'. 'FullyDecrypted', 'EncryptionInProgress', or ProtectionStatus 'Off' indicates incomplete coverage."
+      },
+      {
+        "type": "api",
+        "instruction": "On AWS, check that all EBS volumes attached to sensitive instances are encrypted, including root volumes and any additional data volumes.",
+        "command": "aws ec2 describe-instances --instance-ids i-XXXXXXXX --query 'Reservations[*].Instances[*].BlockDeviceMappings[*].{Device:DeviceName,VolumeId:Ebs.VolumeId}' --output table; aws ec2 describe-volumes --filters Name=attachment.instance-id,Values=i-XXXXXXXX --query 'Volumes[*].{VolumeId:VolumeId,Encrypted:Encrypted,Device:Attachments[0].Device}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every listed volume should show Encrypted: true. Any false value, particularly on root (/dev/xvda or /dev/sda1) or data volumes, indicates partial coverage."
+      },
+      {
+        "type": "gui",
+        "instruction": "On macOS, verify FileVault covers the full system volume and not just the user home directory (older per-user encryption is considered partial).",
+        "command": "diskutil apfs list | grep -E 'Volume|Encryption'; fdesetup status",
+        "file_path": null,
+        "navigation": "System Settings > Privacy & Security > FileVault should show 'FileVault is turned on' at system level, not per-user",
+        "expected_output": "FileVault status 'on' at system level with APFS volume showing 'FileVault: Yes' indicates full volume coverage. Per-user encryption only is partial coverage."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "full",
+      "partial",
+      "none"
+    ]
+  },
+  {
+    "option_name": "swap_space_encrypted",
+    "option_description": "Controls whether swap partitions or swap files are included within the encrypted volume or separately encrypted. Swap space is used by the OS to page out memory contents to disk, potentially containing sensitive data including cryptographic keys, passwords, and session tokens.",
+    "security_impact": "The Rego full_volume_coverage rule explicitly triggers a high-criticality finding when encryption_coverage_scope is 'full' but swap_space_encrypted is false. This is a common configuration gap — administrators enable disk encryption on data partitions but forget swap, which receives memory dumps of running processes. An attacker with physical access to the disk can read swap contents to extract credentials, encryption keys, or sensitive in-memory application data that was paged out, completely bypassing volume encryption on data partitions.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux, identify all swap devices and check whether they reside on an encrypted block device (dm-crypt/LUKS layer).",
+        "command": "swapon --show; cat /proc/swaps; lsblk -o NAME,TYPE,FSTYPE,MOUNTPOINT | grep -A2 -B2 SWAP",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Swap device paths like '/dev/dm-X' indicate the swap is on a device-mapper (likely LUKS-encrypted) device. Raw '/dev/sdXY' paths indicate unencrypted swap. Verify encryption: dmsetup info /dev/dm-X"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect /etc/crypttab for swap encryption configuration and /etc/fstab to confirm swap is mounted from an encrypted device.",
+        "command": "grep -i swap /etc/crypttab /etc/fstab; grep swap /etc/crypttab",
+        "file_path": "/etc/crypttab",
+        "navigation": null,
+        "expected_output": "In /etc/crypttab, an entry like 'cryptswap /dev/sdX2 /dev/urandom swap,cipher=aes-xts-plain64:256' confirms encrypted swap. No swap entry in crypttab with an unencrypted swap in fstab indicates unencrypted swap."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows with BitLocker, confirm the pagefile (Windows swap equivalent) is encrypted by verifying BitLocker is active on the system drive where the pagefile resides.",
+        "command": "Get-BitLockerVolume C: | Select-Object VolumeStatus, ProtectionStatus; wmic pagefile list /format:list",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If BitLocker VolumeStatus is 'FullyEncrypted' and ProtectionStatus is 'On' for C: drive, the pagefile.sys on that drive is also encrypted. Pagefile on an unencrypted volume fails this check."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, verify that virtual memory and swap files are encrypted — FileVault 2 encrypts all content including the swap directory when enabled.",
+        "command": "sysctl vm.swapusage; ls -la /private/var/vm/; fdesetup status",
+        "file_path": "/private/var/vm/",
+        "navigation": null,
+        "expected_output": "If FileVault status is 'On', swap files in /private/var/vm/ are encrypted as part of the full-volume encryption. 'FileVault is Off' means swap is unencrypted."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "hibernation_file_encrypted",
+    "option_description": "Controls whether the hibernation file (hiberfil.sys on Windows, sleepimage on macOS, or hibernate image on Linux) is protected by full-volume encryption. Hibernation writes the complete contents of RAM to disk, including sensitive in-memory data.",
+    "security_impact": "The Rego full_volume_coverage rule triggers a high-criticality finding when encryption_coverage_scope is 'full' but hibernation_file_encrypted is false. The hibernation file is among the highest-value targets for an attacker with disk access — it contains a complete memory snapshot including decrypted file contents, running process memory, session tokens, private keys loaded in memory, and potentially the volume encryption key itself. A full-disk encryption solution that does not encrypt the hibernation file effectively provides no protection during the hibernation window.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, verify BitLocker protection status on the system drive containing hiberfil.sys, and confirm hibernation is either disabled or the file is protected.",
+        "command": "manage-bde -status C:; powercfg /hibernate; Get-Item C:\\hiberfil.sys -ErrorAction SilentlyContinue | Select-Object Name, Length",
+        "file_path": "C:\\hiberfil.sys",
+        "navigation": null,
+        "expected_output": "BitLocker 'Protection Status: Protection On' for C: confirms hiberfil.sys is encrypted. If hibernation is disabled (powercfg /hibernate reports 'Hibernate is not currently enabled'), the file does not exist and this check is not applicable."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, verify FileVault is active, which automatically encrypts the sleep image used for hibernation (Safe Sleep mode).",
+        "command": "fdesetup status; pmset -g | grep hibernatemode; ls -lah /private/var/vm/sleepimage 2>/dev/null",
+        "file_path": "/private/var/vm/sleepimage",
+        "navigation": null,
+        "expected_output": "FileVault 'On' combined with hibernatemode 3 or 25 and the presence of sleepimage confirms the hibernate file is encrypted. hibernatemode 0 means hibernation is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, verify the hibernate/suspend-to-disk target writes to an encrypted swap partition or encrypted dedicated hibernate partition.",
+        "command": "cat /etc/systemd/sleep.conf | grep -i hibernate; grep -i resume /etc/default/grub; grep resume /etc/crypttab; lsblk -o NAME,TYPE,FSTYPE | grep -E 'swap|LUKS'",
+        "file_path": "/etc/systemd/sleep.conf",
+        "navigation": null,
+        "expected_output": "The GRUB 'resume=' parameter should point to a device-mapper (/dev/dm-X) encrypted device. If it points directly to /dev/sdXY without a LUKS layer, the hibernate image is written to unencrypted storage."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review system hardening documentation or OS deployment baseline to confirm whether hibernation is explicitly disabled on systems where encryption of the hibernate file cannot be guaranteed.",
+        "command": "grep -ri hibernate /etc/systemd/sleep.conf /etc/pm/ 2>/dev/null; systemctl status hibernate.target",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Systems that disable hibernate entirely (hibernate.target masked or not present) satisfy this requirement by elimination. Documentation should specify the deliberate policy decision."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unencrypted_remnant_partitions",
+    "option_description": "Lists partition labels or mount points that exist on the storage volume but are NOT covered by encryption. Identifies specific gaps in coverage such as unencrypted boot partitions, recovery partitions, or auxiliary data partitions left outside the encrypted container.",
+    "security_impact": "The Rego full_volume_coverage rule triggers a finding whenever this array contains any entries (count > 0), even if encryption_coverage_scope is set to 'full'. This catches mismatches between claimed scope and actual partition layout. Unencrypted /boot partitions are typically acceptable if they contain only boot loader files and initramfs with no sensitive data — however, recovery partitions containing diagnostic tools, system images, or cached credentials represent significant risk. Each entry in this array represents a potential data exposure surface for an attacker with physical disk access.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux, enumerate all partitions and identify which ones are not backed by a LUKS/dm-crypt device by comparing block device types.",
+        "command": "lsblk -o NAME,TYPE,FSTYPE,MOUNTPOINT,LABEL,SIZE; for dev in $(lsblk -o NAME,TYPE -p | awk '/part/{print $1}'); do echo \"$dev: $(cryptsetup isLuks $dev && echo LUKS || echo UNENCRYPTED)\"; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Partitions labeled 'UNENCRYPTED' that are not /boot (or the EFI System Partition) and contain sensitive data or system files should be recorded in the unencrypted_remnant_partitions array. /boot is acceptable if it holds only bootloader files."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, list all disk partitions and identify any that are not BitLocker-protected, including recovery and EFI partitions.",
+        "command": "Get-Partition | Select-Object DiskNumber, PartitionNumber, Type, Size, IsSystem, IsActive; Get-BitLockerVolume | Where-Object {$_.VolumeStatus -ne 'FullyEncrypted'} | Select-Object MountPoint, VolumeType, VolumeStatus",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Partitions with Type 'Recovery' or 'System' that don't appear in BitLocker volume list are unencrypted remnants. WinRE (Windows Recovery Environment) partitions are typically unencrypted by design but should be assessed for sensitive content."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, list all APFS/disk volumes including hidden and recovery partitions to identify what is outside FileVault protection.",
+        "command": "diskutil list; diskutil apfs list; diskutil info disk0s1 | grep -E 'Partition Type|Encrypted|File System'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Volumes showing 'Encrypted: No' or partition types like 'Apple_Boot', 'Apple_Recovery', 'EFI' that are outside APFS encrypted containers should be listed. Normal expected: EFI (FAT32, unencrypted) and Recovery partitions."
+      },
+      {
+        "type": "api",
+        "instruction": "On AWS, enumerate all EBS volumes and instance store volumes attached to an instance to identify any unencrypted volumes, particularly ephemeral storage which is never encrypted.",
+        "command": "aws ec2 describe-instances --instance-ids i-XXXXXXXX --query 'Reservations[*].Instances[*].{EBS:BlockDeviceMappings,InstanceStore:InstanceStoreMappings,InstanceType:InstanceType}' --output json; aws ec2 describe-volumes --filters Name=attachment.instance-id,Values=i-XXXXXXXX --query 'Volumes[*].{VolumeId:VolumeId,Encrypted:Encrypted,Device:Attachments[0].Device,Type:VolumeType}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any volume with Encrypted: false should be added to unencrypted_remnant_partitions. Instance store (ephemeral) volumes on certain instance types are hardware-encrypted but without customer key control — document accordingly."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "/boot",
+      "/boot/efi",
+      "EFI System Partition",
+      "Recovery",
+      "WinRE",
+      "[]"
+    ]
+  },
+  {
+    "option_name": "key_management_system_type",
+    "option_description": "Identifies the type of system used to generate, store, and manage encryption keys — ranging from hardware security modules (HSM) and cloud KMS services to manual or absent key management. This determines the degree of key governance, separation of keys from data, and overall cryptographic posture.",
+    "security_impact": "The Rego policy flags configurations where key_management_system_type is 'none' or 'manual' as direct key_management_integrity failures, and 'software_only' triggers a finding when keys are co-located with data. Additionally, even strong KMS types (hsm, cloud_kms, dedicated_kms) must have rotation and revocation enabled to avoid further findings. This attribute also gates data_at_rest_access_prevention and transparent_application_integration countermeasures.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, list KMS keys and their metadata to confirm cloud KMS usage.",
+        "command": "aws kms list-keys --query 'Keys[*].KeyId' --output table && aws kms describe-key --key-id <key-id> --query 'KeyMetadata.{KeyManager:KeyManager,KeyState:KeyState,Origin:Origin}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KeyManager field shows CUSTOMER or AWS_SERVICE; Origin shows AWS_KMS for managed keys or EXTERNAL for imported material."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, check if HashiCorp Vault is running as a dedicated KMS and inspect its seal configuration.",
+        "command": "systemctl status vault && vault status --format=json | jq '{sealed:.sealed, storage_type:.storage_type, ha_enabled:.ha_enabled}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Vault process running with seal type (shamir, awskms, gcpckms, etc.) indicating dedicated KMS or HSM integration."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Portal, navigate to Key Vaults to confirm Azure Key Vault is in use and review the SKU (Standard vs. Premium/HSM-backed).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Key Vaults → [Select Vault] → Overview → SKU field shows 'Standard' (software) or 'Premium' (HSM-backed)",
+        "expected_output": "Premium SKU indicates HSM-backed key storage; Standard indicates software KMS."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the application or infrastructure encryption configuration for KMS endpoint references.",
+        "command": "grep -rE '(kms|vault|hsm|keystore|key_provider)' /etc/app/config/ /etc/encryption/ --include='*.yml' --include='*.json' --include='*.conf' 2>/dev/null",
+        "file_path": "/etc/app/config/ or /etc/encryption/",
+        "navigation": null,
+        "expected_output": "References to KMS ARNs, Vault addresses, PKCS#11 library paths, or HSM endpoints indicate the KMS type in use."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "cloud_kms",
+      "dedicated_kms",
+      "software_only",
+      "hsm",
+      "none"
+    ]
+  },
+  {
+    "option_name": "keys_colocated_with_data",
+    "option_description": "Indicates whether encryption key material resides on the same host, disk, or storage volume as the data it protects. Co-location fundamentally undermines encryption by allowing an attacker who gains access to the storage medium to obtain both the ciphertext and the decryption key.",
+    "security_impact": "The Rego policy fires a key_management_integrity finding when keys are co-located and the KMS type is not hsm, cloud_kms, or dedicated_kms. Specifically, software_only KMS with co-located keys is an explicit finding condition. This means even partial KMS deployments can fail if key files are written to the same disk as encrypted data, making physical or logical separation mandatory.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for LUKS key files or keystore files stored on the same partition as encrypted data on Linux.",
+        "command": "lsblk -f && find / -name '*.key' -o -name '*.keystore' -o -name '*.jks' -o -name 'luks*.key' 2>/dev/null | xargs -I{} df {} --output=source 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Key files should resolve to a different block device or network path than the encrypted data volume. Co-location is a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "For LUKS-encrypted volumes, inspect the key slots and header to determine if key material is embedded in the volume header.",
+        "command": "cryptsetup luksDump /dev/sda1 | grep -E '(Key Slot|LUKS header|Keyslot)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "LUKS header is always on the same device. The concern is whether additional key files or escrow keys are also stored locally — these should not be present."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review BitLocker or FileVault key protector configuration to determine if recovery keys are stored locally.",
+        "command": "manage-bde -protectors -get C: 2>/dev/null || fdesetup status && fdesetup list -extended 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "BitLocker should show TPM or TPM+PIN protectors with recovery keys escrowed to Active Directory or Azure AD, not stored in a local file. FileVault should show institutional recovery keys sent to MDM."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS to verify that EBS volume encryption uses a KMS key whose key material is not stored on the EC2 instance.",
+        "command": "aws ec2 describe-volumes --query 'Volumes[*].{VolumeId:VolumeId,Encrypted:Encrypted,KmsKeyId:KmsKeyId}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Encrypted=true and KmsKeyId populated with an ARN confirms keys are managed externally in AWS KMS, not co-located on the instance."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "key_rotation_enabled",
+    "option_description": "Controls whether the key management system automatically rotates encryption keys on a defined schedule. Key rotation limits the cryptographic exposure window — if a key is compromised, rotation ensures it becomes invalid within a bounded period and new data is protected with fresh key material.",
+    "security_impact": "The Rego policy triggers a key_management_integrity finding for any hsm, cloud_kms, or dedicated_kms configuration where key_rotation_enabled is false. Separately, the key_rotation_lifecycle_management countermeasure is only awarded when rotation is enabled and rotation_period_days is between 1 and 365. This means deployments using strong KMS types but skipping rotation still accumulate findings under both rules.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check AWS KMS key rotation status for all customer-managed keys.",
+        "command": "aws kms list-keys --query 'Keys[*].KeyId' --output text | tr '\\t' '\\n' | xargs -I{} aws kms get-key-rotation-status --key-id {} --query '{KeyId:\"{}\",RotationEnabled:KeyRotationEnabled}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RotationEnabled: true for each key indicates annual automatic rotation is configured. false is a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "For HashiCorp Vault, check the mount-level key rotation configuration for transit secrets engine.",
+        "command": "vault secrets list -format=json | jq 'keys[]' | xargs -I{} vault read {}/config/keys 2>/dev/null | grep -E '(rotation_period|auto_rotate|min_decryption_version)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "rotation_period or auto_rotate_period populated with a non-zero value confirms automatic rotation is enabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Key Vault, navigate to a key and check the rotation policy configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Key Vaults → [Vault Name] → Keys → [Key Name] → Rotation Policy → Verify 'Rotate automatically based on a time-based trigger' is enabled with a defined interval (e.g., every 1 year)",
+        "expected_output": "Rotation policy enabled with expiry and notification settings configured confirms auto-rotation is active."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the GCP Cloud KMS API to check CryptoKey rotation schedule.",
+        "command": "gcloud kms keys list --keyring=<keyring> --location=<location> --format='table(name,rotationPeriod,nextRotationTime)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "rotationPeriod populated (e.g., 7776000s for 90 days) and nextRotationTime set confirms automatic rotation is scheduled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "key_revocation_capability",
+    "option_description": "Indicates whether the key management system can immediately disable or revoke an encryption key to prevent any further decryption operations. This is a critical incident response capability — when a breach or key compromise is detected, revocation must be immediate and effective.",
+    "security_impact": "The Rego policy fires a key_management_integrity finding when key_revocation_capability is false for hsm, cloud_kms, or dedicated_kms deployments. The implication is that even a well-configured KMS without revocation capability leaves data exposed indefinitely following a key compromise incident, as there is no mechanism to invalidate the key and halt decryption by unauthorized parties.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify AWS KMS key can be disabled immediately via CLI, confirming revocation capability exists.",
+        "command": "aws kms describe-key --key-id <key-id> --query 'KeyMetadata.{KeyState:KeyState,KeyId:KeyId,DeletionDate:DeletionDate}' && aws kms get-key-policy --key-id <key-id> --policy-name default --query Policy --output text | python3 -m json.tool | grep -E '(Deny|kms:Decrypt|Condition)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KeyState: Enabled confirms the key can be toggled to Disabled. Absence of Deny policies on decrypt is expected but revocation is demonstrated by the ability to call aws kms disable-key."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Key Vault, verify that a key can be disabled (revoked) from the portal.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Key Vaults → [Vault Name] → Keys → [Key Name] → Enabled toggle → Confirm toggle to 'No' is available and results in immediate access denial",
+        "expected_output": "Toggle available and functional. Applications using the key should immediately receive access denied errors upon disabling."
+      },
+      {
+        "type": "command",
+        "instruction": "For HashiCorp Vault transit engine, verify that a key version can be revoked by restricting minimum decryption version.",
+        "command": "vault write transit/keys/<key-name>/config min_decryption_version=<new_version> && vault read transit/keys/<key-name> | grep -E '(min_decryption_version|min_encryption_version|deletion_allowed)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "min_decryption_version updated to current version effectively revokes older key versions. deletion_allowed=true confirms full key destruction is possible."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review documented runbooks for key revocation procedures and test or confirm the capability with the KMS administrator.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Request incident response runbook for key compromise scenarios. Verify the procedure includes specific steps for disabling or revoking keys and identifies the responsible team and expected time-to-revoke SLA.",
+        "expected_output": "Documented procedure exists referencing specific KMS revocation API calls or console steps with a time-to-revoke SLA under 15 minutes."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "cryptographic_erasure_supported",
+    "option_description": "Indicates whether the encryption implementation supports cryptographic erasure — the ability to render all encrypted data permanently unrecoverable by destroying or deleting the encryption key rather than requiring physical destruction of storage media. This is the preferred sanitization method for SSDs, cloud storage, and high-density media.",
+    "security_impact": "The Rego policy awards the decommissioning_data_sanitization countermeasure only when cryptographic_erasure_supported is true AND key_management_policy is centralized_kms. If this attribute is false, the countermeasure is not credited, meaning the organization has no reliable way to sanitize decommissioned storage. This is particularly critical for cloud environments where physical media destruction is not an option and for NVMe/SSD media where secure overwrite is unreliable.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check if AWS EBS volumes use KMS encryption (enabling crypto-erase via key deletion scheduling).",
+        "command": "aws ec2 describe-volumes --query 'Volumes[?Encrypted==`true`].{VolumeId:VolumeId,KmsKeyId:KmsKeyId,State:State}' --output table && aws kms describe-key --key-id <key-id> --query 'KeyMetadata.{PendingDeletionWindowInDays:PendingWindowInDays,KeyDeletionEnabled:KeyDeletionEnabled}' 2>/dev/null || echo 'Key deletion via ScheduleKeyDeletion is available for all CMKs'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KMS-encrypted EBS volumes confirm crypto-erase is achievable by scheduling CMK deletion. AWS-managed keys do not support customer-initiated deletion — this is a limitation."
+      },
+      {
+        "type": "command",
+        "instruction": "For self-encrypting drives (SEDs), verify ISE (Instant Secure Erase) support using hdparm or nvme-cli.",
+        "command": "hdparm -I /dev/sda | grep -E '(SECURITY|Erase|frozen|enabled)' && nvme id-ctrl /dev/nvme0 | grep -E '(fna|crypto|sanitize)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "hdparm output showing 'SECURITY ERASE UNIT' supported, or nvme output showing 'Crypto Erase Supported' in sanitize capabilities confirms hardware-level crypto-erase."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For LUKS-encrypted volumes, verify that the key can be destroyed to achieve crypto-erase.",
+        "command": "cryptsetup luksDump /dev/sda1 | grep -E '(Key Slot|Cipher|UUID)' && echo 'LUKS volumes support crypto-erase via: cryptsetup erase /dev/sda1 (destroys all key slots, rendering data unrecoverable)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of active LUKS encryption with key slots confirms cryptsetup erase can be used for crypto-erasure. Document that this command is available in the decommissioning procedure."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review vendor documentation and decommissioning procedures to confirm crypto-erase is listed as a supported sanitization method.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review storage vendor data sheets, cloud provider documentation (e.g., AWS EBS User Guide on key deletion, Azure Disk Encryption documentation), and internal decommissioning runbooks to confirm crypto-erase is explicitly listed and tested.",
+        "expected_output": "Vendor documentation references NIST SP 800-88 cryptographic erase, and internal procedures include a tested crypto-erase step with verification."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "key_management_policy",
+    "option_description": "Describes the organizational and technical approach to managing encryption keys, categorized as centralized_kms (keys managed in a dedicated, auditable KMS), local (keys stored on the device or system being encrypted), or none (no formal key management). This determines whether cryptographic erasure during decommissioning is reliably controllable and auditable.",
+    "security_impact": "The Rego policy only credits the decommissioning_data_sanitization countermeasure when key_management_policy is explicitly centralized_kms. Local key management means keys could be lost, inaccessible, or inadvertently destroyed during normal operations, and there is no guarantee a decommissioning operator can reliably destroy the key. A policy of none means no structured decommissioning process exists at all, leaving data on decommissioned media potentially recoverable.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify whether a centralized KMS is configured by checking for KMS endpoint references in system encryption configuration.",
+        "command": "grep -rE '(KMS_ENDPOINT|kms_key_id|key_arn|vault_addr|VAULT_ADDR|azure_key_vault)' /etc/systemd/ /etc/cloud/ /etc/app/ ~/.config/ --include='*.conf' --include='*.env' --include='*.yaml' 2>/dev/null | head -20",
+        "file_path": "/etc/systemd/ /etc/cloud/ /etc/app/",
+        "navigation": null,
+        "expected_output": "References to KMS ARNs, Vault server addresses, or Azure Key Vault URIs confirm centralized_kms policy. Local key file paths without external KMS references indicate local policy."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS environments, verify that disk encryption uses CMKs managed in a central KMS account (not AWS-managed keys which cannot be customer-deleted).",
+        "command": "aws ec2 describe-volumes --query 'Volumes[?Encrypted==`true`].KmsKeyId' --output text | sort -u | xargs -I{} aws kms describe-key --key-id {} --query 'KeyMetadata.{KeyManager:KeyManager,KeyId:KeyId}' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KeyManager: CUSTOMER indicates centralized_kms policy with customer control. KeyManager: AWS indicates AWS-managed keys where deletion is not customer-controllable."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's encryption policy documentation to determine the formally documented key management approach.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Request the Information Security Policy and Data Classification/Encryption Policy documents. Look for sections defining key custody, key storage requirements, and whether a central KMS is mandated. Verify the policy aligns with actual technical implementation.",
+        "expected_output": "Policy document explicitly states that all encryption keys must be managed in a centralized KMS (e.g., AWS KMS, HashiCorp Vault, Azure Key Vault) with defined ownership and access controls."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect LUKS or dm-crypt configuration to determine if keys are stored locally in the initramfs or keyfile.",
+        "command": "cat /etc/crypttab && ls -la /etc/luks/ /boot/crypto/ /root/.keys/ 2>/dev/null && grep -E 'none|UUID|keyfile' /etc/crypttab",
+        "file_path": "/etc/crypttab",
+        "navigation": null,
+        "expected_output": "Entries with 'none' as keyfile indicate passphrase-only (local policy). Entries pointing to keyfiles in local paths indicate local policy. References to network-retrieved keys (e.g., Tang/Clevis) indicate a more centralized approach."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "centralized_kms",
+      "local",
+      "none"
+    ]
+  },
+  {
+    "option_name": "encryption_audit_tooling_enabled",
+    "option_description": "Controls whether automated tooling such as CSPM platforms, cloud-native compliance services, or on-premises disk encryption scanners is actively configured and running to detect and report on the encryption status of volumes, disks, and file systems.",
+    "security_impact": "The Rego policy for encryption_status_auditability requires this attribute to be true before the countermeasure is credited. Without active audit tooling, unencrypted volumes cannot be systematically discovered, compliance gaps go undetected, and the organization loses the operational visibility needed to enforce encryption standards across storage assets.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to Security Hub or AWS Config, then check under 'Rules' for the 'encrypted-volumes' Config rule. Verify it is active and reporting.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → AWS Config → Rules → Search 'encrypted-volumes' → Check rule status is ACTIVE",
+        "expected_output": "Rule status shows 'ACTIVE' with a last evaluation timestamp within the expected evaluation interval."
+      },
+      {
+        "type": "command",
+        "instruction": "Use AWS CLI to check if the encrypted-volumes Config rule is active and returning evaluation results.",
+        "command": "aws configservice describe-config-rules --config-rule-names encrypted-volumes --query 'ConfigRules[*].{Name:ConfigRuleName,State:ConfigRuleState}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows ConfigRuleState as 'ACTIVE' for the encrypted-volumes rule."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Azure Policy compliance API to verify disk encryption policies are assigned and actively evaluating.",
+        "command": "az policy assignment list --query \"[?contains(name,'disk-encryption')].{Name:name,EnforcementMode:enforcementMode}\" --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy assignments appear with EnforcementMode set to 'Default' (enforcing), confirming active evaluation."
+      },
+      {
+        "type": "gui",
+        "instruction": "In GCP Console, navigate to Security Command Center and verify that the 'Disk not encrypted with customer-managed key' or equivalent finding category is enabled and has recent scan results.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GCP Console → Security Command Center → Findings → Filter by 'Disk Encryption' category → Check for recent scan timestamps",
+        "expected_output": "Findings list shows timestamps within the last 24 hours, confirming active scanning."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "encryption_coverage_visibility_scope",
+    "option_description": "Defines the breadth of encryption status visibility across storage resources — whether every volume, disk, and file system in the organization's inventory has a known, verified, and reportable encryption state (full), only a subset is tracked (partial), or no systematic visibility exists (none).",
+    "security_impact": "The Rego policy for encryption_status_auditability requires this value to be 'full' to credit the countermeasure. A value of 'partial' or 'none' means blind spots exist where unencrypted storage may go undetected, undermining compliance verification and leaving sensitive data at risk of exposure through physical media access.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use AWS CLI to list all EBS volumes and check how many have encryption status defined versus unknown, assessing whether coverage is full or partial.",
+        "command": "aws ec2 describe-volumes --query 'Volumes[*].{ID:VolumeId,Encrypted:Encrypted,State:State}' --output table | awk '{print $3}' | sort | uniq -c",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All volumes show a definitive 'true' or 'false' for Encrypted with no null/missing values, indicating full visibility."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Security Center, navigate to the Regulatory Compliance dashboard and review the 'Disk encryption should be applied on virtual machines' control to see what percentage of resources are evaluated.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Microsoft Defender for Cloud → Regulatory Compliance → Select benchmark → Find disk encryption control → Review coverage percentage",
+        "expected_output": "Coverage percentage shows 100% of resources assessed, indicating full visibility scope."
+      },
+      {
+        "type": "api",
+        "instruction": "Use GCP Asset Inventory API to retrieve all Compute disk assets and verify each has encryption metadata populated.",
+        "command": "gcloud asset list --asset-types='compute.googleapis.com/Disk' --format='json' | jq '[.[] | {name: .name, encrypted: (.resource.data.diskEncryptionKey != null)}] | group_by(.encrypted) | map({encrypted: .[0].encrypted, count: length})'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output accounts for every disk with a boolean encryption status, and no disks lack encryption metadata."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the security operations team to determine if a CMDB or asset inventory system exists that tracks encryption status for all storage resources, including on-premises NAS, SAN, and backup media.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team can produce a report listing every storage asset with a confirmed encryption state, with no assets listed as 'unknown' or 'not assessed'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "full",
+      "partial",
+      "none"
+    ]
+  },
+  {
+    "option_name": "unencrypted_volumes_detected",
+    "option_description": "Indicates whether audit tooling has positively identified one or more volumes, disks, or file systems that are confirmed to be stored without encryption at rest, representing an active security gap in the environment.",
+    "security_impact": "The Rego policy for encryption_status_auditability requires this value to be false to credit the countermeasure. A true value means the environment has confirmed unencrypted storage in production, directly exposing data to unauthorized access from physical media theft, unauthorized disk mounting, or decommissioning scenarios without cryptographic erasure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query AWS Config for non-compliant resources against the encrypted-volumes rule to identify any unencrypted EBS volumes.",
+        "command": "aws configservice get-compliance-details-by-config-rule --config-rule-name encrypted-volumes --compliance-types NON_COMPLIANT --query 'EvaluationResults[*].{ResourceId:EvaluationResultIdentifier.EvaluationResultQualifier.ResourceId,Compliance:ComplianceType}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty result set indicates no non-compliant (unencrypted) volumes detected. Any returned resource IDs indicate unencrypted volumes."
+      },
+      {
+        "type": "command",
+        "instruction": "Use AWS CLI to directly enumerate all unencrypted EBS volumes in the account and region.",
+        "command": "aws ec2 describe-volumes --filters Name=encrypted,Values=false --query 'Volumes[*].{VolumeId:VolumeId,Size:Size,State:State,AttachedTo:Attachments[0].InstanceId}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty table output confirms no unencrypted volumes. Populated rows indicate unencrypted volumes requiring remediation."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Azure Policy compliance results for the disk encryption policy to identify non-compliant (unencrypted) managed disks.",
+        "command": "az policy state list --policy-assignment <assignment-name> --filter \"complianceState eq 'NonCompliant'\" --query '[*].{Resource:resourceId,Type:resourceType}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty output confirms full compliance (no unencrypted disks). Non-empty output lists disks requiring encryption."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review CSPM tool findings dashboard (e.g., Prisma Cloud, Wiz, Lacework) filtered to the 'Encryption at Rest' finding category for any HIGH or CRITICAL severity alerts indicating unencrypted storage.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero open findings in the encryption-at-rest category confirms no unencrypted volumes are detected."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "hsm_tpm_binding_enabled",
+    "option_description": "Controls whether the encryption keys protecting storage volumes are bound to a hardware security module (HSM) or trusted platform module (TPM), ensuring that key material exists only within a hardware boundary and cannot be extracted by software — including privileged OS processes.",
+    "security_impact": "The Rego policy for hardware_security_module_binding requires this to be true as the first condition. Without hardware binding, encryption keys exist in software memory where they are vulnerable to extraction via memory dumps, hypervisor attacks, or OS-level privilege escalation — negating much of the confidentiality protection that encryption at rest is intended to provide.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux systems using LUKS with TPM2 binding, verify the TPM2 token is enrolled in the LUKS keyslot using systemd-cryptenroll.",
+        "command": "systemd-cryptenroll /dev/sda --list-tokens",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists a token of type 'systemd-tpm2', confirming the LUKS volume key is bound to the TPM."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows systems, check BitLocker key protectors to verify a TPM protector is active on the system drive.",
+        "command": "manage-bde -protectors -get C:",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output includes a 'TPM' or 'TPM And PIN' protector type, confirming hardware-based key binding is enabled."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS KMS to determine if a key used for volume encryption is backed by a CloudHSM key store rather than the default software KMS.",
+        "command": "aws kms describe-key --key-id <key-id> --query 'KeyMetadata.{KeyManager:KeyManager,Origin:Origin,CustomKeyStoreId:CustomKeyStoreId}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows Origin as 'AWS_CLOUDHSM' or CustomKeyStoreId populated, confirming HSM binding. 'AWS_KMS' with no CustomKeyStoreId indicates software-only key."
+      },
+      {
+        "type": "command",
+        "instruction": "On systems with PKCS#11-based HSM integration for LUKS, verify the LUKS key slot references an HSM-backed token via URI.",
+        "command": "cryptsetup luksDump /dev/sda | grep -E 'token|pkcs11'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows a PKCS#11 token entry with a hardware device URI (e.g., pkcs11:model=...), confirming HSM-bound key."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "hardware_binding_type",
+    "option_description": "Specifies the type of hardware root of trust used to protect encryption keys, distinguishing between a local TPM chip, a network-attached or on-premises dedicated HSM appliance, a cloud provider HSM service, a managed KMS backed by HSM hardware, or software-only key storage with no hardware binding.",
+    "security_impact": "The Rego policy for hardware_security_module_binding requires this value to be one of 'tpm', 'dedicated_hsm', 'cloud_hsm', or 'managed_kms_hsm' — any of these satisfies the hardware binding requirement. A value of 'none' means all key material is software-resident, making it susceptible to extraction by privileged software actors and eliminating the hardware trust anchor needed for strong key protection.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check if a TPM 2.0 chip is present and active on the host, indicating the 'tpm' binding type is available.",
+        "command": "tpm2_getcap properties-fixed | grep -E 'TPM_PT_MANUFACTURER|TPM_PT_FIRMWARE_VERSION_1'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output returns TPM manufacturer and firmware version strings, confirming a functional TPM 2.0 is present on the host."
+      },
+      {
+        "type": "api",
+        "instruction": "Determine if an AWS KMS key used for EBS encryption is backed by CloudHSM (cloud_hsm) or standard KMS HSM (managed_kms_hsm).",
+        "command": "aws kms describe-key --key-id <key-id> --query 'KeyMetadata.{Origin:Origin,KeyManager:KeyManager,CustomKeyStoreId:CustomKeyStoreId}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Origin='AWS_CLOUDHSM' maps to 'cloud_hsm'; Origin='AWS_KMS' with KeyManager='CUSTOMER' maps to 'managed_kms_hsm'; Origin='AWS_KMS' with KeyManager='AWS' is provider-managed but HSM-backed."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Key Vault, check if keys are HSM-protected by reviewing the key type attribute in the Azure Portal.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Key Vaults → Select Vault → Keys → Select Key → Review 'HSM-Protected' attribute on key properties page",
+        "expected_output": "Key details show 'HSM-Protected: Yes' and key type 'RSA-HSM' or 'EC-HSM', indicating 'dedicated_hsm' or 'managed_kms_hsm' binding type."
+      },
+      {
+        "type": "command",
+        "instruction": "Check PKCS#11 configuration to identify if an on-premises dedicated HSM appliance is configured as the key store.",
+        "command": "cat /etc/pkcs11/modules/*.module && p11tool --list-tokens",
+        "file_path": "/etc/pkcs11/modules/",
+        "navigation": null,
+        "expected_output": "p11tool output lists hardware token slots referencing an HSM appliance model name (e.g., Thales Luna, nCipher nShield), confirming 'dedicated_hsm' binding type."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "tpm",
+      "managed_kms_hsm",
+      "cloud_hsm",
+      "dedicated_hsm"
+    ]
+  },
+  {
+    "option_name": "key_extraction_protection_verified",
+    "option_description": "Confirms that raw key material genuinely cannot be exported from the hardware boundary — that the non-extractable property is actively enforced through key policy, HSM key attributes (CKA_EXTRACTABLE=false), TPM non-duplicable flags, or cloud KMS policy — not merely assumed based on hardware type selection.",
+    "security_impact": "The Rego policy for hardware_security_module_binding requires all three conditions: hsm_tpm_binding_enabled=true, valid hardware_binding_type, and this attribute=true. Having hardware binding configured but not verifying extraction protection means an admin error, misconfigured key policy, or a key imported as extractable could allow key material to leave the hardware boundary — completely undermining the HSM/TPM security guarantee.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For TPM2-bound LUKS volumes, verify the TPM2 key was created with the non-duplicable (fixedTPM) attribute set, preventing key export.",
+        "command": "tpm2_readpublic -c 0x81000001 -f pem | tpm2_print -t TPMT_PUBLIC",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'fixedTPM: 1' and 'fixedParent: 1' attributes set, confirming the key cannot be duplicated or exported from this TPM."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS KMS keys, verify that the key policy does not grant any principal the kms:GetParametersForImport or kms:ExportKey permissions, and that the key origin prevents export.",
+        "command": "aws kms get-key-policy --key-id <key-id> --policy-name default --output text | python3 -c \"import json,sys; p=json.load(sys.stdin); [print(s) for s in p['Statement'] if any(a in str(s.get('Action','')) for a in ['kms:Export','kms:GetParametersForImport'])]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty output confirms no export permissions are granted in the key policy. Any printed statements indicate extractability risks requiring remediation."
+      },
+      {
+        "type": "command",
+        "instruction": "For PKCS#11 HSM-backed keys, query the key attributes to verify CKA_EXTRACTABLE is set to false on the key object.",
+        "command": "pkcs11-tool --module /usr/lib/pkcs11/libCryptoki2_64.so --list-objects --type privkey --id <key-id> --attr-from CKA_EXTRACTABLE",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'CKA_EXTRACTABLE: false' for the target key, confirming hardware-enforced extraction protection."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Key Vault, verify that HSM-protected keys have the 'exportable' property set to false and that no key release policy exists that would allow export.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Key Vaults → Select Vault → Keys → Select HSM-protected Key → Check 'Exportable' field under key properties and confirm no 'Key Release Policy' is configured",
+        "expected_output": "Key properties show Exportable: No and no Key Release Policy configured, confirming extraction protection is enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "encryption_policy_enabled",
+    "option_description": "Controls whether a centralized encryption configuration policy is actively deployed and enforced across managed endpoints or storage systems through an endpoint management platform (MDM, GPO, Intune, JAMF) or cloud policy framework, mandating encryption settings and blocking or alerting on non-compliant configurations.",
+    "security_impact": "The Rego policy for encryption_policy_enforcement requires this to be true as the baseline condition before compliance status is evaluated. Without an active enforcement policy, individual device or storage configurations are left to ad-hoc administration, creating inconsistent encryption states across the fleet and removing the systematic controls needed to prevent unencrypted storage from entering production.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune, verify a device configuration profile or endpoint protection policy enforcing BitLocker is assigned and active.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune Admin Center → Devices → Configuration Profiles → Filter by 'Endpoint Protection' or 'Disk Encryption' → Verify profile exists with 'BitLocker' settings and is assigned to device groups",
+        "expected_output": "Profile shows status 'Assigned' with a target group, BitLocker settings configured, and encryption enforcement mode set to 'Require'."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Windows endpoint managed via GPO, verify the BitLocker Group Policy settings are applied and requiring encryption.",
+        "command": "gpresult /scope computer /v | findstr -i \"bitlocker encrypt\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output references BitLocker Group Policy Objects applied to the computer, confirming policy enforcement is active."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS endpoints managed by JAMF, verify a FileVault enforcement configuration profile is deployed.",
+        "command": "sudo profiles -P | grep -i 'filevault\\|encrypt'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists installed profiles containing FileVault or encryption enforcement payloads, confirming policy is active on the endpoint."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Intune Graph API to check whether a disk encryption compliance policy exists and is assigned.",
+        "command": "az rest --method GET --uri 'https://graph.microsoft.com/v1.0/deviceManagement/deviceCompliancePolicies' --query 'value[?contains(displayName,`Encryption`) || contains(displayName,`BitLocker`)].{Name:displayName,State:scheduledActionsForRule}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response lists one or more encryption compliance policies with assigned actions, confirming policy enforcement is enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "policy_compliance_status",
+    "option_description": "Reflects the current compliance state of the endpoint or storage system against the active encryption policy, as reported by the endpoint management platform — indicating whether the device is fully compliant, actively non-compliant, pending an evaluation, in an unknown state due to check-in failure, or intentionally excluded from policy scope.",
+    "security_impact": "The Rego policy for encryption_policy_enforcement requires this value to be 'compliant' alongside encryption_policy_enabled=true to credit the countermeasure. Values of 'non_compliant', 'pending', 'unknown', or 'excluded' all represent failure states where the encryption policy intent is not confirmed as achieved — meaning storage may be unencrypted despite policy existence, and the countermeasure provides no actual protection.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune, review the device compliance report filtered to the disk encryption policy to assess compliance status across the fleet.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune Admin Center → Reports → Device Compliance → Select encryption policy → View per-device compliance state grid showing Compliant/NonCompliant/Unknown/Pending",
+        "expected_output": "Dashboard shows 100% of in-scope devices in 'Compliant' state with zero 'NonCompliant' or 'Unknown' entries."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Windows endpoint, check the current BitLocker and MDM compliance status directly from the device.",
+        "command": "manage-bde -status C: | findstr -i \"protection status\\|conversion status\\|percentage\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'Protection Status: Protection On' and 'Conversion Status: Fully Encrypted', indicating this device is compliant."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Intune compliance API via Microsoft Graph to retrieve per-device compliance state for the encryption policy.",
+        "command": "az rest --method GET --uri 'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$select=deviceName,complianceState,osVersion&$filter=complianceState ne null' --query 'value[*].{Device:deviceName,State:complianceState}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table shows all managed devices with complianceState='compliant'. Any 'noncompliant' or 'unknown' values require investigation."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS managed by JAMF, check FileVault compliance status reported by the MDM framework.",
+        "command": "sudo fdesetup status && sudo profiles -P | grep -i 'filevault'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "fdesetup output shows 'FileVault is On' and profiles output shows an active FileVault enforcement profile, confirming compliant status."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "unknown",
+      "compliant",
+      "non_compliant",
+      "pending",
+      "excluded"
+    ]
+  },
+  {
+    "option_name": "enforcement_scope",
+    "option_description": "Controls the coverage level of the encryption policy — determining whether encryption is applied to all volumes (including data, swap, and temporary storage), only the system/OS volume, a partial set of volumes, or none at all. This setting defines the breadth of cryptographic protection across managed endpoints or storage systems.",
+    "security_impact": "The Rego policy rule 'encryption_policy_enforcement' grants the countermeasure credit only when enforcement_scope is 'all_volumes' or 'system_volume_only' combined with a compliant policy status. A value of 'partial' or 'none' means data volumes outside the covered scope remain unprotected, exposing sensitive files, databases, and user data to unauthorized access during physical theft or unauthorized disk mounting. The 'full_volume_coverage' rule further penalizes partial or absent coverage by flagging unencrypted remnant partitions, swap space, and hibernation files as gaps that allow plaintext data extraction even when the OS volume is encrypted.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux systems using LUKS/dm-crypt, list all block devices and their encryption status to determine which volumes are covered by encryption policy.",
+        "command": "lsblk -o NAME,TYPE,FSTYPE,MOUNTPOINT,SIZE && cryptsetup status $(lsblk -rno NAME | grep -v loop) 2>/dev/null; blkid | grep -i luks",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Encrypted volumes display 'crypto_LUKS' as FSTYPE or show 'type: LUKS2' in cryptsetup status. All data partitions and swap should appear encrypted for 'all_volumes' scope."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, use diskutil and fdesetup to enumerate FileVault coverage across all mounted volumes and check if non-system volumes are also encrypted.",
+        "command": "fdesetup status && diskutil list && diskutil apfs list | grep -E '(Volume|FileVault)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "FileVault should report 'FileVault is On' for the system volume. Additional APFS volumes should show encryption status; absence indicates system_volume_only or partial scope."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune (Endpoint Manager), navigate to the BitLocker encryption policy to review which drive types are configured for encryption enforcement.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Intune Admin Center → Endpoint Security → Disk Encryption → Select BitLocker Policy → Review 'BitLocker – OS Drive Settings', 'BitLocker – Fixed Drive Settings', and 'BitLocker – Removable Drive Settings' sections",
+        "expected_output": "All three drive categories should show 'Require encryption' to qualify as 'all_volumes'. If only OS drive encryption is required, the scope is 'system_volume_only'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Graph API to retrieve BitLocker encryption policy configurations and determine the enforcement scope across drive categories.",
+        "command": "curl -s -X GET 'https://graph.microsoft.com/v1.0/deviceManagement/deviceConfigurations?$filter=startswith(displayName,\"BitLocker\")&$select=displayName,bitLockerSystemDrivePolicy,bitLockerFixedDrivePolicy,bitLockerRemovableDrivePolicy' -H 'Authorization: Bearer <ACCESS_TOKEN>' -H 'Content-Type: application/json' | jq '.value[] | {name: .displayName, os_drive: .bitLockerSystemDrivePolicy.encryptionMethod, fixed_drive: .bitLockerFixedDrivePolicy.encryptionMethod}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response JSON should contain non-null encryptionMethod values for all drive policy categories. Null or missing fixed/removable drive policies indicate partial or system_volume_only scope."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "all_volumes",
+      "system_volume_only",
+      "partial",
+      "none"
+    ]
+  },
+  {
+    "option_name": "rotation_period_days",
+    "option_description": "Specifies the configured interval in days between automatic cryptographic key rotations for encryption at rest. A value of 0 (the default) indicates that no automatic rotation schedule is configured, meaning encryption keys may remain in use indefinitely. Acceptable intervals commonly range from 90 to 365 days depending on organizational policy and regulatory requirements, with a maximum supported value of 3650 days (10 years).",
+    "security_impact": "The Rego policy rule 'key_rotation_lifecycle_management' grants countermeasure credit only when key_rotation_enabled is true AND rotation_period_days is greater than 0 AND less than or equal to 365. A value of 0 means no rotation is scheduled, leaving compromised key material exposed indefinitely — any attacker who obtains the key retains permanent access to all data encrypted under it. The related rule 'key_management_integrity' also flags configurations where key_rotation_enabled is false for HSM, cloud KMS, or dedicated KMS systems, reinforcing that even hardware-backed key stores require active rotation policies to maintain cryptographic hygiene over the long-term data storage lifecycle.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query AWS KMS to retrieve the key rotation status and, where applicable, the rotation period for customer-managed keys (CMKs) in the account.",
+        "command": "aws kms list-keys --query 'Keys[*].KeyId' --output text | tr '\\t' '\\n' | xargs -I {} sh -c 'echo \"Key: {}\"; aws kms get-key-rotation-status --key-id {} 2>/dev/null; aws kms describe-key --key-id {} --query \"KeyMetadata.[KeyId,KeyState,KeyManager]\" --output table'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each CMK should return 'KeyRotationEnabled: true'. Note that AWS automatic rotation occurs annually (365 days) by default when enabled; custom rotation periods require AWS KMS key rotation scheduling via EventBridge."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Azure Key Vault key rotation policies via the Azure CLI to determine the configured rotation interval for each key used in disk encryption.",
+        "command": "az keyvault key list --vault-name <VAULT_NAME> --query '[*].kid' -o tsv | while read kid; do keyname=$(basename $kid); echo \"Key: $keyname\"; az keyvault key rotation-policy show --vault-name <VAULT_NAME> --name $keyname 2>/dev/null | jq '.lifetimeActions[] | select(.action.type==\"Rotate\") | .trigger'; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show a 'timeAfterCreate' or 'timeBeforeExpiry' duration (ISO 8601 format, e.g., 'P90D' for 90 days). Absent or null rotation actions indicate rotation_period_days of 0."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Google Cloud Console, review the Cloud KMS key rotation schedule for keys associated with disk encryption to identify the configured rotation period.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Cloud Console → Security → Key Management → Select Key Ring → Select Key → View 'Rotation period' and 'Next rotation time' fields in the key details panel",
+        "expected_output": "The 'Rotation period' field should display a value such as '90 days', '180 days', or '365 days'. A value of 'Never' or a blank rotation period corresponds to rotation_period_days of 0."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's key management policy documentation and interview the security or platform operations team to confirm the documented and operationally enforced key rotation interval, cross-referencing with automated scheduler configurations (e.g., cron jobs, cloud scheduler tasks, or KMS built-in schedules).",
+        "command": null,
+        "file_path": "/etc/cron.d/key-rotation, /opt/kms/config/rotation-policy.yaml, or organization-specific policy document repository",
+        "navigation": null,
+        "expected_output": "Policy documentation should specify a defined rotation interval (e.g., 90, 180, or 365 days). Operational evidence should include scheduler entries or KMS policy configurations confirming automated enforcement of that interval."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (no rotation configured — non-compliant default)",
+      "90 (quarterly rotation — high-security environments)",
+      "180 (semi-annual rotation — common enterprise baseline)",
+      "365 (annual rotation — minimum acceptable for most compliance frameworks)",
+      "730 (biennial — sometimes seen in low-sensitivity legacy systems)"
+    ]
+  }
+]

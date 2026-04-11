@@ -1,0 +1,689 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "screen_lock_enabled": {
+        "type": "boolean",
+        "title": "Screen Lock Enabled",
+        "description": "Whether the device has any screen lock mechanism configured (PIN, password, pattern, or biometric). False indicates no lock is set.",
+        "default": false
+      },
+      "screen_lock_type": {
+        "type": "string",
+        "enum": [
+          "none",
+          "swipe",
+          "pin",
+          "pattern",
+          "password",
+          "biometric"
+        ],
+        "title": "Screen Lock Type",
+        "description": "The type of screen lock configured on the device. 'none' means no lock, 'swipe' means swipe-only (no credential), 'pin' means numeric PIN, 'pattern' means graphical pattern, 'password' means alphanumeric password, 'biometric' means fingerprint or face recognition."
+      },
+      "screen_lock_max_attempts_configured": {
+        "type": "boolean",
+        "title": "Screen Lock Max Failed Attempts Configured",
+        "description": "Whether a maximum number of failed unlock attempts is enforced before device wipe or lockout. False indicates the device allows unlimited guessing attempts."
+      },
+      "device_encryption_enabled": {
+        "type": "boolean",
+        "title": "Device Storage Encryption Enabled",
+        "description": "Indicates whether full-disk or file-based encryption is active on the device. On Android, reflects the encryption setting in device security configuration. On iOS, reflects whether a passcode is set (which gates hardware encryption on supported versions).",
+        "default": false
+      },
+      "mdm_compliance_encryption_status": {
+        "type": "string",
+        "enum": [
+          "compliant",
+          "non_compliant",
+          "unknown"
+        ],
+        "title": "MDM Encryption Compliance Status",
+        "description": "The encryption compliance status as reported by the Mobile Device Management (MDM) system. Captures whether the MDM has evaluated and confirmed encryption state."
+      },
+      "passcode_set": {
+        "type": "boolean",
+        "title": "Device Passcode Set",
+        "description": "Indicates whether the user has set a device passcode or PIN. On iOS this is the prerequisite for hardware-backed data protection. On Android it is typically required to enforce encryption.",
+        "default": false
+      },
+      "os_patch_status": {
+        "type": "string",
+        "enum": [
+          "fully_patched",
+          "partially_patched",
+          "unpatched"
+        ],
+        "title": "OS Patch Status",
+        "description": "Whether the device OS is fully patched, partially patched, or unpatched relative to available security updates."
+      },
+      "os_end_of_life": {
+        "type": "boolean",
+        "title": "OS Version End-of-Life",
+        "description": "Whether the installed OS version has reached end-of-life and no longer receives security patches from the vendor.",
+        "default": false
+      },
+      "days_since_last_security_patch": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Days Since Last Security Patch",
+        "description": "Number of days elapsed since the device last received a security patch."
+      },
+      "jailbreak_root_detected": {
+        "type": "boolean",
+        "title": "Jailbreak or Root Detected",
+        "description": "Indicates whether the device has been detected as jailbroken (iOS) or rooted (Android) by the MDM solution or mobile security SDK. True means elevated-privilege OS compromise is confirmed.",
+        "default": false
+      },
+      "app_sandboxing_bypass_evidence": {
+        "type": "boolean",
+        "title": "App Sandboxing Bypass Evidence",
+        "description": "Indicates whether the MTD agent or application runtime has observed evidence of sandbox escape — such as access to file paths outside the app container, presence of known jailbreak binaries (e.g., Cydia, Magisk), or hooking frameworks active in the process space.",
+        "default": false
+      },
+      "mdm_compliance_status": {
+        "type": "string",
+        "enum": [
+          "compliant",
+          "non_compliant",
+          "unknown",
+          "unmanaged"
+        ],
+        "title": "MDM Compliance Status",
+        "description": "The overall compliance state of the device as reported by the Mobile Device Management platform. A non-compliant or unmanaged state may indicate the jailbreak/root finding cannot be remediated or the device is outside policy enforcement.",
+        "default": "unknown"
+      },
+      "mdm_enrollment_status": {
+        "type": "string",
+        "enum": [
+          "enrolled_active",
+          "enrolled_inactive",
+          "enrolled",
+          "pending_enrollment",
+          "not_enrolled"
+        ],
+        "title": "MDM Enrollment Status",
+        "description": "Whether the device is enrolled in a Mobile Device Management or Enterprise Mobility Management solution. Consolidates enrollment state across multiple vectors including MDM management, remote wipe capability, logging, and certificate trust policy enforcement.",
+        "default": "not_enrolled"
+      },
+      "remote_wipe_capability_enabled": {
+        "type": "boolean",
+        "title": "Remote Wipe Capability Enabled",
+        "description": "Whether the MDM solution or platform service has the ability to remotely wipe or lock the device in case of loss or theft. Consolidates MDM remote wipe and platform find-my service into a unified capability flag.",
+        "default": false
+      },
+      "security_policy_compliance_state": {
+        "type": "string",
+        "enum": [
+          "compliant",
+          "non_compliant",
+          "unknown"
+        ],
+        "title": "MDM Security Policy Compliance State",
+        "description": "The device's current compliance state against the organization's MDM-enforced security baseline (encryption, passcode complexity, OS version minimums)."
+      },
+      "auto_connect_open_networks_enabled": {
+        "type": "boolean",
+        "title": "Auto-Connect to Open Networks Enabled",
+        "description": "Whether the device is configured to automatically connect to open (unauthenticated) Wi-Fi networks without user interaction.",
+        "default": false
+      },
+      "auto_rejoin_known_networks_enabled": {
+        "type": "boolean",
+        "title": "Auto-Rejoin Previously Joined Networks Enabled",
+        "description": "Whether the device automatically reconnects to previously joined Wi-Fi SSIDs without user confirmation, enabling rogue access point attacks via SSID spoofing.",
+        "default": false
+      },
+      "vpn_always_on_enabled": {
+        "type": "boolean",
+        "title": "Always-On VPN Enabled",
+        "description": "Whether the device enforces an always-on VPN that tunnels all traffic, mitigating rogue access point interception even when auto-connect is active."
+      },
+      "app_permissions_exceed_requirements": {
+        "type": "boolean",
+        "title": "Application Permissions Exceed Operational Requirements",
+        "description": "Whether the dedicated application has been granted OS-level permissions (microphone, camera, contacts, location, storage) beyond what its documented operational function requires."
+      },
+      "sensitive_permissions_granted": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Sensitive OS Permissions Granted",
+        "description": "List of high-sensitivity OS permissions actually granted to the application or co-resident apps on the device (e.g., RECORD_AUDIO, CAMERA, READ_CONTACTS, ACCESS_FINE_LOCATION, READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE).",
+        "default": []
+      },
+      "permission_review_performed": {
+        "type": "boolean",
+        "title": "Formal Permission Review Performed",
+        "description": "Whether a documented review of the application's requested and granted OS permissions against its operational requirements has been completed and approved."
+      },
+      "co_resident_app_risk_level": {
+        "type": "string",
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "unknown"
+        ],
+        "title": "Co-Resident Application Risk Level",
+        "description": "The assessed risk level of other applications installed on the device alongside the dedicated application, based on MDM policy compliance, app store source, or known SDK reputation.",
+        "default": "unknown"
+      },
+      "bluetooth_enabled": {
+        "type": "boolean",
+        "title": "Bluetooth Enabled",
+        "description": "Indicates whether Bluetooth is currently enabled on the device. A perpetually enabled state increases exposure to proximity-based attacks."
+      },
+      "bluetooth_discoverable_mode": {
+        "type": "boolean",
+        "title": "Bluetooth Discoverable Mode Active",
+        "description": "Indicates whether the device is set to be discoverable by nearby Bluetooth devices. Discoverable mode makes the device visible to all nearby scanners, enabling uninvited pairing attempts and reconnaissance."
+      },
+      "bluetooth_policy_enforced": {
+        "type": "boolean",
+        "title": "Bluetooth Policy Enforced via MDM",
+        "description": "Indicates whether an MDM or EMM policy is actively enforcing Bluetooth restrictions (e.g., disabling Bluetooth or restricting discoverable mode)."
+      },
+      "unknown_sources_installation_enabled": {
+        "type": "boolean",
+        "title": "Unknown Sources / Sideloading Enabled",
+        "description": "Whether the device permits installation of applications from sources outside the official platform store. On Android, this corresponds to 'Install Unknown Apps' or 'Unknown Sources' being enabled. On iOS, this corresponds to enterprise/developer certificate profiles being present that allow unsigned or third-party-distributed apps.",
+        "default": false
+      },
+      "mdm_app_allowlist_enforced": {
+        "type": "boolean",
+        "title": "MDM Application Allowlist Enforced",
+        "description": "Whether a Mobile Device Management (MDM) policy is actively enforcing an application allowlist or blocklist that prevents unauthorized or non-store applications from running on the device.",
+        "default": false
+      },
+      "certificate_pinning_enforced": {
+        "type": "boolean",
+        "title": "Certificate Pinning Enforced",
+        "description": "Whether the application enforces certificate pinning (public key or certificate hash pinning) that bypasses the device trust store and rejects certificates not matching the expected pin set.",
+        "default": false
+      },
+      "user_installed_ca_certificates_present": {
+        "type": "boolean",
+        "title": "User-Installed CA Certificates Present in Device Trust Store",
+        "description": "Whether the device trust store contains one or more CA certificates installed by the user (not by the OS vendor or MDM), which could be used to intercept TLS traffic.",
+        "default": false
+      },
+      "network_security_config_restricts_user_cas": {
+        "type": "boolean",
+        "title": "Network Security Configuration Restricts User CAs",
+        "description": "Whether the application's network security configuration explicitly excludes user-installed CA certificates from being trusted for the application's traffic (e.g., Android Network Security Config with cleartextTrafficPermitted=false and no user CAs in trust anchors, or iOS ATS configuration).",
+        "default": false
+      },
+      "platform_cloud_backup_enabled": {
+        "type": "boolean",
+        "title": "Platform Cloud Backup Enabled",
+        "description": "Indicates whether the device-level cloud backup service (e.g., iCloud Backup, Google One Backup) is enabled on the mobile device.",
+        "default": true
+      },
+      "application_data_excluded_from_backup": {
+        "type": "boolean",
+        "title": "Application Data Excluded from Cloud Backup",
+        "description": "Indicates whether the dedicated application's data container (including tokens, cached credentials, and configuration files) is explicitly excluded from platform cloud backup.",
+        "default": false
+      },
+      "mdm_backup_restriction_enforced": {
+        "type": "boolean",
+        "title": "MDM Policy Enforces Backup Restriction for Application",
+        "description": "Indicates whether a Mobile Device Management (MDM) policy is actively enforced that either disables cloud backup entirely or restricts backup of the specific application's data container on enrolled devices.",
+        "default": false
+      },
+      "usb_debugging_enabled": {
+        "type": "boolean",
+        "title": "USB Debugging Enabled (Android ADB)",
+        "description": "Whether Android USB debugging (ADB) is currently enabled on the device. When enabled, any connected host can execute ADB commands, install packages, or extract application data.",
+        "default": false
+      },
+      "developer_mode_enabled": {
+        "type": "boolean",
+        "title": "Developer Mode Enabled (iOS)",
+        "description": "Whether iOS Developer Mode is currently enabled on the device. When enabled, unsigned or ad-hoc applications can be sideloaded and device inspection tools can be used.",
+        "default": false
+      },
+      "device_environment": {
+        "type": "string",
+        "enum": [
+          "production",
+          "development",
+          "test",
+          "unknown"
+        ],
+        "title": "Device Deployment Environment",
+        "description": "Whether the device is a production/end-user device or a development/test device. USB debugging and developer mode are expected on dev/test devices but represent a misconfiguration on production devices.",
+        "default": "production"
+      },
+      "failed_passcode_lockout_enabled": {
+        "type": "boolean",
+        "title": "Failed Passcode Lockout Enabled",
+        "description": "Whether the device is configured to enforce a lockout or wipe policy after repeated failed passcode/PIN attempts.",
+        "default": false
+      },
+      "max_failed_attempts_threshold": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "title": "Maximum Failed Passcode Attempts Allowed",
+        "description": "The configured maximum number of consecutive failed passcode attempts before lockout or wipe is triggered. A value of 0 indicates no limit is enforced.",
+        "default": 0
+      },
+      "central_log_forwarding_enabled": {
+        "type": "boolean",
+        "title": "Central Log Forwarding Enabled",
+        "description": "Whether the device or MDM profile is configured to forward security-relevant events (failed logins, app installs, permission grants) to a centralized logging or SIEM platform.",
+        "default": false
+      },
+      "local_audit_log_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Local Audit Log Retention (Days)",
+        "description": "Number of days security-relevant audit events are retained locally on the device before being overwritten or purged.",
+        "default": 0
+      },
+      "audit_event_types_captured": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Audit Event Types Captured",
+        "description": "List of security-relevant event categories that are actively captured and recorded on the device or forwarded to a logging platform (e.g., failed_auth, app_install, permission_grant, device_unlock).",
+        "default": []
+      }
+    },
+    "required": [
+      "screen_lock_enabled",
+      "screen_lock_type",
+      "screen_lock_max_attempts_configured",
+      "device_encryption_enabled",
+      "mdm_compliance_encryption_status",
+      "passcode_set",
+      "os_patch_status",
+      "os_end_of_life",
+      "days_since_last_security_patch",
+      "jailbreak_root_detected",
+      "app_sandboxing_bypass_evidence",
+      "mdm_compliance_status",
+      "mdm_enrollment_status",
+      "remote_wipe_capability_enabled",
+      "security_policy_compliance_state",
+      "auto_connect_open_networks_enabled",
+      "auto_rejoin_known_networks_enabled",
+      "vpn_always_on_enabled",
+      "app_permissions_exceed_requirements",
+      "sensitive_permissions_granted",
+      "co_resident_app_risk_level",
+      "bluetooth_enabled",
+      "bluetooth_discoverable_mode",
+      "bluetooth_policy_enforced",
+      "unknown_sources_installation_enabled",
+      "mdm_app_allowlist_enforced",
+      "certificate_pinning_enforced",
+      "user_installed_ca_certificates_present",
+      "network_security_config_restricts_user_cas",
+      "platform_cloud_backup_enabled",
+      "application_data_excluded_from_backup",
+      "mdm_backup_restriction_enforced",
+      "usb_debugging_enabled",
+      "developer_mode_enabled",
+      "device_environment",
+      "failed_passcode_lockout_enabled",
+      "max_failed_attempts_threshold"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/failed_passcode_lockout_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/max_failed_attempts_threshold"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/passcode_set"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/screen_lock_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/screen_lock_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/screen_lock_max_attempts_configured"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/app_sandboxing_bypass_evidence"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/days_since_last_security_patch"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/developer_mode_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/jailbreak_root_detected"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/known_unpatched_cves"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/os_end_of_life"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/os_patch_status"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unknown_sources_installation_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/usb_debugging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/detection_source"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/device_environment"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/device_platform"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/application_data_excluded_from_backup"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/certificate_pinning_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/device_encryption_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mdm_compliance_encryption_status"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/network_security_config_restricts_user_cas"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/user_installed_ca_certificates_present"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/device_stores_sensitive_data_locally"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/platform_cloud_backup_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/auto_connect_open_networks_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/auto_rejoin_known_networks_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bluetooth_discoverable_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/bluetooth_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_always_on_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/app_permissions_exceed_requirements"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/co_resident_app_risk_level"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_permissions_granted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/permission_review_performed"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mdm_app_allowlist_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mdm_compliance_status"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mdm_enrollment_status"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/remote_wipe_capability_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/security_policy_compliance_state"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/bluetooth_policy_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mdm_backup_restriction_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_event_types_captured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/central_log_forwarding_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/local_audit_log_retention_days"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Git Repository",
+  "classType": "component",
+  "type": "STORE",
+  "description": "Version-controlled source of truth for application code, infrastructure-as-code, and pipeline definitions hosted on a self-hosted Git service. Its primary role is persisting and serving versioned content including Dockerfiles, Helm charts, Terraform configs, and CI/CD pipeline YAML. Exposure reveals attack surface, secret patterns, and infrastructure topology.",
+  "category": "Software Supply Chain",
+  "status": "draft"
+}

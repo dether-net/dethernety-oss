@@ -1,0 +1,166 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1119",
+      "name": "Automated Collection",
+      "relevance": "An unauthenticated API endpoint allows attackers to programmatically collect monitoring data without credentials."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.006",
+      "name": "Indicator Blocking",
+      "relevance": "Unauthenticated access to a monitoring API could allow attackers to suppress or block security indicators."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1040",
+      "name": "Network Sniffing",
+      "relevance": "Unencrypted telemetry can be intercepted via network sniffing, exposing sensitive monitoring data."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1565.002",
+      "name": "Transmitted Data Manipulation",
+      "relevance": "Unencrypted telemetry is vulnerable to in-transit manipulation by adversaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1548.002",
+      "name": "Bypass User Account Control",
+      "relevance": "An overprivileged service account may allow attackers to bypass access controls and escalate privileges."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1546",
+      "name": "Event Triggered Execution",
+      "relevance": "Overprivileged accounts can be abused to establish persistence via event-triggered execution mechanisms."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1078.001",
+      "name": "Default Accounts",
+      "relevance": "Hardcoded or default credentials directly correspond to exploitation of default accounts for unauthorized access."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.001",
+      "name": "Credentials In Files",
+      "relevance": "Hardcoded credentials stored in configuration files are a primary example of credentials in files."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.001",
+      "name": "Disable or Modify Tools",
+      "relevance": "Unauthorized configuration modification can disable or alter security tools to suppress alerts."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.011",
+      "name": "Spoof Security Alerting",
+      "relevance": "Unauthorized config changes can be used to spoof or suppress security alerting systems."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1190",
+      "name": "Exploit Public-Facing Application",
+      "relevance": "Unpatched monitoring agents with known vulnerabilities can be exploited as public-facing applications."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1210",
+      "name": "Exploitation of Remote Services",
+      "relevance": "Unpatched agent software exposes exploitable remote services to adversaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1046",
+      "name": "Network Service Discovery",
+      "relevance": "Excessively exposed agent listeners are discoverable via network service scanning."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1049",
+      "name": "System Network Connections Discovery",
+      "relevance": "Attackers can enumerate exposed agent listener connections to map network attack surfaces."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1070",
+      "name": "Indicator Removal",
+      "relevance": "Insufficient logging allows attackers to remove indicators of compromise without detection."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.004",
+      "name": "Private Keys",
+      "relevance": "Config files may contain private keys stored in plaintext, enabling authentication bypass."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1557",
+      "name": "Adversary-in-the-Middle",
+      "relevance": "Without mutual TLS, agent-to-collector communication is vulnerable to adversary-in-the-middle attacks."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1649",
+      "name": "Steal or Forge Authentication Certificates",
+      "relevance": "Absence of mutual TLS exposes certificate-based authentication to theft or forgery."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1548.005",
+      "name": "Temporary Elevated Cloud Access",
+      "relevance": "Weak RBAC can allow attackers to gain temporary elevated access to alert management consoles."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1070.002",
+      "name": "Clear Linux or Mac System Logs",
+      "relevance": "Log retention misconfigurations mirror the effect of log clearing, removing forensic evidence."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.008",
+      "name": "Disable or Modify Cloud Logs",
+      "relevance": "Misconfigured log rotation may effectively disable or truncate cloud logs, reducing visibility."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1564.008",
+      "name": "Email Hiding Rules",
+      "relevance": "Unvalidated input to routing rules can be exploited to create hidden or malicious alert routing similar to email hiding rules."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1567.004",
+      "name": "Exfiltration Over Webhook",
+      "relevance": "Unvalidated routing rule input could redirect alerts to attacker-controlled webhooks for exfiltration."
+    }
+  ],
+  "respondsWith": []
+}

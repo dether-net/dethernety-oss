@@ -1,0 +1,1048 @@
+[
+  {
+    "option_name": "patch_automation_enabled",
+    "option_description": "Controls whether the patch management system automatically deploys patches on a defined schedule without requiring manual administrator intervention, covering critical and high severity OS patches.",
+    "security_impact": "This is a foundational input for three Rego rules. The known_vulnerability_closure_rate rule requires patch_automation_enabled == true combined with high compliance percentages or tight SLA windows. The patch_deployment_automation rule also requires this to be true alongside compliance tracking. When false, the zero_day_gap_period_minimization risk rule fires unconditionally, indicating the organization is exposed to extended vulnerability windows due to human latency in patch delivery.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In WSUS, navigate to Options > Automatic Approvals and verify that approval rules exist for Critical and Security Updates targeting production computer groups. Confirm the rule is enabled, not just defined.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WSUS Console > Options > Automatic Approvals > Review rule list and enabled status",
+        "expected_output": "At least one active approval rule targeting production groups for Critical/Security classifications with auto-approve enabled"
+      },
+      {
+        "type": "command",
+        "instruction": "On a Windows endpoint managed by WSUS or Intune, query the Windows Update Agent policy settings via registry to determine if automatic installation is configured rather than notify-only or download-only modes.",
+        "command": "reg query 'HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU' /v AUOptions",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AUOption value of 0x4 (4) indicates auto download and install; values 2 or 3 indicate notify-only or download-only, meaning automation is NOT enabled"
+      },
+      {
+        "type": "command",
+        "instruction": "For Linux environments managed by Ansible AWX or Tower, check for a scheduled job template that targets OS patching without requiring manual launch approval.",
+        "command": "awx job_templates list --all-pages -f json | jq '.results[] | select(.name | test(\"patch|update\"; \"i\")) | {name, ask_limit_on_launch, next_run}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Job templates for patching should show a next_run timestamp and ask_limit_on_launch: false indicating fully automated scheduling"
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Systems Manager Patch Manager, verify that a Patch Baseline and Maintenance Window are configured with an associated task set to 'Scan and Install' (not 'Scan only'), and that the Maintenance Window has a valid cron/rate schedule.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > Systems Manager > Patch Manager > Patch Baselines > confirm default baseline > Maintenance Windows > verify schedule and task type is AWS-RunPatchBaseline with Operation=Install",
+        "expected_output": "Maintenance Window in ENABLED state with Install operation and scheduled recurrence defined"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "patch_compliance_percentage",
+    "option_description": "Represents the percentage of in-scope managed systems that have all critical and high severity CVEs applied within the organization's defined SLA window, serving as the primary metric for patch program effectiveness.",
+    "security_impact": "Directly drives the known_vulnerability_closure_rate Rego rule. Two thresholds are evaluated: patch_compliance_percentage >= 95 combined with critical_patch_sla_days <= 14 activates the first condition, while patch_compliance_percentage >= 98 alone (with automation enabled) satisfies the second condition. Values below 95% mean the countermeasure does not activate regardless of other settings, leaving known CVE exposure unmitigated at scale.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Tenable.sc or Tenable.io, run the 'Patch Management' dashboard or execute a vulnerability summary report filtered to Critical and High severity, grouping by host. Calculate patched hosts divided by total managed hosts.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Tenable.sc > Dashboards > Patch Management Summary > or Reports > Vulnerability Summary > Filter: Severity=Critical,High > Group by Host",
+        "expected_output": "Report showing count of fully remediated hosts vs. total; divide remediated by total and multiply by 100 for percentage"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Qualys VMDR API for a compliance summary showing hosts with zero unpatched Critical/High QIDs within SLA, compared to total host count in the asset group.",
+        "command": "curl -u '$QUALYS_USER:$QUALYS_PASS' -H 'X-Requested-With: curl' 'https://qualysapi.qualys.com/api/2.0/fo/asset/host/?action=list&compliance_enabled=1' | xmllint --xpath '//HOST_LIST_OUTPUT/RESPONSE/HOST_LIST' -",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of hosts with compliance status; filter for hosts where all Critical/High detections have been remediated"
+      },
+      {
+        "type": "command",
+        "instruction": "On SCCM/MECM, run a built-in or custom SQL query against the WSUS database to count compliant vs. total devices for critical patches within the SLA window.",
+        "command": "sqlcmd -S <SCCM_DB_SERVER> -d CM_<SITECODE> -Q \"SELECT COUNT(*) AS Compliant FROM v_UpdateComplianceStatus WHERE Status=3 AND UpdateSeverity='Critical'\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Row count of compliant systems; compare against total device count from v_R_System to derive percentage"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune, navigate to Reports > Windows Updates > Windows Update Compliance to view the percentage of devices meeting update policy requirements for security updates.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Intune Admin Center > Reports > Endpoint Analytics > Windows Update Compliance > filter by Security/Critical updates",
+        "expected_output": "Compliance percentage displayed per update ring; overall compliance should reflect critical patch application rate"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "72",
+      "85",
+      "91",
+      "95",
+      "98",
+      "100"
+    ]
+  },
+  {
+    "option_name": "critical_patch_sla_days",
+    "option_description": "Defines the maximum number of days allowed from the date a critical severity patch is publicly released by the vendor to the date it must be fully deployed across managed endpoints, as enforced by policy and tooling configuration.",
+    "security_impact": "Used in two Rego rules. In known_vulnerability_closure_rate, the value must be <= 14 days alongside >= 95% compliance to satisfy the first condition. In patch_deployment_automation, the value must be <= 30 days as one of the qualifying conditions. A value greater than 30 days means automated deployment automation countermeasure cannot activate via the SLA path, and values above 14 days prevent the tighter known_vulnerability_closure_rate condition from being satisfied.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's written Patch Management Policy document for the defined remediation SLA table. Look for a grid specifying maximum days to patch by severity level (Critical, High, Medium, Low). Record the value for Critical severity.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy document containing a table such as: Critical = 7 days, High = 14 days, Medium = 30 days, Low = 90 days"
+      },
+      {
+        "type": "gui",
+        "instruction": "In WSUS or SCCM Software Update Point, check the Automatic Deployment Rule (ADR) schedule for critical updates to determine the deployment deadline offset configured for critical severity patches.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SCCM Console > Software Library > Software Updates > Automatic Deployment Rules > select critical patch ADR > Deployment Settings tab > Deadline field",
+        "expected_output": "Deadline offset value in days from availability date (e.g., '7 days after patch Tuesday') representing the enforcement SLA"
+      },
+      {
+        "type": "command",
+        "instruction": "On AWS SSM Patch Manager, retrieve the default patch baseline approval rules to determine the ApproveAfterDays value configured for CRITICAL severity patches.",
+        "command": "aws ssm describe-patch-baseline --baseline-id $(aws ssm get-default-patch-baseline --operating-system WINDOWS --query BaselineId --output text) --query 'ApprovalRules.PatchRules[?PatchFilterGroup.PatchFilters[?Key==`MSRC_SEVERITY` && Values[?@==`Critical`]]].ApproveAfterDays'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer value representing the number of days after release before CRITICAL patches are auto-approved, e.g., 7"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Ansible-based patch management, review the playbook or role variables file that defines patch application thresholds to identify the maximum_days_since_release or equivalent variable for critical patches.",
+        "command": null,
+        "file_path": "/etc/ansible/group_vars/all/patch_policy.yml",
+        "navigation": null,
+        "expected_output": "YAML variable such as critical_patch_max_age_days: 7 defining the SLA enforcement window"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "7",
+      "14",
+      "30",
+      "45",
+      "60"
+    ]
+  },
+  {
+    "option_name": "patch_compliance_tracking_enabled",
+    "option_description": "Controls whether the patch management platform actively monitors, records, and reports the patched versus unpatched status of all managed endpoints against the organization's defined SLA requirements on an ongoing basis.",
+    "security_impact": "Required by two Rego rules. The patch_deployment_automation rule requires this to be true in both its conditional paths (combined with automation and either SLA <= 30 days or rollback capability). When false, the zero_day_gap_period_minimization risk rule fires unconditionally, indicating the organization cannot identify which systems are exposed to known CVEs, making risk-based remediation prioritization impossible.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In WSUS, verify that the Synchronization and Reporting features are active and that computer group compliance reports are generated showing patch status per device. Check that the reporting service is running and not stale.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WSUS Console > Reports > Update Status Summary > verify report generates with current data and all computer groups appear",
+        "expected_output": "Report showing per-device patch status with columns for Installed, Needed, Failed, and Unknown; data should be current within the last 24 hours"
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux systems managed by Red Hat Satellite or Foreman, verify that content host subscription status and applicable errata tracking is active for all registered hosts.",
+        "command": "hammer content-host list --organization 'Default Organization' --fields 'Name,OS,Subscription Status,Applicable Errata' | head -50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of hosts with Subscription Status as 'Valid' and Applicable Errata counts populated, confirming active compliance tracking"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Intune Graph API to verify that device compliance policies with OS update requirements are assigned and returning compliance state data for managed devices.",
+        "command": "curl -H 'Authorization: Bearer $TOKEN' 'https://graph.microsoft.com/v1.0/deviceManagement/deviceCompliancePolicies?$filter=contains(displayName,\"update\")&$select=displayName,complianceGracePeriodExpirationDateTime,scheduledActionsForRule'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response with compliance policies that include OS update requirements and scheduled enforcement actions, confirming active tracking"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Jamf Pro for macOS/iOS fleets, confirm that a patch management title is configured with a deadline and that the patch reporting dashboard shows compliance state per device.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Jamf Pro > Patch Management > Patch Management Titles > select OS title > Patch Report tab > verify devices listed with Installed/Unknown/Failed status",
+        "expected_output": "Patch Report tab populated with device-level compliance data showing installed version vs. required version per managed Mac"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "rollback_capability_available",
+    "option_description": "Indicates whether the patch management environment supports the ability to uninstall or revert applied patches when they cause system instability, application incompatibility, or operational disruption, with documented and tested rollback procedures.",
+    "security_impact": "Contributes to two Rego rules. In patch_deployment_automation, rollback_capability_available == true serves as an alternative qualifying condition alongside automation and compliance tracking, acknowledging that organizations with strong safety nets can maintain aggressive patch automation. In known_vulnerability_closure_rate, it is a referenced attribute indicating mature patch management. Without rollback capability, organizations often slow patch deployment velocity to avoid instability risk, indirectly increasing vulnerability exposure.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the patch management runbook or change management procedures for documented rollback steps. Verify that a tested rollback procedure exists, has been executed in a test environment within the past 12 months, and results are documented.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Runbook document containing a titled 'Patch Rollback Procedure' section with step-by-step instructions, test date, and sign-off from system owner"
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows systems, verify that Windows Update rollback is available for recently installed patches by listing installed updates with their uninstall support status.",
+        "command": "Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 20 HotFixID, InstalledOn | ForEach-Object { $id = $_.HotFixID; $canUninstall = (Get-WindowsUpdateLog; wmic qfe where HotFixID='$id' get InstallDate,HotFixID /format:csv); $_ }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of recent hotfixes; cross-reference with WUSA /uninstall capability: run 'wusa /uninstall /kb:<KBID> /quiet /norestart /log' in test to confirm uninstall path exists"
+      },
+      {
+        "type": "gui",
+        "instruction": "For VM-based infrastructure, verify that VM snapshots or image backups are taken pre-patch in the deployment pipeline. Check the hypervisor or cloud console for snapshot policies associated with patch maintenance windows.",
+        "command": null,
+        "file_path": null,
+        "navigation": "VMware vCenter > VM > Snapshots > verify pre-patch snapshot exists with timestamp aligned to last maintenance window; OR AWS EC2 > AMI > verify pre-patch AMI was created before Patch Manager execution",
+        "expected_output": "Snapshot or AMI with a creation timestamp immediately preceding the last patch deployment, confirming a restore point exists for rollback"
+      },
+      {
+        "type": "command",
+        "instruction": "For Linux environments using DNF/YUM package management, verify that package history and downgrade capability is functional, which enables rollback of individual package updates.",
+        "command": "dnf history list | head -20 && dnf history info $(dnf history list | awk 'NR==2{print $1}') | grep -E 'Install|Upgrade|Update'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "History list showing recent transactions; 'dnf history undo <transaction_id>' capability confirms rollback is available for yum/dnf managed packages"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "compliance_dashboard_enabled",
+    "option_description": "Controls whether a centralized dashboard is active and operational, aggregating real-time or near-real-time patch compliance status from all managed endpoints into a single consolidated view for operations and security teams.",
+    "security_impact": "Required by the patch_compliance_visibility Rego rule, which needs both compliance_dashboard_enabled == true and unpatched_system_reporting_enabled == true together with adequate inventory coverage and report freshness. Without a compliance dashboard, security and operations teams lack situational awareness of patch status at scale, preventing proactive identification of lagging systems and making SLA enforcement reactive rather than continuous.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Access the WSUS or SCCM reporting services URL and verify that a patch compliance dashboard or report is available, populated with current data, and accessible to the security team without custom query construction.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SCCM Console > Monitoring > Reporting > Reports > Software Updates - A Compliance > 'Compliance 5 - Specific computers' OR WSUS Console > Reports > Update Status Summary",
+        "expected_output": "Dashboard renders with current data showing patched/needed/failed counts per computer group with timestamps within the past 48 hours"
+      },
+      {
+        "type": "command",
+        "instruction": "For Tenable.sc deployments, verify that an active dashboard is configured by querying the API for defined dashboards that include patch or vulnerability compliance components.",
+        "command": "curl -s -c cookies.txt -X POST 'https://<TENABLESC_HOST>/rest/token' -H 'Content-Type: application/json' -d '{\"username\":\"$USER\",\"password\":\"$PASS\"}' && curl -s -b cookies.txt 'https://<TENABLESC_HOST>/rest/dashboard' | jq '[.response[] | {name, owner, updatedTime}] | .[] | select(.name | test(\"patch|compliance\"; \"i\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON entries for dashboards matching patch or compliance naming patterns, with updatedTime reflecting recent activity"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Defender for Endpoint or Intune, verify that the Software Updates or Security Recommendations dashboard is enabled and shows OS patch compliance status across enrolled devices.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Defender Portal > Vulnerability Management > Recommendations > filter by 'OS updates' OR Intune > Reports > Windows Updates > Windows Update Compliance report",
+        "expected_output": "Dashboard displays with device-level OS patch compliance percentages, missing KB counts, and exposure scores; data refreshed within past 24 hours"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Qualys API to verify an active dashboard or report template for patch compliance exists and was last generated recently.",
+        "command": "curl -u '$QUALYS_USER:$QUALYS_PASS' -H 'X-Requested-With: curl' 'https://qualysapi.qualys.com/api/2.0/fo/report/?action=list' | xmllint --xpath '//REPORT_LIST_OUTPUT/RESPONSE/REPORT_LIST/REPORT[contains(TITLE,\"Patch\") or contains(TITLE,\"Compliance\")]' -",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more report entries with LAUNCH_DATETIME values within the past 7 days, confirming active compliance dashboard/reporting is operational"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unpatched_system_reporting_enabled",
+    "option_description": "Controls whether the patch management or vulnerability management system generates scheduled or on-demand reports and alerts that specifically enumerate endpoints failing to meet patch compliance requirements, identified by hostname, OS version, and specific missing patches.",
+    "security_impact": "Required alongside compliance_dashboard_enabled for the patch_compliance_visibility Rego rule to activate. This attribute specifically addresses the identification and communication of non-compliant systems rather than just displaying aggregate metrics. Without unpatched system reporting, administrators cannot efficiently identify which specific endpoints require remediation action, and SLA breach notifications cannot be generated to drive accountability and escalation.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SCCM/MECM, verify that a Software Updates compliance report targeting non-compliant computers is configured and has been run within the past reporting cycle. Look for reports listing specific computers with required but uninstalled updates.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SCCM Console > Monitoring > Reporting > Reports > Software Updates - B Deployment Management > 'Updates required by computers' OR 'Compliance 1 - Overall compliance'",
+        "expected_output": "Report renders with rows per non-compliant computer listing hostname, OS, update KB, severity, and days overdue"
+      },
+      {
+        "type": "command",
+        "instruction": "On WSUS, run a PowerShell query to extract computers with needed but not installed critical/security updates, confirming the data source for unpatched system reporting exists and is queryable.",
+        "command": "[reflection.assembly]::LoadWithPartialName('Microsoft.UpdateServices.Administration') | Out-Null; $wsus = [Microsoft.UpdateServices.Administration.AdminProxy]::GetUpdateServer('<WSUS_SERVER>',$false,8530); $scope = New-Object Microsoft.UpdateServices.Administration.ComputerTargetScope; $wsus.GetComputerTargets($scope) | ForEach-Object { $_.GetUpdateInstallationInfoPerUpdate() | Where-Object {$_.UpdateApprovalAction -eq 'Install' -and $_.UpdateInstallationState -ne 'Installed'} | Select-Object @{N='Computer';E={$_.ComputerTarget.FullDomainName}}, @{N='Update';E={$_.Update.Title}} } | Export-Csv unpatched_report.csv -NoTypeInformation",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CSV file populated with computer/update pairs representing unpatched systems; empty file indicates full compliance or broken reporting"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Qualys VMDR, verify that a scheduled remediation report or vulnerability report filtered to unpatched Critical/High detections exists and is configured to deliver to security team recipients on a defined schedule.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Qualys VMDR > Reports > Templates > find patch compliance or remediation template > Schedule tab > verify recurring schedule is active and recipients are configured",
+        "expected_output": "Report template with an active schedule (daily/weekly) and at least one email recipient, confirming automated unpatched system notification is operational"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Intune Graph API for non-compliant device reports to verify that device-level non-compliance data for update policies is available and actionable.",
+        "command": "curl -H 'Authorization: Bearer $TOKEN' 'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$filter=complianceState eq (quote)noncompliant(quote)&$select=deviceName,operatingSystem,osVersion,complianceState,lastSyncDateTime&$top=50'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array of non-compliant devices with device names, OS versions, and last sync timestamps confirming unpatched/non-compliant endpoint reporting data is accessible"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "inventory_coverage_percent",
+    "option_description": "Controls the percentage of total managed endpoints that are actively reporting patch status into the centralized patch compliance dashboard, defining the visibility gap in the patch management program.",
+    "security_impact": "The Rego policy requires inventory_coverage_percent >= 90 for the patch_compliance_visibility countermeasure to activate. If endpoint coverage falls below this threshold, unpatched systems operate outside visibility, creating blind spots where critical CVEs may go undetected and unremediated. Lower coverage directly undermines compliance enforcement and audit accountability.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SCCM/Microsoft Endpoint Configuration Manager, navigate to Monitoring > Reporting > Reports > Software Updates – A Compliance > Compliance 1 – Overall Compliance. Review the count of reporting devices versus total managed devices in the collection.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SCCM Console > Monitoring > Reporting > Reports > Software Updates – A Compliance > Compliance 1 – Overall Compliance",
+        "expected_output": "A report showing the number of devices reporting patch status versus total enrolled devices; divide and multiply by 100 for the percentage."
+      },
+      {
+        "type": "command",
+        "instruction": "Query WSUS database directly to count reporting versus total clients, or use PowerShell against SCCM to retrieve endpoint counts.",
+        "command": "Get-CMDevice -CollectionName 'All Systems' | Measure-Object | Select-Object Count; Get-CMDevice -CollectionName 'All Systems' | Where-Object {$_.LastActiveTime -ne $null} | Measure-Object | Select-Object Count",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Two counts: total managed devices and those actively reporting. Divide active-reporting count by total and multiply by 100."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the patch management platform API (e.g., Qualys, Tenable, Tanium) to retrieve managed asset count versus assets with recent patch scan data.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://<PLATFORM_HOST>/api/v1/assets?filter=patch_status_reported=true' | jq '.total_count'; curl -s -H 'Authorization: Bearer <TOKEN>' 'https://<PLATFORM_HOST>/api/v1/assets' | jq '.total_count'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Two integer values: assets with patch status reported and total managed assets. Coverage percent = (reported / total) * 100."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the patch management team to identify endpoint sources not integrated with the dashboard (e.g., OT devices, DMZ servers, legacy systems, remote offices without VPN). Cross-reference against the CMDB or asset inventory to identify exclusions.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented list of endpoint categories excluded from the dashboard and the justification, allowing accurate calculation of true coverage percentage."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "75",
+      "85",
+      "90",
+      "95",
+      "100"
+    ]
+  },
+  {
+    "option_name": "report_staleness_days",
+    "option_description": "Measures the elapsed days since the patch compliance dashboard or report was last refreshed, indicating whether the compliance posture data being acted on is current or outdated.",
+    "security_impact": "The Rego policy requires report_staleness_days <= 7 for patch_compliance_visibility to activate. Stale reports mean security teams and auditors are working from outdated patch status data, causing missed remediation deadlines for newly disclosed CVEs and incorrect compliance assertions during audits. A report older than seven days fails the visibility condition entirely.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Open the patch management console (WSUS, SCCM, Qualys, or Tenable) and locate the last data sync or report generation timestamp displayed in the dashboard header or report metadata.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SCCM Console > Monitoring > Software Update Point Synchronization Status – review 'Last Sync Time'; OR Qualys > AssetView > Dashboard – review last scan/sync timestamp in upper corner.",
+        "expected_output": "A timestamp indicating when the dashboard data was last refreshed. Calculate elapsed days from today to that timestamp."
+      },
+      {
+        "type": "command",
+        "instruction": "Check WSUS synchronization logs or SCCM site logs to identify the most recent successful synchronization event timestamp.",
+        "command": "Get-WsusServer | Select-Object -ExpandProperty GetSubscription | Select-Object LastSynchronizationTime, LastSynchronizationResult; (New-TimeSpan -Start (Get-WsusServer).GetSubscription().LastSynchronizationTime -End (Get-Date)).Days",
+        "file_path": "C:\\Program Files\\Update Services\\LogFiles\\SoftwareDistribution.log",
+        "navigation": null,
+        "expected_output": "An integer representing days since last successful sync. Values above 7 indicate stale compliance data."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review patch management scheduler logs or cron job output to identify when compliance report generation last completed successfully.",
+        "command": "grep -i 'report generated\\|compliance scan complete\\|sync completed' /var/log/patch-management/*.log | tail -20 | awk '{print $1, $2}'",
+        "file_path": "/var/log/patch-management/compliance-report.log",
+        "navigation": null,
+        "expected_output": "Log entries showing the last successful report generation timestamp. Calculate days elapsed from that timestamp to today."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the patch management platform API for the last report or scan completion timestamp.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://<PLATFORM_HOST>/api/v1/reports/latest' | jq '.generated_at, .scan_completed_at'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An ISO 8601 timestamp of the last completed report. Convert to elapsed days from current date."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1",
+      "3",
+      "7",
+      "14",
+      "30"
+    ]
+  },
+  {
+    "option_name": "patch_deployment_cadence_days",
+    "option_description": "Defines the maximum number of days permitted between public CVE disclosure and completed patch deployment for critical and high-severity vulnerabilities, as both a policy target and a measured operational metric.",
+    "security_impact": "The Rego policy triggers zero_day_gap_period_minimization as a required countermeasure when patch_deployment_cadence_days > 7. This means any deployment cadence exceeding one week flags the organization as having an unacceptably wide exploitable window. Longer cadences directly correlate with increased likelihood of exploitation of known CVEs before remediation is complete, particularly for high-profile vulnerabilities with public exploit code.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review the formal patch management policy document to identify the defined SLA for critical and high severity patch deployment. Confirm with the patch management team what the actual measured average is versus the policy target.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented SLA value (e.g., '14 days for critical, 30 days for high') and any metrics showing actual average deployment times from recent patch cycles."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query ITSM or change management records (ServiceNow, Jira) to calculate the average elapsed time between CVE public disclosure date and the change record completion date for critical patches deployed in the last 90 days.",
+        "command": "SELECT AVG(DATEDIFF(day, cve_disclosure_date, patch_deployed_date)) AS avg_cadence_days FROM patch_deployments WHERE severity IN ('critical','high') AND patch_deployed_date >= DATEADD(day,-90,GETDATE())",
+        "file_path": null,
+        "navigation": "ServiceNow > Change Management > Search for changes with type 'Security Patch' closed in last 90 days; export and calculate average days from CVE NVD publication date to change closure date.",
+        "expected_output": "An integer representing the average or maximum days between CVE disclosure and patch deployment. Values above 7 will trigger the zero_day_gap_period_minimization countermeasure."
+      },
+      {
+        "type": "command",
+        "instruction": "Use PowerShell to query SCCM deployment records and cross-reference with NVD CVE publication dates for patches deployed in the last quarter.",
+        "command": "Get-CMSoftwareUpdateDeployment | Where-Object {$_.CreationTime -ge (Get-Date).AddDays(-90)} | Select-Object AssignmentName, CreationTime, EnforcementDeadline | Sort-Object CreationTime",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of patch deployments with creation and enforcement deadline dates. Compare creation date against corresponding CVE NVD publication date (retrieved manually or via NVD API) to determine cadence."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the NVD API for CVEs patched in the last cycle and compare publication dates against your patch management system's deployment completion records.",
+        "command": "curl -s 'https://services.nvd.nist.gov/rest/json/cves/2.0?cvssV3Severity=CRITICAL&pubStartDate=2024-01-01T00:00:00&pubEndDate=2024-03-31T00:00:00' | jq '[.vulnerabilities[].cve | {id: .id, published: .published}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of CVE publication dates that can be cross-referenced with internal patch deployment records to compute the actual cadence in days."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "7",
+      "14",
+      "30",
+      "60",
+      "90"
+    ]
+  },
+  {
+    "option_name": "rollback_capability_enabled",
+    "option_description": "Indicates whether the patch management infrastructure has a functional rollback mechanism—such as snapshots, system restore points, or patch uninstall workflows—that can return a system to its pre-patch state when a patch causes instability or operational failure.",
+    "security_impact": "The Rego policy triggers rollback_and_stability_assurance as a required countermeasure when rollback_capability_enabled == false. Without rollback capability, a faulty patch can cause production outages with no rapid recovery path, potentially forcing organizations to choose between security vulnerability and system availability. The policy also gates this control in combination with pre_deployment_testing_stage and rollback_test_frequency_days to ensure comprehensive stability assurance.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SCCM/MECM, verify that software update deployments have 'Allow clients to uninstall software updates' enabled. In VMware vSphere or Hyper-V environments, confirm that VM snapshots are scheduled before maintenance windows.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SCCM Console > Software Library > Software Updates > Deployment Groups > [Select Deployment] > Properties > Deployment Settings > check 'Allow software updates to be uninstalled'; VMware vCenter > VM > Snapshots > Snapshot Manager.",
+        "expected_output": "Confirmation that uninstall/rollback is enabled in the deployment configuration, or that snapshots are present and scheduled before patch windows."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify Windows System Restore is enabled on endpoints and that VSS snapshots exist, or confirm that WSUS/SCCM allows update uninstall via PowerShell.",
+        "command": "Get-ComputerRestorePoint | Sort-Object CreationTime -Descending | Select-Object -First 5 Description, CreationTime; Invoke-Command -ComputerName <TargetHost> -ScriptBlock { Get-WmiObject -Class Win32_ShadowCopy | Sort-Object InstallDate -Descending | Select-Object -First 3 }",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of existing restore points or VSS snapshots with timestamps confirming rollback artifacts exist prior to recent patch deployments."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Ansible, Puppet, or Chef patch playbook/manifest files to confirm a pre-task snapshot or backup step is defined before the patching task block.",
+        "command": "grep -A5 -B5 'snapshot\\|backup\\|rollback\\|restore' /etc/ansible/playbooks/patch_management.yml",
+        "file_path": "/etc/ansible/playbooks/patch_management.yml",
+        "navigation": null,
+        "expected_output": "Playbook tasks showing a snapshot or backup step with 'before' ordering relative to the yum/apt/dnf update task, confirming rollback is built into the automation."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the patch management team and request the documented rollback runbook. Confirm that the procedure has been tested within the last year and that the tooling (snapshot manager, backup agent, WSUS uninstall) is actively licensed and configured.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dated rollback runbook and evidence of at least one successful rollback test or execution event within the past 365 days."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "pre_deployment_testing_stage",
+    "option_description": "Represents the rigor level of patch validation performed before patches reach production systems, ranging from no testing (none) through isolated lab testing (lab_only), user acceptance testing environments (staging), to phased rollout across device rings (ring_based).",
+    "security_impact": "The Rego policy triggers rollback_and_stability_assurance as a required countermeasure when pre_deployment_testing_stage == 'none'. Without any pre-deployment testing, faulty patches are deployed directly to production, risking widespread system instability. Higher values (staging, ring_based) reduce blast radius by catching incompatibilities before full rollout. The enum ordering reflects increasing organizational maturity and operational risk reduction.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the patch management team and change advisory board (CAB) to determine the formal process for patch validation before production deployment. Request the patch management runbook or SOC procedure that describes the testing pipeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation identifying which environments (lab, staging, UAT, pilot group) patches pass through before production deployment. Map the described process to the enum values: none/lab_only/staging/ring_based."
+      },
+      {
+        "type": "gui",
+        "instruction": "In SCCM/MECM, review deployment collections and phased deployment configurations to confirm whether patch deployments are configured with collection sequencing (ring-based) or limited pilot groups before broad deployment.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SCCM Console > Software Library > Software Updates > All Software Updates > [Select Update Group] > Deploy > Phased Deployments; OR review collection targeting order in active deployment objects.",
+        "expected_output": "Evidence of phased deployment collections (e.g., 'Pilot – IT Staff', 'Ring 1 – Non-Critical', 'Production – All') confirming ring_based or staging testing is configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review CI/CD pipeline configuration files (Jenkins, GitLab CI, Azure DevOps pipelines) used for patch automation to identify environment stage definitions.",
+        "command": "cat /etc/jenkins/jobs/patch-deployment/config.xml | grep -i 'stage\\|environment\\|lab\\|staging\\|production'; grep -rn 'stages\\|environments' /opt/ansible/patch-pipeline/*.yml",
+        "file_path": "/etc/jenkins/jobs/patch-deployment/config.xml",
+        "navigation": null,
+        "expected_output": "Pipeline stage definitions showing sequential environments (e.g., lab → staging → production) through which patches progress before production deployment."
+      },
+      {
+        "type": "command",
+        "instruction": "Query SCCM deployment records via PowerShell to identify if recent patch deployments targeted pilot or staging collections before broad production collections.",
+        "command": "Get-CMSoftwareUpdateDeployment | Select-Object AssignmentName, CollectionName, CreationTime | Where-Object {$_.AssignmentName -match 'pilot|lab|staging|ring|test'} | Sort-Object CreationTime -Descending | Select-Object -First 10",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of deployments targeting non-production collections, confirming that a testing stage exists before production rollout. Absence of such records suggests 'none' or 'lab_only'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "lab_only",
+      "staging",
+      "ring_based"
+    ]
+  },
+  {
+    "option_name": "rollback_test_frequency_days",
+    "option_description": "Tracks the number of days since rollback procedures were last validated through a planned drill exercise or an actual rollback event triggered by a failed patch, with 0 indicating the rollback capability has never been tested.",
+    "security_impact": "The Rego policy triggers rollback_and_stability_assurance as a required countermeasure when rollback_capability_enabled == true but rollback_test_frequency_days == 0. This condition captures the failure mode where rollback is configured but never validated—meaning the capability may not actually work when needed during a production incident. Industry guidance recommends annual testing at minimum; untested rollback procedures provide false assurance.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Search change management records (ServiceNow, Jira, Remedy) for change tickets categorized as patch rollback, patch reversal, or emergency change related to patch failure within the past year.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ServiceNow > Change Management > Search by 'Category = Patch Rollback' OR 'Short Description contains rollback' filtered by date range of last 365 days; export and identify most recent closure date.",
+        "expected_output": "A change ticket with a closed date representing the most recent actual rollback event. Calculate days elapsed from that date to today."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the disaster recovery or patch management test schedule and ask the team to identify the most recent tabletop or live rollback drill. Review any drill after-action reports or test completion sign-off records.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dated test completion record or after-action report confirming a rollback drill was conducted. If no record exists, the value should be set to 0 (never tested)."
+      },
+      {
+        "type": "command",
+        "instruction": "Query system restore point or snapshot history to identify whether any rollback artifacts were used (consumed/deleted post-restore) within the past year on managed endpoints or hypervisor hosts.",
+        "command": "Get-ComputerRestorePoint | Where-Object {$_.Description -match 'rollback\\|restore\\|recovery'} | Sort-Object CreationTime -Descending | Select-Object -First 5 Description, CreationTime; (New-TimeSpan -Start (Get-ComputerRestorePoint | Sort-Object CreationTime -Descending | Select-Object -First 1).CreationTime -End (Get-Date)).Days",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The most recent restore point associated with a rollback event and the elapsed days since it was created or used. If none found, value is 0."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review VMware vCenter or Hyper-V event logs for snapshot revert operations on servers in the patch management scope, which would indicate actual rollback executions.",
+        "command": "Get-VIEvent -EventTypeId 'com.vmware.vc.vm.DiskRevertedToSnapshotEvent' -Start (Get-Date).AddDays(-365) | Select-Object CreatedTime, FullFormattedMessage | Sort-Object CreatedTime -Descending | Select-Object -First 10",
+        "file_path": null,
+        "navigation": "vCenter > Monitor > Events – filter by event type 'Snapshot Reverted' for the past 365 days.",
+        "expected_output": "A list of snapshot revert events with timestamps. The most recent event date is used to calculate rollback_test_frequency_days."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "30",
+      "90",
+      "180",
+      "365"
+    ]
+  },
+  {
+    "option_name": "patch_logging_enabled",
+    "option_description": "Controls whether the patch management system is explicitly configured to record patch installation events—including successful installations, failures, and skipped updates—with sufficient detail to support audit trails, incident response, and compliance reporting.",
+    "security_impact": "The Rego policy requires patch_logging_enabled == true as the foundational condition for the patch_logging_and_audit_trail countermeasure to activate (alongside log storage destination, retention, and captured audit fields). Without logging enabled, there is no evidentiary record of which patches were applied to which systems and when, making forensic investigation of security incidents impossible and failing audit requirements under frameworks such as PCI-DSS, HIPAA, and SOC 2. This attribute is rated high criticality reflecting its role as a prerequisite for the entire audit trail capability.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the WSUS or SCCM client configuration to confirm that Windows Update logging is enabled and verbose, or review the WindowsUpdate.log or CBS.log for patch event entries.",
+        "command": "Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate' | Select-Object WUStatusServer, ElevateNonAdmins; Get-Content 'C:\\Windows\\Logs\\CBS\\CBS.log' | Select-String 'Installing\\|Failed\\|Skipped' | Select-Object -Last 20",
+        "file_path": "C:\\Windows\\Logs\\CBS\\CBS.log",
+        "navigation": null,
+        "expected_output": "CBS.log entries showing patch installation events with outcomes (installed, failed, not applicable). Presence of these entries confirms logging is active."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux endpoints, verify that yum/dnf or apt history logging is enabled and populated with recent patch events.",
+        "command": "cat /var/log/yum.log 2>/dev/null | tail -20; dnf history list | head -20; grep -i 'install\\|upgrade\\|remove' /var/log/dpkg.log | tail -20; ls -lh /var/log/apt/history.log",
+        "file_path": "/var/log/yum.log",
+        "navigation": null,
+        "expected_output": "Log file entries showing timestamped package installation, upgrade, or removal events. Non-empty log files with recent entries confirm patch logging is active."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the patch management console (Qualys, Tenable, Tanium, Ivanti), navigate to audit or activity log settings to confirm that patch deployment event logging is enabled and writing to a configured destination.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Tanium > Administration > Audit Log > verify 'Patch Deployment Events' are enabled and a log destination is configured; OR Ivanti > Patch Management > Settings > Logging – confirm 'Enable Detailed Logging' is checked and log path is populated.",
+        "expected_output": "A settings screen showing patch event logging is toggled on with a valid log destination path or SIEM integration confirmed as active."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify that recent patch deployment events are actually appearing in the configured log destination (local file, SIEM, or centralized log aggregator) by querying for events from the most recent patch cycle.",
+        "command": "index=patch_management sourcetype=wsus OR sourcetype=yum OR sourcetype=apt earliest=-7d | stats count by host, action, patch_id | head 50",
+        "file_path": null,
+        "navigation": "Splunk > Search & Reporting > run the above SPL query to confirm patch events are flowing into the SIEM from managed endpoints.",
+        "expected_output": "Query results showing patch installation events from multiple endpoints within the last 7 days, confirming that logging is both enabled and successfully forwarding to the centralized log destination."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_retention_days",
+    "option_description": "Controls the number of days patch installation logs are retained before deletion or archival. This setting governs how long forensic and compliance evidence of patch activity is preserved in the patch management system, SIEM, or log aggregator.",
+    "security_impact": "The Rego policy for patch_logging_and_audit_trail requires log_retention_days >= 90 alongside centralized storage and key audit fields to activate the countermeasure. Insufficient retention destroys forensic evidence needed for incident response and violates compliance baselines such as PCI-DSS, HIPAA, and NIST SP 800-53 that mandate 90-365 days of log history.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In WSUS, navigate to Options > Computers and check the cleanup/retention settings. In SCCM/MECM, open Administration > Site Configuration > Sites > Status Filter Rules and review the retention period for patch status messages.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WSUS Console > Options > Automatic Approvals / Server Cleanup Wizard; SCCM Console > Administration > Site Configuration > Sites > Status Filter Rules",
+        "expected_output": "A defined retention period in days displayed in the configuration panel, typically 90, 180, or 365 days."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux endpoints managed by yum/dnf, check the log rotation configuration for the yum or dnf log file to determine how long patch logs are retained.",
+        "command": "cat /etc/logrotate.d/yum 2>/dev/null || cat /etc/logrotate.d/dnf 2>/dev/null; grep -r 'rotate' /etc/logrotate.conf",
+        "file_path": "/etc/logrotate.d/yum",
+        "navigation": null,
+        "expected_output": "A 'rotate N' directive indicating how many rotations occur and a frequency keyword (daily/weekly) allowing calculation of total retention days."
+      },
+      {
+        "type": "api",
+        "instruction": "Query a SIEM such as Splunk for its index retention policy on the index receiving patch logs to determine the configured maximum age.",
+        "command": "curl -sk -u admin:password https://splunk-server:8089/services/data/indexes/patch_logs?output_mode=json | python3 -m json.tool | grep -E 'frozenTimePeriodInSecs|maxTotalDataSizeMB'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "frozenTimePeriodInSecs value; divide by 86400 to convert to days. A value of 7776000 equals 90 days."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Microsoft environments using Windows Event Forwarding, inspect the event log channel configuration to determine the maximum log size and rotation policy that together define effective retention.",
+        "command": "wevtutil gl Microsoft-Windows-WindowsUpdateClient/Operational",
+        "file_path": "C:\\Windows\\System32\\winevt\\Logs\\Microsoft-Windows-WindowsUpdateClient%4Operational.evtx",
+        "navigation": null,
+        "expected_output": "maxSize value in bytes and fileMax count. Divide maxSize by average event size to estimate days retained."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "30",
+      "90",
+      "180",
+      "365",
+      "730"
+    ]
+  },
+  {
+    "option_name": "log_storage_destination",
+    "option_description": "Indicates where patch event logs are stored, distinguishing between centralized tamper-resistant repositories such as a SIEM or log aggregator versus local-only storage on the managed endpoint or no logging at all.",
+    "security_impact": "The Rego patch_logging_and_audit_trail rule explicitly requires log_storage_destination to be either centralized_siem or centralized_log_aggregator. Local-only or absent log storage means logs can be destroyed or tampered with by an attacker who compromises the endpoint, eliminating the audit trail needed for forensic analysis and compliance verification.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In a SIEM such as Microsoft Sentinel or Splunk, verify that a data connector or forwarder is configured to ingest Windows Update or Linux package manager logs from managed endpoints.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk: Settings > Data Inputs > Forwarders; Microsoft Sentinel: Configuration > Data Connectors > search for Windows Security Events or Syslog",
+        "expected_output": "An active data connector showing ingestion of patch-related log sources with a green/healthy status and recent event timestamps."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Linux endpoint, check whether rsyslog or syslog-ng is configured to forward package manager logs to a remote centralized server.",
+        "command": "grep -r 'yum\\|dnf\\|apt\\|patch' /etc/rsyslog.conf /etc/rsyslog.d/ 2>/dev/null; grep -r '@\\|@@' /etc/rsyslog.conf /etc/rsyslog.d/ 2>/dev/null",
+        "file_path": "/etc/rsyslog.conf",
+        "navigation": null,
+        "expected_output": "Lines containing remote forwarding directives (single @ for UDP, @@ for TCP) pointing to a log aggregator IP or hostname."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows endpoints, verify whether the Windows Event Forwarding subscription is active, which would indicate centralized log collection from the Windows Update client log channel.",
+        "command": "wecutil es; wecutil gs <subscription_name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more active subscriptions listed with a status of Active and a non-null CollectorAddress pointing to a central log server."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the patch management or SOC team to confirm whether patch logs from endpoints are forwarded to a SIEM or log aggregator, or whether they rely solely on local endpoint logs or the patch management console's own database.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented or verbal confirmation identifying the specific platform (e.g., Splunk, Elastic, Azure Log Analytics) receiving patch logs, or confirmation that no forwarding is configured."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "local_only",
+      "centralized_log_aggregator",
+      "centralized_siem",
+      "none"
+    ]
+  },
+  {
+    "option_name": "audit_fields_captured",
+    "option_description": "Defines the specific data fields recorded for each patch installation event, such as timestamp, patch identifier (CVE or KB number), hostname, initiating account, and outcome (success or failure). The completeness of these fields determines the forensic and compliance value of each log entry.",
+    "security_impact": "The Rego patch_logging_and_audit_trail rule requires that timestamp, patch_id, and outcome are all present in audit_fields_captured as minimum fields for the countermeasure to activate. Missing any of these fields makes it impossible to correlate when a specific vulnerability was addressed on a specific system with what result, breaking both incident response workflows and compliance audit chains.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Retrieve a sample patch log entry from the SIEM or local log and manually inspect which fields are present. On Windows, pull a recent Windows Update event from the operational log.",
+        "command": "Get-WinEvent -LogName 'Microsoft-Windows-WindowsUpdateClient/Operational' -MaxEvents 5 | Select-Object TimeCreated, Id, Message | Format-List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Event entries showing TimeCreated (timestamp), event ID, and a Message body containing KB article number (patch_id), computer name (hostname), and install result code (outcome)."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "On Linux systems managed with dnf or yum, inspect the package manager history log to identify what fields are recorded per transaction.",
+        "command": "dnf history info last 2>/dev/null || yum history info last 2>/dev/null; cat /var/log/dnf.log 2>/dev/null | tail -50",
+        "file_path": "/var/log/dnf.log",
+        "navigation": null,
+        "expected_output": "Log lines containing date/time, package name and version, transaction result (Installed/Updated/Error), and the invoking user or process."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SIEM for a recent patch log event and list all indexed fields to verify completeness against the required set of timestamp, patch_id, hostname, account, and outcome.",
+        "command": "curl -sk -u admin:password -X POST https://splunk-server:8089/services/search/jobs/export --data 'search=index=patch_logs | head 1 | fields * | transpose&output_mode=json'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON response listing all field names present on the event. Verify that fields mapping to timestamp, patch_id, hostname, initiating_account, and outcome are all present."
+      },
+      {
+        "type": "gui",
+        "instruction": "In SCCM/MECM, open the Software Updates node and review the Status Messages for a recent deployment to determine which columns and data points are recorded in the patch status database.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SCCM Console > Monitoring > Software Update Deployments > select a deployment > View Status > select a machine > Show Messages",
+        "expected_output": "A status message detail window showing date/time, machine name, update KB/CVE identifier, deployment action, and success or failure code."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"timestamp\", \"patch_id\", \"outcome\"]",
+      "[\"timestamp\", \"patch_id\", \"hostname\", \"outcome\"]",
+      "[\"timestamp\", \"patch_id\", \"hostname\", \"initiating_account\", \"outcome\", \"pre_state\", \"post_state\"]"
+    ]
+  },
+  {
+    "option_name": "third_party_patch_scope_enabled",
+    "option_description": "Determines whether the patch management system is configured to apply updates to OS-bundled third-party libraries, drivers, and dependent components beyond the core operating system kernel and Microsoft or distribution-native packages.",
+    "security_impact": "The Rego third_party_component_coverage rule fires as a gap when third_party_patch_scope_enabled is false, immediately registering the control as deficient. Third-party components such as OpenSSL, curl, or GPU drivers bundled with the OS frequently carry critical CVEs that are not addressed by core OS updates alone, leaving a significant residual attack surface even when core patching is complete.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In WSUS, check whether third-party update categories are enabled. Navigate to Options > Products and Classifications and verify that non-Microsoft product families are selected for synchronization.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WSUS Console > Options > Products and Classifications > Products tab; check for non-Microsoft vendors such as Adobe, Google Chrome, or driver manufacturers",
+        "expected_output": "Third-party product checkboxes selected, indicating WSUS will synchronize and offer updates for those products."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux systems, verify that third-party repositories providing driver or library updates are enabled and that package manager updates include those packages.",
+        "command": "dnf repolist enabled 2>/dev/null | grep -iv 'base\\|updates\\|appstream\\|extras'; apt-cache policy 2>/dev/null | grep -i 'http' | head -20",
+        "file_path": "/etc/yum.repos.d/",
+        "navigation": null,
+        "expected_output": "Repository entries for third-party vendors (e.g., EPEL, vendor-specific repos for drivers) listed as enabled, indicating their packages are included in update scope."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the SCCM Software Update Point configuration or Ansible/Puppet/Chef patching playbook to determine if third-party update catalogs or package lists are included in scope.",
+        "command": "grep -r 'third.party\\|vendor\\|driver\\|library' /etc/ansible/roles/patching/ 2>/dev/null; find /etc/puppet /etc/chef -name '*.pp' -o -name '*.rb' 2>/dev/null | xargs grep -l 'package\\|patch' 2>/dev/null",
+        "file_path": "/etc/ansible/roles/patching/",
+        "navigation": null,
+        "expected_output": "Playbook or manifest entries explicitly including third-party package names or repository sources in the patching task scope."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the patch management team to determine whether a formal policy or procedure document defines third-party component patching scope, and whether the patch management tooling is configured to enforce it.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A policy document or verbal confirmation stating that third-party OS-bundled components are explicitly included or excluded from the patching program scope."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "third_party_patch_compliance_rate",
+    "option_description": "Measures the percentage of managed endpoints that have third-party OS-bundled components (drivers, libraries, dependent packages) patched within the defined SLA window, providing a quantitative view of third-party patch program effectiveness.",
+    "security_impact": "The Rego third_party_component_coverage rule triggers as a gap when the compliance rate falls below 90% (unconditional threshold) or below 95% when automation mode is manual. A low compliance rate signals that a material fraction of endpoints carry known unpatched vulnerabilities in third-party components, creating exploitable footholds even in environments where core OS patching is strong.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In SCCM/MECM, generate a Software Update Compliance report filtered to third-party update categories to obtain the percentage of devices compliant within the SLA period.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SCCM Console > Monitoring > Reporting > Reports > Software Updates - B Deployment State > Compliance States for a Deployment; filter by third-party software update group",
+        "expected_output": "A report table or chart showing compliant versus non-compliant device counts and a calculated compliance percentage for the selected third-party update deployment."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux environments, use a configuration management tool to query the percentage of managed nodes where all enabled third-party repository packages are up to date.",
+        "command": "ansible all -m shell -a 'dnf check-update --security 2>/dev/null | grep -v \"^$\\|^Last\\|Loaded\\|Loading\" | wc -l' -i /etc/ansible/hosts 2>/dev/null | awk '/CHANGED|SUCCESS/{getline; print $0}' | awk '{sum+=$1; count++} END {print \"Hosts with pending updates:\", count, \"avg pending:\", sum/count}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A count of hosts with pending third-party package updates. Calculate compliance rate as ((total_hosts - hosts_with_pending) / total_hosts) * 100."
+      },
+      {
+        "type": "api",
+        "instruction": "Query a vulnerability management platform such as Tenable.io or Qualys for a summary of third-party patch compliance across the managed asset population.",
+        "command": "curl -s -H 'X-ApiKeys: accessKey=ACCESS_KEY; secretKey=SECRET_KEY' 'https://cloud.tenable.com/workbenches/assets/vulnerabilities?filter.0.filter=patch_state&filter.0.quality=eq&filter.0.value=superseded&date_range=30' | python3 -m json.tool | grep -E 'total|compliant'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON response with total assets and counts of assets with unpatched third-party vulnerabilities, enabling calculation of the compliance percentage."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the patch management system database or SIEM for the ratio of successful third-party patch deployments to total targeted deployments over the last SLA window period.",
+        "command": "grep -i 'third.party\\|vendor\\|driver' /var/log/patch-management/*.log 2>/dev/null | awk '/success/{s++} /fail/{f++} END {print \"Success:\", s, \"Fail:\", f, \"Rate:\", (s/(s+f))*100\"%\"}'",
+        "file_path": "/var/log/patch-management/",
+        "navigation": null,
+        "expected_output": "Success and failure counts for third-party patch deployments with a calculated compliance percentage; target is 90% or above."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "75",
+      "85",
+      "90",
+      "95",
+      "98",
+      "100"
+    ]
+  },
+  {
+    "option_name": "third_party_patch_automation_mode",
+    "option_description": "Defines the level of automation applied to third-party component patching within the patch management system, ranging from fully automated deployment to approval-gated automation to entirely manual processes.",
+    "security_impact": "The Rego third_party_component_coverage rule applies a stricter compliance threshold (95% instead of 90%) when automation mode is manual, reflecting that manual processes are less reliable. A manual mode combined with sub-95% compliance triggers the third-party coverage gap. Fully automated or approval-gated automation reduces human latency in applying third-party patches and is required to consistently meet SLA targets.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In WSUS, review the Automatic Approvals rules to determine whether third-party product updates are configured for automatic approval or require manual approval before deployment.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WSUS Console > Options > Automatic Approvals > Update Rules tab; check if third-party product categories are included in any auto-approval rule",
+        "expected_output": "Auto-approval rules listing specific product categories. Presence of third-party product categories with automatic deployment action indicates automated or approval_then_automated mode."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Ansible, Puppet, or Chef automation code to determine whether third-party package updates are applied automatically in scheduled runs or only when triggered manually by an operator.",
+        "command": "grep -A5 -B2 'package\\|yum\\|apt\\|dnf' /etc/ansible/roles/patching/tasks/main.yml 2>/dev/null | head -60",
+        "file_path": "/etc/ansible/roles/patching/tasks/main.yml",
+        "navigation": null,
+        "expected_output": "Task definitions showing state: latest for third-party packages with scheduled cron triggers indicating automated mode, or absence of scheduling indicating manual mode."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether a scheduled cron job, systemd timer, or task scheduler entry exists that triggers third-party patch installation automatically on managed endpoints.",
+        "command": "systemctl list-timers --all 2>/dev/null | grep -i 'patch\\|update\\|yum\\|dnf\\|apt'; crontab -l 2>/dev/null | grep -i 'patch\\|update\\|yum\\|dnf'; Get-ScheduledTask | Where-Object {$_.TaskName -match 'patch|update'} 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Scheduled timer or task entries for third-party patching. Presence indicates automated or approval_then_automated; absence suggests manual mode."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the patch management runbook or change management procedure to determine whether third-party patches require a change ticket approval before deployment or are deployed automatically.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented procedure classifying third-party patches as auto-deployed, requiring change advisory board approval before auto-deployment, or requiring full manual execution."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "manual",
+      "approval_then_automated",
+      "automated"
+    ]
+  },
+  {
+    "option_name": "hardened_baseline_defined",
+    "option_description": "Indicates whether a formally documented and approved hardened configuration baseline exists for systems managed under the patch program. This baseline may reference industry standards such as CIS Benchmarks, DISA STIGs, or internally authored hardening guides that are version-controlled and formally adopted.",
+    "security_impact": "The Rego baseline_configuration_enforcement rule requires hardened_baseline_defined to be true as a prerequisite for the countermeasure to activate in either the automated or manual validation path. Without a defined baseline, post-patch compliance validation has no reference state to validate against, meaning patch deployments may introduce or preserve insecure configurations that go undetected, causing configuration drift.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the official hardened baseline document from the security or infrastructure team. Verify it is formally approved (signed off by a security owner), version-controlled (stored in a document management or version control system), and explicitly references a standard such as CIS or STIG.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A document such as 'RHEL8 Hardening Baseline v2.3 - Approved 2024-01-15' referencing CIS Benchmark Level 2 or STIG version, stored in a version control or document management system."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check whether a SCAP or XCCDF benchmark profile file exists on the system or in the configuration management repository, indicating a machine-readable baseline has been defined.",
+        "command": "find /etc /opt /usr/share -name '*.xml' -o -name '*.xccdf' 2>/dev/null | xargs grep -l 'Benchmark\\|Profile' 2>/dev/null | head -10; ls /usr/share/xml/scap/ssg/content/ 2>/dev/null",
+        "file_path": "/usr/share/xml/scap/ssg/content/",
+        "navigation": null,
+        "expected_output": "SCAP content files such as ssg-rhel8-xccdf.xml present, indicating a machine-readable hardened baseline is available and potentially applied."
+      },
+      {
+        "type": "gui",
+        "instruction": "In a configuration management tool such as Chef Automate, Ansible Tower/AWX, or Puppet Enterprise, check whether a hardening role, profile, or cookbook is assigned to the managed node groups receiving patches.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Ansible Tower: Templates > search for 'harden' or 'baseline'; Puppet Enterprise: Classification > Node Groups > check for hardening module assignments; Chef Automate: Policy > check for hardening cookbooks in run list",
+        "expected_output": "A hardening role, cookbook, or module listed in the configuration applied to patched node groups, confirming a baseline has been defined and is machine-enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Search the version control system for baseline or hardening configuration files to confirm a defined and version-tracked baseline exists.",
+        "command": "git -C /opt/config-repo log --oneline --all -- '*harden*' '*baseline*' '*stig*' '*cis*' 2>/dev/null | head -10; find /opt /etc/ansible /etc/puppet /etc/chef -name '*harden*' -o -name '*baseline*' -o -name '*stig*' 2>/dev/null | head -10",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "File paths and git history entries for hardening or baseline configuration files, confirming the baseline is defined and version-controlled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "post_patch_compliance_validation",
+    "option_description": "Controls whether systems are checked against the hardened configuration baseline after patches are applied, and whether that validation is performed automatically by a compliance scanning tool or manually by an operator, or not performed at all.",
+    "security_impact": "The Rego baseline_configuration_enforcement rule requires post_patch_compliance_validation to be either automated or manual (combined with hardened_baseline_defined true and configuration_drift_detection_enabled true) for the countermeasure to activate. A value of none means patches are deployed without verifying that the resulting system state conforms to the approved baseline, allowing patches to introduce configuration drift or override hardened settings without detection.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In a CI/CD or patch orchestration pipeline (e.g., Ansible Tower, Jenkins, GitLab CI), check whether a compliance scan stage exists that runs after the patch deployment stage using a tool such as OpenSCAP, Chef InSpec, or a SCAP scanner.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Ansible Tower: Templates > select patch job template > check for a workflow that chains to a compliance scan template; Jenkins: Pipeline > review Jenkinsfile stages for a post-patch scan stage",
+        "expected_output": "A pipeline definition showing a compliance validation job or stage configured to execute after the patch deployment stage completes, with a reference to a hardening profile or InSpec profile."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether an OpenSCAP or similar compliance scan is scheduled to run automatically after patch application using a systemd service, cron job, or configuration management trigger.",
+        "command": "systemctl list-timers | grep -i 'scap\\|oscap\\|compliance\\|inspec'; crontab -l 2>/dev/null | grep -i 'oscap\\|inspec\\|scap'; find /etc/cron.d /etc/cron.daily /etc/cron.weekly -name '*scap*' -o -name '*compliance*' -o -name '*inspec*' 2>/dev/null",
+        "file_path": "/etc/cron.d/",
+        "navigation": null,
+        "expected_output": "A scheduled timer or cron entry triggering an oscap eval, inspec exec, or similar compliance scan command, indicating automated post-patch validation is configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the patch management automation scripts or configuration management playbooks to determine if a compliance check task is defined to run after patch tasks complete.",
+        "command": "grep -A10 'patch\\|update' /etc/ansible/roles/patching/tasks/main.yml 2>/dev/null | grep -i 'inspec\\|oscap\\|scap\\|compliance\\|validate'; find /etc/ansible /opt/chef /etc/puppet -name '*.yml' -o -name '*.rb' -o -name '*.pp' 2>/dev/null | xargs grep -l 'compliance\\|validate\\|scan' 2>/dev/null",
+        "file_path": "/etc/ansible/roles/patching/tasks/main.yml",
+        "navigation": null,
+        "expected_output": "Task entries in the patching playbook or manifest that call a compliance scanning tool after update tasks, indicating automated post-patch validation is built into the patching workflow."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the patch management team to determine whether a documented procedure requires compliance validation after each patch cycle, whether it is automated or performed manually by an engineer, and how results are recorded.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A procedure document or verbal confirmation describing who runs compliance scans after patching, which tool is used, how often, and where results are stored. Absence of any such procedure indicates a value of none."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "manual",
+      "automated"
+    ]
+  },
+  {
+    "option_name": "configuration_drift_detection_enabled",
+    "option_description": "Controls whether a continuous or scheduled monitoring mechanism (such as file integrity monitoring or a configuration management tool) is actively comparing patched systems against an approved hardened baseline and alerting on any deviations. When enabled, the organization can detect unauthorized or accidental changes to system state that occur after patch deployment.",
+    "security_impact": "In the Rego policy, `configuration_drift_detection_enabled == true` is a required condition in both `baseline_configuration_enforcement` rule branches. Without drift detection active, the Baseline Configuration Enforcement countermeasure (score: 2, criticality: low) cannot fire regardless of whether a hardened baseline is defined or post-patch compliance validation is in place. This means post-patch configuration changes — whether caused by faulty patches, misconfigurations, or tampering — go undetected, silently eroding the security posture that patching was meant to establish. Enabling this control closes the feedback loop between patch application and ongoing configuration assurance.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux systems managed by AIDE (Advanced Intrusion Detection Environment), check whether AIDE is installed, initialized, and has a cron job or systemd timer scheduled for periodic checks against its database.",
+        "command": "which aide && aide --version; crontab -l | grep -i aide; systemctl list-timers | grep -i aide; cat /etc/aide/aide.conf | grep -E '^(database|report_url|verbose)'",
+        "file_path": "/etc/aide/aide.conf",
+        "navigation": null,
+        "expected_output": "AIDE binary present with version output, a cron/timer entry showing scheduled runs (e.g., daily), and aide.conf pointing to an initialized database file such as /var/lib/aide/aide.db."
+      },
+      {
+        "type": "command",
+        "instruction": "For environments using Puppet, Chef, or Ansible, verify that a configuration enforcement agent is running and performing periodic drift checks. On a Puppet-managed node, check agent run intervals and last run report.",
+        "command": "puppet agent --configprint runinterval; puppet agent --configprint lastrunfile; cat $(puppet agent --configprint lastrunfile) | python3 -m json.tool | grep -E 'changed|failed|time'; systemctl status puppet",
+        "file_path": "/etc/puppetlabs/puppet/puppet.conf",
+        "navigation": null,
+        "expected_output": "runinterval set to 1800 (30 min) or lower, lastrunfile timestamp within the expected cadence, and service status active/running."
+      },
+      {
+        "type": "gui",
+        "instruction": "In a centralized SIEM or configuration management platform (e.g., AWS Config, Azure Policy, or Qualys Policy Compliance), navigate to the compliance dashboard and verify that a drift detection rule or policy is enabled and actively evaluating managed systems.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Config: AWS Console → Config → Rules → search for 'baseline' or 'drift' rules → confirm rule state is ACTIVE and last evaluation timestamp is recent. Azure Policy: Azure Portal → Policy → Compliance → filter by 'guest configuration' or 'OS baseline' initiatives → review compliance percentage and last scan time.",
+        "expected_output": "At least one active drift detection rule with evaluation results showing timestamps within the last 24 hours and non-empty compliant/non-compliant counts."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the system administration or security operations team to confirm whether a drift detection process exists in documented runbooks or SOPs. Request evidence of the most recent drift alert or report generated by the monitoring tool to confirm the mechanism is operational and not just installed.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Request the following artifacts: (1) documented SOP or runbook referencing drift detection tooling, (2) most recent drift report or alert ticket from the SIEM/CMDB, (3) notification/alerting configuration showing where drift alerts are sent (e.g., email, ticketing system, Slack).",
+        "expected_output": "Documented evidence that a drift detection tool is scheduled or continuously running, and proof of at least one recent alert or clean-state report confirming active monitoring."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true — Found in mature organizations with active FIM tooling (AIDE, Tripwire, Wazuh) or cloud-native configuration services (AWS Config, Azure Policy) integrated into the patch management lifecycle.",
+      "false (default) — Common in smaller environments or where patching is handled ad hoc without a formal baseline management program; drift detection is often planned but not yet operationalized."
+    ]
+  }
+]

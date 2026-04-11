@@ -178,7 +178,7 @@ wait_healthy() {
 }
 
 wait_healthy demo-memgraph "Memgraph" 60
-wait_healthy demo-dethernety "Dethernety" 90
+wait_healthy demo-dethernety "Dethernety" 180
 
 # ── install modules (if not already installed) ───────────────────────────
 needs_module_install() {
@@ -237,7 +237,7 @@ if needs_module_install; then
   # Restart dethernety so it picks up the newly installed modules
   step "Restarting Dethernety to load modules"
   docker restart demo-dethernety
-  wait_healthy demo-dethernety "Dethernety" 90
+  wait_healthy demo-dethernety "Dethernety" 180
 else
   log "Modules already installed (use --reset to reinstall)."
 fi

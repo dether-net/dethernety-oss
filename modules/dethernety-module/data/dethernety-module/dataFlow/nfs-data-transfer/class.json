@@ -1,0 +1,8 @@
+{
+  "name": "NFS Data Transfer",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "NFS data flows present significant transit security risks due to the protocol's historical design without strong encryption or mutual authentication. NFSv3 and earlier transmit data in cleartext, rely on weak IP/UID-based trust, and lack replay protection. NFSv4 with Kerberos and TLS provides substantially improved transit security but requires explicit configuration. Key exposures include cleartext transmission, weak authentication during mount/access operations, susceptibility to replay and MITM attacks, and absence of integrity verification on older protocol versions.",
+  "category": "Data Flows",
+  "status": "reviewed"
+}

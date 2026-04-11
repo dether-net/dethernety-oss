@@ -1,0 +1,8 @@
+{
+  "name": "DNS Records",
+  "classType": "data",
+  "type": "DNS Records",
+  "description": "DNS zone data and network configuration records represent a high-value intelligence target because they expose internal topology, naming conventions, service locations, and trust relationships. Failures in classification enforcement mean this data is often treated as public-facing operational data rather than sensitive network intelligence. Lifecycle gaps — including indefinite retention of stale records, absent encryption at rest for zone files, weak access controls on zone transfer data, and no formal disposal process for decommissioned records — create persistent exposure windows for reconnaissance and lateral movement enablement.",
+  "category": "Infrastructure Services",
+  "status": "reviewed"
+}

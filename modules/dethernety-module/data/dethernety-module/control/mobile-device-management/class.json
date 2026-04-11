@@ -1,0 +1,8 @@
+{
+  "name": "Mobile Device Management",
+  "classType": "control",
+  "type": "Mobile Device Management",
+  "description": "Mobile Device Management (MDM) provides centralized control over mobile endpoints accessing corporate networks, enforcing security policies, enabling remote response actions, and maintaining visibility into device compliance and data security posture.",
+  "category": "Cross Cutting Controls",
+  "status": "reviewed"
+}

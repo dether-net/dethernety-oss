@@ -1,0 +1,394 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "patch_automation_enabled": {
+        "type": "boolean",
+        "title": "Patch Deployment Automation Enabled",
+        "description": "Whether automated patch deployment scheduling is enabled in the patch management system, requiring no manual trigger for standard patch cycles including critical and high severity OS patches.",
+        "default": false
+      },
+      "patch_compliance_percentage": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "title": "Patch Compliance Percentage",
+        "description": "The percentage of in-scope systems that are fully patched (all critical and high severity CVEs applied) within the organization's defined SLA window."
+      },
+      "critical_patch_sla_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 365,
+        "title": "Critical Patch SLA (Days)",
+        "description": "The configured maximum number of days from patch release to deployment for critical severity patches, as defined in organizational policy and enforced by tooling. Also used as the worst-case deployment window across managed endpoints."
+      },
+      "patch_compliance_tracking_enabled": {
+        "type": "boolean",
+        "title": "Patch Compliance Tracking Enabled",
+        "description": "Whether the patch management system actively tracks and reports compliance status (patched vs. unpatched) across all managed endpoints against defined SLAs.",
+        "default": false
+      },
+      "rollback_capability_available": {
+        "type": "boolean",
+        "title": "Rollback Capability Available",
+        "description": "Whether the patch management system supports rolling back applied patches in the event of system instability or incompatibility, with documented and tested procedures.",
+        "default": false
+      },
+      "compliance_dashboard_enabled": {
+        "type": "boolean",
+        "title": "Compliance Dashboard Enabled",
+        "description": "Whether a centralized patch compliance dashboard is active and aggregating patch status across managed endpoints.",
+        "default": false
+      },
+      "unpatched_system_reporting_enabled": {
+        "type": "boolean",
+        "title": "Unpatched System Reporting Enabled",
+        "description": "Whether the system generates reports or alerts identifying endpoints that are lagging behind the required patch compliance level.",
+        "default": false
+      },
+      "inventory_coverage_percent": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "title": "Patch Inventory Coverage Percentage",
+        "description": "Percentage of total managed endpoints currently visible in the centralized patch compliance dashboard.",
+        "default": 0
+      },
+      "report_staleness_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Compliance Report Staleness (Days)",
+        "description": "Number of days since the last patch compliance report or dashboard refresh was completed."
+      },
+      "patch_deployment_cadence_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 365,
+        "title": "Patch Deployment Cadence (Days)",
+        "description": "Maximum number of days between public CVE disclosure and patch deployment for critical/high severity vulnerabilities, as defined in patch management policy and measured in practice."
+      },
+      "rollback_capability_enabled": {
+        "type": "boolean",
+        "title": "Patch Rollback Capability Enabled",
+        "description": "Indicates whether the patch management system has rollback capability configured, allowing restoration to a known-good state if a patch causes instability.",
+        "default": false
+      },
+      "pre_deployment_testing_stage": {
+        "type": "string",
+        "enum": [
+          "none",
+          "lab_only",
+          "staging",
+          "ring_based"
+        ],
+        "title": "Pre-Deployment Testing Stage",
+        "description": "Represents the level of pre-deployment patch testing performed before patches are pushed to production systems.",
+        "default": "none"
+      },
+      "rollback_test_frequency_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Rollback Procedure Test Frequency (Days)",
+        "description": "Number of days since rollback procedures were last validated through a drill or actual rollback event. A value of 0 means never tested.",
+        "default": 0
+      },
+      "patch_logging_enabled": {
+        "type": "boolean",
+        "title": "Patch Logging Enabled",
+        "description": "Whether the patch management system is configured to log patch installation events, including success, failure, and skip outcomes.",
+        "default": false
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Patch Log Retention Period (Days)",
+        "description": "The number of days patch installation logs are retained before deletion or archival, supporting forensic and compliance needs."
+      },
+      "log_storage_destination": {
+        "type": "string",
+        "enum": [
+          "centralized_siem",
+          "centralized_log_aggregator",
+          "local_only",
+          "none"
+        ],
+        "title": "Patch Log Storage Destination",
+        "description": "Where patch logs are stored, indicating whether they are centralized and tamper-resistant or only local to the endpoint."
+      },
+      "audit_fields_captured": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Audit Fields Captured in Patch Logs",
+        "description": "List of data fields recorded per patch event, such as timestamp, patch ID, system hostname, user/service account, and outcome."
+      },
+      "third_party_patch_scope_enabled": {
+        "type": "boolean",
+        "title": "Third-Party Component Patch Scope Enabled",
+        "description": "Whether the patch management system is configured to cover OS-bundled third-party libraries, drivers, and dependent components beyond the core kernel.",
+        "default": false
+      },
+      "third_party_patch_compliance_rate": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "title": "Third-Party Component Patch Compliance Rate (%)",
+        "description": "Percentage of managed endpoints with third-party OS-bundled components patched within the defined SLA window."
+      },
+      "third_party_patch_automation_mode": {
+        "type": "string",
+        "enum": [
+          "automated",
+          "approval_then_automated",
+          "manual"
+        ],
+        "title": "Third-Party Patch Automation Mode",
+        "description": "The automation level applied to third-party component patching within the patch management system.",
+        "default": "manual"
+      },
+      "hardened_baseline_defined": {
+        "type": "boolean",
+        "title": "Hardened Baseline Defined",
+        "description": "Whether a documented, approved hardened configuration baseline exists for patched systems.",
+        "default": false
+      },
+      "post_patch_compliance_validation": {
+        "type": "string",
+        "enum": [
+          "automated",
+          "manual",
+          "none"
+        ],
+        "title": "Post-Patch Compliance Validation",
+        "description": "Whether systems are automatically or manually checked against the hardened baseline after patches are applied.",
+        "default": "none"
+      },
+      "configuration_drift_detection_enabled": {
+        "type": "boolean",
+        "title": "Configuration Drift Detection Enabled",
+        "description": "Whether continuous or scheduled monitoring detects deviation from the approved baseline after patching.",
+        "default": false
+      }
+    },
+    "required": [
+      "patch_automation_enabled",
+      "patch_compliance_percentage",
+      "critical_patch_sla_days",
+      "patch_compliance_tracking_enabled",
+      "rollback_capability_available",
+      "compliance_dashboard_enabled",
+      "unpatched_system_reporting_enabled",
+      "inventory_coverage_percent",
+      "report_staleness_days",
+      "patch_deployment_cadence_days",
+      "rollback_capability_enabled",
+      "pre_deployment_testing_stage",
+      "rollback_test_frequency_days",
+      "patch_logging_enabled",
+      "log_retention_days",
+      "log_storage_destination",
+      "audit_fields_captured",
+      "third_party_patch_scope_enabled",
+      "third_party_patch_compliance_rate",
+      "third_party_patch_automation_mode"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/critical_patch_sla_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_automation_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_deployment_cadence_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/pre_deployment_testing_stage"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rollback_capability_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_coverage_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rollback_capability_available"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rollback_test_frequency_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/third_party_patch_automation_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/third_party_patch_scope_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/configuration_drift_detection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/hardened_baseline_defined"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/post_patch_compliance_validation"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_compliance_percentage"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_compliance_tracking_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/compliance_dashboard_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/inventory_coverage_percent"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/report_staleness_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/third_party_patch_compliance_rate"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unpatched_system_reporting_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_fields_captured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_storage_destination"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/post_patch_monitoring_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

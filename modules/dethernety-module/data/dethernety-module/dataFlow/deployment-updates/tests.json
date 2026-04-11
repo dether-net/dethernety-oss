@@ -1,0 +1,138 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "update_channel_protocol": "http",
+      "tls_enabled": false,
+      "minimum_tls_version": "SSLv2",
+      "replay_protection_mechanism": "none",
+      "payload_integrity_mechanism": "none",
+      "transport_tls_enforced": true,
+      "bgp_route_filtering_enabled": false,
+      "update_server_ip_allowlist_enforced": false,
+      "rate_limiting_enabled": false,
+      "update_channel_exposure": "public",
+      "ca_chain_validation_enforced": false,
+      "network_segment_type": "flat_shared",
+      "transport_encryption_enabled": false,
+      "protocol_supports_sni_or_plaintext_headers": true,
+      "encrypted_client_hello_enabled": false,
+      "mutual_tls_enforced": false,
+      "payload_integrity_verification": false,
+      "client_certificate_authentication_required": false,
+      "client_ca_certificate_configured": false,
+      "allowed_cipher_suites": [
+        "default"
+      ],
+      "message_integrity_verification_enabled": false,
+      "update_deduplication_enforced": false,
+      "connection_limit_configured": false,
+      "certificate_expiry_validation_enforced": true,
+      "pinned_certificate_or_ca_configured": true,
+      "mutual_authentication_enforced": true,
+      "update_channel_auth_required": false,
+      "secrets_in_update_payload": false
+    },
+    "expectedExposures": [
+      "Unencrypted Update Channel",
+      "Weak Or Deprecated Tls Ciphers",
+      "Replay Of Configuration Update Messages",
+      "Missing Mutual Tls Authentication",
+      "Update Channel Over Untrusted Network Segment",
+      "Protocol Metadata Leakage",
+      "Missing Payload Integrity Verification",
+      "Certificate Validation Bypass On Managed Component",
+      "Absence Of Rate Limiting On Update Channel",
+      "Unauthenticated Update Source Routing"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "update_channel_protocol": "https",
+      "mutual_tls_enforced": true,
+      "tls_enabled": true,
+      "client_certificate_authentication_required": true,
+      "minimum_tls_version": "TLSv1.2",
+      "allowed_cipher_suites": [],
+      "replay_protection_mechanism": "nonce",
+      "update_deduplication_enforced": true,
+      "message_integrity_verification_enabled": true,
+      "payload_integrity_mechanism": "hmac",
+      "transport_tls_enforced": false,
+      "bgp_route_filtering_enabled": true,
+      "rate_limiting_enabled": true,
+      "ca_chain_validation_enforced": true,
+      "certificate_expiry_validation_enforced": true,
+      "pinned_certificate_or_ca_configured": true,
+      "network_segment_type": "dedicated_oob_management",
+      "transport_encryption_enabled": false,
+      "protocol_supports_sni_or_plaintext_headers": false,
+      "payload_integrity_verification": false,
+      "client_ca_certificate_configured": true,
+      "update_server_ip_allowlist_enforced": false,
+      "connection_limit_configured": false,
+      "mutual_authentication_enforced": true,
+      "encrypted_client_hello_enabled": true,
+      "update_channel_exposure": "internal",
+      "update_channel_auth_required": false,
+      "secrets_in_update_payload": false
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "update_channel_protocol": "http",
+      "mutual_tls_enforced": true,
+      "payload_integrity_verification": false,
+      "tls_enabled": true,
+      "client_certificate_authentication_required": true,
+      "client_ca_certificate_configured": true,
+      "minimum_tls_version": "SSLv2",
+      "allowed_cipher_suites": [
+        "partial"
+      ],
+      "replay_protection_mechanism": "none",
+      "message_integrity_verification_enabled": true,
+      "update_deduplication_enforced": true,
+      "payload_integrity_mechanism": "none",
+      "transport_tls_enforced": false,
+      "bgp_route_filtering_enabled": true,
+      "update_server_ip_allowlist_enforced": false,
+      "rate_limiting_enabled": true,
+      "connection_limit_configured": false,
+      "ca_chain_validation_enforced": true,
+      "certificate_expiry_validation_enforced": true,
+      "pinned_certificate_or_ca_configured": true,
+      "network_segment_type": "flat_shared",
+      "transport_encryption_enabled": false,
+      "mutual_authentication_enforced": true,
+      "protocol_supports_sni_or_plaintext_headers": false,
+      "encrypted_client_hello_enabled": true,
+      "update_channel_exposure": "public",
+      "update_channel_auth_required": false,
+      "secrets_in_update_payload": false
+    },
+    "expectedExposures": [
+      "Unencrypted Update Channel",
+      "Weak Or Deprecated Tls Ciphers",
+      "Replay Of Configuration Update Messages",
+      "Update Channel Over Untrusted Network Segment",
+      "Missing Payload Integrity Verification"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Missing Mutual Tls Authentication",
+      "Certificate Validation Bypass On Managed Component",
+      "Unauthenticated Update Source Routing"
+    ]
+  }
+]

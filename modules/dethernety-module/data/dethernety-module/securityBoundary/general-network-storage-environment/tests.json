@@ -1,0 +1,131 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "storage_protocol_zone_acls_configured": false,
+      "unauthorized_zone_storage_access_observed": true,
+      "nfs_export_crosses_trust_zone_boundary": true,
+      "nfs_auth_mechanism": "sys",
+      "nfs_uid_gid_squashing_enabled": false,
+      "dedicated_oob_management_network_present": false,
+      "management_interfaces_exposed_on_data_vlan": true,
+      "nas_zone_boundary_revalidation": "none",
+      "shared_credential_zones": [
+        "item_0",
+        "item_1"
+      ],
+      "replication_traffic_dlp_exempted": true,
+      "smb_signing_enforced": false,
+      "cross_zone_authentication_scope": "multi_zone",
+      "iscsi_initiator_acl_enforcement": "none",
+      "intra_zone_flow_logging_enabled": false,
+      "anonymous_or_guest_access_enabled": true,
+      "zone_boundary_ingress_filter_blocks_storage_protocols": false,
+      "reachable_from_untrusted_or_adjacent_zone": true,
+      "nas_vlan_isolation_enforced": false,
+      "acl_restricts_mgmt_access_to_admin_hosts_only": false,
+      "credential_scope_isolation_enforced": false,
+      "replication_egress_filtering_enabled": false,
+      "replication_destination_zone_validation": false,
+      "ntlm_traffic_blocked_at_boundary": false,
+      "chap_authentication_state": "absent",
+      "lun_masking_zone_aligned": false,
+      "anomaly_detection_applied_to_storage_zone": false
+    },
+    "expectedExposures": [
+      "Permissive Storage Protocol Ingress Filtering",
+      "Management Plane Zone Colocation",
+      "Nfs Trust Propagation Via Uid Gid Mapping",
+      "Shared Credential Propagation Across Zones",
+      "Guest Or Anonymous Share Exposure At Zone Edge",
+      "Egress Unfiltered Storage Replication Channels",
+      "Smb Relay Path Across Zone Boundary",
+      "Insufficient East West Monitoring On Storage Vlan",
+      "Iscsi Initiator Zone Enforcement Gap"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "storage_protocol_zone_acls_configured": true,
+      "nas_vlan_isolation_enforced": true,
+      "nfs_export_crosses_trust_zone_boundary": false,
+      "nfs_uid_gid_squashing_enabled": true,
+      "dedicated_oob_management_network_present": true,
+      "management_interfaces_exposed_on_data_vlan": false,
+      "credential_scope_isolation_enforced": true,
+      "nas_zone_boundary_revalidation": "full",
+      "replication_egress_filtering_enabled": true,
+      "replication_destination_zone_validation": true,
+      "replication_traffic_dlp_exempted": false,
+      "smb_signing_enforced": true,
+      "ntlm_traffic_blocked_at_boundary": true,
+      "iscsi_initiator_acl_enforcement": "enforced",
+      "chap_authentication_state": "weak_or_static",
+      "lun_masking_zone_aligned": true,
+      "intra_zone_flow_logging_enabled": true,
+      "anomaly_detection_applied_to_storage_zone": true,
+      "anonymous_or_guest_access_enabled": false,
+      "unauthorized_zone_storage_access_observed": false,
+      "nfs_auth_mechanism": "sys",
+      "acl_restricts_mgmt_access_to_admin_hosts_only": false,
+      "shared_credential_zones": [
+        "default"
+      ],
+      "cross_zone_authentication_scope": "single_zone",
+      "zone_boundary_ingress_filter_blocks_storage_protocols": false,
+      "reachable_from_untrusted_or_adjacent_zone": false
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "storage_protocol_zone_acls_configured": true,
+      "unauthorized_zone_storage_access_observed": false,
+      "nas_vlan_isolation_enforced": true,
+      "nfs_uid_gid_squashing_enabled": true,
+      "nfs_export_crosses_trust_zone_boundary": false,
+      "nfs_auth_mechanism": "sys",
+      "dedicated_oob_management_network_present": true,
+      "management_interfaces_exposed_on_data_vlan": false,
+      "acl_restricts_mgmt_access_to_admin_hosts_only": false,
+      "credential_scope_isolation_enforced": true,
+      "shared_credential_zones": [
+        "partial"
+      ],
+      "nas_zone_boundary_revalidation": "none",
+      "replication_egress_filtering_enabled": true,
+      "replication_destination_zone_validation": true,
+      "replication_traffic_dlp_exempted": false,
+      "smb_signing_enforced": true,
+      "ntlm_traffic_blocked_at_boundary": true,
+      "cross_zone_authentication_scope": "multi_zone",
+      "iscsi_initiator_acl_enforcement": "none",
+      "chap_authentication_state": "absent",
+      "lun_masking_zone_aligned": true,
+      "intra_zone_flow_logging_enabled": true,
+      "anomaly_detection_applied_to_storage_zone": true,
+      "anonymous_or_guest_access_enabled": false,
+      "zone_boundary_ingress_filter_blocks_storage_protocols": false,
+      "reachable_from_untrusted_or_adjacent_zone": false
+    },
+    "expectedExposures": [
+      "Iscsi Initiator Zone Enforcement Gap"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Permissive Storage Protocol Ingress Filtering",
+      "Management Plane Zone Colocation",
+      "Egress Unfiltered Storage Replication Channels",
+      "Insufficient East West Monitoring On Storage Vlan"
+    ]
+  }
+]

@@ -1,0 +1,1415 @@
+[
+  {
+    "option_name": "realtime_protection_enabled",
+    "option_description": "Controls whether the antimalware engine's real-time on-access scanning and monitoring daemon is actively running on the endpoint, intercepting file reads, writes, and process launches as they occur.",
+    "security_impact": "The Rego policy fires the 'signature_detection_coverage' and 'automated_quarantine_and_remediation' findings whenever this attribute is false. Without real-time protection active, the engine cannot intercept malicious payloads at the moment of execution, leaving the endpoint exposed until a scheduled scan runs. It is also a prerequisite for automated quarantine — the policy explicitly checks that realtime_protection_enabled is true before evaluating whether automatic quarantine is functioning.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, query Windows Defender status via PowerShell to retrieve the RealTimeProtectionEnabled flag.",
+        "command": "Get-MpComputerStatus | Select-Object -Property RealTimeProtectionEnabled, AMServiceEnabled, AntispywareEnabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RealTimeProtectionEnabled : True — any False value indicates the engine is not actively protecting the host."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux endpoints running CrowdStrike Falcon, check the sensor service status and real-time protection state via the Falcon CLI.",
+        "command": "/opt/CrowdStrike/falconctl -g --rfm-state && systemctl status falcon-sensor",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "rfm-state=false (Reduced Functionality Mode is off, meaning full protection is active) and service status 'active (running)'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Defender Security Center (security.microsoft.com), navigate to Endpoints → Device Inventory, select the target device, and check the 'Antivirus status' column or the device detail page under 'Security policies'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "security.microsoft.com → Endpoints → Device Inventory → [Device Name] → Security policies → Antivirus",
+        "expected_output": "Antivirus status shows 'Active' with Real-time protection listed as 'On'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Defender for Endpoint API to retrieve antivirus-related device health properties for a specific machine.",
+        "command": "curl -H 'Authorization: Bearer <token>' 'https://api.securitycenter.microsoft.com/api/machines/<machineId>/antivirus' | jq '.realtimeProtection'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response containing 'realtimeProtection': 'Enabled' or equivalent boolean true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "signature_db_age_hours",
+    "option_description": "Represents the elapsed time in hours since the antimalware engine last successfully downloaded and applied a new signature database update, indicating how current the threat intelligence is on the endpoint.",
+    "security_impact": "The Rego policy triggers the 'signature_detection_coverage' finding when this value exceeds 48 hours. Signatures older than 48 hours cannot detect malware families and variants that have emerged in the interim period. In active threat campaigns, adversaries release novel variants specifically designed to evade existing signatures, so a stale database directly increases the probability of missed detections.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, use PowerShell to retrieve the AntivirusSignatureLastUpdated timestamp from Windows Defender and calculate the age in hours.",
+        "command": "powershell -Command \"$last = (Get-MpComputerStatus).AntivirusSignatureLastUpdated; $ageHours = [math]::Round(((Get-Date) - $last).TotalHours, 1); Write-Output \"Signature age: $ageHours hours\"\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output such as 'Signature age: 3.2 hours' — values above 48 indicate a stale signature database."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS endpoints using Symantec Endpoint Protection, query the SEP command-line client for signature version and update time.",
+        "command": "/usr/local/symantec/sdav/sdav --version && /usr/local/symantec/sdav/sdav --status | grep -i 'last update'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'Last Update' timestamp line; subtract from current time to determine age in hours."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the CrowdStrike Falcon console, navigate to Host Management → Hosts, filter for the target device, and inspect the 'Sensor version' and 'Last seen' timestamps in the host detail panel.",
+        "command": null,
+        "file_path": null,
+        "navigation": "falcon.crowdstrike.com → Host Management → Hosts → [Device] → Prevention Policy → Sensor details",
+        "expected_output": "Sensor and content version with 'Last Content Update' timestamp showing update recency."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review Windows Event Log for Defender signature update events (Event ID 2000 for successful updates) and calculate elapsed time from the most recent event.",
+        "command": "Get-WinEvent -LogName 'Microsoft-Windows-Windows Defender/Operational' | Where-Object {$_.Id -eq 2000} | Select-Object -First 1 TimeCreated, Message",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Event with TimeCreated timestamp representing the last successful signature update; compare against current time."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1",
+      "4",
+      "12",
+      "24",
+      "48",
+      "72",
+      "168"
+    ]
+  },
+  {
+    "option_name": "heuristic_engine_enabled",
+    "option_description": "Controls whether the antimalware solution's heuristic analysis engine is active, enabling it to inspect code structure, behavioral indicators, and suspicious patterns in files and processes to detect previously unknown malware variants not yet in the signature database.",
+    "security_impact": "The Rego policy flags the 'heuristic_and_behavioral_detection_accuracy' finding when this is false. Signature-only detection is blind to zero-day malware, polymorphic threats, and custom implants used in targeted attacks. Disabling heuristics eliminates the engine's ability to catch novel malware based on suspicious code characteristics, dramatically narrowing detection coverage to only known, cataloged threats.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, query Windows Defender's heuristic protection level, which indicates whether heuristic scanning is configured.",
+        "command": "Get-MpPreference | Select-Object -Property MAPSReporting, DisableBlockAtFirstSeen, PUAProtection, CloudBlockLevel",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CloudBlockLevel should be a non-zero value; DisableBlockAtFirstSeen should be False — these together indicate heuristic/cloud-augmented detection is active."
+      },
+      {
+        "type": "gui",
+        "instruction": "In CrowdStrike Falcon, navigate to Configuration → Prevention Policies, select the applicable policy, and verify that 'Suspicious Process Blocking' and 'Exploit Mitigation' toggles under the Heuristic section are enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "falcon.crowdstrike.com → Configuration → Prevention Policies → [Policy Name] → Malware Protection → Heuristic Detection",
+        "expected_output": "Heuristic detection toggles showing 'Enabled' or 'Prevent' mode rather than 'Disabled' or 'Detect Only'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux systems running ClamAV with Heuristic support, confirm that heuristic options are enabled in the ClamAV configuration file.",
+        "command": "grep -E '^Heuristic|^PhishingSignatures|^PhishingScanURLs|^HeuristicAlerts' /etc/clamav/clamd.conf",
+        "file_path": "/etc/clamav/clamd.conf",
+        "navigation": null,
+        "expected_output": "Lines such as 'HeuristicAlerts yes' and 'PhishingSignatures yes' present and not commented out; their absence or 'no' values indicate heuristics are disabled."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Symantec Endpoint Protection API to retrieve the applied policy settings for a client group, including heuristic engine configuration.",
+        "command": "curl -u 'admin:password' 'https://<sepm-host>:8446/sepm/api/v1/policies/summary?domain=<domain>' | jq '.[] | select(.policytype==\"av\") | .config.heuristicEnabled'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A boolean true value confirming heuristic detection is enabled in the applied AV policy; false or null requires remediation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "behavioral_monitoring_enabled",
+    "option_description": "Controls whether the endpoint protection platform's runtime behavioral analysis engine is active, monitoring process execution chains, memory operations, API call sequences, and inter-process behavior in real time to detect malicious activity even when no known signature matches.",
+    "security_impact": "The Rego policy triggers 'heuristic_and_behavioral_detection_accuracy' when this is false, and additionally when both behavioral_monitoring_enabled and heuristic_engine_enabled are simultaneously false (amplifying the finding). Behavioral monitoring is the primary defense against fileless malware, living-off-the-land (LoTL) attacks, and memory-resident threats that never write malicious files to disk and therefore evade signature and heuristic engines entirely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, verify that Windows Defender's behavior monitoring service is active and the BehaviorMonitorEnabled flag is set.",
+        "command": "Get-MpComputerStatus | Select-Object -Property BehaviorMonitorEnabled, IsTamperProtected, RealTimeProtectionEnabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "BehaviorMonitorEnabled : True — a False value indicates behavioral monitoring is disabled and must be remediated via policy."
+      },
+      {
+        "type": "gui",
+        "instruction": "In CrowdStrike Falcon, open Configuration → Prevention Policies, select the relevant policy, and verify that 'Process Hollowing Detection', 'Credential Dumping', and 'Ransomware' behavioral detections are set to 'Prevent' or 'Detect'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "falcon.crowdstrike.com → Configuration → Prevention Policies → [Policy Name] → Behavioral Detection section",
+        "expected_output": "All behavioral detection categories set to 'Detect' or 'Prevent' mode rather than 'Disabled'; audit-only mode is insufficient for active protection."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS endpoints with Jamf Pro and Defender, check the Defender configuration profile applied to the device for behavioral monitoring settings.",
+        "command": "mdatp health --field behavior_monitoring",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output of 'enabled' confirms behavioral monitoring is active; 'disabled' requires policy remediation through the MDM configuration profile."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Microsoft Defender for Endpoint API to check the device's security configuration assessment for behavior monitoring compliance.",
+        "command": "curl -H 'Authorization: Bearer <token>' 'https://api.securitycenter.microsoft.com/api/machines/<machineId>/securityRecommendations' | jq '.value[] | select(.recommendationName | contains(\"behavior\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Recommendation entries with 'status': 'Active' indicate behavioral monitoring is not correctly configured; an empty result for behavior-related recommendations indicates compliance."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "detection_sensitivity_level",
+    "option_description": "Configures the aggressiveness of the heuristic and behavioral detection engines on a graduated scale from disabled to aggressive, determining the threshold at which suspicious activity is flagged, balancing the risk of false negatives (missed malware) against false positives (legitimate software blocked).",
+    "security_impact": "The Rego policy fires 'heuristic_and_behavioral_detection_accuracy' when this value is 'disabled' or 'low', as these settings provide insufficient detection depth for meaningful protection. A sensitivity of 'disabled' completely nullifies heuristic and behavioral engines regardless of whether they are technically enabled. A 'low' setting leaves a broad detection gap for medium-confidence threats. The policy requires at least 'medium' sensitivity to consider heuristic and behavioral detection effective.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, retrieve the Windows Defender cloud protection level and heuristic scan level, which together define detection sensitivity.",
+        "command": "Get-MpPreference | Select-Object -Property CloudBlockLevel, MAPSReporting, SubmitSamplesConsent, DisableIOAVProtection",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CloudBlockLevel of 2 (High) or 4/5 (Zero-tolerance) maps to high/aggressive sensitivity; 0 or 1 indicates low or disabled heuristic aggressiveness."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Symantec Endpoint Protection Manager, navigate to Policies → Antivirus and Antispyware Policy → [Policy Name] → Heuristics tab and review the 'Bloodhound Heuristic Protection' sensitivity slider.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SEPM Console → Policies → Antivirus and Antispyware → [Policy] → Heuristics → Bloodhound Protection → Sensitivity Level",
+        "expected_output": "Sensitivity slider positioned at 'Medium' or higher; 'Minimum' or 'Disabled' indicates insufficient sensitivity requiring remediation."
+      },
+      {
+        "type": "api",
+        "instruction": "Query CrowdStrike Falcon API to retrieve the prevention policy configuration and assess the sensitivity settings for machine learning and behavioral components.",
+        "command": "curl -H 'Authorization: Bearer <token>' 'https://api.crowdstrike.com/policy/combined/prevention/v1?filter=platform_name:\"Windows\"' | jq '.resources[].settings.classes[] | select(.name==\"Malware\") | .settings'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Settings object showing detection_disposition and prevention_disposition values; 'DETECT' mode corresponds to medium, 'PREVENT' to high or aggressive."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux endpoints using ESET Endpoint Security, inspect the configuration XML for the heuristic sensitivity parameter.",
+        "command": "grep -i 'heuristic\\|sensitivity\\|level' /etc/opt/eset/eea/eea.cfg 2>/dev/null || cat /etc/opt/eset/eea/cfg.xml | grep -i sensitivity",
+        "file_path": "/etc/opt/eset/eea/cfg.xml",
+        "navigation": null,
+        "expected_output": "A sensitivity tag with a numeric or string value (e.g., '2' for medium, '3' for aggressive); value '0' or '1' indicates disabled or low sensitivity."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "disabled",
+      "low",
+      "medium",
+      "high",
+      "aggressive"
+    ]
+  },
+  {
+    "option_name": "real_time_scanning_enabled",
+    "option_description": "Controls whether the antimalware engine intercepts and scans files and processes at the exact point of access or execution (on-access scanning), blocking malicious content before it can be loaded into memory or written to the filesystem.",
+    "security_impact": "The Rego policy triggers the 'real_time_on_access_scanning' finding directly when this value is false. On-access scanning is the last line of endpoint defense before malware executes — disabling it means malicious files can be opened, written, and executed without any interception. Unlike scheduled scanning, which only detects malware already resident on disk, real-time scanning prevents initial execution. The policy also checks that this is true in conjunction with antimalware service state and signature currency for a complete picture of runtime protection health.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, use PowerShell to check Windows Defender's real-time scanning status, explicitly confirming on-access file scanning is active.",
+        "command": "Get-MpComputerStatus | Select-Object -Property RealTimeProtectionEnabled, OnAccessProtectionEnabled, IoavProtectionEnabled, AntispywareEnabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "RealTimeProtectionEnabled : True and OnAccessProtectionEnabled : True — any False value requires immediate remediation; IoavProtectionEnabled covers download/Internet-originated file scanning."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux systems with ClamAV and clamonacc (on-access daemon), verify the daemon is running and on-access scanning paths are configured.",
+        "command": "systemctl is-active clamav-clamonacc && grep -E '^OnAccessIncludePath|^OnAccessPrevention' /etc/clamav/clamd.conf",
+        "file_path": "/etc/clamav/clamd.conf",
+        "navigation": null,
+        "expected_output": "Service status 'active' and at least one 'OnAccessIncludePath' entry present; 'OnAccessPrevention yes' confirms blocking mode rather than detect-only."
+      },
+      {
+        "type": "command",
+        "instruction": "On macOS, check the Microsoft Defender for Endpoint on-access scanning status using the mdatp command-line tool.",
+        "command": "mdatp health --field real_time_protection_enabled && mdatp health --field real_time_protection_subsystem",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "real_time_protection_enabled : true and real_time_protection_subsystem showing the active scanning mode (e.g., 'endpoint_security_extension'); false indicates on-access scanning is disabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Intune, navigate to Endpoint Security → Antivirus → [Antivirus Policy], verify that 'Turn on real-time protection' is set to 'Yes' in the Windows Defender Antivirus policy applied to the device group.",
+        "command": null,
+        "file_path": null,
+        "navigation": "intune.microsoft.com → Endpoint Security → Antivirus → [Policy Name] → Configuration settings → Real-time protection → Turn on real-time protection",
+        "expected_output": "Setting value 'Yes' or 'Enabled'; 'Not configured' or 'No' indicates the policy is not enforcing on-access scanning and must be remediated."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "antimalware_service_state",
+    "option_description": "Controls the operational state of the core antimalware service or daemon responsible for enforcing real-time on-access scanning. When stopped or disabled, all real-time scanning protection is suspended regardless of policy configuration.",
+    "security_impact": "Directly triggers the real_time_on_access_scanning rule when the value is 'stopped' or 'disabled'. A non-running service means no files or processes are intercepted at execution time, leaving the endpoint entirely unprotected against malicious payloads. This is a high-criticality condition with a score of 8.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, check Windows Defender service state via PowerShell",
+        "command": "Get-Service WinDefend | Select-Object Name, Status, StartType",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Status should be 'Running' and StartType should be 'Automatic'"
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, check the vendor antimalware daemon status via systemctl (e.g., CrowdStrike Falcon, Sophos, or ClamAV)",
+        "command": "systemctl status falcon-sensor 2>/dev/null || systemctl status sophos-spl 2>/dev/null || systemctl status clamav-daemon 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active: active (running) with a green dot indicator"
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, query Windows Defender status using the Defender module",
+        "command": "(Get-MpComputerStatus).AMServiceEnabled; (Get-MpComputerStatus).RealTimeProtectionEnabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Both values should return 'True'"
+      },
+      {
+        "type": "gui",
+        "instruction": "On Windows, open Services console and locate the antimalware service entry",
+        "command": null,
+        "file_path": null,
+        "navigation": "Start → Run → services.msc → locate 'Windows Defender Antivirus Service' or vendor equivalent → inspect Status column",
+        "expected_output": "Status column shows 'Running' and Startup Type shows 'Automatic'"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "running",
+      "stopped",
+      "disabled",
+      "unknown"
+    ]
+  },
+  {
+    "option_name": "signature_definitions_age_days",
+    "option_description": "Tracks the number of days elapsed since the antimalware signature definitions were last successfully updated from the vendor's threat intelligence infrastructure. Stale signatures cannot detect threats discovered after the last update date.",
+    "security_impact": "The real_time_on_access_scanning Rego rule flags a finding when signature_definitions_age_days exceeds 7 days, even if real-time scanning is enabled and the service is running. Outdated signatures mean the endpoint is blind to all new malware variants and campaigns released after the last update, significantly increasing the risk of successful infection.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, retrieve the last signature update timestamp via PowerShell and compute age",
+        "command": "$lastUpdate = (Get-MpComputerStatus).AntivirusSignatureLastUpdated; [math]::Round(((Get-Date) - $lastUpdate).TotalDays, 1)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A decimal number representing days since last update; values above 7 indicate a compliance gap"
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux with ClamAV, check the database file modification timestamp",
+        "command": "stat /var/lib/clamav/main.cvd /var/lib/clamav/daily.cvd 2>/dev/null | grep Modify; freshclam --version 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Modify timestamp should be within the last 1–2 days"
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, retrieve full signature version details including update date",
+        "command": "Get-MpComputerStatus | Select-Object AntivirusSignatureLastUpdated, AntivirusSignatureVersion, AntispywareSignatureLastUpdated",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AntivirusSignatureLastUpdated timestamp should be within the past 7 days"
+      },
+      {
+        "type": "gui",
+        "instruction": "Check the antimalware management console for last definition update per endpoint",
+        "command": null,
+        "file_path": null,
+        "navigation": "Vendor management console (e.g., Microsoft Endpoint Manager → Devices → select device → Antivirus policy → Security agents tab → Definition update time)",
+        "expected_output": "Last signature update timestamp within 1–7 days of current date"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "1",
+      "3",
+      "7",
+      "14",
+      "30"
+    ]
+  },
+  {
+    "option_name": "automatic_quarantine_enabled",
+    "option_description": "Determines whether the antimalware solution automatically moves detected malicious files into a secured, isolated quarantine store upon detection, without requiring a human to approve the action. When disabled, malware remains on the filesystem in a potentially executable state until manual intervention occurs.",
+    "security_impact": "Referenced by the automated_quarantine_and_remediation Rego rule: when realtime_protection_enabled is true but automatic_quarantine_enabled is false, a medium-criticality finding (score 5) is raised. Without automatic quarantine, threat dwell time increases significantly as detected malware awaits manual handling, allowing lateral movement, data exfiltration, or further execution in the window between detection and remediation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, verify the quarantine action is configured for detected threats via PowerShell",
+        "command": "Get-MpPreference | Select-Object -Property QuarantineItems, SubmitSamplesConsent, MAPSReporting; Get-MpComputerStatus | Select-Object QuickScanAge, FullScanAge",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "QuarantineItems should be populated; verify that threat actions are not set to 'NoAction' or 'Allow'"
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, check the configured default action for detected threats",
+        "command": "Get-MpPreference | Select-Object LowThreatDefaultAction, ModerateThreatDefaultAction, HighThreatDefaultAction, SevereThreatDefaultAction",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Values should be 2 (Quarantine) or 3 (Remove), not 1 (Allow) or 6 (UserDefined)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Verify quarantine action in the vendor management console policy settings",
+        "command": null,
+        "file_path": null,
+        "navigation": "Vendor console (e.g., CrowdStrike Falcon → Prevention Policies → select policy → Quarantine settings; or Microsoft Defender → Security policies → Antivirus → review Action on threat detection)",
+        "expected_output": "Quarantine or Auto-remediate action selected for all threat severity levels"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the security operations team to confirm automatic quarantine is enforced via central policy and has not been overridden locally on endpoints",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented policy confirming automatic quarantine is mandated; no local override exceptions without change-management approval"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "remediation_mode",
+    "option_description": "Configures how the endpoint protection solution responds after confirming a threat: automatic mode removes malware and rolls back changes without human intervention; semi_automatic requires approval for some high-impact actions; audit mode logs detections without taking any action; disabled mode suppresses all response actions entirely.",
+    "security_impact": "The automated_quarantine_and_remediation Rego rule raises a finding when remediation_mode is 'audit' or 'disabled', even if automatic_quarantine_enabled is true. Operating in audit or disabled mode means threats are detected but left on the system, allowing continued damage. This is a medium-criticality control (score 5) because dwell time directly correlates with breach impact.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, check Windows Defender's configured threat actions to infer remediation mode",
+        "command": "Get-MpPreference | Select-Object DisableRealtimeMonitoring, SevereThreatDefaultAction, HighThreatDefaultAction, ModerateThreatDefaultAction, LowThreatDefaultAction, DisableBehaviorMonitoring",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DisableRealtimeMonitoring should be False; threat actions should be 2 (Quarantine) or 3 (Remove), not 6 (UserDefined) or 1 (Allow)"
+      },
+      {
+        "type": "command",
+        "instruction": "For CrowdStrike Falcon, use the Falcon CLI or API to check prevention policy mode",
+        "command": "falconctl -g --feature 2>/dev/null; systemctl show falcon-sensor --property=Environment 2>/dev/null | grep -i mode",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Prevention mode should show 'enabled' not 'detect_only' or 'disabled'"
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the remediation/response mode in the centralized policy console",
+        "command": null,
+        "file_path": null,
+        "navigation": "Vendor console (e.g., Microsoft Endpoint Manager → Endpoint Security → Antivirus policies → review 'Action on detection'; CrowdStrike → Prevention Policies → Malware Protection → toggle between Prevent/Detect/Disabled)",
+        "expected_output": "Mode set to 'Automatic' or 'Prevent' for all threat categories; 'Audit' or 'Detect Only' should be flagged as non-compliant"
+      },
+      {
+        "type": "api",
+        "instruction": "Query Defender for Endpoint via Microsoft Graph API to retrieve the antivirus configuration profile",
+        "command": "Invoke-RestMethod -Method GET -Uri 'https://graph.microsoft.com/v1.0/deviceManagement/intents' -Headers @{Authorization=\"Bearer $token\"} | Select-Object -ExpandProperty value | Where-Object {$_.displayName -like '*antivirus*'} | ConvertTo-Json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response containing intent settings; locate threatActions or remediationAction fields confirming 'automatic' or 'quarantine' mode"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "automatic",
+      "semi_automatic",
+      "audit",
+      "disabled"
+    ]
+  },
+  {
+    "option_name": "scheduled_scan_enabled",
+    "option_description": "Controls whether a recurring scheduled scan job is configured and active on the endpoint. Scheduled scans complement real-time protection by detecting malware that may have evaded on-access scanning, arrived during an offline period, or been dormant in the filesystem before real-time protection was enabled.",
+    "security_impact": "The scheduled_and_on_demand_scan_coverage Rego rule immediately flags a finding when scheduled_scan_enabled is false, regardless of other settings. Without periodic scans, dormant or pre-existing malware that bypassed initial detection remains undetected indefinitely. This is a medium-criticality control (score 5) that provides a critical safety net for missed threats.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, check if a Windows Defender scheduled scan task is configured and enabled",
+        "command": "Get-ScheduledTask -TaskPath '\\Microsoft\\Windows\\Windows Defender\\' | Select-Object TaskName, State, LastRunTime, NextRunTime; Get-MpPreference | Select-Object ScanScheduleDay, ScanScheduleTime, DisableScanningNetworkFiles",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Windows Defender Scheduled Scan task should have State = 'Ready' and a valid NextRunTime"
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux with ClamAV, verify cron or systemd timer is configured for scheduled scans",
+        "command": "crontab -l | grep -i clam 2>/dev/null; systemctl list-timers | grep -i clam 2>/dev/null; cat /etc/cron.d/clamav-daemon 2>/dev/null",
+        "file_path": "/etc/cron.d/clamav-daemon",
+        "navigation": null,
+        "expected_output": "A cron schedule entry or active systemd timer showing regular scan execution"
+      },
+      {
+        "type": "gui",
+        "instruction": "Verify scheduled scan is enabled via Windows Security app",
+        "command": null,
+        "file_path": null,
+        "navigation": "Windows Security → Virus & threat protection → Virus & threat protection settings → Scheduled scan → confirm toggle is On and a schedule is configured",
+        "expected_output": "Scheduled scan toggle is On with a configured day and time"
+      },
+      {
+        "type": "gui",
+        "instruction": "Check scheduled scan status in the centralized endpoint management console",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Endpoint Manager → Endpoint Security → Antivirus → review Scheduled Scan settings in assigned policy; or vendor console equivalent scan scheduling section",
+        "expected_output": "Scheduled scan is enabled with a configured frequency and scope in the active policy"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "scan_frequency_days",
+    "option_description": "Specifies the interval in days between consecutive scheduled scan executions. A lower value means more frequent scans and a shorter window during which dormant malware could persist undetected. Values greater than 7 days significantly reduce the effectiveness of periodic scanning as a compensating control.",
+    "security_impact": "The scheduled_and_on_demand_scan_coverage Rego rule raises a finding when scheduled_scan_enabled is true but scan_frequency_days exceeds 7. Infrequent scans allow dormant or slow-moving malware to operate for extended periods between detection windows, increasing the risk of data loss, lateral movement, and persistence establishment. This is a medium-criticality control (score 5).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, retrieve the configured scan schedule day and compute effective frequency in days",
+        "command": "Get-MpPreference | Select-Object ScanScheduleDay, ScanScheduleTime, ScanScheduleQuickScanTime; (Get-ScheduledTask -TaskName 'Windows Defender Scheduled Scan' -ErrorAction SilentlyContinue).Triggers",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ScanScheduleDay value (0=Daily, 1=Sunday through 7=Saturday) and trigger repetition interval indicating scan frequency"
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux, inspect cron schedule entries to determine scan frequency",
+        "command": "crontab -l 2>/dev/null | grep -i scan; grep -r 'clamscan\\|freshclam' /etc/cron* /etc/cron.d/ 2>/dev/null",
+        "file_path": "/etc/cron.d/",
+        "navigation": null,
+        "expected_output": "Cron expression showing scan frequency; e.g., '0 2 * * 0' = weekly (7 days), '0 2 * * *' = daily (1 day)"
+      },
+      {
+        "type": "gui",
+        "instruction": "Review scan frequency in vendor management console policy",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Endpoint Manager → Endpoint Security → Antivirus → select policy → Configuration settings → Scheduled scan day (look for 'Scan day' dropdown); or vendor console equivalent scheduled scan interval setting",
+        "expected_output": "Scan interval set to 'Daily' (1 day) or 'Weekly' (7 days); values greater than 7 days should be flagged"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Analyze antimalware event logs to determine the actual gap between historical scan executions",
+        "command": "Get-WinEvent -LogName 'Microsoft-Windows-Windows Defender/Operational' | Where-Object {$_.Id -in @(1000, 1001)} | Select-Object TimeCreated, Message | Sort-Object TimeCreated | Select-Object -Last 10",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Event log entries for scan starts (ID 1000) and completions (ID 1001) showing actual scan cadence; gaps between entries reveal effective scan frequency"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1",
+      "7",
+      "14",
+      "30"
+    ]
+  },
+  {
+    "option_name": "scan_scope",
+    "option_description": "Defines which portions of the filesystem and memory are included in scheduled scans. 'full' covers all local drives and memory; 'critical_areas' limits scanning to OS directories and application folders; 'custom' scans only user-specified paths; 'none' performs no filesystem inspection. Narrower scopes create predictable blind spots that malware can exploit for persistence.",
+    "security_impact": "The scheduled_and_on_demand_scan_coverage Rego rule raises a finding when scan_scope is 'none' or 'custom', even when scheduled scanning is enabled and running at the correct frequency. Attackers who know that only critical_areas or specific custom paths are scanned can deliberately stage malware in excluded directories to achieve persistent, undetected compromise. This is a high-criticality configuration attribute.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, determine the scan type configured in the scheduled task to infer scope",
+        "command": "Get-MpPreference | Select-Object ScanParameters, CheckForSignaturesBeforeRunningScan, DisableArchiveScanning, DisableRemovableDriveScanning, DisableEmailScanning; (Get-ScheduledTask 'Windows Defender Scheduled Scan').Actions",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ScanParameters: 1=Quick (critical areas), 2=Full; DisableArchiveScanning and DisableRemovableDriveScanning should be False for full coverage"
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux with ClamAV, review the clamscan command arguments in scheduled job to determine scan path scope",
+        "command": "cat /etc/cron.d/clamav-daemon 2>/dev/null; grep -r 'clamscan' /etc/cron* /etc/cron.d/ 2>/dev/null | grep -v '^#'",
+        "file_path": "/etc/cron.d/clamav-daemon",
+        "navigation": null,
+        "expected_output": "clamscan command with path argument; 'clamscan -r /' indicates full scope, specific paths indicate custom scope"
+      },
+      {
+        "type": "gui",
+        "instruction": "Review scan scope configuration in the endpoint management policy",
+        "command": null,
+        "file_path": null,
+        "navigation": "Microsoft Endpoint Manager → Endpoint Security → Antivirus → select policy → Scheduled scan type dropdown; or vendor console scan configuration → select 'Full scan' vs 'Quick scan' vs 'Custom scan' and review included paths",
+        "expected_output": "Scan type set to 'Full scan' for maximum coverage; Quick scan (critical_areas) is acceptable if supplemented by behavioral controls; Custom or None should be flagged"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review documentation and interview endpoint security team to confirm scan scope meets organizational policy requirements and any custom scope exclusions are formally justified",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written policy specifying required scan scope; documented sign-off for any deviation from full-scope scanning with compensating controls identified"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "full",
+      "critical_areas",
+      "custom",
+      "none"
+    ]
+  },
+  {
+    "option_name": "event_logging_enabled",
+    "option_description": "Controls whether the antimalware solution generates and persistently stores structured audit logs for all security-relevant events including malware detections, quarantine actions, and remediation activities. When enabled, these logs provide the evidentiary trail required for SOC investigations, incident response, and compliance audits.",
+    "security_impact": "The Rego policy for detection_event_logging_and_alerting immediately flags a misconfiguration when event_logging_enabled is false. Without event logging, there is no persistent record of what threats were detected, when, and what action was taken. This eliminates the ability to perform forensic analysis after an incident, satisfy audit requirements, or detect patterns of repeated low-severity alerts that collectively indicate a campaign.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the antimalware management console, navigate to the policy assigned to the target endpoint and locate the Logging or Reporting section. Confirm the 'Enable event logging' or equivalent toggle is set to ON and that all event categories are selected.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Policies > [Assigned Policy] > Logging Settings > Event Logging > Enabled",
+        "expected_output": "A clearly marked enabled state with event categories (detection, quarantine, remediation) checked."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, use PowerShell to check whether Windows Defender event logging is active by inspecting the Windows Event Log configuration for the Microsoft-Windows-Windows Defender/Operational channel.",
+        "command": "Get-WinEvent -ListLog 'Microsoft-Windows-Windows Defender/Operational' | Select-Object LogName, IsEnabled, RecordCount, LastWriteTime",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IsEnabled should be True; RecordCount > 0 and LastWriteTime recent indicate active logging."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Linux-based antimalware agents (e.g., ClamAV with clamd), inspect the daemon configuration file to confirm logging directives are not disabled.",
+        "command": "grep -E '^LogFile|^LogSyslog|^LogVerbose|^LogRotate' /etc/clamav/clamd.conf",
+        "file_path": "/etc/clamav/clamd.conf",
+        "navigation": null,
+        "expected_output": "Lines such as 'LogFile /var/log/clamav/clamd.log' and 'LogSyslog yes' confirm logging is enabled and directed to a persistent destination."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify active event logging by confirming recent log entries exist at the expected log path or SIEM source. An absence of recent entries despite known activity indicates logging may be disabled or broken.",
+        "command": "ls -lh /var/log/clamav/clamd.log && tail -20 /var/log/clamav/clamd.log",
+        "file_path": "/var/log/clamav/clamd.log",
+        "navigation": null,
+        "expected_output": "File exists, is non-empty, and the most recent entries are dated within the expected logging window."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "real_time_alerting_enabled",
+    "option_description": "Controls whether the antimalware solution is configured to forward detection, quarantine, and remediation event alerts to a SOC platform such as a SIEM, SOAR system, or ticketing platform in real time. This is distinct from local logging — it ensures that operational security teams receive immediate notification when threats are encountered on endpoints.",
+    "security_impact": "The Rego policy for detection_event_logging_and_alerting fires a misconfiguration finding when real_time_alerting_enabled is false. Even if local logging is active, without real-time forwarding to a monitored platform, the SOC has no timely visibility into detections. This extends attacker dwell time, delays containment decisions, and may violate incident response SLA requirements. Real-time alerting is the mechanism by which endpoint detections become actionable intelligence.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the antimalware management console, navigate to integrations or alerting settings and confirm that SIEM, email, or webhook alerting is configured and enabled. For Microsoft Defender, check Security > Settings > Endpoints > Advanced Features > SIEM connector or Microsoft Sentinel integration status.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Settings > Integrations > SIEM / Alerting > Status: Enabled",
+        "expected_output": "An active integration entry showing the destination platform, forwarding status 'Active' or 'Connected', and a recent last-forwarded timestamp."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the antimalware vendor API to retrieve the alerting configuration and confirm real-time forwarding is active.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://api.securitycenter.microsoft.com/api/alerts?$top=5' | python3 -m json.tool | grep -E 'alertCreationTime|severity|status'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Recent alert objects in the response confirm events are being generated; cross-reference with SIEM to verify the same alerts are present there."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search the SIEM or log management platform for antimalware alert events originating from the target endpoint within the past 24–48 hours to confirm forwarding is operational.",
+        "command": "# Splunk example: index=security sourcetype=symantec_ep OR sourcetype=ms_defender_atp | stats count by host, event_type | sort -count",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-zero event counts per host confirm that alerts are reaching the SIEM. Zero counts for active endpoints are a strong indicator that real-time alerting is broken or disabled."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the security operations team to confirm they have documented evidence of receiving antimalware alerts from the target endpoints. Request a sample alert ticket or SIEM dashboard screenshot showing recent AV events from the endpoint population.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented evidence of recent antimalware alerts in SOC tooling, or confirmation from staff that the alerting pipeline has been tested and validated."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_destination",
+    "option_description": "Specifies where antimalware detection event logs are forwarded for storage, analysis, and compliance purposes. Possible destinations range from no forwarding (none) through local-only storage to centralized log management systems and fully integrated SIEM platforms. The value directly determines whether SOC teams can access and correlate antimalware events at scale.",
+    "security_impact": "The Rego policy for detection_event_logging_and_alerting flags a misconfiguration whenever log_destination is set to 'local_only' or 'none'. Local-only logs are inaccessible during incident response if the endpoint is compromised or offline, are not searchable at fleet scale, and do not satisfy most compliance frameworks that require centralized log retention. Only 'siem' or 'centralized_log_management' destinations provide the visibility required for effective threat detection and audit.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Open the antimalware management console and navigate to the logging or integration policy for the target endpoint. Inspect the 'Log Forwarding Destination' or 'SIEM Integration' settings to identify where logs are being sent.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Policies > [Policy Name] > Logging > Log Destination / Forwarding Configuration",
+        "expected_output": "A destination value such as 'Splunk SIEM (syslog:10.0.0.5:514)', 'Microsoft Sentinel (AMA connector)', 'Local file only', or 'Disabled'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For agents configured via local policy files (e.g., Syslog forwarding configured in rsyslog or the AV agent config), inspect the relevant configuration to identify the forwarding destination.",
+        "command": "grep -E 'siem|syslog|forward|server|destination|loghost' /etc/clamav/clamd.conf /etc/rsyslog.d/*.conf 2>/dev/null",
+        "file_path": "/etc/rsyslog.d/",
+        "navigation": null,
+        "expected_output": "Entries such as '*.* @siem.corp.example.com:514' confirm centralized forwarding; absence of such entries suggests local-only logging."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, check whether Windows Defender events are being forwarded via Windows Event Forwarding (WEF) or an installed SIEM agent by inspecting active subscriptions and agent services.",
+        "command": "wecutil es 2>&1; Get-Service -Name 'SplunkForwarder','winlogbeat','AzureMonitorAgent','MSSenseS' -ErrorAction SilentlyContinue | Select-Object Name, Status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active WEF subscriptions or running SIEM agent services confirm log forwarding is configured; no results suggest local-only logging."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Verify network connectivity from the endpoint to the configured SIEM or log management destination by testing the forwarding port, confirming events can actually reach the target.",
+        "command": "Test-NetConnection -ComputerName siem.corp.example.com -Port 514; # or: nc -zv siem.corp.example.com 514",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TcpTestSucceeded: True (PowerShell) or 'Connection to siem.corp.example.com 514 port [tcp/syslog] succeeded' (netcat) confirms reachability."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "siem",
+      "centralized_log_management",
+      "local_only",
+      "none"
+    ]
+  },
+  {
+    "option_name": "logged_event_types",
+    "option_description": "Enumerates the specific categories of antimalware events that are captured in logs. Key categories include 'detection' (malware identified), 'quarantine' (threat isolated), 'remediation' (malicious changes reversed or files removed), and 'policy_change' (configuration modifications). This attribute determines the completeness of the audit trail available for incident response and compliance review.",
+    "security_impact": "The Rego policy for detection_event_logging_and_alerting fires a separate misconfiguration finding for each missing critical event type: if 'detection' is absent, 'quarantine' is absent, or 'remediation' is absent from the logged_event_types array. Each omission represents a specific gap in the audit trail. Missing detection events means threats go unrecorded; missing quarantine events hides containment status; missing remediation events prevents confirmation that threats were fully removed. All three must be present for a compliant logging configuration.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the antimalware management console, open the logging policy assigned to the endpoint and enumerate all event type checkboxes or toggles that are enabled. Document which of detection, quarantine, remediation, policy_change, and scan_completion are selected.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Policies > [Policy Name] > Logging > Event Types to Log > Review each category toggle",
+        "expected_output": "A list of enabled event categories, ideally including at minimum: detection, quarantine, and remediation."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows, query the Windows Defender Operational event log to verify that detection (Event ID 1116), quarantine (Event ID 1117), and remediation (Event ID 1118) events are present, confirming these types are being logged.",
+        "command": "Get-WinEvent -LogName 'Microsoft-Windows-Windows Defender/Operational' | Where-Object {$_.Id -in 1116,1117,1118} | Select-Object Id,TimeCreated,Message | Format-Table -AutoSize | Select-Object -First 10",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Events with IDs 1116 (detection), 1117 (quarantine), 1118 (remediation) confirm those event types are being generated and logged."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search the SIEM or centralized log management system for antimalware events from the target endpoint, filtering by event type fields to confirm all required categories are present in ingested data.",
+        "command": "# Splunk example: index=security sourcetype=ms_defender_atp host=<hostname> | stats count by event_type | table event_type, count",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rows for event_type values 'detection', 'quarantine', 'remediation' with non-zero counts confirm all critical event types are being logged and forwarded."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For third-party AV agents with file-based configuration (e.g., Symantec, Trend Micro), inspect the agent policy export or configuration file for event logging granularity settings.",
+        "command": "grep -i -E 'log.*event|event.*type|detection_log|quarantine_log|remediation_log' /opt/symantec/sep/smc.config /etc/av/policy.conf 2>/dev/null",
+        "file_path": "/etc/av/policy.conf",
+        "navigation": null,
+        "expected_output": "Configuration keys such as 'log_detection_events=true', 'log_quarantine_events=true', 'log_remediation_events=true' confirm each event type is enabled."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"detection\", \"quarantine\", \"remediation\"]",
+      "[\"detection\", \"quarantine\", \"remediation\", \"policy_change\", \"scan_completion\"]",
+      "[\"detection\"]",
+      "[]"
+    ]
+  },
+  {
+    "option_name": "automatic_updates_enabled",
+    "option_description": "Controls whether the antimalware solution is configured to automatically retrieve and apply new signature and definition updates from the vendor's update infrastructure without requiring manual administrator intervention. This is the foundational control ensuring signature currency is maintained continuously as new threats are published.",
+    "security_impact": "The Rego policy for signature_update_currency immediately fires a misconfiguration finding when automatic_updates_enabled is false, regardless of any other configuration. Manual update processes are inherently unreliable — they depend on human scheduling, are frequently missed during incidents or weekends, and cannot achieve the update frequency required to stay current with modern threat actor tooling. Disabling automatic updates is treated as a standalone high-criticality finding.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows endpoints, use PowerShell to query the Windows Defender configuration and confirm signature update scheduling is enabled.",
+        "command": "Get-MpPreference | Select-Object SignatureUpdateInterval, SignatureScheduleDay, SignatureScheduleTime, DisableRealtimeMonitoring | Format-List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SignatureUpdateInterval should be a non-zero value (e.g., 4 or 8 hours); a value of 0 with no schedule day/time set indicates automatic updates may be disabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the antimalware management console, open the update policy assigned to the endpoint and confirm that 'Automatic Updates' or 'Scheduled Definition Updates' is enabled. For Microsoft Endpoint Configuration Manager, navigate to Assets and Compliance > Endpoint Protection > Antimalware Policies > [Policy] > Definition Updates.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Policies > [Policy Name] > Definition Updates > Automatic Updates: Enabled",
+        "expected_output": "A clearly enabled toggle or checkbox for automatic/scheduled definition updates with a configured schedule or interval."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux endpoints, inspect the scheduled job or daemon configuration responsible for signature updates (e.g., freshclam for ClamAV) to confirm it is active and scheduled.",
+        "command": "systemctl is-enabled clamav-freshclam; crontab -l | grep -i 'freshclam\\|av.*update'; grep -E '^Checks|^DatabaseMirror' /etc/clamav/freshclam.conf",
+        "file_path": "/etc/clamav/freshclam.conf",
+        "navigation": null,
+        "expected_output": "'enabled' from systemctl or a cron entry confirms automatic updates are scheduled; 'Checks' value in freshclam.conf shows update frequency per day."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the endpoint security team to confirm whether automatic update policies are enforced via the central management console or GPO, and whether any endpoints are exempted from automatic updates for operational reasons.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation that automatic updates are enforced by policy for all endpoints with no unauthorized exceptions; any documented exemptions should have an approved compensating control."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "signature_update_interval_hours",
+    "option_description": "Specifies the configured frequency, in hours, at which the antimalware solution checks for and downloads new signature and definition updates from the vendor update infrastructure. A smaller interval value means the endpoint will have more current threat intelligence. This setting directly controls the maximum potential age of signatures between update cycles.",
+    "security_impact": "The Rego policy for signature_update_currency fires a misconfiguration finding when automatic_updates_enabled is true but signature_update_interval_hours exceeds 24. An update interval greater than 24 hours means an endpoint could operate for more than a full day on outdated signatures, missing detections for threats discovered and published in that window. High-value environments and those facing active threat campaigns require intervals of 4 hours or less to maintain operational currency with vendor signature releases.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, retrieve the configured signature update interval from Windows Defender preferences using PowerShell.",
+        "command": "Get-MpPreference | Select-Object SignatureUpdateInterval | Format-List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SignatureUpdateInterval: 4 (or another value) — this is in hours. A value of 0 means updates occur via Windows Update on a less predictable schedule; any value above 24 is a policy violation per the Rego rule."
+      },
+      {
+        "type": "gui",
+        "instruction": "Open the antimalware management console and navigate to the update policy for the target endpoint or policy group. Locate the 'Update Interval' or 'Check for updates every X hours' field and record the configured value.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Policies > [Policy Name] > Definition Updates > Update Interval (hours)",
+        "expected_output": "A numeric interval value, ideally 1, 4, or 8 hours. Values of 24 or greater indicate insufficient update frequency."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ClamAV on Linux, the freshclam.conf file defines how many times per day updates are checked; compute the interval in hours by dividing 24 by the Checks value.",
+        "command": "grep '^Checks' /etc/clamav/freshclam.conf",
+        "file_path": "/etc/clamav/freshclam.conf",
+        "navigation": null,
+        "expected_output": "'Checks 24' means updates every 1 hour; 'Checks 1' means daily updates (24-hour interval). Convert: interval_hours = 24 / Checks."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the antimalware vendor's management API to retrieve the update interval configured in the policy applied to the target endpoint or device group.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://api.securitycenter.microsoft.com/api/machineGroups' | python3 -m json.tool | grep -i 'updateInterval\\|signatureInterval'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON field reflecting the configured update interval in hours for the policy group; values should be 24 or less to pass the Rego policy check."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1",
+      "4",
+      "8",
+      "12",
+      "24",
+      "48",
+      "168 (weekly)"
+    ]
+  },
+  {
+    "option_name": "hours_since_last_successful_update",
+    "option_description": "Records the number of hours elapsed since the antimalware engine last successfully downloaded and applied a new signature or definition update. This is a runtime measurement of actual update currency, as opposed to the configured update interval. It reveals whether the automatic update mechanism is functioning correctly and whether the endpoint's threat intelligence is current.",
+    "security_impact": "The Rego policy for signature_update_currency fires a misconfiguration finding when automatic_updates_enabled is true but hours_since_last_successful_update exceeds 24, even if the update interval is configured correctly. This catches real-world failure scenarios where the update mechanism is broken: blocked network access to update servers, service failures, disk space exhaustion, or policy misconfiguration. An endpoint can appear correctly configured yet have stale signatures if updates are silently failing; this attribute surfaces that gap.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows, use PowerShell to retrieve the timestamp of the last successful signature update and compute the hours elapsed since then.",
+        "command": "$lastUpdate = (Get-MpComputerStatus).AntivirusSignatureLastUpdated; $hoursAgo = [math]::Round((New-TimeSpan -Start $lastUpdate -End (Get-Date)).TotalHours, 1); Write-Output \"Last update: $lastUpdate | Hours ago: $hoursAgo\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output such as 'Last update: 11/17/2024 06:00:00 | Hours ago: 3.5' — values above 24 indicate the update mechanism may be failing."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the antimalware management console, navigate to the target endpoint's device detail page and locate the 'Signature Version' or 'Last Updated' field under Protection Status. Note the timestamp and compute hours elapsed.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Endpoints > [Device Name] > Protection Status > Signature Version / Last Updated",
+        "expected_output": "A timestamp field showing when signatures were last successfully updated; the delta from now in hours should be 24 or less for compliant endpoints."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "For ClamAV on Linux, inspect the freshclam log to find the most recent successful update entry and compute hours since that event.",
+        "command": "grep -i 'database.*updated\\|up to date\\|updated successfully' /var/log/clamav/freshclam.log | tail -5",
+        "file_path": "/var/log/clamav/freshclam.log",
+        "navigation": null,
+        "expected_output": "Log entries such as 'main.cvd updated (version: 62, sigs: 6647427)' with a recent timestamp; compute hours from the log timestamp to now."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the antimalware vendor API for the target machine's current signature version metadata including the last update timestamp.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://api.securitycenter.microsoft.com/api/machines/<machineId>' | python3 -c \"import sys,json,datetime; d=json.load(sys.stdin); ts=d.get('antivirusSignatureUpdateTime',''); parsed=datetime.datetime.fromisoformat(ts.replace('Z','')); delta=(datetime.datetime.utcnow()-parsed).total_seconds()/3600; print(f'Hours since last update: {delta:.1f}')\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Numeric output such as 'Hours since last update: 5.2' — values above 24 trigger the Rego signature_update_currency misconfiguration rule."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1",
+      "4",
+      "8",
+      "12",
+      "24",
+      "48",
+      "72",
+      "168",
+      "720 (update mechanism broken)"
+    ]
+  },
+  {
+    "option_name": "update_infrastructure_reachable",
+    "option_description": "Controls whether the endpoint has confirmed network connectivity to the antimalware vendor's update servers or an internal update relay/proxy, enabling signature and engine updates to be delivered.",
+    "security_impact": "The Rego policy flags signature_update_currency as a misconfiguration when update_infrastructure_reachable is false, even if automatic updates are enabled. An endpoint that cannot reach update infrastructure will silently fall behind on signatures, leaving it blind to newly catalogued malware. This is rated medium criticality and contributes a score of 5 to the countermeasure gap.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "From the endpoint, perform a direct connectivity test to the vendor's update hostnames. For Windows Defender this includes go.microsoft.com and update.microsoft.com; for CrowdStrike, ts01-b.cloudsink.net; adjust for your vendor.",
+        "command": "Test-NetConnection -ComputerName update.microsoft.com -Port 443",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TcpTestSucceeded: True and PingSucceeded: True indicate reachable infrastructure."
+      },
+      {
+        "type": "gui",
+        "instruction": "Open the antimalware management console, navigate to Endpoints > select the target endpoint > Update Status or Connectivity Status tab. Look for an 'Update Server Reachable' or 'Last Successful Update Source' field.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Endpoints > [Endpoint Name] > Update / Connectivity Status",
+        "expected_output": "Status shows 'Connected' or 'Reachable' with a recent timestamp for the update source."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux endpoints running ClamAV with a local mirror, test connectivity to the mirror and freshclam log for update success or DNS/connection failures.",
+        "command": "curl -I https://database.clamav.net/main.cvd && tail -50 /var/log/clamav/freshclam.log | grep -E 'updated|failed|error'",
+        "file_path": "/var/log/clamav/freshclam.log",
+        "navigation": null,
+        "expected_output": "HTTP 200 response from curl; freshclam log shows 'updated' or 'up to date' rather than connection errors."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the antimalware agent's operational event log on Windows for update-related errors. Event IDs 2001 (update failed) and 2002 (update succeeded) in the Windows Defender operational log indicate connectivity state.",
+        "command": "Get-WinEvent -LogName 'Microsoft-Windows-Windows Defender/Operational' | Where-Object {$_.Id -in @(2001,2002)} | Select-Object -First 10 TimeCreated, Id, Message",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Event ID 2002 entries with recent timestamps confirm successful update server connectivity."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "management_console_connected",
+    "option_description": "Indicates whether the endpoint agent is actively communicating with and checked in to the central antimalware management console, enabling policy delivery, status reporting, and fleet-wide visibility.",
+    "security_impact": "The Rego policy for centralized_management_and_policy_enforcement requires management_console_connected to be true as a prerequisite condition. An endpoint that is disconnected from the console cannot receive updated policies, cannot be monitored for threats, and will not appear in compliance dashboards. Although rated low criticality individually, disconnected endpoints create unmonitored gaps in the managed fleet.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Log in to the central management console (e.g., Microsoft Endpoint Configuration Manager, Symantec Endpoint Protection Manager, or CrowdStrike Falcon console). Navigate to Endpoints or Devices and filter by 'Last Seen' or 'Connection Status' to identify endpoints not showing as connected.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Endpoints/Devices > Filter: Connection Status = Disconnected or Last Seen > 60 minutes",
+        "expected_output": "Endpoint appears with status 'Connected', 'Managed', or 'Online' and a recent last-seen timestamp."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the CrowdStrike Falcon API for device connection status using the devices/queries and devices/entities endpoints to retrieve online_state for a specific host.",
+        "command": "curl -s -X GET 'https://api.crowdstrike.com/devices/entities/devices/v2?ids=<device_id>' -H 'Authorization: Bearer <token>' | jq '.resources[].status'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response containing 'status': 'normal' or online_state 'true' for the target device."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Windows endpoint, check the Windows Defender ATP / Sense service status and verify it is running, which is required for console connectivity.",
+        "command": "Get-Service -Name 'sense','windefend' | Select-Object Name, Status, StartType",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Both services show Status: Running. A stopped 'sense' service indicates console disconnection."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the agent communication logs on the endpoint for successful heartbeat or check-in messages. For Symantec Endpoint Protection, inspect the agent log for console communication entries.",
+        "command": "Get-Content 'C:\\ProgramData\\Symantec\\Symantec Endpoint Protection\\CurrentVersion\\Data\\Logs\\smc.log' | Select-String -Pattern 'connected|heartbeat|communication' | Select-Object -Last 20",
+        "file_path": "C:\\ProgramData\\Symantec\\Symantec Endpoint Protection\\CurrentVersion\\Data\\Logs\\smc.log",
+        "navigation": null,
+        "expected_output": "Log entries showing successful heartbeat or 'connected to management server' within the past hour."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "policy_compliance_status",
+    "option_description": "Represents the current policy compliance state of the endpoint as evaluated and reported by the central management console, reflecting whether the endpoint configuration matches the assigned security policy.",
+    "security_impact": "The Rego policy for centralized_management_and_policy_enforcement requires policy_compliance_status to equal 'compliant'. A status of 'non_compliant' indicates the endpoint's active configuration deviates from the security baseline — potentially with disabled scanning, stale signatures, or unauthorized exclusions. An 'unknown' state means the console cannot assess the endpoint, which is operationally equivalent to non-compliant for risk purposes.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the management console navigate to Compliance or Endpoint Status dashboards. Filter endpoints by compliance state to identify those showing non_compliant or unknown. Drill into a specific endpoint to view which policy settings are out of compliance.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Reports > Compliance Status > Filter: Status = Non-Compliant or Unknown",
+        "expected_output": "Endpoint row shows 'Compliant' in the compliance column with no policy deviation details listed."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the management console API for endpoint compliance posture. For Microsoft Defender via Intune, use the Microsoft Graph API to retrieve the device compliance state.",
+        "command": "curl -s -X GET 'https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/<deviceId>?$select=complianceState,deviceName' -H 'Authorization: Bearer <token>' | jq '{device: .deviceName, compliance: .complianceState}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response with complianceState: 'compliant' for the target device."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM for compliance state change events forwarded from the endpoint protection platform. Search for events indicating policy deviation or compliance restoration for the target endpoint.",
+        "command": "index=endpoint_protection sourcetype=antivirus host=<hostname> (\"non_compliant\" OR \"policy deviation\" OR \"compliance restored\") | sort -_time | head 20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Most recent event shows compliance_state: compliant with no recent non_compliant transitions."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the endpoint security team to confirm whether automated compliance remediation is configured in the management console. Determine if non-compliant endpoints trigger automated policy reapplication or require manual intervention.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation or console configuration showing automated remediation is enabled and the last compliance report shows all managed endpoints as compliant."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "compliant",
+      "non_compliant",
+      "unknown"
+    ]
+  },
+  {
+    "option_name": "agent_check_in_interval_minutes",
+    "option_description": "Measures the elapsed time in minutes since the endpoint agent last successfully communicated with the central management console, used to determine whether the agent is actively managed or has gone silent.",
+    "security_impact": "The Rego policy for centralized_management_and_policy_enforcement requires agent_check_in_interval_minutes to be 60 or less. An interval exceeding this threshold indicates the endpoint may be isolated, powered off, or experiencing agent failure. Endpoints with extended check-in gaps cannot receive emergency policy updates, threat intelligence pushes, or isolation commands, directly reducing the effectiveness of centralized control.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the management console, navigate to the endpoint details view and locate the 'Last Check-In', 'Last Seen', or 'Last Heartbeat' field. Calculate the difference between the displayed timestamp and the current time.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Endpoints > [Endpoint Name] > Details > Last Check-In Timestamp",
+        "expected_output": "Last check-in timestamp is within the past 60 minutes, yielding an interval of <= 60 minutes."
+      },
+      {
+        "type": "command",
+        "instruction": "Use PowerShell to query the SCCM/ConfigMgr WMI class for the last heartbeat DDR sent by the client agent on the endpoint.",
+        "command": "Get-WmiObject -Namespace root\\ccm\\clientsdk -Class CCM_ClientUtilities -ComputerName <hostname> | Select-Object -ExpandProperty LastHeartbeatTime",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A timestamp within the past 60 minutes. Calculate the difference: (Get-Date) - [datetime]$lastHeartbeat | Select-Object -ExpandProperty TotalMinutes"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the CrowdStrike Falcon API for the last_seen timestamp of the device and compute the elapsed minutes programmatically.",
+        "command": "python3 -c \"import requests,datetime; r=requests.get('https://api.crowdstrike.com/devices/entities/devices/v2?ids=<device_id>',headers={'Authorization':'Bearer <token>'}).json(); last=r['resources'][0]['last_seen']; elapsed=(datetime.datetime.utcnow()-datetime.datetime.fromisoformat(last.rstrip('Z'))).total_seconds()/60; print(f'Minutes since check-in: {elapsed:.1f}')\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output prints a value of 60.0 or less indicating the agent is actively checking in."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "In the SIEM, search for the most recent check-in or heartbeat event from the target endpoint and calculate the time delta from now.",
+        "command": "index=endpoint_protection sourcetype=antivirus_heartbeat host=<hostname> | sort -_time | head 1 | eval minutes_ago=round((now()-_time)/60,1) | table host, _time, minutes_ago",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Query returns a minutes_ago value of 60 or less for compliant check-in frequency."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "5",
+      "15",
+      "30",
+      "60",
+      "120",
+      "1440"
+    ]
+  },
+  {
+    "option_name": "network_scanning_enabled",
+    "option_description": "Controls whether the antimalware engine performs real-time inspection of files and content transferred over network protocols including HTTP, FTP, SMB, and other common data transfer channels before they are written to or executed from disk.",
+    "security_impact": "The Rego policy for network_traffic_and_download_scanning flags a countermeasure gap when network_scanning_enabled is true alongside other conditions, and the rule is designed to confirm this feature is active. Without network scanning, malware delivered over SMB shares, FTP servers, or unencrypted HTTP channels bypasses endpoint inspection entirely, reaching the filesystem before any scan occurs. Rated high criticality with a score of 5 contributing to network security posture.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the antimalware management console, navigate to the assigned policy for the endpoint and locate the Network Protection, Web Shield, or Protocol Scanning section. Confirm the toggle or checkbox for network scanning is enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Policies > [Policy Name] > Network Protection / Web Shield > Network Scanning: Enabled",
+        "expected_output": "Network scanning toggle is set to On/Enabled with no override configured for this endpoint."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows endpoints using Microsoft Defender, check the network protection status via PowerShell.",
+        "command": "Get-MpPreference | Select-Object EnableNetworkProtection, DisableRealtimeMonitoring",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EnableNetworkProtection returns 1 (Enabled) or 2 (AuditMode); 0 indicates disabled network scanning."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Linux endpoints using ESET or Sophos, inspect the product configuration file for the network filter or web access scanner enabled flag.",
+        "command": "grep -iE 'networkscanning|webfilter|networkprotection' /etc/opt/eset/esets/esets.cfg /etc/sophos-av/savd.conf 2>/dev/null",
+        "file_path": "/etc/opt/eset/esets/esets.cfg",
+        "navigation": null,
+        "expected_output": "Configuration key shows network_scanning = yes or network_filter_enabled = true."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the management console REST API to retrieve the network scanning policy setting for a specific endpoint group or device.",
+        "command": "curl -s -X GET 'https://<console>/api/v1/policies/<policy_id>/settings' -H 'Authorization: Bearer <token>' | jq '.network_scanning_enabled'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "API response returns true for the network_scanning_enabled field."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "download_scanning_enabled",
+    "option_description": "Controls whether the antimalware engine intercepts and scans files being downloaded through web browsers and download managers before those files are written to the local filesystem, preventing malicious payloads from landing on disk unchecked.",
+    "security_impact": "The Rego policy for network_traffic_and_download_scanning requires download_scanning_enabled to be true as a condition for the countermeasure to be considered effective. Browser-delivered malware — including drive-by downloads, malvertising payloads, and trojanized installers — bypasses filesystem-level scanning if download interception is not active. This is rated high criticality and is a primary delivery vector for ransomware and credential stealers.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Access the antimalware management console and open the policy assigned to the endpoint. Navigate to Web Protection, Browser Integration, or Download Shield settings and verify that download scanning or HTTPS inspection is enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Policies > [Policy Name] > Web Access Protection > Download Scanning / Browser Shield: Enabled",
+        "expected_output": "Download scanning toggle shows Enabled and applies to HTTP/HTTPS and any configured browser extensions."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows with Microsoft Defender SmartScreen enforced via Group Policy or Intune, check the SmartScreen and download protection registry keys.",
+        "command": "Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\SmartScreen' | Select-Object EnableSmartScreenInShell, ConfigureAppInstallControl; Get-MpPreference | Select-Object PUAProtection",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EnableSmartScreenInShell is 1 (enabled); PUAProtection is 1 or 2 indicating download scanning is active."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Sophos Endpoint on Linux or macOS, inspect the configuration for the web control and download scanning directives.",
+        "command": "grep -iE 'download|webcontrol|browser' /Library/Preferences/com.sophos.sav.plist /etc/sophos-av/savd.conf 2>/dev/null | head -20",
+        "file_path": "/Library/Preferences/com.sophos.sav.plist",
+        "navigation": null,
+        "expected_output": "Key downloadscanning or web_control_enabled shows value true or 1."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the antimalware agent log for entries indicating download scan events. The presence of recent download scan log entries confirms the feature is active and intercepting downloads.",
+        "command": "Get-WinEvent -LogName 'Microsoft-Windows-Windows Defender/Operational' | Where-Object {$_.Message -match 'download|web access|URL'} | Select-Object -First 10 TimeCreated, Message",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log entries showing download scan events with file names and scan results, confirming the download scanning feature is intercepting browser downloads."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "scan_engine_mode",
+    "option_description": "Defines the combination of analysis methods employed by the scanning engine during network traffic and download inspection, ranging from signature-only matching through to full multi-layer detection combining signatures, heuristics, and behavioral analysis.",
+    "security_impact": "The Rego policy for network_traffic_and_download_scanning flags degraded protection when scan_engine_mode is set to signature_only, and confirms stronger coverage when set to signature_and_heuristic or signature_heuristic_behavioral. Signature-only mode cannot detect novel, polymorphic, or zero-day malware variants that do not yet have a database entry. A disabled mode entirely removes detection capability from the network layer. Full protection requires at least signature_and_heuristic to catch unknown threats delivered via downloads.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Open the antimalware management console and navigate to the policy assigned to the endpoint. Locate the Scan Engine Settings, Detection Technology, or Analysis Mode section within the Network Protection policy and review which detection layers are enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Policies > [Policy Name] > Detection Settings > Analysis Mode / Engine Configuration",
+        "expected_output": "Mode shows 'Signature + Heuristic' or 'Advanced' indicating at minimum signature_and_heuristic is active."
+      },
+      {
+        "type": "command",
+        "instruction": "On Windows with Microsoft Defender, retrieve the current cloud-delivered protection and heuristics settings which determine the effective engine mode.",
+        "command": "Get-MpPreference | Select-Object MAPSReporting, CloudBlockLevel, EnableUltraLowLatencyProtection, DisableBehaviorMonitoring, DisableIOAVProtection",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DisableBehaviorMonitoring: False, DisableIOAVProtection: False, CloudBlockLevel: 2 or higher indicates signature_heuristic_behavioral mode."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ESET Endpoint Security, inspect the configuration XML or INI file for the scanner mode flags controlling heuristic and advanced heuristic settings.",
+        "command": "grep -iE 'heuristic|advanced_heuristic|behavioral|scan_mode' /etc/opt/eset/esets/esets.cfg 2>/dev/null || cat 'C:\\ProgramData\\ESET\\ESET Security\\Profiles\\*.cfg' 2>$null | Select-String 'heuristic'",
+        "file_path": "/etc/opt/eset/esets/esets.cfg",
+        "navigation": null,
+        "expected_output": "heuristic = yes and advanced_heuristic = yes confirm at minimum signature_and_heuristic mode; behavioral_monitoring = yes confirms full signature_heuristic_behavioral."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the management console API for the scan engine configuration of the applied policy to programmatically retrieve the engine mode setting.",
+        "command": "curl -s -X GET 'https://<console>/api/v1/policies/<policy_id>' -H 'Authorization: Bearer <token>' | jq '{engine_mode: .settings.scan_engine_mode, heuristic: .settings.heuristic_enabled, behavioral: .settings.behavioral_analysis_enabled}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response shows engine_mode: 'signature_heuristic_behavioral' or heuristic: true and behavioral: true."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "signature_only",
+      "signature_and_heuristic",
+      "signature_heuristic_behavioral",
+      "disabled"
+    ]
+  },
+  {
+    "option_name": "exclusion_list_reviewed",
+    "option_description": "Records whether the antimalware exclusion list — comprising excluded file paths, processes, extensions, and registry keys — has been formally reviewed and validated by authorized security personnel within the required audit period (typically 90 days).",
+    "security_impact": "The Rego policy for exclusion_and_allowlist_accuracy requires exclusion_list_reviewed to be true as part of the condition confirming the countermeasure is operational. Unreviewed exclusion lists accumulate stale, overly broad, or attacker-injected entries that silently disable detection for entire directory trees or process families. Threat actors actively target misconfigured exclusions as a persistence and evasion mechanism. Rated high criticality, this is a common finding in post-breach forensic investigations.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the most recent exclusion list review record from the security team or change management system. Confirm that a formal review was completed within the past 90 days with documented approvals, and that each exclusion has a recorded business justification.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Change management ticket or security review document dated within 90 days showing the exclusion list was reviewed, approved, and each entry has a documented business justification."
+      },
+      {
+        "type": "gui",
+        "instruction": "Access the antimalware management console audit history or activity log. Search for exclusion configuration change or review events within the past 90 days to confirm a review occurred.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Administration > Audit Log > Filter: Category = Exclusions, Date Range = Last 90 Days",
+        "expected_output": "Audit log entries showing exclusion list reviewed, approved, or modified with a reviewer identity and timestamp within the 90-day window."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM for exclusion modification or review events sourced from the endpoint protection platform. Identify the most recent review event and calculate how many days ago it occurred.",
+        "command": "index=endpoint_protection sourcetype=antivirus_admin (\"exclusion\" AND (\"reviewed\" OR \"approved\" OR \"audit\")) | sort -_time | head 5 | eval days_ago=round((now()-_time)/86400,1) | table _time, user, action, days_ago",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Most recent exclusion review event has a days_ago value of 90 or less with an identified reviewer."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Export the current exclusion list from the management console or directly from the endpoint and compare it against the last approved baseline. Verify the export timestamp and compare entry count and content to detect unauthorized additions.",
+        "command": "Get-MpPreference | Select-Object ExclusionPath, ExclusionProcess, ExclusionExtension, ExclusionIpAddress | ConvertTo-Json | Tee-Object -FilePath C:\\Temp\\current_exclusions.json",
+        "file_path": "C:\\Temp\\current_exclusions.json",
+        "navigation": null,
+        "expected_output": "Exported exclusion list matches the last approved baseline with no undocumented additions. File is then compared against the approved exclusions document using diff or a comparison tool."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "wildcard_exclusion_count",
+    "option_description": "Tracks the number of antimalware exclusion entries that use wildcard characters such as * or ? at the path-segment or file-extension level, covering broad swaths of the filesystem or process space rather than targeting specific named files or hashes.",
+    "security_impact": "The Rego policy for exclusion_and_allowlist_accuracy only recognises a healthy exclusion posture when wildcard_exclusion_count equals zero. Any non-zero value means the rule fires, flagging the control as misconfigured. Wildcard exclusions are a common attacker technique for bypass; malware placed inside a wildcard-excluded directory or named to match an excluded extension runs uninspected, defeating real-time and on-access scanning entirely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows endpoints managed by Microsoft Defender, enumerate all exclusions and filter for wildcard characters using PowerShell, then count the matching entries.",
+        "command": "(Get-MpPreference | Select-Object -ExpandProperty ExclusionPath; Get-MpPreference | Select-Object -ExpandProperty ExclusionExtension; Get-MpPreference | Select-Object -ExpandProperty ExclusionProcess) | Where-Object { $_ -match '[*?]' } | Measure-Object | Select-Object -ExpandProperty Count",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing the count of wildcard-containing exclusion entries; a compliant endpoint returns 0."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Microsoft Defender or third-party AV central management console, navigate to the exclusions or exceptions policy section, export the full list to CSV, then open the file and filter the Path, Extension, and Process columns for entries containing * or ? characters.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Policies > Antimalware Policy > Exclusions > Export to CSV",
+        "expected_output": "A spreadsheet showing all exclusion entries; wildcard entries should be zero in a well-managed environment."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Defender for Endpoint API to retrieve device configuration profiles and extract exclusion lists, then count wildcard entries programmatically.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://api.securitycenter.microsoft.com/api/configurationAssessment' | jq '[.[] | select(.recommendationKey==\"av-exclusions\") | .configurationValue] | map(select(test(\"[*?]\"))) | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON integer value; zero indicates no wildcard exclusions are present across assessed devices."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On Linux endpoints running ClamAV or similar, inspect the exclusion configuration file and count lines containing wildcard patterns.",
+        "command": "grep -cE '[*?]' /etc/clamav/clamd.conf /etc/clamav/freshclam.conf 2>/dev/null || grep -cE '[*?]' /etc/freshclam.conf",
+        "file_path": "/etc/clamav/clamd.conf",
+        "navigation": null,
+        "expected_output": "A line count integer per file; zero across all files indicates no wildcard exclusions."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (hardened, policy-compliant deployment)",
+      "1-5 (limited wildcards present, often legacy application accommodation)",
+      "6-20 (elevated risk; common in environments with unreviewed inherited policies)",
+      "21-100 (high risk; typically seen after bulk migrations or copy-paste policy management)",
+      "100+ (critical risk; indicative of abandoned exclusion hygiene)"
+    ]
+  },
+  {
+    "option_name": "exclusion_scope",
+    "option_description": "Classifies the broadest category of exclusion type present in the antimalware exclusion list, ranging from no exclusions at all through narrowly scoped file or hash entries, full directory-tree exclusions, entire process exclusions, up to system-wide or wildcard-only exclusions that create large detection blind spots.",
+    "security_impact": "The Rego policy marks the exclusion_and_allowlist_accuracy control as healthy only when exclusion_scope is 'none' or 'scoped'. Values of 'path_based', 'process_based', or 'overly_broad' cause the rule to fire, indicating that the exclusion list is creating meaningful detection coverage gaps. Path-based exclusions allow any malware dropped into an excluded directory to execute unchecked; process-based exclusions mean any child process spawned by an excluded parent is invisible to the AV engine; overly_broad or wildcard-only exclusions can effectively disable scanning for entire drive volumes or file type categories.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Windows with Microsoft Defender, retrieve all exclusion types and display them categorised so an assessor can determine the broadest scope tier present.",
+        "command": "$p = Get-MpPreference; Write-Host 'Path exclusions:'; $p.ExclusionPath; Write-Host 'Extension exclusions:'; $p.ExclusionExtension; Write-Host 'Process exclusions:'; $p.ExclusionProcess; Write-Host 'IP exclusions:'; $p.ExclusionIpAddress",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Populated lists indicate the scope tiers in use. Empty output for all categories maps to 'none'; specific named files or hashes only map to 'scoped'; directory paths present map to 'path_based'; process names present map to 'process_based'; wildcard-only or drive-root entries map to 'overly_broad'."
+      },
+      {
+        "type": "gui",
+        "instruction": "Access the central AV management console exclusions view, review all entries, and identify the broadest category present using the classification rubric: none, scoped, path_based, process_based, or overly_broad.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Endpoint Protection Policies > [Policy Name] > Exclusions > View All Entries",
+        "expected_output": "A list of exclusion entries; classify the broadest entry type observed to determine the correct enum value."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the endpoint security team and review the exception register or change management system to confirm which exclusion types have been formally approved and what the broadest class of exclusion is that currently exists in production policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented record showing the broadest exclusion type in the active policy, cross-referenced with approved business justifications."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the CrowdStrike Falcon or similar EDR API to retrieve prevention policy exclusion groups and inspect each entry to classify scope breadth.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://api.crowdstrike.com/policy/combined/ml-exclusions/v1' | jq '.resources[] | {value: .value, type: .exclusion_type}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON objects listing exclusion values and their declared types; map observed types to the enum values none/scoped/path_based/process_based/overly_broad."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (no exclusions configured; ideal but rare in production)",
+      "scoped (specific named files or SHA-256 hashes only; target state)",
+      "path_based (directory trees excluded; common for backup, database, and ERP products)",
+      "process_based (AV agent, backup agent, or database engine processes excluded; moderately common)",
+      "overly_broad (drive-root wildcards or extension-only wildcards; found in poorly governed environments)"
+    ]
+  },
+  {
+    "option_name": "exclusions_business_justified",
+    "option_description": "Records whether every entry in the antimalware exclusion list is backed by a documented and approved business justification, including an associated change management ticket, a named owner responsible for the exclusion, and an expiry or review date after which the exclusion must be revalidated or removed.",
+    "security_impact": "The Rego policy requires exclusions_business_justified to be true as one of three simultaneous conditions for the exclusion_and_allowlist_accuracy control to be counted as a working countermeasure. If this flag is false, the control fires as misconfigured regardless of how narrow the exclusion scope is. Undocumented exclusions are a significant audit and operational risk: they cannot be traced to a legitimate application need, cannot be assigned an owner for renewal, and are typically never reviewed or removed, causing exclusion list bloat that accumulates over years and eventually includes entries that cover attack-relevant paths.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Obtain a full export of the current exclusion list and cross-reference each entry against the organisation's change management or exception register. Verify that every entry has a linked ticket number, a named business owner, and a documented expiry or review date. Set the attribute to true only if all entries pass this check.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ITSM Platform (ServiceNow / Jira) > Exception Register > Antimalware Exclusions view",
+        "expected_output": "A one-to-one mapping between each exclusion entry and an open, approved exception record containing owner, justification narrative, and expiry date."
+      },
+      {
+        "type": "command",
+        "instruction": "Export the Defender exclusion list to a file and compare it against a maintained justification registry CSV using PowerShell to identify unjustified entries.",
+        "command": "$exclusions = (Get-MpPreference).ExclusionPath + (Get-MpPreference).ExclusionProcess + (Get-MpPreference).ExclusionExtension; $registry = Import-Csv 'C:\\SecOps\\av_exclusion_registry.csv'; $unjustified = $exclusions | Where-Object { $_ -notin $registry.ExclusionValue }; if ($unjustified.Count -eq 0) { 'true' } else { 'false - unjustified: ' + ($unjustified -join ', ') }",
+        "file_path": "C:\\SecOps\\av_exclusion_registry.csv",
+        "navigation": null,
+        "expected_output": "Output of 'true' confirms all exclusions are documented; any 'false' output lists the specific unjustified entries that must be remediated."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AV management console, navigate to the exclusions policy and check whether each entry has a description or notes field populated with a ticket reference and owner name. For consoles that do not support inline notes, verify the external register covers every entry.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Management Console > Policies > Exclusions > Edit Policy > Per-entry Description or Notes field",
+        "expected_output": "Every exclusion entry shows a populated notes field with a ticket ID and owner, or an external register is confirmed to cover all entries with no gaps."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the change management system's audit log for the antimalware policy to confirm that each exclusion addition event has an associated approved change request, confirming that no exclusions were added outside the formal approval process.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ITSM Audit Log > Filter by Configuration Item = Antimalware Policy > Action = Exclusion Added",
+        "expected_output": "Every exclusion-addition event in the audit log is linked to an approved change request with a documented business justification; orphaned events with no linked ticket indicate undocumented exclusions."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default and most common observed state; exclusion lists grow without formal process)",
+      "true (achieved in mature security programmes with active exception governance and periodic exclusion reviews)"
+    ]
+  }
+]

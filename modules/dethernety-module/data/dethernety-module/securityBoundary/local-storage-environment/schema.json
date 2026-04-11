@@ -1,0 +1,479 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "trusted_channel_ingress_filtering_enabled": {
+        "type": "boolean",
+        "title": "Trusted Channel Ingress Filtering Enabled",
+        "description": "Indicates whether ingress filtering is applied consistently to all channels including those designated as trusted, with no carve-outs or exceptions that exempt trusted channels from inspection.",
+        "default": false
+      },
+      "trusted_channel_types_defined": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Defined Trusted Channel Types",
+        "description": "List of channel types that have been designated as trusted within the environment (e.g., management_interface, backup_agent, replication_link, monitoring_agent).",
+        "default": []
+      },
+      "trusted_channel_bypass_scope": {
+        "type": "string",
+        "enum": [
+          "all",
+          "partial",
+          "none"
+        ],
+        "title": "Trusted Channel Filtering Bypass Scope",
+        "description": "Describes the scope of ingress filtering bypass for trusted channels — whether all trusted channels bypass filtering, only some do, or none bypass filtering.",
+        "default": "none"
+      },
+      "unmonitored_egress_ports_present": {
+        "type": "boolean",
+        "title": "Unmonitored Egress Ports Present",
+        "description": "Indicates whether one or more secondary or legacy communication ports exist on the local storage zone boundary that lack egress monitoring or alerting coverage.",
+        "default": false
+      },
+      "egress_filter_enforcement_mode": {
+        "type": "string",
+        "enum": [
+          "enforced",
+          "monitor_only",
+          "none"
+        ],
+        "title": "Egress Filter Enforcement Mode",
+        "description": "The enforcement posture of egress filtering controls at the local storage zone boundary — whether filtering is enforced (blocking), passive (alerting only), or absent."
+      },
+      "legacy_ports_in_use": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Legacy or Secondary Ports In Use",
+        "description": "List of port numbers or service identifiers corresponding to secondary or legacy communication paths currently active on the local storage zone boundary.",
+        "default": []
+      },
+      "internal_subzone_acl_enforced": {
+        "type": "boolean",
+        "title": "Internal Subzone ACL Enforced",
+        "description": "Indicates whether access control lists or permission boundaries are enforced between internal subzones within the local storage zone.",
+        "default": false
+      },
+      "subzone_isolation_mechanism": {
+        "type": "string",
+        "enum": [
+          "none",
+          "logical",
+          "enforced"
+        ],
+        "title": "Subzone Isolation Mechanism",
+        "description": "The type of isolation mechanism implemented between internal storage subzones.",
+        "default": "none"
+      },
+      "cross_subzone_traversal_logged": {
+        "type": "boolean",
+        "title": "Cross-Subzone Traversal Logged",
+        "description": "Indicates whether access events that traverse between internal subzones are captured in audit or monitoring logs."
+      },
+      "session_token_revalidation_at_boundary": {
+        "type": "boolean",
+        "title": "Session Token Re-Validation at Zone Boundary",
+        "description": "Whether session tokens or trust attributes carried by cross-boundary processes are re-evaluated and re-issued at the local storage zone ingress point, rather than inherited from the external zone.",
+        "default": false
+      },
+      "cross_zone_trust_inheritance_allowed": {
+        "type": "boolean",
+        "title": "Cross-Zone Trust Attribute Inheritance Allowed",
+        "description": "Whether processes originating from the external zone are permitted to retain and use trust attributes inside the local storage zone without re-evaluation.",
+        "default": false
+      },
+      "boundary_ingress_monitoring_coverage": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Boundary Ingress Monitoring Coverage",
+        "description": "The extent to which ingress points into the local storage zone are monitored and logged for session token, trust attribute propagation, and zone-crossing events.",
+        "default": "none"
+      },
+      "credential_scope_isolation_enforced": {
+        "type": "boolean",
+        "title": "Credential Scope Isolation Enforced",
+        "description": "Whether credentials are scoped exclusively to a single trust zone and cannot authenticate across zone boundaries, and whether zone boundary credential reuse has been detected.",
+        "default": false
+      },
+      "shared_credential_store_across_zones": {
+        "type": "boolean",
+        "title": "Shared Credential Store Across Zones",
+        "description": "Whether a single credential store is used to authenticate both external-zone and local-storage-zone access without zone-specific restrictions.",
+        "default": false
+      },
+      "zone_boundary_credential_reuse_detected": {
+        "type": "boolean",
+        "title": "Zone Boundary Credential Reuse Detected",
+        "description": "Whether audit logs, access records, or configuration analysis confirm that the same credential has been used or is capable of authenticating in both the external zone and the local storage zone.",
+        "default": false
+      },
+      "protocol_translation_points_monitored": {
+        "type": "boolean",
+        "title": "Protocol Translation Points Monitored",
+        "description": "Indicates whether monitoring/logging agents are deployed at points where network-layer traffic is translated to file-system or inter-process communication.",
+        "default": false
+      },
+      "zone_crossing_alert_coverage": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Zone Crossing Alert Coverage",
+        "description": "Describes the extent to which alerting rules are configured specifically for zone-crossing events at protocol-layer transitions into local storage.",
+        "default": "none"
+      },
+      "shared_api_per_entity_segmentation": {
+        "type": "boolean",
+        "title": "Per-Entity Segmentation on Shared Boundary API",
+        "description": "Indicates whether the shared boundary interface or API enforces per-entity segmentation, preventing one external entity from accessing paths or zones intended for another.",
+        "default": false
+      },
+      "boundary_interface_access_control_model": {
+        "type": "string",
+        "enum": [
+          "none",
+          "shared_credential",
+          "entity_authenticated",
+          "entity_scoped"
+        ],
+        "title": "Boundary Interface Access Control Model",
+        "description": "Describes the access control model enforced at the shared boundary interface for external entities."
+      },
+      "internal_zone_reachable_from_shared_interface": {
+        "type": "boolean",
+        "title": "Internal Zones Reachable via Shared Interface",
+        "description": "Indicates whether traversal from the shared boundary interface can reach internal storage zones or subzones beyond the immediate boundary.",
+        "default": false
+      },
+      "egress_rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "Egress Rate Limiting Enabled",
+        "description": "Whether rate limiting or bandwidth/volume throttling controls are enforced on data egress at the storage zone boundary.",
+        "default": false
+      },
+      "egress_volume_threshold_configured": {
+        "type": "boolean",
+        "title": "Egress Volume Threshold Configured",
+        "description": "Whether a maximum egress volume threshold is defined and enforced to trigger alerts or blocks when exceeded.",
+        "default": false
+      },
+      "egress_anomaly_detection_enabled": {
+        "type": "boolean",
+        "title": "Egress Anomaly Detection Enabled",
+        "description": "Whether behavioral anomaly detection is active on egress traffic patterns at the storage zone boundary to flag statistically unusual transfer rates or volumes.",
+        "default": false
+      },
+      "storage_boundary_audit_enabled": {
+        "type": "boolean",
+        "title": "Storage Boundary Audit Enabled",
+        "description": "Whether periodic audits of the local storage zone boundary definition (mounts, attached paths, accessible directories) are actively performed and enforced.",
+        "default": false
+      },
+      "unapproved_mount_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Unapproved Mount Points Present",
+        "description": "Number of mount points or attached paths currently active in the local storage zone that are not present in the approved boundary definition baseline.",
+        "default": 0
+      },
+      "boundary_controls_applied_to_new_mounts": {
+        "type": "boolean",
+        "title": "Boundary Controls Applied to New Mounts",
+        "description": "Whether ingress/egress filtering and access controls equivalent to the original zone boundary controls are automatically applied to newly added mount points or attached paths.",
+        "default": false
+      },
+      "physical_port_access_controls_enabled": {
+        "type": "boolean",
+        "title": "Physical Port Access Controls Enabled",
+        "description": "Indicates whether physical storage ports and removable media interfaces are disabled, locked, or otherwise access-controlled to prevent unauthorized use.",
+        "default": false
+      },
+      "removable_media_mount_policy": {
+        "type": "string",
+        "enum": [
+          "blocked",
+          "require_authorization",
+          "allow_all"
+        ],
+        "title": "Removable Media Mount Policy",
+        "description": "Describes the policy governing whether removable media can be mounted by the operating system on the local storage host.",
+        "default": "allow_all"
+      },
+      "physical_interface_activity_logged": {
+        "type": "boolean",
+        "title": "Physical Interface Activity Logged",
+        "description": "Indicates whether attachment and access events on physical storage interfaces are captured in audit logs.",
+        "default": false
+      }
+    },
+    "required": [
+      "trusted_channel_ingress_filtering_enabled",
+      "trusted_channel_types_defined",
+      "trusted_channel_bypass_scope",
+      "unmonitored_egress_ports_present",
+      "egress_filter_enforcement_mode",
+      "legacy_ports_in_use",
+      "internal_subzone_acl_enforced",
+      "subzone_isolation_mechanism",
+      "cross_subzone_traversal_logged",
+      "session_token_revalidation_at_boundary",
+      "cross_zone_trust_inheritance_allowed",
+      "boundary_ingress_monitoring_coverage",
+      "credential_scope_isolation_enforced",
+      "shared_credential_store_across_zones",
+      "zone_boundary_credential_reuse_detected",
+      "protocol_translation_points_monitored",
+      "zone_crossing_alert_coverage",
+      "shared_api_per_entity_segmentation",
+      "boundary_interface_access_control_model",
+      "internal_zone_reachable_from_shared_interface",
+      "egress_rate_limiting_enabled",
+      "egress_volume_threshold_configured",
+      "egress_anomaly_detection_enabled",
+      "storage_boundary_audit_enabled",
+      "unapproved_mount_count",
+      "boundary_controls_applied_to_new_mounts",
+      "physical_port_access_controls_enabled",
+      "removable_media_mount_policy",
+      "physical_interface_activity_logged"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_filter_enforcement_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_rate_limiting_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_volume_threshold_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/legacy_ports_in_use"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/trusted_channel_bypass_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/trusted_channel_ingress_filtering_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/trusted_channel_types_defined"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unmonitored_egress_ports_present"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/boundary_interface_access_control_model"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_scope_isolation_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cross_zone_trust_inheritance_allowed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/internal_subzone_acl_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/removable_media_mount_policy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/session_token_revalidation_at_boundary"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_credential_store_across_zones"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/zone_boundary_credential_reuse_detected"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Boundary Segmentation",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/boundary_controls_applied_to_new_mounts"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/internal_zone_reachable_from_shared_interface"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/physical_port_access_controls_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_api_per_entity_segmentation"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/subzone_isolation_mechanism"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unapproved_mount_count"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/boundary_ingress_monitoring_coverage"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/protocol_translation_points_monitored"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/storage_boundary_audit_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/zone_crossing_alert_coverage"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cross_subzone_traversal_logged"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_anomaly_detection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/physical_interface_activity_logged"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_data_present"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

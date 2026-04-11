@@ -1,0 +1,8 @@
+{
+  "name": "Antivirus",
+  "classType": "control",
+  "type": "Antivirus",
+  "description": "Antimalware/endpoint protection control that delivers detection, containment, and remediation capabilities against malicious software through signature-based, heuristic, and behavioral analysis engines.",
+  "category": "Cross Cutting Controls",
+  "status": "reviewed"
+}

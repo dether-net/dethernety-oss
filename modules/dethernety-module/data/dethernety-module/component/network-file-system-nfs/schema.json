@@ -1,0 +1,586 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "export_host_spec": {
+        "type": "string",
+        "title": "NFS Export Host Specification",
+        "description": "The host or network specification in /etc/exports that defines which clients may mount the share (e.g., '*', '0.0.0.0/0', '192.168.1.0/24', 'trusted.host.example.com')"
+      },
+      "nfs_security_flavors": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "NFS Security Flavors in Use",
+        "description": "List of security/authentication flavors configured for NFS exports (e.g., sys, krb5, krb5i, krb5p). AUTH_SYS (sys) provides no cryptographic verification.",
+        "default": [
+          "sys"
+        ]
+      },
+      "nfs_version": {
+        "type": "string",
+        "enum": [
+          "NFSv2",
+          "NFSv3",
+          "NFSv4",
+          "NFSv4.1",
+          "NFSv4.2"
+        ],
+        "title": "NFS Protocol Version",
+        "description": "The NFS protocol version in use. NFSv4 is required for native Kerberos support; NFSv3 and earlier do not support Kerberos natively."
+      },
+      "kerberos_realm_configured": {
+        "type": "boolean",
+        "title": "Kerberos Realm Configured",
+        "description": "Indicates whether a Kerberos realm is configured on the NFS server host, a prerequisite for enforcing krb5 security flavors."
+      },
+      "no_root_squash_enabled": {
+        "type": "boolean",
+        "title": "no_root_squash Option Enabled",
+        "description": "Indicates whether any NFS export is configured with 'no_root_squash', allowing remote root users to act as root on the server.",
+        "default": false
+      },
+      "root_squash_explicitly_set": {
+        "type": "boolean",
+        "title": "root_squash Explicitly Configured",
+        "description": "Indicates whether 'root_squash' is explicitly set on all NFS exports. When absent, the NFS server may apply a weak default depending on the implementation.",
+        "default": false
+      },
+      "rpcsec_gss_krb5p_enabled": {
+        "type": "boolean",
+        "title": "RPCSEC_GSS Kerberos Privacy (krb5p) Enabled",
+        "description": "Whether NFSv4 exports require RPCSEC_GSS with krb5p (providing both authentication and encryption of data in transit). False if sec=sys or sec=krb5/krb5i is used without krb5p.",
+        "default": false
+      },
+      "tunnel_encryption_in_use": {
+        "type": "boolean",
+        "title": "Tunnel-Based Encryption in Use",
+        "description": "Whether NFS traffic is tunneled through an encrypting transport such as VPN (IPsec, WireGuard) or stunnel, compensating for lack of native NFS encryption.",
+        "default": false
+      },
+      "export_access_mode": {
+        "type": "string",
+        "enum": [
+          "rw",
+          "ro"
+        ],
+        "title": "Export Access Mode",
+        "description": "The access mode configured for the NFS export, indicating whether clients are granted read-write or read-only access.",
+        "default": "rw"
+      },
+      "export_path_is_sensitive": {
+        "type": "boolean",
+        "title": "Export Path Contains Sensitive Data",
+        "description": "Indicates whether the exported filesystem path contains sensitive data such as configuration files, credentials, home directories, system directories, or application secrets.",
+        "default": false
+      },
+      "client_scope": {
+        "type": "string",
+        "enum": [
+          "world",
+          "subnet",
+          "host"
+        ],
+        "title": "Client Access Scope",
+        "description": "The scope of clients permitted to mount the export, indicating how broadly access is granted."
+      },
+      "nfs_bound_interfaces": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "NFS Bound Network Interfaces",
+        "description": "List of network interfaces or IP addresses that the NFS daemon and associated RPC services (rpcbind, mountd, statd) are bound to. Use '0.0.0.0' or '*' to indicate all interfaces.",
+        "default": [
+          "0.0.0.0"
+        ]
+      },
+      "public_interface_exposure_confirmed": {
+        "type": "boolean",
+        "title": "Public Interface Exposure Confirmed",
+        "description": "Whether the NFS or RPC services are confirmed to be listening on a public-facing or untrusted network interface (e.g., interface with a publicly routable IP address, or bound to 0.0.0.0 without firewall restriction).",
+        "default": false
+      },
+      "firewall_restricts_nfs_ports": {
+        "type": "boolean",
+        "title": "Firewall Restricts NFS Ports from Untrusted Networks",
+        "description": "Whether host-level or network firewall rules restrict access to NFS-related ports (TCP/UDP 2049, 111, 20048, and dynamic RPC ports) from untrusted or public network sources.",
+        "default": false
+      },
+      "nfs_software_has_known_cve": {
+        "type": "boolean",
+        "title": "NFS Software Has Known CVE",
+        "description": "Indicates whether the installed NFS server software (kernel NFS module, nfs-utils, or rpcbind) has one or more known CVEs documented in public vulnerability databases.",
+        "default": false
+      },
+      "days_since_last_nfs_package_update": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Days Since Last NFS Package Update",
+        "description": "Number of days elapsed since any NFS-related package (nfs-utils, nfs-kernel-server, rpcbind) was last updated on the host."
+      },
+      "nfs_service_is_running": {
+        "type": "boolean",
+        "title": "NFS Service Is Currently Running",
+        "description": "Indicates whether at least one NFS server service (nfsd, rpcbind, mountd) is actively running and exposed on the host."
+      },
+      "nosuid_enforced": {
+        "type": "boolean",
+        "title": "nosuid Option Enforced",
+        "description": "Whether the nosuid mount option is present in the client-side NFS mount configuration, preventing setuid/setgid bits on mounted files from taking effect.",
+        "default": false
+      },
+      "noexec_enforced": {
+        "type": "boolean",
+        "title": "noexec Option Enforced",
+        "description": "Whether the noexec mount option is present in the client-side NFS mount configuration, preventing execution of binaries on the mounted share.",
+        "default": false
+      },
+      "dev_allowed": {
+        "type": "boolean",
+        "title": "Device Files Allowed (dev)",
+        "description": "Whether the 'dev' mount option is active (i.e., 'nodev' is absent), allowing device files on the NFS share to be interpreted as real devices on the client.",
+        "default": false
+      },
+      "rpcbind_listening_interfaces": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "rpcbind Listening Interfaces",
+        "description": "Network interfaces on which the rpcbind/portmapper service is actively listening (e.g., '0.0.0.0', '192.168.1.10', '127.0.0.1')"
+      },
+      "rpcbind_tcp_wrappers_configured": {
+        "type": "boolean",
+        "title": "rpcbind TCP Wrappers Restrictions Configured",
+        "description": "Whether TCP wrappers (/etc/hosts.allow and /etc/hosts.deny) are configured to restrict access to rpcbind from untrusted hosts."
+      },
+      "nfsv3_enabled": {
+        "type": "boolean",
+        "title": "NFSv3 Enabled",
+        "description": "Whether NFSv3 protocol support is enabled on the NFS server, making rpcbind exposure operationally significant and preventing exclusive use of the more secure NFSv4.",
+        "default": true
+      },
+      "nfs_mount_event_logging_enabled": {
+        "type": "boolean",
+        "title": "NFS Mount Event Logging Enabled",
+        "description": "Indicates whether the NFS server is configured to log mount events, such as via rpcdebug flags or equivalent server-side logging mechanisms.",
+        "default": false
+      },
+      "auditd_nfs_syscall_rules_configured": {
+        "type": "boolean",
+        "title": "Auditd NFS Syscall Rules Configured",
+        "description": "Indicates whether auditd rules covering NFS-related system calls (e.g., mount, open, read, write on NFS paths) are present in /etc/audit/rules.d/ or /etc/audit/audit.rules.",
+        "default": false
+      },
+      "nfs_access_attempt_logging_enabled": {
+        "type": "boolean",
+        "title": "NFS Access Attempt Logging Enabled",
+        "description": "Indicates whether the NFS server logs individual file access and export request events, such as via nfsd debug flags or a syslog/journald integration that captures NFS daemon access events.",
+        "default": false
+      },
+      "all_squash_enabled": {
+        "type": "boolean",
+        "title": "all_squash Option Enabled",
+        "description": "Whether the NFS export is configured with the 'all_squash' option, which maps all client UIDs/GIDs to the anonymous user.",
+        "default": false
+      },
+      "anon_uid": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 65535,
+        "title": "Anonymous UID Mapping",
+        "description": "The UID to which all client connections are mapped when all_squash is active. A value of 0 maps all clients to root.",
+        "default": 65534
+      },
+      "anon_gid": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 65535,
+        "title": "Anonymous GID Mapping",
+        "description": "The GID to which all client connections are mapped when all_squash is active. A value of 0 maps all clients to the root group.",
+        "default": 65534
+      },
+      "nfsv2_enabled": {
+        "type": "boolean",
+        "title": "NFSv2 Enabled",
+        "description": "Indicates whether NFSv2 protocol support is enabled on the NFS server.",
+        "default": false
+      },
+      "nfsv4_enabled": {
+        "type": "boolean",
+        "title": "NFSv4 Enabled",
+        "description": "Indicates whether NFSv4 protocol support is enabled on the NFS server, which is the preferred secure version.",
+        "default": true
+      },
+      "nfsv4_domain_configured": {
+        "type": "boolean",
+        "title": "NFSv4 Domain Configured",
+        "description": "Whether a valid NFSv4 domain is explicitly set in /etc/idmapd.conf (Domain= parameter is present and non-empty).",
+        "default": false
+      },
+      "idmapd_service_running": {
+        "type": "boolean",
+        "title": "idmapd Service Running",
+        "description": "Whether the rpc.idmapd (or nfs-idmapd) service is active and running on the system.",
+        "default": false
+      },
+      "is_dedicated_mount_point": {
+        "type": "boolean",
+        "title": "Export Is a Dedicated Mount Point",
+        "description": "Whether the exported directory is a separate filesystem mount point (i.e., appears as a distinct entry in /proc/mounts or mount output), ensuring clients cannot traverse beyond the export boundary."
+      },
+      "fsid_option_configured": {
+        "type": "boolean",
+        "title": "fsid= Option Configured on Export",
+        "description": "Whether the NFS export entry includes an explicit 'fsid=' option, which establishes a stable filesystem boundary identity and prevents directory traversal beyond the export scope."
+      },
+      "crossmnt_option_configured": {
+        "type": "boolean",
+        "title": "crossmnt Option Configured on Export",
+        "description": "Whether the NFS export entry includes the 'crossmnt' option, which explicitly allows clients to cross mount point boundaries from the exported directory, further expanding the traversal risk when filesystem isolation is absent."
+      }
+    },
+    "required": [
+      "export_host_spec",
+      "nfs_security_flavors",
+      "nfs_version",
+      "kerberos_realm_configured",
+      "no_root_squash_enabled",
+      "root_squash_explicitly_set",
+      "rpcsec_gss_krb5p_enabled",
+      "tunnel_encryption_in_use",
+      "export_access_mode",
+      "export_path_is_sensitive",
+      "client_scope",
+      "nfs_bound_interfaces",
+      "public_interface_exposure_confirmed",
+      "firewall_restricts_nfs_ports",
+      "nfs_software_has_known_cve",
+      "days_since_last_nfs_package_update",
+      "nfs_service_is_running",
+      "nosuid_enforced",
+      "noexec_enforced",
+      "dev_allowed",
+      "rpcbind_listening_interfaces",
+      "rpcbind_tcp_wrappers_configured",
+      "nfsv3_enabled",
+      "nfs_mount_event_logging_enabled",
+      "auditd_nfs_syscall_rules_configured",
+      "nfs_access_attempt_logging_enabled",
+      "all_squash_enabled",
+      "anon_uid",
+      "anon_gid",
+      "nfsv2_enabled",
+      "nfsv4_enabled",
+      "nfsv4_domain_configured",
+      "idmapd_service_running"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/anon_gid"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/anon_uid"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/client_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dev_allowed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/export_access_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/export_host_spec"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/export_path"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_security_flavors"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_version"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nfsv2_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/nfsv4_domain_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/no_root_squash_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/noexec_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nosuid_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/root_squash_explicitly_set"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/all_squash_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/export_options"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/idmapd_service_running"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/kerberos_realm_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nfsv3_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/nfsv4_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/export_path_is_sensitive"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rpcsec_gss_krb5p_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tunnel_encryption_in_use"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/export_accessible_to_all_hosts"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/firewall_restricts_nfs_ports"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_bound_interfaces"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/public_interface_exposure_confirmed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rpcbind_listening_interfaces"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_service_is_running"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rpcbind_tcp_wrappers_configured"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/auditd_nfs_syscall_rules_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_access_attempt_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_mount_event_logging_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/nfs_software_has_known_cve"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/days_since_last_nfs_package_update"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/crossmnt_option_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/fsid_option_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/is_dedicated_mount_point"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

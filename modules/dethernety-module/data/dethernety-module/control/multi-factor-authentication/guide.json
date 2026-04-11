@@ -1,0 +1,1350 @@
+[
+  {
+    "option_name": "mfa_enforcement_status",
+    "option_description": "Controls whether MFA is globally required, optional, or disabled for user authentication across the organization. When set to 'required', all authentication attempts must include a second factor before access is granted.",
+    "security_impact": "The Rego policy for credential_theft_prevention_coverage and enrollment_coverage_completeness both require mfa_enforcement_status == 'required' (or 'enforced') as a prerequisite condition. If this is set to 'optional' or 'disabled', stolen credentials alone are sufficient for full account access, and no countermeasure score is awarded regardless of other configurations.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD / Entra ID, navigate to Azure Active Directory → Security → Conditional Access → Policies. Review any policy targeting 'All users' and confirm the Grant control requires 'Require multi-factor authentication'. Alternatively check Azure AD → Users → Per-user MFA for legacy per-user enforcement status.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Azure Active Directory → Security → Conditional Access → Policies",
+        "expected_output": "A Conditional Access policy in 'On' state targeting all users with 'Require MFA' as a grant control indicates 'required' status."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Microsoft Graph PowerShell to query Conditional Access policies and identify MFA grant controls.",
+        "command": "Connect-MgGraph -Scopes 'Policy.Read.All'; Get-MgIdentityConditionalAccessPolicy | Select-Object DisplayName,State | Where-Object {$_.State -eq 'enabled'} | Format-List; Get-MgIdentityConditionalAccessPolicy | ForEach-Object { $_.GrantControls } | Select-Object Operator,BuiltInControls",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show 'mfa' listed under BuiltInControls for policies targeting users."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Okta API to list MFA enrollment policies and their rules to determine if MFA is set as required.",
+        "command": "curl -s -H 'Authorization: SSWS <API_TOKEN>' 'https://<okta_domain>/api/v1/policies?type=MFA_ENROLL' | jq '.[].conditions, .[].rules[].actions.enroll.self'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Value of 'self' field should be 'REQUIRED' rather than 'OPTIONAL' or 'NOT_ALLOWED' for required enforcement."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS IAM, check if a policy requires MFA by listing IAM policies with MFA condition keys and verifying assignment to all users.",
+        "command": "aws iam list-policies --scope Local --query 'Policies[*].[PolicyName,Arn]' --output table; aws iam get-policy-version --policy-arn <arn> --version-id v1 --query 'PolicyVersion.Document' | grep -i mfa",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy document should contain a Condition with 'aws:MultiFactorAuthPresent': 'true' applied to all users."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "required",
+      "optional",
+      "disabled"
+    ]
+  },
+  {
+    "option_name": "mfa_enrolled_user_percentage",
+    "option_description": "Represents the proportion of active user accounts that have registered at least one MFA factor, expressed as an integer from 0 to 100. This measures actual enrollment completion, not just policy assignment.",
+    "security_impact": "Both credential_theft_prevention_coverage and enrollment_coverage_completeness require mfa_enrolled_user_percentage >= 95. Accounts below the enrollment threshold remain protected only by password, creating exploitable bypass paths that nullify the MFA countermeasure for those users. Factor diversity strength also depends on this value to confirm factors are actually in use.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD / Entra ID, navigate to Azure Active Directory → Users → All Users, then use the 'Authentication methods' activity report or the MFA registration details report under Identity Protection → Monitoring → Authentication Methods Activity to view enrolled percentages.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Azure Active Directory → Monitoring → Authentication Methods Activity → Registration and reset events",
+        "expected_output": "Dashboard displays 'Users registered for MFA' count versus total active users, allowing manual percentage calculation."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Microsoft Graph API to retrieve MFA registration details and calculate the enrolled percentage.",
+        "command": "Connect-MgGraph -Scopes 'Reports.Read.All'; $report = Get-MgReportAuthenticationMethodUserRegistrationDetail -All; $total = $report.Count; $enrolled = ($report | Where-Object {$_.IsMfaRegistered -eq $true}).Count; [math]::Round(($enrolled/$total)*100,0)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer percentage, e.g., 87 or 95, indicating enrolled proportion."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Okta's Users API with a filter for enrolled MFA factors to compute the enrolled percentage.",
+        "command": "TOTAL=$(curl -s -H 'Authorization: SSWS <TOKEN>' 'https://<okta_domain>/api/v1/users?filter=status+eq+\"ACTIVE\"&limit=200' | jq 'length'); ENROLLED=$(curl -s -H 'Authorization: SSWS <TOKEN>' 'https://<okta_domain>/api/v1/users?filter=status+eq+\"ACTIVE\"' | jq '[.[] | select(.credentials.provider != null)] | length'); echo \"Enrolled: $ENROLLED / Total: $TOTAL\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Numeric ratio of users with registered MFA factors versus all active users."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Extract MFA enrollment status from identity provider audit logs or SIEM by querying for enrollment events and cross-referencing against the active user list from the directory.",
+        "command": "# Splunk example: index=azure_ad sourcetype=azure:aad:signin category=UserAuthentication | stats dc(user) as enrolled_users | appendcols [search index=azure_ad sourcetype=azure:aad:audit operationType=Create AND resultDescription=*MFA* | stats dc(initiatedBy.user.userPrincipalName) as total_enrolled]",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Count of users with at least one successful MFA enrollment event, enabling percentage calculation against directory total."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "45",
+      "72",
+      "88",
+      "95",
+      "100"
+    ]
+  },
+  {
+    "option_name": "privileged_accounts_mfa_enforced",
+    "option_description": "Indicates whether MFA is unconditionally required for privileged and administrative accounts including domain admins, cloud IAM admins, global administrators, and break-glass accounts, with no exception groups or bypass pathways in place.",
+    "security_impact": "This boolean is a condition in four Rego rules: credential_theft_prevention_coverage, enrollment_coverage_completeness, factor_diversity_strength, and privileged_account_protection_depth. Privileged accounts represent the highest-value targets; if this is false, attackers who compromise admin credentials gain immediate privileged access. The privileged_account_protection_depth rule specifically evaluates coverage at >= 95-100% with no bypass paths, requiring this to be true.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD, navigate to Azure Active Directory → Roles and administrators. Select each privileged role (Global Administrator, Privileged Role Administrator, etc.) and verify that a Conditional Access policy with MFA requirement targets these role memberships with no exclusion groups containing admin accounts.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Azure Active Directory → Security → Conditional Access → Policies → [Policy targeting admins] → Grant",
+        "expected_output": "Policy shows 'Require multi-factor authentication' is selected with no admin accounts in the exclusion list."
+      },
+      {
+        "type": "command",
+        "instruction": "Use PowerShell to enumerate Azure AD Conditional Access policies and check whether privileged role members are included in scope and excluded from exclusions.",
+        "command": "Connect-MgGraph -Scopes 'Policy.Read.All','RoleManagement.Read.Directory'; $policies = Get-MgIdentityConditionalAccessPolicy; foreach($p in $policies){ if($p.Conditions.Users.IncludeRoles -or $p.Conditions.Users.IncludeUsers -eq 'All'){ Write-Host $p.DisplayName; Write-Host 'Excluded users:' $p.Conditions.Users.ExcludeUsers; Write-Host 'Excluded groups:' $p.Conditions.Users.ExcludeGroups }}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No privileged role members or break-glass accounts should appear in exclusion lists for MFA-requiring policies."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the IAM team to confirm whether break-glass or emergency accounts have MFA configured, and review any documented exception processes or tickets that granted MFA exclusions to admin accounts. Request the exclusion group membership list.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirms zero exceptions granted to privileged accounts; any break-glass accounts use alternative strong authentication such as time-locked certificates."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS, verify that IAM policies or permission boundaries enforcing MFA are attached to all admin roles and the root account has MFA enabled.",
+        "command": "aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled'; aws iam list-roles --query 'Roles[*].RoleName' --output text | tr '\\t' '\\n' | xargs -I{} aws iam list-attached-role-policies --role-name {} --query 'AttachedPolicies[*].PolicyName'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AccountMFAEnabled should be 1; admin roles should have MFA-enforcing policies attached."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "mfa_bypass_mechanisms_present",
+    "option_description": "Indicates whether any authentication pathways exist that allow users to authenticate without completing MFA, including legacy protocols (IMAP, POP3, SMTP AUTH, Basic Auth, NTLM), trusted IP/network exclusions that skip MFA, remembered device policies with no expiry, or administrative exclusion groups.",
+    "security_impact": "The Rego rules for credential_theft_prevention_coverage, enrollment_coverage_completeness, and factor_diversity_strength all require mfa_bypass_mechanisms_present == false. Additionally, the factor_diversity_strength rule uses count(input.mfa_bypass_mechanisms_present) == 0. Any bypass mechanism allows attackers to deliberately route authentication through the non-MFA pathway, completely negating the control's protective value even when MFA is technically 'enabled'.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD / Entra ID, navigate to Azure Active Directory → Security → Conditional Access → Policies and review each policy for: (1) Exclusion groups containing users, (2) Named locations that skip MFA, (3) Client apps filter excluding legacy authentication clients. Also check Azure AD → Security → Authentication Methods → Legacy Authentication to see if legacy protocols are blocked.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Azure Active Directory → Security → Conditional Access → Named Locations; also check each policy's Exclude tab",
+        "expected_output": "No named location exclusions for MFA, no user/group exclusions, legacy auth client apps are included in MFA scope."
+      },
+      {
+        "type": "command",
+        "instruction": "Query sign-in logs to detect successful authentications that bypassed MFA, particularly using legacy protocols.",
+        "command": "Connect-MgGraph -Scopes 'AuditLog.Read.All'; Get-MgAuditLogSignIn -Filter \"clientAppUsed ne 'Browser' and clientAppUsed ne 'Mobile Apps and Desktop clients' and conditionalAccessStatus eq 'notApplied'\" -Top 100 | Select-Object UserPrincipalName,ClientAppUsed,ConditionalAccessStatus,CreatedDateTime | Format-Table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero results indicates no bypasses via legacy clients. Any results expose bypass paths that need remediation."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test whether legacy authentication protocols are accessible by attempting IMAP/POP3/SMTP AUTH connections to mail services with valid credentials but without MFA, verifying they are blocked.",
+        "command": "curl -v --user 'testuser@domain.com:password' imaps://outlook.office365.com/ 2>&1 | grep -E 'AUTH|error|failed|denied'; python3 -c \"import smtplib; s=smtplib.SMTP('smtp.office365.com',587); s.starttls(); s.login('testuser@domain.com','password'); print('BYPASS FOUND')\" 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection should fail with authentication error or be blocked; successful authentication without MFA challenge indicates a bypass."
+      },
+      {
+        "type": "api",
+        "instruction": "Use Microsoft Graph to enumerate Conditional Access policies and extract exclusion configurations programmatically.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' | jq '.value[] | {name: .displayName, excludedUsers: .conditions.users.excludeUsers, excludedGroups: .conditions.users.excludeGroups, namedLocationExclusions: .conditions.locations.excludeLocations, state: .state}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All MFA-requiring policies should show empty excludeUsers, excludeGroups arrays (or only documented break-glass UUIDs) and no named location exclusions."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "strongest_enrolled_factor_type",
+    "option_description": "Identifies the highest-assurance MFA factor type that is actively enrolled and enforced across the user population, establishing the security ceiling of the MFA configuration. Ranked from strongest to weakest: hardware_token, biometric, totp_app, push_notification, sms_otp, voice_otp, none.",
+    "security_impact": "The factor_diversity_strength Rego rule requires strongest_enrolled_factor_type in ['hardware_token', 'biometric'] alongside privileged_accounts_mfa_enforced == true and no bypass mechanisms. Weaker factors like SMS OTP are vulnerable to SIM-swapping, SS7 attacks, and real-time phishing interception. Hardware tokens and biometrics bound to origin prevent these attacks and achieve the highest countermeasure score.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD, navigate to Azure Active Directory → Security → Authentication Methods → Authentication Methods Policy to see which methods are enabled. Then check Azure Active Directory → Monitoring → Authentication Methods Activity → Registration details to see what methods users have actually registered.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Azure Active Directory → Security → Authentication Methods → Authentication Methods Policy",
+        "expected_output": "Table showing enabled methods (FIDO2, Authenticator App, SMS, etc.) and registration counts per method, allowing identification of the strongest actively-used factor."
+      },
+      {
+        "type": "command",
+        "instruction": "Query Microsoft Graph for the authentication methods registered per user and identify the strongest type in use across the population.",
+        "command": "Connect-MgGraph -Scopes 'UserAuthenticationMethod.Read.All'; $methods = Get-MgUserAuthenticationMethod -UserId 'all' -All 2>/dev/null; # Per-user check: Get-MgUserAuthenticationMethod -UserId 'user@domain.com' | Select-Object -ExpandProperty AdditionalProperties | Select-Object '@odata.type'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output includes '@odata.type' values such as '#microsoft.graph.fido2AuthenticationMethod', '#microsoft.graph.softwareOathAuthenticationMethod', '#microsoft.graph.phoneAuthenticationMethod'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Okta's enrolled factor types for all users to identify the strongest factor in use.",
+        "command": "curl -s -H 'Authorization: SSWS <TOKEN>' 'https://<okta_domain>/api/v1/users?filter=status+eq+\"ACTIVE\"&limit=5' | jq '.[].id' | tr -d '\"' | xargs -I{} curl -s -H 'Authorization: SSWS <TOKEN>' 'https://<okta_domain>/api/v1/users/{}/factors' | jq '.[].factorType, .[].provider' | sort | uniq -c | sort -rn",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ranked list of factor types enrolled; 'token:hardware' or 'signed_nonce' (FIDO2) indicates hardware_token; 'token:software:totp' indicates totp_app; 'sms' indicates sms_otp."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Analyze authentication event logs in your SIEM to determine which factor types are actually used during successful MFA authentications, as distinct from merely enrolled.",
+        "command": "# Splunk query: index=azure_signin AuthenticationMethod=* | stats count by AuthenticationMethod | sort -count | head 20\n# This surfaces the distribution of authentication methods used in practice, not just enrolled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log entries show authentication method field values like 'FIDO2 security key', 'Microsoft Authenticator App', 'SMS', enabling identification of strongest actively-used type."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "hardware_token",
+      "totp_app",
+      "push_notification",
+      "sms_otp"
+    ]
+  },
+  {
+    "option_name": "phishing_resistant_factor_required",
+    "option_description": "Indicates whether the MFA policy mandates use of a phishing-resistant factor — specifically FIDO2/WebAuthn hardware tokens or platform biometrics cryptographically bound to the authentication origin — as a required step rather than merely making it available as an optional choice.",
+    "security_impact": "The factor_diversity_strength Rego rule has a branch requiring phishing_resistant_factor_required == true to achieve the highest countermeasure score. SMS, TOTP codes, and push notifications can all be intercepted by adversary-in-the-middle phishing proxies in real time. Only FIDO2/WebAuthn factors cryptographically verify the relying party origin, making them immune to credential relay attacks. Merely enrolling these factors without requiring them allows users to fall back to phishable methods.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD / Entra ID, navigate to Security → Conditional Access → Authentication Strengths. Verify that a custom or built-in authentication strength requiring 'Phishing-resistant MFA' (FIDO2, Windows Hello for Business, or Certificate-based auth) is assigned to Conditional Access policies, not just standard MFA strength.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Azure Active Directory → Security → Conditional Access → Authentication Strengths → [check policies using Phishing-resistant MFA strength]",
+        "expected_output": "At least one active Conditional Access policy grants access only on 'Phishing-resistant MFA' authentication strength, not the broader 'Multifactor authentication' strength."
+      },
+      {
+        "type": "command",
+        "instruction": "Query Microsoft Graph API for Conditional Access policies using authentication strength policies and verify phishing-resistant strength is required.",
+        "command": "Connect-MgGraph -Scopes 'Policy.Read.All'; Get-MgIdentityConditionalAccessPolicy | ForEach-Object { if ($_.GrantControls.AuthenticationStrength) { Write-Host $_.DisplayName; $_.GrantControls.AuthenticationStrength | ConvertTo-Json -Depth 3 }}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy grant controls should reference an authentication strength with allowedCombinations including 'fido2', 'windowsHelloForBusiness', or 'x509CertificateMfa'."
+      },
+      {
+        "type": "api",
+        "instruction": "Use Microsoft Graph REST API to enumerate authentication strength policies and identify whether phishing-resistant combinations are required.",
+        "command": "curl -s -H 'Authorization: Bearer <TOKEN>' 'https://graph.microsoft.com/beta/policies/authenticationStrengthPolicies' | jq '.value[] | {name: .displayName, combinations: .allowedCombinations}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A strength policy containing 'fido2' or 'windowsHelloForBusiness' in allowedCombinations that is assigned to active CA policies confirms phishing-resistant factor is required."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review MFA policy documentation and interview the identity team to confirm whether phishing-resistant factors are required (enforced in policy) versus optional (available for enrollment but users can authenticate with TOTP or push instead). Request evidence of any pilot or exemption groups.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written policy specifies FIDO2 or platform authenticator as required factor; no documented fallback pathways to phishable factors for in-scope users."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "auth_event_logging_enabled",
+    "option_description": "Controls whether the identity provider and authentication systems are configured to generate logs for all authentication events, including MFA challenge issuance, factor verification success or failure, fallback attempts, and session establishment.",
+    "security_impact": "The authentication_event_logging_completeness Rego rule requires auth_event_logging_enabled == true as its base condition, along with specific fields (factor_type, success_failure_status, timestamp, source_ip) being logged. Without authentication event logs, there is no forensic capability to reconstruct unauthorized access attempts, detect brute-force patterns against enrolled accounts, or identify which bypass mechanism was exploited during an incident.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD, navigate to Azure Active Directory → Monitoring → Sign-in logs and verify recent entries are populating. Then check Diagnostic Settings under Azure Active Directory → Monitoring → Diagnostic Settings to confirm sign-in logs are forwarded to Log Analytics, Event Hubs, or a Storage Account.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal → Azure Active Directory → Monitoring → Diagnostic Settings → [verify SignInLogs category is enabled and has a destination]",
+        "expected_output": "Diagnostic setting exists with 'SignInLogs' and 'AuditLogs' categories enabled, with retention configured and destination active."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify Azure AD sign-in log diagnostic settings are enabled and confirm recent authentication events are being captured.",
+        "command": "Connect-MgGraph -Scopes 'AuditLog.Read.All'; $recent = Get-MgAuditLogSignIn -Top 5 -OrderBy 'createdDateTime desc'; $recent | Select-Object UserPrincipalName,AuthenticationRequirement,ConditionalAccessStatus,CreatedDateTime,@{N='MFADetail';E={$_.AuthenticationDetails.AuthenticationMethod}} | Format-List",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Recent sign-in records showing AuthenticationMethod field populated (e.g., 'Mobile app notification', 'FIDO2 security key') confirms MFA event details are being logged."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Okta System Log API to confirm authentication events including MFA factor results are being captured.",
+        "command": "curl -s -H 'Authorization: SSWS <TOKEN>' 'https://<okta_domain>/api/v1/logs?filter=eventType+eq+\"user.authentication.auth_via_mfa\"&limit=5' | jq '.[].published, .[].actor.alternateId, .[].outcome.result, .[].debugContext.debugData.factor, .[].client.ipAddress'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log entries containing published timestamp, actor identity, outcome result (SUCCESS/FAILURE), factor type, and source IP address confirms all required fields are present."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search SIEM or log aggregation platform for MFA authentication events to confirm logs are being received and contain required fields (factor_type, success/failure, timestamp, source IP).",
+        "command": "# Splunk: index=azure_signin OR index=okta earliest=-1h | eval has_mfa_field=if(isnotnull(AuthenticationMethod) OR isnotnull(factor), 1, 0) | stats count by has_mfa_field, sourcetype | table sourcetype, has_mfa_field, count\n# Expected: has_mfa_field=1 with recent counts confirming fields are populated",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SIEM shows recent events with MFA-specific fields populated; zero results or missing fields indicate logging is not enabled or not forwarded correctly."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logged_event_fields",
+    "option_description": "Defines the complete set of data fields captured in each authentication event log entry, including factor_type, success_failure_status, timestamp, source_ip, and device_fingerprint. Controls the forensic richness and analytical completeness of authentication telemetry.",
+    "security_impact": "The Rego policy for authentication_event_logging_completeness requires all four fields — factor_type, success_failure_status, timestamp, and source_ip — to be present in logged_event_fields before the countermeasure is credited. Missing any one field causes the policy to fail entirely, eliminating the medium-score (5) detection capability. Without factor_type, analysts cannot distinguish which second factor was used; without source_ip, geographic anomaly analysis is impossible.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD / Entra ID, navigate to Azure Active Directory > Monitoring > Sign-in logs, open any log entry, and expand the 'Authentication Details' panel to enumerate every field present in the JSON payload. Compare to the required field list.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Entra ID > Monitoring > Sign-in logs > [any entry] > Authentication Details",
+        "expected_output": "JSON fields including ipAddress, authenticationRequirement, status.errorCode, createdDateTime, deviceDetail.deviceId visible in the expanded record."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Graph API for a sample sign-in log entry and inspect the returned JSON schema to confirm all required fields are populated.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=1' | python3 -m json.tool | grep -E 'ipAddress|authenticationRequirement|createdDateTime|deviceDetail|status'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Response JSON contains non-null values for ipAddress, authenticationRequirement, createdDateTime, deviceDetail.deviceId, and status.displayString."
+      },
+      {
+        "type": "command",
+        "instruction": "For Okta deployments, use the Okta System Log API to retrieve a recent authentication event and parse the field list to verify completeness.",
+        "command": "curl -s -H 'Authorization: SSWS <api_token>' 'https://<okta_domain>/api/v1/logs?filter=eventType+eq+%22user.authentication.auth_via_mfa%22&limit=1' | python3 -c \"import sys,json; e=json.load(sys.stdin)[0]; print(list(e.keys()))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Printed key list includes 'actor', 'client' (containing ipAddress), 'authenticationContext', 'outcome', 'published', and 'device'."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "If logs are shipped to a SIEM (Splunk, Sentinel, Datadog), query a sample MFA authentication event and use the field extraction view to enumerate all indexed fields. Confirm factor_type, success_failure_status, timestamp, source_ip, and device_fingerprint are present.",
+        "command": "index=authentication sourcetype=mfa_events | head 1 | table * | transpose",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Transposed table lists all field names; required fields appear as rows with non-null values."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['timestamp', 'source_ip', 'success_failure_status', 'factor_type']",
+      "['timestamp', 'source_ip', 'success_failure_status', 'factor_type', 'device_fingerprint', 'user_agent', 'session_id']",
+      "['timestamp', 'source_ip', 'success_failure_status']"
+    ]
+  },
+  {
+    "option_name": "anomalous_login_detection_enabled",
+    "option_description": "Controls whether the identity provider or MFA platform has its risk-based or behavioral anomaly detection engine actively turned on, enabling real-time evaluation of authentication events for signals such as impossible travel, out-of-region logins, and concurrent sessions.",
+    "security_impact": "This is a primary gate condition in the Rego policy for anomalous_login_detection_accuracy — all three rule branches require anomalous_login_detection_enabled == true. If this toggle is false, no amount of signal coverage or automated response configuration earns the detection countermeasure credit (score 5). Disabling this feature leaves account takeover attempts using stolen credentials undetected until manual review.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure Entra ID with Identity Protection, verify the User Risk Policy and Sign-in Risk Policy are enabled. Navigate to Entra ID > Security > Identity Protection > Sign-in risk policy and confirm 'Policy enforcement' is set to 'On' with a risk threshold configured.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Entra ID > Security > Identity Protection > Sign-in risk policy",
+        "expected_output": "Policy status shows 'On' with a risk level threshold (Low, Medium, or High) and assignments covering all or targeted users."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Okta, check ThreatInsight configuration. Navigate to Security > General > ThreatInsight and verify the feature is enabled in 'Log and Enforce Mode' rather than 'Audit Mode' or 'Disabled'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin Console > Security > General > ThreatInsight",
+        "expected_output": "ThreatInsight status displays 'Log and Enforce Mode' and shows last updated timestamp indicating active processing."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Okta ThreatInsight settings API to retrieve the current enforcement mode programmatically.",
+        "command": "curl -s -H 'Authorization: SSWS <api_token>' 'https://<okta_domain>/api/v1/threats/configuration' | python3 -m json.tool | grep -E 'action|excludeZones'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response with 'action' field set to 'block' or 'audit' — 'block' indicates enforcement mode is enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "For Duo Security, use the Duo Admin API to retrieve the current policy settings and confirm anomalous login detection (New User Location alerts, known networks) is active.",
+        "command": "curl -s --user '<integration_key>:<secret_key>' 'https://<api_hostname>/admin/v1/settings' | python3 -c \"import sys,json; s=json.load(sys.stdin)['response']; print('lockout_expire_duration:', s.get('lockout_expire_duration'), 'inactive_user_expiration:', s.get('inactive_user_expiration'))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Settings response includes lockout and anomaly-related fields with non-zero/non-null values indicating active enforcement configuration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "detection_signal_coverage",
+    "option_description": "Enumerates the specific anomalous login signal types actively monitored by the identity provider's detection engine, such as out_of_region, impossible_travel, rapid_factor_retry, simultaneous_sessions, new_device, and tor_or_vpn_exit.",
+    "security_impact": "The Rego policy contains three distinct rule branches for anomalous_login_detection_accuracy, each requiring different signal combinations: (1) out_of_region alone with a non-none response; (2) impossible_travel plus simultaneous_sessions with a non-none response; (3) rapid_factor_retry with step_up_challenge or block. Narrow signal coverage — e.g., only new_device — satisfies none of these branches and yields zero detection credit despite the detection engine being enabled. Broader coverage increases resilience against credential stuffing, AiTM proxies, and session hijacking.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Entra ID Identity Protection, review the detections catalog. Navigate to Entra ID > Security > Identity Protection > Risk detections and examine the 'Detection type' column in recent detections to understand which signal types are generating events. Also review Settings > User risk policy and Sign-in risk policy for linked detection categories.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Entra ID > Security > Identity Protection > Risk detections",
+        "expected_output": "Detection type column shows entries such as 'Unfamiliar sign-in properties' (maps to out_of_region), 'Impossible travel', 'Anomalous Token', 'Anonymous IP address' (tor/vpn) confirming active signal types."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Graph Identity Protection API for the list of risk detection types currently active in the tenant.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/identityProtection/riskDetections?$select=riskType,riskEventType&$top=50' | python3 -c \"import sys,json; d=json.load(sys.stdin); types=list(set([r['riskEventType'] for r in d['value']])); print(types)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of unique riskEventType strings such as ['unfamiliarFeatures', 'impossibleTravel', 'anonymizedIPAddress', 'maliciousIPAddress'] confirming active signal coverage."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Okta ThreatInsight and Behavior Detection settings, navigate to Security > Behavior Detection to see which behavioral signals (new city, new device, new IP, new country) are enabled for evaluation.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin Console > Security > Behavior Detection",
+        "expected_output": "Behavior Detection page shows toggle-enabled signals such as 'New City', 'New Device', 'New IP', 'New Country' with their detection sensitivity thresholds."
+      },
+      {
+        "type": "api",
+        "instruction": "Use Okta's Behaviors API to enumerate all configured behavior detection rules and confirm which signal types are enabled.",
+        "command": "curl -s -H 'Authorization: SSWS <api_token>' 'https://<okta_domain>/api/v1/behaviors' | python3 -c \"import sys,json; behaviors=json.load(sys.stdin); [print(b['name'], b['status']) for b in behaviors]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Printed list of behavior names and statuses, e.g., 'New Device ACTIVE', 'New Country ACTIVE', 'New City ACTIVE'."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['out_of_region', 'new_device']",
+      "['out_of_region', 'impossible_travel', 'simultaneous_sessions', 'new_device', 'tor_or_vpn_exit']",
+      "['impossible_travel', 'rapid_factor_retry', 'simultaneous_sessions', 'out_of_region', 'new_device', 'tor_or_vpn_exit']",
+      "['new_device']"
+    ]
+  },
+  {
+    "option_name": "automated_response_action",
+    "option_description": "Defines the automated action the identity provider executes when an anomalous login signal is triggered — either taking no action (none), issuing a step-up MFA challenge to the user (step_up_challenge), or outright blocking the authentication attempt (block).",
+    "security_impact": "All three Rego rule branches for anomalous_login_detection_accuracy require automated_response_action to be non-none; the third branch specifically requires step_up_challenge or block for rapid_factor_retry signals. A value of 'none' means the detection engine logs risk events but takes zero protective action, rendering the anomaly detection capability forensic-only with no real-time prevention value. The difference between step_up_challenge and block trades user friction against attack surface: block provides stronger prevention but may cause false-positive lockouts.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure Entra ID Identity Protection, review the Sign-in Risk Policy remediation action. Navigate to Entra ID > Security > Identity Protection > Sign-in risk policy and inspect the 'Access' control — verify it is set to 'Require multifactor authentication' (step_up_challenge) or 'Block access' (block) rather than 'Allow access'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Entra ID > Security > Identity Protection > Sign-in risk policy > Access control",
+        "expected_output": "Access control section shows 'Require multi-factor authentication' or 'Block access' selected, not 'Allow access'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Microsoft Graph to retrieve the conditional access or identity protection policy and confirm the grant control type.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' | python3 -c \"import sys,json; policies=json.load(sys.stdin)['value']; [print(p['displayName'], p.get('grantControls',{}).get('builtInControls')) for p in policies if p['state']=='enabled']\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists enabled policy names alongside their builtInControls such as ['mfa'] (step-up) or ['block'] (block)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Okta, inspect the Authentication Policy (formerly Sign-On Policy) associated with the application or global session policy to identify the action applied when risk is elevated.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin Console > Security > Authentication Policies > [Policy Name] > Rules > [Risk Rule] > Actions",
+        "expected_output": "Rule action shows 'Re-authenticate with MFA' (step_up_challenge) or 'Deny access' (block) for the high-risk condition."
+      },
+      {
+        "type": "api",
+        "instruction": "For Okta, retrieve policy rules via API and inspect the action for risk-triggered rules.",
+        "command": "curl -s -H 'Authorization: SSWS <api_token>' 'https://<okta_domain>/api/v1/policies?type=OKTA_SIGN_ON' | python3 -c \"import sys,json; policies=json.load(sys.stdin); [print(p['id'], p['name']) for p in policies]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of sign-on policy IDs and names; follow up with GET /api/v1/policies/{policyId}/rules to inspect each rule's 'actions.signon.access' field for 'ALLOW' with MFA or 'DENY'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "step_up_challenge",
+      "block"
+    ]
+  },
+  {
+    "option_name": "privileged_mfa_factor_strength",
+    "option_description": "Identifies the strongest MFA factor type enforced for privileged and administrative accounts, categorized by their resistance to phishing, SIM-swap, and credential relay attacks: hardware_key_fido2 (highest), totp_authenticator_app (moderate), sms_voice_otp (weak), or none.",
+    "security_impact": "The Rego policy for privileged_account_protection_depth requires privileged_mfa_factor_strength to be either hardware_key_fido2 or totp_authenticator_app (alongside 95%+ coverage and no bypass paths) to earn the high-criticality countermeasure credit (score 8). SMS/voice OTP is explicitly insufficient — SIM-swap attacks and SS7 interception render it equivalent to a shared secret. Hardware FIDO2 keys provide cryptographic origin binding, making them the only factor immune to adversary-in-the-middle proxy attacks.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure Entra ID, inspect the Authentication Methods Policy for admin accounts. Navigate to Entra ID > Security > Authentication methods > Policies and review which methods are enabled. Then check Conditional Access policies targeting directory roles to confirm FIDO2/Authenticator App is required rather than SMS.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Entra ID > Security > Authentication methods > Policies",
+        "expected_output": "FIDO2 Security Keys policy shows 'Enabled' and scoped to admins or all users; Microsoft Authenticator shows 'Enabled'. SMS OTP should show restricted or disabled for admin roles."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Graph Authentication Methods Policy API to enumerate enabled authentication method types and their target scopes.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/policies/authenticationMethodsPolicy/authenticationMethodConfigurations' | python3 -c \"import sys,json; configs=json.load(sys.stdin)['value']; [print(c['id'], c['state']) for c in configs]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List includes 'fido2' with state 'enabled', 'microsoftAuthenticator' with state 'enabled', ideally 'sms' with state 'disabled' or restricted from privileged roles."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS IAM privileged accounts, check the virtual MFA device type assigned to IAM users with AdministratorAccess. Hardware MFA devices have SerialNumber starting with a physical device prefix rather than 'arn:aws:iam'.",
+        "command": "aws iam list-users --query 'Users[].UserName' --output text | tr '\\t' '\\n' | xargs -I{} sh -c 'echo -n \"{}: \"; aws iam list-mfa-devices --user-name {} --query \"MFADevices[].SerialNumber\" --output text'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists username and MFA device serial number. Physical hardware tokens show manufacturer serial numbers; virtual TOTP shows ARN format; absence indicates no MFA enrolled."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the identity platform administrator and request documentation of the Authentication Policy or Conditional Access policy that governs privileged role MFA requirements. Request a screenshot or export showing the factor type enforced per role.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy document or screenshot explicitly shows hardware key (FIDO2) or authenticator app as the required factor for Global Admin, Domain Admin, Cloud Admin, and similar privileged roles."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "hardware_key_fido2",
+      "totp_authenticator_app",
+      "sms_voice_otp",
+      "none"
+    ]
+  },
+  {
+    "option_name": "privileged_account_mfa_coverage_percent",
+    "option_description": "Measures the percentage of all identified privileged and administrative accounts (local admin, domain admin, cloud IAM admin, DBA, etc.) that have MFA actively enrolled and enforced — not merely licensed or invited to enroll.",
+    "security_impact": "The primary Rego rule for privileged_account_protection_depth requires privileged_account_mfa_coverage_percent >= 95 (combined with factor strength and no bypass paths) for the high-score countermeasure (score 8) to be credited. A secondary rule grants credit at 100% coverage even without factor strength constraints. Any gap below 95% means at least 1-in-20 privileged accounts can be compromised with credentials alone — privileged accounts are the highest-value targets in credential-based attacks, making coverage gaps disproportionately dangerous.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In Azure Entra ID, use the Microsoft Graph API to retrieve all users assigned privileged directory roles and cross-reference with MFA registration status using the credential registration details report.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://graph.microsoft.com/v1.0/reports/credentialUserRegistrationDetails?$filter=isMfaRegistered+eq+false' | python3 -c \"import sys,json; users=json.load(sys.stdin)['value']; [print(u['userPrincipalName'], u['isMfaRegistered']) for u in users]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of users with isMfaRegistered=false; cross-reference this list with role members to identify privileged accounts without MFA enrollment."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS IAM, generate a credential report and parse it to identify IAM users with admin-level policies who lack MFA enrollment.",
+        "command": "aws iam generate-credential-report && sleep 5 && aws iam get-credential-report --query 'Content' --output text | base64 -d | python3 -c \"import sys,csv; rows=list(csv.DictReader(sys.stdin)); admins=[r for r in rows if r['mfa_active']=='false']; [print(r['user'],r['mfa_active']) for r in admins]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CSV rows where mfa_active=false; filter by users with attached AdministratorAccess or PowerUser policies to calculate privileged accounts lacking MFA."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Okta, generate an admin report by navigating to Reports > Reports > User MFA Factors report filtered by admin roles. Export the report and calculate the ratio of enrolled to total admin-role users.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin Console > Reports > Reports > select 'User MFA Factor status' > filter by Group or Role = Admins > Export CSV",
+        "expected_output": "CSV with columns UserLogin, FactorType, Status; count rows where Status=ACTIVE and divide by total admin-role user count to compute coverage percentage."
+      },
+      {
+        "type": "api",
+        "instruction": "Use Okta's Users API to enumerate users with admin roles and check each user's enrolled MFA factors, calculating coverage percentage from the results.",
+        "command": "curl -s -H 'Authorization: SSWS <api_token>' 'https://<okta_domain>/api/v1/users?filter=profile.isAdmin+eq+true&limit=200' | python3 -c \"import sys,json; users=json.load(sys.stdin); print('Total admins:', len(users)); print('IDs:', [u['id'] for u in users])\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of admin user IDs; follow up with GET /api/v1/users/{userId}/factors for each ID and count those returning non-empty factor arrays to calculate MFA enrollment coverage percentage."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "100",
+      "95",
+      "80",
+      "60"
+    ]
+  },
+  {
+    "option_name": "privileged_mfa_bypass_paths_exist",
+    "option_description": "Controls whether any documented or discoverable bypass paths exist for MFA on privileged accounts, including break-glass accounts without MFA enrollment, legacy authentication protocols enabled for admin accounts, or conditional access exclusion groups containing privileged users.",
+    "security_impact": "The Rego policy for 'privileged_account_protection_depth' requires this value to be false for the countermeasure to apply. If bypass paths exist, privileged accounts remain vulnerable even when MFA is nominally enforced, since attackers can leverage legacy protocols or excluded accounts to authenticate with credentials alone. This is a high-criticality attribute that directly undermines admin account protection.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD / Entra ID, navigate to Azure Active Directory > Security > Conditional Access > Policies. Review each policy targeting admin roles and click through to Exclude > Users and Groups to identify any privileged users or admin role groups listed as exclusions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Azure Active Directory > Security > Conditional Access > Policies > [Each Policy] > Exclude tab",
+        "expected_output": "No admin role members or privileged user accounts appear in exclusion groups of MFA-requiring policies."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the Microsoft Graph PowerShell module to enumerate conditional access policy exclusions and identify any privileged accounts or admin-role groups excluded from MFA policies.",
+        "command": "Connect-MgGraph -Scopes \"Policy.Read.All\",\"Directory.Read.All\"\n$policies = Get-MgIdentityConditionalAccessPolicy\nforeach ($policy in $policies) {\n  $excUsers = $policy.Conditions.Users.ExcludeUsers\n  $excGroups = $policy.Conditions.Users.ExcludeGroups\n  Write-Output \"Policy: $($policy.DisplayName) | ExcludedUsers: $excUsers | ExcludedGroups: $excGroups\"\n}\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No privileged user IDs or admin-role group IDs appear in the exclusion lists of MFA enforcement policies."
+      },
+      {
+        "type": "command",
+        "instruction": "Audit break-glass emergency accounts for MFA enrollment status using Microsoft Graph API or Azure AD PowerShell.",
+        "command": "Connect-MgGraph -Scopes \"UserAuthenticationMethod.Read.All\",\"Directory.Read.All\"\n$breakGlassAccounts = Get-MgUser -Filter \"displayName eq 'BreakGlass'\" -All\nforeach ($account in $breakGlassAccounts) {\n  $methods = Get-MgUserAuthenticationMethod -UserId $account.Id\n  Write-Output \"Account: $($account.UserPrincipalName) | MFA Methods: $($methods.Count)\"\n}\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Break-glass accounts show documented MFA enrollment status; if they lack MFA, bypass_paths_exist should be set to true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview IAM or security operations staff to identify any undocumented legacy protocol allowances for admin accounts (e.g., SMTP AUTH, IMAP enabled for admin mailboxes). Request the current list of service accounts or shared admin accounts excluded from MFA policies.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No undocumented exclusions or legacy protocol allowances exist for privileged accounts; all exceptions are formally documented and reviewed."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common in orgs with break-glass accounts or legacy admin tooling)",
+      "false (target state; achieved when all bypass paths are closed)"
+    ]
+  },
+  {
+    "option_name": "legacy_protocol_auth_disabled",
+    "option_description": "Controls whether legacy authentication protocols such as Basic Auth, NTLM, IMAP/POP3 with plaintext passwords, and SMTP AUTH are blocked or disabled across all authentication entry points. These protocols do not support modern MFA challenges and allow credential-based authentication to bypass MFA enforcement entirely.",
+    "security_impact": "The Rego 'bypass_resistance_configuration' countermeasure triggers a finding when this value is false, indicating that legacy protocols represent an active MFA bypass path. Because these protocols cannot negotiate a second-factor challenge, any account accessible via legacy auth is effectively unprotected by MFA regardless of enforcement policy. Blocking legacy auth is a prerequisite for meaningful MFA coverage.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD / Entra ID, navigate to Azure Active Directory > Security > Conditional Access > Policies and verify a policy exists that blocks legacy authentication. Confirm the policy is set to 'Enabled' and targets 'All users' with a client apps condition including 'Exchange ActiveSync clients' and 'Other clients'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Azure Active Directory > Security > Conditional Access > Policies > [Legacy Auth Block Policy] > Conditions > Client apps",
+        "expected_output": "An enabled policy targeting 'Other clients' and 'Exchange ActiveSync clients' with Grant set to 'Block access' exists and covers all users."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Microsoft Graph PowerShell to check whether a conditional access policy blocking legacy authentication clients is enabled and broadly scoped.",
+        "command": "Connect-MgGraph -Scopes \"Policy.Read.All\"\n$policies = Get-MgIdentityConditionalAccessPolicy\n$legacyBlock = $policies | Where-Object {\n  $_.Conditions.ClientAppTypes -contains \"exchangeActiveSync\" -or\n  $_.Conditions.ClientAppTypes -contains \"other\"\n}\n$legacyBlock | Select-Object DisplayName, State, @{N=\"GrantControls\";E={$_.GrantControls.BuiltInControls}}\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy state is 'enabled' and GrantControls contains 'block'."
+      },
+      {
+        "type": "command",
+        "instruction": "In Okta, use the Okta API to list all authentication policies and sign-on rules to identify whether legacy protocol endpoints are restricted or blocked.",
+        "command": "curl -s -H \"Authorization: SSWS ${OKTA_API_TOKEN}\" \\\n  \"https://${OKTA_DOMAIN}/api/v1/policies?type=OKTA_SIGN_ON\" | \\\n  jq '.[].rules[].conditions.network'\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Network zone conditions restrict or block legacy protocol clients; no rules grant access without MFA for legacy app types."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a test authentication using Basic Auth against a known corporate endpoint (e.g., Exchange EWS or IMAP) using a test account with MFA enforced. Confirm the connection is rejected with a 401 or policy block rather than a password-only authentication success.",
+        "command": "curl -v --user testuser@domain.com:Password123 \\\n  https://outlook.office365.com/EWS/Exchange.asmx \\\n  -H \"Content-Type: text/xml\"\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 401 with error indicating modern authentication required or legacy auth blocked; no successful authentication occurs without MFA."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in orgs with legacy mail clients or older on-premises integrations still using Basic Auth)",
+      "true (target state; achieved when conditional access blocks all legacy auth client types)"
+    ]
+  },
+  {
+    "option_name": "insecure_recovery_paths_disabled",
+    "option_description": "Controls whether insecure account recovery and self-service password reset mechanisms that can circumvent MFA are disabled. This includes SMS-only recovery without identity verification, security question-based bypass, and help-desk override procedures that do not require manager approval or verified identity proof before resetting MFA enrollment.",
+    "security_impact": "The Rego 'bypass_resistance_configuration' countermeasure fires a finding when this value is false, indicating that recovery flows represent viable MFA circumvention vectors. An attacker who can trigger account recovery via social engineering or SIM swapping can effectively bypass MFA on any account, rendering the second factor moot. Secure recovery paths are essential to close this bypass class.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD, navigate to Azure Active Directory > Users > Password reset > Authentication methods. Review which methods are allowed for SSPR (Self-Service Password Reset) and confirm that SMS-only paths require identity verification. Also check the 'Registration' tab to confirm MFA re-enrollment is required after a reset.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Azure Active Directory > Users > Password reset > Authentication methods",
+        "expected_output": "SSPR requires at least two authentication methods for reset; SMS is not the sole recovery method; MFA re-registration is required post-reset."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Okta, navigate to Security > Authenticators and review the recovery authenticator policy. Check whether 'Okta email' or 'Security Question' is configured as a standalone recovery factor that bypasses MFA. Also review the Help Desk admin procedures documentation for override steps.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin Console > Security > Authenticators > [Authenticator] > Enrollment tab",
+        "expected_output": "Security questions are disabled as standalone recovery; recovery flows require a verified strong second factor or admin-verified identity before resetting MFA."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Microsoft Graph API to retrieve SSPR policy configuration and confirm that the number of authentication methods required for reset is at least 2 and that insecure methods are not enabled as sole options.",
+        "command": "curl -s -H \"Authorization: Bearer $ACCESS_TOKEN\" \\\n  \"https://graph.microsoft.com/v1.0/policies/authenticationMethodsPolicy\" | \\\n  jq '{authMethods: .authenticationMethodConfigurations[] | {id, state}}'\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Voice call and SMS are either disabled or not configured as sole recovery methods; TOTP/authenticator app methods are enabled."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview help-desk and IAM operations staff to document the procedure followed when a user claims to have lost their MFA device. Verify the written runbook requires manager approval, ticket escalation, and government-issued ID verification before any MFA reset is performed.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented help-desk runbook exists requiring multi-step identity verification before MFA reset; no single-agent override without approval chain is possible."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in organizations with legacy SSPR configurations or high help-desk call volume pressures)",
+      "true (target state; requires both technical controls and procedural controls for help-desk overrides)"
+    ]
+  },
+  {
+    "option_name": "trusted_device_exceptions_restricted",
+    "option_description": "Controls whether 'remember this device' or persistent trusted device session features that suppress MFA challenges are disabled or limited to short-duration windows (typically 8–24 hours). Long-lived or indefinite trusted device exemptions allow MFA to be effectively bypassed on any device registered as trusted, reducing the control to a one-time hurdle.",
+    "security_impact": "The Rego 'bypass_resistance_configuration' countermeasure triggers a finding when this value is false. Persistent device trust means that a stolen or compromised device registered as trusted grants MFA-free access indefinitely, defeating the purpose of the second factor. Restricting session lifetime forces periodic re-authentication and limits the window of exposure from device compromise.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD Conditional Access, review Sign-in frequency and Persistent browser session settings under each applicable policy. Navigate to each policy > Session controls and verify 'Sign-in frequency' is set to a defined short interval (e.g., 8–24 hours) and 'Persistent browser session' is set to 'Never persistent'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Azure Active Directory > Security > Conditional Access > [Policy] > Session > Sign-in frequency",
+        "expected_output": "Sign-in frequency is configured to 8–24 hours; persistent browser session is set to 'Never persistent' for MFA policies."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Microsoft Graph PowerShell to enumerate session control settings across all conditional access policies and identify any with undefined or excessively long sign-in frequency settings.",
+        "command": "Connect-MgGraph -Scopes \"Policy.Read.All\"\n$policies = Get-MgIdentityConditionalAccessPolicy\nforeach ($p in $policies) {\n  $session = $p.SessionControls\n  Write-Output \"Policy: $($p.DisplayName) | SignInFrequency: $($session.SignInFrequency?.Value) $($session.SignInFrequency?.Type) | PersistentSession: $($session.PersistentBrowser?.IsEnabled)\"\n}\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Sign-in frequency is set to hours (not days), and PersistentBrowser IsEnabled is false across policies enforcing MFA."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Okta, navigate to Security > Global Session Policy and review each rule's 'Session Lifetime' and 'Persistent cookie' settings. Confirm that session maximum duration is set to 8–24 hours and 'Allow users to stay signed in' is disabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin Console > Security > Global Session Policy > [Rule] > Session Lifetime",
+        "expected_output": "Maximum session lifetime is ≤24 hours; persistent cookie / remember device option is disabled or limited to intraday duration."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Okta's policy API to retrieve session lifetime and persistent cookie settings programmatically for all global session policies.",
+        "command": "curl -s -H \"Authorization: SSWS ${OKTA_API_TOKEN}\" \\\n  \"https://${OKTA_DOMAIN}/api/v1/policies?type=OKTA_SIGN_ON\" | \\\n  jq '.[].rules[] | {name: .name, maxSessionLifetimeMinutes: .actions.signon.session.maxSessionLifetimeMinutes, usePersistentCookie: .actions.signon.session.usePersistentCookie}'\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "maxSessionLifetimeMinutes ≤ 1440 (24 hours); usePersistentCookie is false for all rules."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in orgs prioritizing user convenience or with high-friction MFA factors like hardware tokens)",
+      "true (target state; requires session policy configuration restricting persistent device trust to short windows)"
+    ]
+  },
+  {
+    "option_name": "mfa_integrated_systems",
+    "option_description": "Enumerates the system types where MFA is actively enforced at the authentication layer. Expected values include identifiers such as 'sso', 'vpn', 'cloud_services', 'on_premises_apps', and 'admin_consoles'. A broader coverage list indicates deeper integration and fewer unprotected authentication entry points across the environment.",
+    "security_impact": "The Rego 'integration_depth_across_applications' countermeasure fires a finding when SSO, VPN, and cloud_services are all absent from this list, or when fewer than 2 system types are covered. Shallow integration means users can authenticate to critical systems without completing MFA, creating unprotected entry points that attackers can leverage. The countermeasure score depends on comprehensive coverage across all authentication tiers.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD, navigate to Enterprise Applications > All Applications and filter for applications with 'Conditional Access policies' applied. Enumerate applications by category (SSO, cloud services, on-premises via App Proxy) to build the integrated systems list. Cross-reference VPN gateway authentication settings in the network team's documentation.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Azure Active Directory > Enterprise Applications > All Applications > filter by Conditional Access = Yes",
+        "expected_output": "A categorized list of application types (SSO, cloud SaaS, on-prem via App Proxy) with confirmed MFA policy assignment."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Microsoft Graph PowerShell to list all applications targeted by conditional access policies that include MFA as a grant control, then categorize them by system type.",
+        "command": "Connect-MgGraph -Scopes \"Policy.Read.All\",\"Application.Read.All\"\n$policies = Get-MgIdentityConditionalAccessPolicy | Where-Object {\n  $_.GrantControls.BuiltInControls -contains \"mfa\"\n}\nforeach ($p in $policies) {\n  $apps = $p.Conditions.Applications.IncludeApplications\n  Write-Output \"Policy: $($p.DisplayName) | Apps: $($apps -join ', ')\"\n}\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Applications are listed by policy; categorize app IDs against known SSO, VPN, cloud service, and admin console identifiers."
+      },
+      {
+        "type": "api",
+        "instruction": "Query your VPN gateway configuration (e.g., Cisco ASA, Palo Alto GlobalProtect, or Fortinet) management API or configuration to verify RADIUS/SAML integration with an MFA-capable identity provider.",
+        "command": "# For Palo Alto GlobalProtect via PAN-OS API:\ncurl -sk \"https://<panorama-ip>/api/?type=config&action=get&xpath=/config/devices/entry/vsys/entry/authentication-profile&key=$API_KEY\" | \\\n  xmllint --xpath \"//authentication-profile/name\" -\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "VPN authentication profiles reference SAML or RADIUS authentication that chains to an MFA-capable IdP (e.g., Azure AD, Okta, Duo)."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review system inventory and authentication architecture documentation with IAM and network engineering teams. Map each authentication entry point (SSO portal, VPN, cloud console, on-prem app login, admin panels) to its authentication mechanism and verify MFA enforcement status for each category.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A completed matrix showing each system type and its MFA enforcement status; populate the mfa_integrated_systems array with confirmed categories."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['sso'] (minimal coverage, SSO only)",
+      "['sso', 'vpn', 'cloud_services'] (common mid-maturity deployment)",
+      "['sso', 'vpn', 'cloud_services', 'on_premises_apps', 'admin_consoles'] (target state; comprehensive coverage)"
+    ]
+  },
+  {
+    "option_name": "unprotected_authentication_entry_points",
+    "option_description": "Counts the number of authentication entry points—login endpoints, application services, or authentication surfaces—that allow password-only or unenrolled user authentication without triggering an MFA challenge. A value of zero indicates complete coverage; any positive value represents gaps where attackers can authenticate using credentials alone.",
+    "security_impact": "The Rego 'integration_depth_across_applications' countermeasure fires a finding when this value is greater than 0. Each unprotected entry point is an independent attack surface where compromised credentials alone grant access. The count directly reflects the residual risk surface not covered by MFA enforcement, making this a high-criticality measurement for integration depth assessment.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use Microsoft Graph PowerShell to enumerate all enterprise applications and identify those not covered by any conditional access policy requiring MFA, effectively counting unprotected app authentication endpoints.",
+        "command": "Connect-MgGraph -Scopes \"Policy.Read.All\",\"Application.Read.All\"\n$allApps = Get-MgApplication -All | Select-Object -ExpandProperty AppId\n$mfaPolicies = Get-MgIdentityConditionalAccessPolicy | Where-Object {\n  $_.GrantControls.BuiltInControls -contains \"mfa\" -and $_.State -eq \"enabled\"\n}\n$coveredApps = $mfaPolicies.Conditions.Applications.IncludeApplications | Sort-Object -Unique\n$unprotected = $allApps | Where-Object { $_ -notin $coveredApps -and $_ -ne \"All\" }\nWrite-Output \"Unprotected app count: $($unprotected.Count)\"\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Count of application IDs not covered by an enabled MFA-requiring conditional access policy; target is 0."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query authentication logs (Azure AD Sign-in logs, Okta System Log, or SIEM) for successful authentication events where MFA was not performed (authenticationRequirement = 'singleFactorAuthentication') and group by application or resource name to identify unprotected entry points.",
+        "command": "# Azure AD via Microsoft Graph (last 7 days):\ncurl -s -H \"Authorization: Bearer $ACCESS_TOKEN\" \\\n  \"https://graph.microsoft.com/v1.0/auditLogs/signIns?\\$filter=authenticationRequirement eq 'singleFactorAuthentication' and status/errorCode eq 0&\\$select=appDisplayName,userPrincipalName,authenticationRequirement\" | \\\n  jq '.value | group_by(.appDisplayName) | map({app: .[0].appDisplayName, count: length})'\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of applications where successful single-factor-only authentications occurred; each distinct app represents a potentially unprotected entry point."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure AD, use the 'Insights and Reporting > Authentication methods activity' dashboard and filter for sign-ins without MFA by application. Also review the 'Conditional Access Insights and Reporting' workbook for policy gaps.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Azure Active Directory > Security > Conditional Access > Insights and Reporting > [Filter: MFA not required]",
+        "expected_output": "Workbook surfaces applications and user populations authenticating without MFA; count distinct application entries as unprotected entry points."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the application and service inventory with system owners to identify applications that authenticate users directly (bypassing SSO) via local accounts, basic auth APIs, or service-specific login pages not covered by the identity provider's MFA policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Inventory of all authentication endpoints documented; applications authenticating outside the IdP's MFA enforcement scope are counted as unprotected entry points."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (target state; all entry points covered by MFA enforcement)",
+      "1–5 (common in orgs with a few legacy apps or service accounts excluded)",
+      "10–50+ (common in large enterprises with fragmented application portfolios and incomplete MFA rollout)"
+    ]
+  },
+  {
+    "option_name": "mfa_bypass_paths_exist",
+    "option_description": "Indicates whether any documented or discovered bypass mechanisms allow authentication without completing MFA at the integration coverage level, including legacy protocol fallback, IP-based exclusions (allowlisted source IP ranges that skip MFA), service accounts excluded from MFA policies, or break-glass accounts without MFA enrollment. This attribute is scoped to the integration depth assessment rather than privileged accounts specifically.",
+    "security_impact": "The Rego 'integration_depth_across_applications' countermeasure fires a finding when this value is true. The presence of any bypass path means the integration coverage metric overstates actual protection, since attackers who identify the bypass mechanism can authenticate to covered systems without MFA regardless of policy. This must be false for the integration depth countermeasure to hold.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Azure AD Conditional Access, review all policies for IP-based named location exclusions. Navigate to each policy > Conditions > Locations and identify any 'trusted locations' or named location IP ranges in the Exclude list that would permit MFA bypass for users authenticating from those networks.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Azure Active Directory > Security > Conditional Access > Named Locations; then each Policy > Conditions > Locations > Exclude",
+        "expected_output": "No broad IP ranges (e.g., entire corporate network subnets) are excluded from MFA requirements unless explicitly justified and time-limited."
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate all conditional access named locations and cross-reference them with MFA policy exclusions to identify IP-based MFA bypass configurations.",
+        "command": "Connect-MgGraph -Scopes \"Policy.Read.All\"\n$namedLocations = Get-MgIdentityConditionalAccessNamedLocation\n$policies = Get-MgIdentityConditionalAccessPolicy | Where-Object { $_.State -eq \"enabled\" }\nforeach ($p in $policies) {\n  $excludedLocations = $p.Conditions.Locations.ExcludeLocations\n  if ($excludedLocations) {\n    $locNames = $namedLocations | Where-Object { $_.Id -in $excludedLocations } | Select-Object -ExpandProperty DisplayName\n    Write-Output \"Policy: $($p.DisplayName) | ExcludedLocations: $($locNames -join ', ')\"\n  }\n}\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No MFA-requiring policies exclude named locations that correspond to general corporate IP ranges; only management/break-glass workstations with documented exceptions should appear."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query authentication logs for successful sign-ins to MFA-required resources where the MFA claim is absent or where the authentication method field indicates single-factor only, grouped by source IP to detect IP-exclusion bypass patterns.",
+        "command": "# Okta System Log query via API for MFA bypass events:\ncurl -s -H \"Authorization: SSWS ${OKTA_API_TOKEN}\" \\\n  \"https://${OKTA_DOMAIN}/api/v1/logs?filter=eventType+eq+%22user.authentication.sso%22+and+outcome.result+eq+%22SUCCESS%22&limit=200\" | \\\n  jq '.[] | select(.debugContext.debugData.requestUri != null) | {actor: .actor.displayName, mfaUsed: .authenticationContext.authenticationStep, ip: .client.ipAddress}'\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No successful authentications to MFA-required applications lack an MFA step in the authentication context; anomalies indicate active bypass paths."
+      },
+      {
+        "type": "api",
+        "instruction": "Check for SMTP AUTH or Exchange legacy auth enablement on mailboxes, which represents a common MFA bypass path for cloud email services, using the Exchange Online PowerShell module.",
+        "command": "Connect-ExchangeOnline\nGet-CASMailbox -ResultSize Unlimited | Where-Object {\n  $_.SmtpClientAuthenticationDisabled -eq $false -or\n  $_.ImapEnabled -eq $true -or\n  $_.PopEnabled -eq $true\n} | Select-Object DisplayName, SmtpClientAuthenticationDisabled, ImapEnabled, PopEnabled\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All mailboxes have SMTP AUTH disabled (SmtpClientAuthenticationDisabled = True) and IMAP/POP disabled unless explicitly required with documented justification; any enabled instances represent bypass paths."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common in orgs with IP-based trusted network exclusions, service account exemptions, or legacy SMTP AUTH enabled)",
+      "false (target state; requires closure of all legacy protocol, IP exclusion, and service account bypass paths)"
+    ]
+  },
+  {
+    "option_name": "failed_mfa_lockout_enabled",
+    "option_description": "Controls whether the authentication system automatically locks or temporarily disables an account after a configured number of consecutive failed second-factor authentication attempts. This limits the feasibility of brute-force or enumeration attacks against the MFA second factor (e.g., TOTP code guessing, push notification flooding) by introducing an automated response to repeated failures.",
+    "security_impact": "The Rego 'automated_response_on_failed_factor_attempts' countermeasure requires this value to be true along with a defined failure threshold and at least one automated response action. Without lockout, attackers can make unlimited attempts to guess TOTP codes, intercept push notifications via fatigue attacks, or enumerate OTP windows without triggering any protective response. While this is a low-criticality attribute, it provides a meaningful defense layer against targeted factor brute-force.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Okta, navigate to Security > General > Sign-on Settings and review the 'Lock out' section. Verify that 'Lock out after X unsuccessful attempts' is enabled and set to an appropriate threshold (typically 5–10 attempts). Also check the lockout duration and unlock method settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin Console > Security > General > Sign-on > Lock out section",
+        "expected_output": "Lockout is enabled with a defined attempt threshold (≤10); lockout duration or admin-required unlock is configured."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Okta API to retrieve the organization's sign-on policy settings and confirm lockout configuration programmatically.",
+        "command": "curl -s -H \"Authorization: SSWS ${OKTA_API_TOKEN}\" \\\n  \"https://${OKTA_DOMAIN}/api/v1/policies?type=OKTA_SIGN_ON\" | \\\n  jq '.[].rules[] | {name: .name, maxAttempts: .actions.signon.lockout.maxAttempts, autoUnlockMinutes: .actions.signon.lockout.autoUnlockMinutes, showLockoutFailures: .actions.signon.lockout.showLockoutFailures}'\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "maxAttempts is set to a value between 3 and 10; autoUnlockMinutes is defined (not 0 or null); lockout is active."
+      },
+      {
+        "type": "command",
+        "instruction": "In Azure AD, review the smart lockout configuration via the Microsoft Graph API or the Azure Portal to confirm that the lockout threshold and duration are set for second-factor failures. Note that Azure AD Smart Lockout applies to the full authentication flow including MFA.",
+        "command": "Connect-MgGraph -Scopes \"Policy.Read.All\"\nGet-MgPolicyAuthorizationPolicy | Select-Object -ExpandProperty DefaultUserRolePermissions\n# For smart lockout thresholds, use Azure AD PowerShell:\nConnect-AzureAD\nGet-AzureADDirectorySettingTemplate | Where-Object { $_.DisplayName -eq \"Password Rule Settings\" }\n(Get-AzureADDirectorySetting | Where-Object { $_.DisplayName -eq \"Password Rule Settings\" }).Values\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "LockoutThreshold is set to a value ≤10; LockoutDurationInSeconds is non-zero; smart lockout is active in the tenant."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Duo Security (if used as a standalone MFA provider), navigate to Administrators > Settings > Lockout and Fraud and verify that 'Lockout after' is enabled with a defined number of failed authentication attempts, and that locked accounts require admin action or have a timed unlock.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Duo Admin Panel > Administrators > Settings > Lockout and Fraud > 'Lockout after X failed attempts'",
+        "expected_output": "Lockout threshold is configured (typically 10 attempts); locked users require admin unlock or timed auto-unlock is set to ≤30 minutes."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (observed in some cloud IdP configurations where smart lockout is present but not explicitly tied to MFA second-factor failures)",
+      "true (target state; most major IdPs including Okta, Azure AD, and Duo support and default-enable some form of failed attempt lockout)"
+    ]
+  },
+  {
+    "option_name": "failed_mfa_attempt_threshold",
+    "option_description": "Controls the maximum number of consecutive failed second-factor attempts a user is permitted before the system triggers an automated protective response such as lockout or rate limiting. A value of 0 means no threshold is configured and brute-force attempts will go unchecked.",
+    "security_impact": "The Rego policy for `automated_response_on_failed_factor_attempts` requires `failed_mfa_attempt_threshold >= 1` alongside at least one automated response action before the countermeasure is credited. Without a configured threshold, adversaries can repeatedly guess TOTP codes or push-spam enrolled accounts indefinitely. Acceptable values are 3–10; a value of 0 means the brute-force protection layer is entirely absent.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Okta, navigate to Security → Authentication Policies → select the relevant policy → Actions → Edit. Under 'Multifactor', look for 'Lock out user after X failed attempts' to find the configured threshold.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin → Security → Authentication Policies → [Policy Name] → Actions → Edit → Multifactor section",
+        "expected_output": "A numeric value (e.g., 5) shown next to the lockout-after-failed-attempts field; absence of the field or value 0 indicates no threshold."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Okta API to retrieve the sign-on policy rule and inspect the `maxSessionLifetimeMinutes` and MFA lockout settings embedded in the policy rule JSON.",
+        "command": "curl -s -H 'Authorization: SSWS ${OKTA_API_TOKEN}' 'https://${OKTA_DOMAIN}/api/v1/policies?type=MFA_ENROLL' | jq '.[].settings.factors'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON object listing factor settings; cross-reference with sign-on policy rules endpoint for lockout threshold values."
+      },
+      {
+        "type": "api",
+        "instruction": "For Azure AD / Entra ID, use Microsoft Graph to retrieve the authentication methods policy and inspect smart lockout thresholds.",
+        "command": "az rest --method GET --uri 'https://graph.microsoft.com/v1.0/policies/authenticationMethodsPolicy' --headers 'Content-Type=application/json' | jq '.policyMigrationState, .registrationEnforcement'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy JSON; for lockout threshold check: az rest --method GET --uri 'https://graph.microsoft.com/v1.0/domains/{domain}/federationConfiguration' or review Password Protection blade for smart lockout threshold."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Duo Security Admin Panel, navigate to Policies → select the relevant policy → edit → scroll to 'Lockout and Fraud' section. Record the value in 'Lock out users after N consecutive failed authentications'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Duo Admin Panel → Policies → [Policy Name] → Lockout and Fraud",
+        "expected_output": "An integer (e.g., 10) indicating how many consecutive failures trigger lockout; 'Never lock out users' indicates no threshold."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "3",
+      "5",
+      "10",
+      "0 (misconfigured — no threshold)"
+    ]
+  },
+  {
+    "option_name": "automated_response_actions",
+    "option_description": "Defines the list of automated protective actions that are triggered when the failed MFA attempt threshold is exceeded. Common actions include account_lockout, session_termination, alert_admin, and rate_limiting. An empty list means no protective response is configured even if a threshold exists.",
+    "security_impact": "The Rego policy for `automated_response_on_failed_factor_attempts` requires `count(input.automated_response_actions) >= 1` in addition to a valid threshold. Having a threshold without any response action provides no actual protection. At least one of account_lockout, session_termination, or rate_limiting must be present to block MFA brute-force and push-bombing attacks. An empty array causes the countermeasure to fail regardless of threshold configuration.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Okta Admin, go to Security → Authentication Policies → [Policy] → Actions. Review the 'After exceeding the maximum failed attempts' dropdown for configured responses such as 'Lock user account' or 'Deny access'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin → Security → Authentication Policies → [Policy Name] → Actions",
+        "expected_output": "A list of actions shown (e.g., 'Lock user account', 'Send admin alert'); if the dropdown shows 'No action', the response list is empty."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Okta Policies API to enumerate sign-on policy rules and extract the 'actions' object which contains MFA failure response configuration.",
+        "command": "curl -s -H 'Authorization: SSWS ${OKTA_API_TOKEN}' 'https://${OKTA_DOMAIN}/api/v1/policies?type=OKTA_SIGN_ON' | jq '.[].rules[].actions'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON showing actions such as `{\"signon\":{\"access\":\"DENY\"}}` or lockout-specific keys; compare against expected response actions list."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Duo Security Admin Panel, navigate to Policies → [Policy] → Lockout and Fraud. Document which response options are enabled: 'Lock out the user', 'Send fraud alert to administrator', or 'Notify user of fraud via email'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Duo Admin Panel → Policies → [Policy] → Lockout and Fraud",
+        "expected_output": "Checkboxes or toggles indicating enabled automated responses; at minimum one protective action should be checked."
+      },
+      {
+        "type": "api",
+        "instruction": "For Azure AD, review Conditional Access policies and Identity Protection risk policies for automated responses to MFA failures via Microsoft Graph.",
+        "command": "az rest --method GET --uri 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' | jq '.value[] | {name: .displayName, grantControls: .grantControls, sessionControls: .sessionControls}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON listing each Conditional Access policy and its grant/session controls; look for block, mfa-required, or sign-in frequency controls that constitute automated responses."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"account_lockout\"]",
+      "[\"account_lockout\", \"alert_admin\"]",
+      "[\"rate_limiting\", \"session_termination\"]",
+      "[] (misconfigured — no responses)"
+    ]
+  },
+  {
+    "option_name": "phishing_resistant_factor_types",
+    "option_description": "Enumerates the specific phishing-resistant authentication factor types that have been deployed and are available to users within the IdP or MFA platform. Valid entries include FIDO2, WebAuthn, hardware_security_key, and passkey. An empty array indicates no phishing-resistant factors have been provisioned.",
+    "security_impact": "The Rego policy for `phishing_resistant_factor_availability` checks `count(input.phishing_resistant_factor_types) > 0` as a prerequisite before evaluating enrollment and enforcement. Without any phishing-resistant factor type deployed, adversaries using adversary-in-the-middle (AiTM) proxies (e.g., Evilginx2) can intercept TOTP and SMS codes in real time, bypassing conventional MFA entirely. FIDO2/WebAuthn factors cryptographically bind authentication to the origin domain, making interception computationally infeasible.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Okta Admin, navigate to Security → Authenticators. Review the list of active authenticators and identify those classified as phishing-resistant: 'FIDO2 (WebAuthn)', 'Okta FastPass' (device-bound passkey), or hardware security keys.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin → Security → Authenticators → Active tab",
+        "expected_output": "Table listing authenticator names and types; 'FIDO2 (WebAuthn)' or 'Okta FastPass' entries confirm phishing-resistant factor deployment."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Okta Authenticators API to programmatically list all enabled authenticator types and filter for phishing-resistant ones.",
+        "command": "curl -s -H 'Authorization: SSWS ${OKTA_API_TOKEN}' 'https://${OKTA_DOMAIN}/api/v1/authenticators' | jq '[.[] | select(.status==\"ACTIVE\") | {key: .key, type: .type, name: .name}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array; look for entries with key values like 'security_key' or 'okta_fastpass' — these represent phishing-resistant factors."
+      },
+      {
+        "type": "api",
+        "instruction": "For Azure AD / Entra ID, query the Authentication Methods Policy API to identify FIDO2 security key policy status.",
+        "command": "az rest --method GET --uri 'https://graph.microsoft.com/v1.0/policies/authenticationMethodsPolicy/authenticationMethodConfigurations/Fido2' | jq '{state: .state, isAttestationEnforced: .isAttestationEnforced, keyRestrictions: .keyRestrictions}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON with `\"state\": \"enabled\"` confirms FIDO2 is deployed; `\"state\": \"disabled\"` means no phishing-resistant factors via FIDO2."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Entra ID portal, go to Protection → Authentication Methods → Policies. Check which methods are enabled and identify phishing-resistant options: 'FIDO2 security key', 'Microsoft Authenticator (device-bound passkey)', or 'Windows Hello for Business'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Entra ID Portal → Protection → Authentication Methods → Policies",
+        "expected_output": "Each method listed with Enabled/Disabled status; phishing-resistant factor types should appear as Enabled with user group scope defined."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"FIDO2\", \"WebAuthn\"]",
+      "[\"hardware_security_key\"]",
+      "[\"passkey\", \"FIDO2\"]",
+      "[] (no phishing-resistant factors deployed)"
+    ]
+  },
+  {
+    "option_name": "phishing_resistant_factor_enrollment_percentage",
+    "option_description": "Measures the percentage of in-scope user accounts that have successfully enrolled at least one phishing-resistant authentication factor (e.g., FIDO2 hardware key, passkey). This metric quantifies the actual coverage of phishing-resistant protection across the user population.",
+    "security_impact": "The Rego policy for `phishing_resistant_factor_availability` requires `phishing_resistant_factor_enrollment_percentage >= 90` before granting the high-criticality (score 8) countermeasure credit. Gaps below 90% mean a significant portion of the user population remains vulnerable to AiTM phishing attacks even if phishing-resistant factors are technically available. Every unenrolled account is a potential bypass path that undermines the organization's overall phishing resistance posture.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query Okta System Log or Reports API to count users with FIDO2/WebAuthn authenticators enrolled versus total active users.",
+        "command": "curl -s -H 'Authorization: SSWS ${OKTA_API_TOKEN}' 'https://${OKTA_DOMAIN}/api/v1/users?filter=status+eq+\"ACTIVE\"&limit=200' | jq 'length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "First retrieve total active user count; then query enrolled users: `curl -s -H 'Authorization: SSWS ${TOKEN}' 'https://${DOMAIN}/api/v1/authenticators/{fido2Id}/users' | jq 'length'`; divide enrolled by total and multiply by 100."
+      },
+      {
+        "type": "api",
+        "instruction": "Use Microsoft Graph to count users with FIDO2 methods registered versus total licensed users.",
+        "command": "az rest --method GET --uri 'https://graph.microsoft.com/v1.0/reports/authenticationMethods/userRegistrationDetails?\\$filter=isFido2Registered eq true' --headers 'Content-Type=application/json' | jq '.value | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer count of users with FIDO2 registered; divide by total user count (`az ad user list --query 'length(@)'`) and multiply by 100 for percentage."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Entra ID, navigate to Protection → Authentication Methods → Activity → Registration and usage report. Filter by 'FIDO2 security key' to see the count and percentage of registered users.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Entra ID Portal → Protection → Authentication Methods → Activity → Registration and usage",
+        "expected_output": "Dashboard showing 'Users registered for FIDO2 security key: X of Y (Z%)'; record Z as the enrollment percentage."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Duo Admin Panel, navigate to Reports → Authentication Summary and filter by factor type 'Security Key (U2F/WebAuthn)'. Cross-reference with the total user count from Users → Active Users to calculate the enrollment percentage.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Duo Admin Panel → Reports → Authentication Summary → filter by factor type",
+        "expected_output": "Count of users who have authenticated with a security key; divide by total users and multiply by 100. Note this measures usage, not enrollment — supplement with Users export filtered by enrolled devices."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (no phishing-resistant enrollment)",
+      "25 (partial — privileged users only)",
+      "75 (good but below threshold)",
+      "95 (compliant — exceeds 90% requirement)"
+    ]
+  },
+  {
+    "option_name": "phishing_resistant_factor_enforcement_scope",
+    "option_description": "Defines whether phishing-resistant MFA factors are merely available as an option or are actively required by policy, and specifies which user population the enforcement applies to: all users, privileged users only, or neither (optional/not enforced).",
+    "security_impact": "The Rego policy for `phishing_resistant_factor_availability` evaluates this attribute against `all_users` or `privileged_users_only` to grant the high-criticality countermeasure. Values of `optional_available` or `not_enforced` mean users can silently downgrade to phishable SMS or TOTP factors at login time, entirely negating phishing resistance. Enforcement scope directly determines whether AiTM-resistant protection is guaranteed or merely aspirational.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Okta, navigate to Security → Authentication Policies → [Policy Name] → Rules. For each rule, check if the 'Possession factor constraints' are set to require a hardware-protected authenticator (FIDO2). If this is only applied to a subset of users or groups, determine whether that subset constitutes 'all users' or 'privileged users only'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin → Security → Authentication Policies → [Policy] → Rules → [Rule] → Possession factor constraints",
+        "expected_output": "If 'Hardware protected' is required and policy applies to all users → all_users. If scoped to admin groups only → privileged_users_only. If FIDO2 is not required in any rule → optional_available or not_enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve Okta authentication policy rules and inspect factor constraints to determine enforcement scope programmatically.",
+        "command": "curl -s -H 'Authorization: SSWS ${OKTA_API_TOKEN}' 'https://${OKTA_DOMAIN}/api/v1/policies?type=ACCESS_POLICY' | jq '.[].rules[].actions.appSignOn.verificationMethod'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON showing `factorMode`, `reauthenticateIn`, and `constraints` fields; look for `\"type\": \"POSSESSION\"` with `\"hardwareProtection\": \"REQUIRED\"` to confirm phishing-resistant enforcement."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Microsoft Graph Conditional Access policies to identify if FIDO2 or passwordless strength is required and for which users.",
+        "command": "az rest --method GET --uri 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies' | jq '.value[] | {name: .displayName, users: .conditions.users, grantControls: .grantControls.authenticationStrength}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON listing each policy; look for `authenticationStrength` referencing 'Phishing-resistant MFA' built-in strength. Check `users.includeUsers/includeGroups` to determine if scope is all_users or privileged_users_only."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Entra ID, navigate to Protection → Conditional Access → Policies. Filter for policies that use Authentication Strength = 'Phishing-resistant MFA'. For each, inspect the Users assignment to determine if it targets 'All users' or specific privileged groups.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Entra ID Portal → Protection → Conditional Access → Policies → filter by Authentication Strength",
+        "expected_output": "If a phishing-resistant strength policy covers 'All users' → all_users. If it covers only admin role groups → privileged_users_only. If no such policy exists → not_enforced."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "not_enforced",
+      "privileged_users_only",
+      "optional_available",
+      "all_users"
+    ]
+  },
+  {
+    "option_name": "fallback_to_phishable_factor_permitted",
+    "option_description": "Indicates whether the authentication policy allows users to substitute a phishable factor (SMS OTP, email OTP, TOTP authenticator app) when they are unable to use their phishing-resistant factor. If true, phishing resistance is effectively optional and can be bypassed by an attacker who removes access to the hardware key.",
+    "security_impact": "The Rego policy for `phishing_resistant_factor_availability` requires `fallback_to_phishable_factor_permitted == false` in both satisfying conditions. If fallback is permitted, an AiTM attacker can manipulate the authentication flow to force a factor downgrade to SMS or TOTP, intercepting the phishable code and defeating phishing-resistant protection. This single boolean can nullify an otherwise well-configured phishing-resistant MFA deployment of score 8 high-criticality coverage.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Okta, navigate to Security → Authentication Policies → [Policy] → Rules → [Rule]. In the 'Possession factor constraints' section, check whether 'Phishing-resistant' is the ONLY allowed factor type or whether additional factor types like 'TOTP', 'SMS', or 'Email' are also listed as acceptable. If other types are allowed, fallback is permitted.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin → Security → Authentication Policies → [Policy] → Rules → Possession factor constraints",
+        "expected_output": "If only 'Hardware protected / Phishing-resistant' is listed with no additional factor types → false (fallback not permitted). If TOTP, SMS, or Email are also listed → true (fallback permitted)."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the Okta access policy rules and inspect whether multiple factor types are listed in the constraints, indicating fallback is allowed.",
+        "command": "curl -s -H 'Authorization: SSWS ${OKTA_API_TOKEN}' 'https://${OKTA_DOMAIN}/api/v1/policies?type=ACCESS_POLICY' | jq '.[].rules[].actions.appSignOn.verificationMethod.constraints[].possession'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If only `\"phishingResistant\": true` appears with `\"hardwareProtection\": \"REQUIRED\"` and no SMS/email/TOTP constraint exists → false. If multiple constraint types are present → true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Microsoft Entra ID, navigate to Protection → Conditional Access → Authentication Strengths. Review the 'Phishing-resistant MFA' built-in strength definition to confirm it excludes SMS and TOTP. Then verify no fallback Conditional Access policy exists that grants access with weaker factors when the primary policy fails.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Entra ID Portal → Protection → Conditional Access → Authentication Strengths → Phishing-resistant MFA",
+        "expected_output": "Built-in strength should list only FIDO2, Windows Hello for Business, and Certificate-based auth. Check for absence of any 'fallback' policy that accepts SMS/TOTP as alternatives."
+      },
+      {
+        "type": "api",
+        "instruction": "Check Duo policies for fallback factor configuration by inspecting whether alternative factor types are permitted when the primary (security key) is unavailable.",
+        "command": "curl -s -X GET 'https://api-${DUO_API_HOST}/admin/v1/policies' -H 'Authorization: ${DUO_AUTH}' | jq '.response.policies[] | {name: .name, factors: .settings.factors, fallback: .settings.allow_factor_fallback}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON for each policy; `allow_factor_fallback: false` or absence of SMS/phone in the factors list indicates fallback is not permitted. Presence of 'phone' or 'sms' in allowed factors with fallback enabled → true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common — fallback allowed, misconfigured)",
+      "false (required — no fallback to phishable factors)"
+    ]
+  },
+  {
+    "option_name": "self_service_enrollment_available",
+    "option_description": "Indicates whether the MFA platform provides a self-service portal allowing users to register, modify, and manage their MFA devices and authentication methods independently, without requiring a help desk ticket or administrator intervention.",
+    "security_impact": "The Rego policy for `operational_maintainability_and_user_friction` requires `self_service_enrollment_available == true` alongside acceptable user friction levels to credit this low-criticality countermeasure. Without self-service enrollment, MFA rollout velocity is constrained by help desk capacity, leading to enrollment gaps and extended periods of unprotected accounts. High ticket volume and enrollment delays also create pressure to create bypass exceptions, which erode the control's effectiveness over time.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Test self-service enrollment by logging in as a non-admin user and navigating to the MFA self-service portal URL (e.g., https://${OKTA_DOMAIN}/enduser/settings or https://aka.ms/mysecurityinfo for Entra ID). Verify that 'Add authenticator' or 'Add sign-in method' options are available without admin approval.",
+        "command": null,
+        "file_path": null,
+        "navigation": "End-user: Okta → https://${OKTA_DOMAIN}/enduser/settings | Entra ID → https://mysignins.microsoft.com/security-info",
+        "expected_output": "End-user portal displays options to add new MFA methods without requiring a help desk ticket. If the button is absent, grayed out, or redirects to a request form, self-service is not available."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Okta's My Account API capabilities to verify whether factor enrollment endpoints are accessible to standard users.",
+        "command": "curl -s -H 'Authorization: Bearer ${USER_SESSION_TOKEN}' 'https://${OKTA_DOMAIN}/api/v1/users/me/factors/catalog' | jq '[.[] | .factorType]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of factor types available for enrollment returned for the user session; empty array or 403 error indicates self-service enrollment is disabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Okta Admin, navigate to Security → Authenticators → Enrollment tab. Verify that an enrollment policy exists that allows users to self-enroll in factors such as Okta Verify, FIDO2, or SMS without admin assignment.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin → Security → Authenticators → Enrollment tab → [Enrollment Policy]",
+        "expected_output": "Policy showing 'Optional' or 'Required' enrollment options for authenticators with no 'Admin only' restriction confirms self-service is available."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review help desk ticketing system (e.g., ServiceNow, Jira Service Management) for MFA enrollment request ticket volume. High ticket volume (>10% of MFA interactions) suggests self-service is unavailable or inadequate. Interview the help desk team lead to confirm whether MFA enrollment requires ticket submission.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Low or zero MFA enrollment ticket volume combined with confirmation that users self-enroll → true. Significant ticket volume for MFA enrollment → false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (most mature IdP deployments)",
+      "false (legacy environments or restrictive policies)"
+    ]
+  },
+  {
+    "option_name": "user_friction_level",
+    "option_description": "Assesses the degree of burden the MFA implementation places on users during normal authentication workflows, considering factors such as re-authentication frequency (step-up prompts), number of daily MFA challenges, availability of remembered-device options, and the intuitiveness of the factor experience.",
+    "security_impact": "The Rego policy for `operational_maintainability_and_user_friction` requires `user_friction_level in [\"low\", \"medium\"]` to credit operational maintainability. High or excessive friction drives users to adopt workarounds such as sharing sessions, pressuring IT for MFA exceptions, or using personal devices to bypass corporate MFA. These behaviors directly erode enforcement coverage and create bypass paths that undermine the entire MFA control. Friction level is a leading indicator of shadow workaround adoption rates.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Okta Admin, navigate to Security → Authentication Policies → [Policy] → Rules. Review the 'Re-authentication frequency' setting per rule (e.g., 'Every sign-in', 'Every 12 hours', 'Every 7 days'). Also check if 'Remembered device' options are enabled under Security → General → MFA.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Okta Admin → Security → Authentication Policies → [Policy] → Rules → Re-authentication frequency",
+        "expected_output": "Re-auth frequency of every sign-in with no remembered device option = high/excessive. Frequency of 12–24 hours with remembered device = low/medium. Document the settings for each application policy."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Okta System Log for MFA prompt events per user per day to calculate average daily MFA challenge frequency as a quantitative friction indicator.",
+        "command": "curl -s -H 'Authorization: SSWS ${OKTA_API_TOKEN}' 'https://${OKTA_DOMAIN}/api/v1/logs?filter=eventType+eq+\"user.authentication.auth_via_mfa\"&since=2024-01-01T00:00:00Z&until=2024-01-08T00:00:00Z' | jq '[.[] | .actor.displayName] | group_by(.) | map({user: .[0], count: length}) | sort_by(-.count) | .[0:10]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Top 10 users by MFA prompt count over 7 days; divide by 7 for daily average. >5 prompts/day per user indicates high/excessive friction. 1–2 prompts/day indicates low/medium friction."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Conduct structured interviews with 5–10 representative end users from different departments and roles. Ask: (1) How many times per day do you receive MFA prompts? (2) Have you or colleagues sought ways to avoid MFA prompts? (3) Do you find the MFA process disruptive? Aggregate responses to determine friction level.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Majority reporting 0–2 prompts/day with no workaround seeking = low. 2–5 prompts/day with occasional frustration = medium. >5 prompts/day with active workaround seeking = high/excessive."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review help desk tickets and security incident logs for MFA-related complaints and bypass incidents over the past 90 days. Search for keywords: 'MFA fatigue', 'too many prompts', 'MFA bypass request', 'exception request'.",
+        "command": "grep -iE '(mfa.*(fatigue|bypass|exception|too many|disable))' /var/log/helpdesk/tickets.log | wc -l",
+        "file_path": "/var/log/helpdesk/tickets.log",
+        "navigation": null,
+        "expected_output": "0–5 MFA complaint tickets per 90 days = low friction. 5–20 tickets = medium. 20–50 tickets = high. >50 tickets or active bypass workarounds documented = excessive."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "low (SSO with remembered device, infrequent re-auth)",
+      "medium (daily re-auth, app-scoped policies)",
+      "high (every-session re-auth, no remembered device)",
+      "excessive (multiple prompts per session, MFA fatigue incidents)"
+    ]
+  },
+  {
+    "option_name": "mfa_bypass_workarounds_detected",
+    "option_description": "Indicates whether shadow IT or informal workarounds such as shared accounts, persistent sessions, or application-specific passwords without MFA have been identified in active use to circumvent MFA prompts. A value of false means no bypass workarounds have been detected; true means one or more circumvention methods are in use.",
+    "security_impact": "This attribute is evaluated in the 'operational_maintainability_and_user_friction' Rego rule, which only grants the countermeasure credit when mfa_bypass_workarounds_detected == false alongside self-service enrollment availability and acceptable friction levels. When bypass workarounds are present (true), the rule fails entirely, meaning the organization receives no credit for MFA operational sustainability. Workarounds such as application passwords, shared credentials, or legacy auth protocols that skip MFA create unprotected authentication paths that invalidate the entire MFA control's effectiveness regardless of how well it is configured elsewhere. They also indicate user friction is high enough to motivate circumvention, signaling a deployment quality problem.",
+    "how_to_obtain": [
+      {
+        "type": "log_analysis",
+        "instruction": "Query your SIEM or identity provider logs for authentication events that completed successfully without an MFA step, particularly for accounts that are enrolled in MFA. In Azure AD/Entra ID, use the Sign-in Logs filtered on 'Authentication requirement: Single-factor authentication' for users who should be under MFA policy. In Okta, search System Log for events where 'authenticationContext.credentialProvider' does not include a second factor. Flag any successful logins that bypassed MFA enforcement.",
+        "command": "# Azure AD via Microsoft Graph (PowerShell)\nConnect-MgGraph -Scopes \"AuditLog.Read.All\"\nGet-MgAuditLogSignIn -Filter \"conditionalAccessStatus eq 'notApplied' and authenticationRequirement eq 'singleFactorAuthentication'\" -Top 100 | Select-Object UserPrincipalName, AppDisplayName, CreatedDateTime, AuthenticationRequirement\n",
+        "file_path": null,
+        "navigation": "Azure Portal > Entra ID > Monitoring > Sign-in logs > Filter: Authentication requirement = Single-factor authentication",
+        "expected_output": "No results or only service accounts with documented exemptions. Any interactive user logins completing as single-factor for MFA-enrolled users indicate bypass workarounds in use."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the identity provider's API to enumerate application passwords or legacy authentication tokens that are active for user accounts. In Azure AD, query for app password registrations. In Google Workspace, use the Admin SDK to list application-specific passwords. Cross-reference against accounts that are supposed to have MFA enforced to identify MFA-exempt credential types in circulation.",
+        "command": "# Azure AD app passwords via Microsoft Graph\ncurl -s -X GET \\\n  \"https://graph.microsoft.com/v1.0/users?$select=userPrincipalName,passwordProfile&$filter=accountEnabled eq true\" \\\n  -H \"Authorization: Bearer $BEARER_TOKEN\" \\\n  -H \"Content-Type: application/json\"\n\n# List users with app passwords (Azure AD legacy)\nGet-MgUserAuthenticationPassword -UserId \"all\" 2>/dev/null | Where-Object {$_.AdditionalProperties -ne $null}\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero active application-specific passwords for accounts under MFA policy. Any active app passwords represent MFA bypass paths and should set this attribute to true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review IT help desk ticketing system records (ServiceNow, Jira Service Management, Zendesk, etc.) for the past 90 days. Search for tickets containing keywords such as 'MFA', 'authenticator', 'bypass', 'locked out', 'workaround', 'shared login', 'persistent session', or 'skip authentication'. Also interview tier-1 help desk staff about common MFA complaint patterns and any informal workarounds they have authorized or observed. Document any findings indicating users are sharing accounts or requesting MFA exemptions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Help desk portal > Reports > Ticket search: keywords ['MFA bypass', 'authenticator workaround', 'shared account', 'skip MFA', 'persistent login', 'app password request'] > Date range: last 90 days",
+        "expected_output": "No tickets requesting MFA bypasses that were fulfilled outside of formal exception processes. Presence of recurring workaround requests fulfilled informally sets this attribute to true."
+      },
+      {
+        "type": "command",
+        "instruction": "Audit active directory or LDAP for shared service accounts or generic accounts (e.g., 'admin', 'shared', 'helpdesk') that are used interactively by multiple people, which would indicate shared credential usage bypassing personal MFA enrollment. Also check for accounts with persistent Kerberos tickets or NTLM-only authentication sessions in environments where MFA should be enforced, using tools like BloodHound or native AD audit logs.",
+        "command": "# Find generic/shared account names in Active Directory (PowerShell)\nImport-Module ActiveDirectory\nGet-ADUser -Filter {Enabled -eq $true} -Properties DisplayName, LastLogonDate, PasswordLastSet |\n  Where-Object {$_.SamAccountName -match \"shared|generic|common|admin|helpdesk|service\"} |\n  Select-Object SamAccountName, DisplayName, LastLogonDate |\n  Sort-Object LastLogonDate -Descending\n\n# Check for NTLM authentication events that bypass modern auth MFA (Event ID 4624, LogonType 3, NTLM)\nGet-WinEvent -ComputerName $DC -FilterHashtable @{LogName='Security'; Id=4624} |\n  Where-Object {$_.Message -match \"NTLM\" -and $_.Message -match \"LogonType.*3\"} |\n  Select-Object TimeCreated, Message -First 50\n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No shared or generic accounts with recent interactive logins. No NTLM-based authentications for accounts under MFA policy. Findings indicating shared credentials or legacy protocol logins should set this attribute to true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false — Mature MFA deployments with high usability, self-service enrollment, and active monitoring; no bypass workarounds detected in logs or help desk records",
+      "true — Common in organizations where MFA was rolled out without adequate user training, self-service tooling, or where legacy applications still accept basic/NTLM authentication; application passwords frequently enabled as a workaround"
+    ]
+  }
+]

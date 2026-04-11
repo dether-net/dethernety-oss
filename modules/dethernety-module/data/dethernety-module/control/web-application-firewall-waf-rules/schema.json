@@ -1,0 +1,558 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "managed_rule_groups_enabled": {
+        "type": "boolean",
+        "title": "Managed Rule Groups Enabled",
+        "description": "Whether one or more managed rule groups (e.g., AWS Managed Rules, OWASP Core Rule Set) are active on the WAF in enforcement mode",
+        "default": false
+      },
+      "owasp_top10_categories_covered": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10,
+        "title": "OWASP Top 10 Categories Covered",
+        "description": "Count of distinct OWASP Top 10 attack categories for which at least one active rule exists in enforcement mode"
+      },
+      "rule_action_mode": {
+        "type": "string",
+        "enum": [
+          "enforcement",
+          "detection_only",
+          "mixed",
+          "disabled"
+        ],
+        "title": "Primary Rule Action Mode",
+        "description": "The predominant action mode of the active rule set — whether rules are actively blocking/preventing matched requests or only logging/counting them"
+      },
+      "waf_operation_mode": {
+        "type": "string",
+        "enum": [
+          "blocking",
+          "detection",
+          "disabled"
+        ],
+        "title": "WAF Operation Mode",
+        "description": "The current operational mode of the WAF, determining whether it actively blocks, only detects, or is disabled"
+      },
+      "false_positive_tuning_enabled": {
+        "type": "boolean",
+        "title": "False Positive Tuning Enabled",
+        "description": "Indicates whether the WAF has been configured with rule tuning, exceptions, or allow-listing to reduce false positives for known-good traffic patterns",
+        "default": false
+      },
+      "anomaly_score_threshold": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "title": "Anomaly Score Threshold",
+        "description": "The configured anomaly score threshold at which requests are blocked. Higher values reduce false positives by requiring more rule matches before blocking."
+      },
+      "waf_inline_deployment": {
+        "type": "boolean",
+        "title": "WAF Deployed Inline",
+        "description": "Indicates whether the WAF is positioned inline in the traffic path (e.g., as a reverse proxy or gateway) so that it can physically intercept and drop requests before they reach the web server",
+        "default": false
+      },
+      "active_blocking_rule_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000,
+        "title": "Active Blocking Rule Count",
+        "description": "The number of WAF rules currently configured with a blocking action rather than a logging-only or allow action"
+      },
+      "inspected_request_components": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Inspected Request Components",
+        "description": "List of HTTP request components actively evaluated by WAF rules (e.g., HEADERS, URI, QUERY_STRING, POST_BODY, COOKIES)"
+      },
+      "post_body_inspection_enabled": {
+        "type": "boolean",
+        "title": "POST Body Inspection Enabled",
+        "description": "Indicates whether the WAF is configured to inspect HTTP POST request bodies, which is often disabled by default due to performance impact",
+        "default": false
+      },
+      "inspection_rule_coverage_mode": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Inspection Rule Coverage Mode",
+        "description": "Describes the breadth of the WAF rule set coverage across request components — full, partial, or none"
+      },
+      "custom_rules_enabled": {
+        "type": "boolean",
+        "title": "Custom Rules Enabled",
+        "description": "Indicates whether the WAF has custom rule creation and enforcement capability activated, allowing administrators to define organization-specific rules beyond default rule sets",
+        "default": false
+      },
+      "active_custom_rule_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000,
+        "title": "Active Custom Rule Count",
+        "description": "The number of custom rules currently deployed and enforced in the WAF configuration",
+        "default": 0
+      },
+      "custom_rule_enforcement_mode": {
+        "type": "string",
+        "enum": [
+          "block",
+          "detect_only",
+          "disabled"
+        ],
+        "title": "Custom Rule Enforcement Mode",
+        "description": "The operational mode of the custom rules — whether they actively block matching traffic, only detect/log it, or are inactive",
+        "default": "disabled"
+      },
+      "logging_enabled": {
+        "type": "boolean",
+        "title": "WAF Logging Enabled",
+        "description": "Whether the WAF is configured to log all inspected requests and enforcement actions",
+        "default": false
+      },
+      "log_detail_level": {
+        "type": "string",
+        "enum": [
+          "full",
+          "standard",
+          "minimal",
+          "none"
+        ],
+        "title": "Log Detail Level",
+        "description": "The granularity of information captured in WAF logs, indicating whether full request/response context is recorded",
+        "default": "minimal"
+      },
+      "log_destination_configured": {
+        "type": "boolean",
+        "title": "Log Destination Configured",
+        "description": "Whether a persistent, external, or centralized log destination (e.g., SIEM, S3, syslog) is configured to receive WAF logs",
+        "default": false
+      },
+      "logged_event_types": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Logged Event Types",
+        "description": "The categories of events the WAF is configured to log, such as rule_matches, allowed_requests, blocked_requests, and rate_limit_events"
+      },
+      "rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "Rate Limiting Enabled",
+        "description": "Indicates whether rate limiting or request throttling rules are actively enabled in the WAF configuration",
+        "default": false
+      },
+      "rate_limit_threshold": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000000,
+        "title": "Rate Limit Request Threshold",
+        "description": "The maximum number of requests allowed from a single source within the defined evaluation window before throttling or blocking is triggered"
+      },
+      "rate_limit_action": {
+        "type": "string",
+        "enum": [
+          "block",
+          "throttle",
+          "challenge",
+          "log_only",
+          "none"
+        ],
+        "title": "Rate Limit Enforcement Action",
+        "description": "The action taken by the WAF when a source exceeds the rate limit threshold",
+        "default": "none"
+      },
+      "tls_inspection_enabled": {
+        "type": "boolean",
+        "title": "TLS Inspection Enabled",
+        "description": "Whether the WAF is configured to terminate TLS and decrypt HTTPS traffic before applying rule evaluation",
+        "default": false
+      },
+      "https_traffic_inspection_scope": {
+        "type": "string",
+        "enum": [
+          "all",
+          "partial",
+          "none"
+        ],
+        "title": "HTTPS Traffic Inspection Scope",
+        "description": "Defines which HTTPS traffic is subject to decryption and inspection by the WAF",
+        "default": "none"
+      },
+      "tls_certificate_validation_enabled": {
+        "type": "boolean",
+        "title": "TLS Certificate Validation Enabled",
+        "description": "Whether the WAF validates TLS certificates during termination, ensuring the inspection chain is not trivially bypassed via invalid certificates",
+        "default": false
+      },
+      "siem_forwarding_enabled": {
+        "type": "boolean",
+        "title": "SIEM Log Forwarding Enabled",
+        "description": "Whether WAF events and logs are configured to be forwarded to a SIEM platform (e.g., via syslog, API, or log shipper)",
+        "default": false
+      },
+      "alerting_configured": {
+        "type": "boolean",
+        "title": "Alerting Rules Configured",
+        "description": "Whether alert rules are defined in the SIEM or WAF to trigger notifications on security events (e.g., block events, anomaly thresholds)",
+        "default": false
+      },
+      "auto_update_enabled": {
+        "type": "boolean",
+        "title": "Automatic Rule Set Updates Enabled",
+        "description": "Indicates whether the WAF is configured to automatically pull and apply managed rule set updates without manual intervention"
+      },
+      "rule_set_version_age_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Rule Set Version Age (Days)",
+        "description": "Number of days since the currently active managed rule set version was last updated or refreshed on the WAF"
+      },
+      "update_notification_configured": {
+        "type": "boolean",
+        "title": "Update Notification Alerts Configured",
+        "description": "Whether alerting or notification is configured to inform the team when rule set updates are available or have been applied"
+      },
+      "geo_ip_filtering_enabled": {
+        "type": "boolean",
+        "title": "Geo-IP Filtering Enabled",
+        "description": "Indicates whether geographic IP-based filtering is active in the WAF configuration, blocking or flagging traffic from high-risk or restricted geographies",
+        "default": false
+      },
+      "ip_reputation_filtering_enabled": {
+        "type": "boolean",
+        "title": "IP Reputation Filtering Enabled",
+        "description": "Indicates whether IP reputation-based filtering is active, blocking or flagging traffic from known malicious IP ranges and Tor exit nodes using threat intelligence feeds",
+        "default": false
+      },
+      "threat_feed_update_frequency_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 365,
+        "title": "Threat Feed Update Frequency (Days)",
+        "description": "Number of days between updates to the geo-IP and IP reputation threat intelligence feeds used by the WAF"
+      },
+      "filtering_action_mode": {
+        "type": "string",
+        "enum": [
+          "block",
+          "challenge",
+          "monitor",
+          "log_only",
+          "disabled"
+        ],
+        "title": "Filtering Action Mode",
+        "description": "The enforcement mode applied when geo-IP or reputation rules are triggered — whether traffic is actively blocked or only logged/alerted",
+        "default": "monitor"
+      }
+    },
+    "required": [
+      "managed_rule_groups_enabled",
+      "owasp_top10_categories_covered",
+      "rule_action_mode",
+      "waf_operation_mode",
+      "false_positive_tuning_enabled",
+      "anomaly_score_threshold",
+      "waf_inline_deployment",
+      "active_blocking_rule_count",
+      "inspected_request_components",
+      "post_body_inspection_enabled",
+      "inspection_rule_coverage_mode",
+      "custom_rules_enabled",
+      "active_custom_rule_count",
+      "custom_rule_enforcement_mode",
+      "logging_enabled",
+      "log_detail_level",
+      "log_destination_configured",
+      "logged_event_types",
+      "rate_limiting_enabled",
+      "rate_limit_threshold",
+      "rate_limit_action",
+      "tls_inspection_enabled",
+      "https_traffic_inspection_scope",
+      "tls_certificate_validation_enabled",
+      "siem_forwarding_enabled",
+      "alerting_configured"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/active_blocking_rule_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/active_custom_rule_count"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/anomaly_score_threshold"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/custom_rule_enforcement_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/custom_rules_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/false_positive_tuning_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/inspected_request_components"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/managed_rule_groups_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/owasp_top10_categories_covered"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/post_body_inspection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rule_action_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_inline_deployment"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/waf_operation_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/bypass_ip_allowlist_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/custom_rules_for_app_specific_threats"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/inspection_rule_coverage_mode"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/https_traffic_inspection_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_inspection_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_certificate_validation_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/alerting_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_detail_level"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/siem_forwarding_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_destination_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logged_event_types"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limit_action"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limit_threshold"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/rate_limiting_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/filtering_action_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/geo_ip_filtering_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ip_reputation_filtering_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/threat_feed_update_frequency_days"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/auto_update_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/rule_set_version_age_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/update_notification_configured"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,122 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "encryption_algorithm": "AES-256-XTS",
+      "key_length_bits": 127,
+      "encryption_coverage_scope": "full",
+      "swap_space_encrypted": true,
+      "hibernation_file_encrypted": true,
+      "unencrypted_remnant_partitions": [],
+      "key_management_system_type": "hsm",
+      "keys_colocated_with_data": false,
+      "key_rotation_enabled": true,
+      "key_revocation_capability": true,
+      "encryption_at_rest_enabled": false,
+      "cryptographic_erasure_supported": false,
+      "encryption_audit_tooling_enabled": false,
+      "hsm_tpm_binding_enabled": false,
+      "encryption_policy_enabled": false,
+      "rotation_period_days": 0,
+      "fips_140_validated": true,
+      "key_access_audit_logging": true,
+      "key_management_policy": "none",
+      "decommissioning_procedure_documented": false,
+      "encryption_coverage_visibility_scope": "none",
+      "unencrypted_volumes_detected": false,
+      "hardware_binding_type": "none",
+      "key_extraction_protection_verified": false,
+      "policy_compliance_status": "unknown",
+      "enforcement_scope": "none"
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "encryption_algorithm": "AES-256-XTS",
+      "key_length_bits": 256,
+      "encryption_coverage_scope": "partial",
+      "key_management_system_type": "dedicated_kms",
+      "encryption_at_rest_enabled": true,
+      "cryptographic_erasure_supported": true,
+      "key_management_policy": "centralized_kms",
+      "encryption_audit_tooling_enabled": true,
+      "encryption_coverage_visibility_scope": "full",
+      "unencrypted_volumes_detected": false,
+      "hsm_tpm_binding_enabled": true,
+      "hardware_binding_type": "tpm",
+      "key_extraction_protection_verified": true,
+      "encryption_policy_enabled": true,
+      "policy_compliance_status": "compliant",
+      "enforcement_scope": "all_volumes",
+      "key_rotation_enabled": true,
+      "rotation_period_days": 183,
+      "fips_140_validated": true,
+      "swap_space_encrypted": false,
+      "hibernation_file_encrypted": false,
+      "unencrypted_remnant_partitions": [],
+      "keys_colocated_with_data": false,
+      "key_revocation_capability": false,
+      "key_access_audit_logging": true,
+      "decommissioning_procedure_documented": false
+    },
+    "expectedCountermeasures": [
+      "Key Management Integrity",
+      "Encryption Policy Enforcement",
+      "Key Rotation Lifecycle Management",
+      "Encryption Status Auditability",
+      "Transparent Application Integration",
+      "Full Volume Coverage",
+      "Decommissioning Data Sanitization",
+      "Hardware Security Module Binding"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "encryption_at_rest_enabled": true,
+      "encryption_algorithm": "AES-256-XTS",
+      "key_length_bits": 0,
+      "fips_140_validated": true,
+      "encryption_coverage_scope": "full",
+      "swap_space_encrypted": false,
+      "hibernation_file_encrypted": false,
+      "unencrypted_remnant_partitions": [
+        "partial"
+      ],
+      "key_management_system_type": "hsm",
+      "keys_colocated_with_data": false,
+      "key_rotation_enabled": true,
+      "key_revocation_capability": false,
+      "key_access_audit_logging": true,
+      "cryptographic_erasure_supported": true,
+      "key_management_policy": "none",
+      "decommissioning_procedure_documented": false,
+      "encryption_audit_tooling_enabled": true,
+      "encryption_coverage_visibility_scope": "none",
+      "unencrypted_volumes_detected": false,
+      "hsm_tpm_binding_enabled": true,
+      "hardware_binding_type": "none",
+      "key_extraction_protection_verified": true,
+      "encryption_policy_enabled": true,
+      "policy_compliance_status": "unknown",
+      "enforcement_scope": "none",
+      "rotation_period_days": 0
+    },
+    "expectedCountermeasures": [
+      "Key Management Integrity",
+      "Transparent Application Integration",
+      "Full Volume Coverage"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

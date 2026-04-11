@@ -1,0 +1,1106 @@
+[
+  {
+    "option_name": "log_transport_protocol",
+    "option_description": "Identifies the network protocol used to transmit log data from internal services to the monitoring or aggregation service, distinguishing between unencrypted protocols (UDP syslog on port 514, plain TCP syslog, HTTP) and encrypted variants (TLS/TCP syslog, HTTPS, RELP+TLS).",
+    "security_impact": "The Rego policy triggers the 'plaintext_log_transport' exposure when this value is 'udp_syslog', 'tcp_syslog_plain', or 'http', because these protocols transmit log contents in cleartext, enabling passive interception (MITRE T1040) and unencrypted exfiltration (T1048.003). Additionally, 'insecure_protocol_selection_udp_syslog' fires when the protocol is UDP regardless of TLS state, as UDP syslog offers no delivery guarantees and is trivially spoofable. Selecting an encrypted protocol such as 'tcp_syslog_tls', 'https', or 'relp_tls' is the primary control preventing both exposures.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the rsyslog configuration for the transport action module in use. Look for 'omfwd' module calls specifying 'Protocol' and 'StreamDriver' directives.",
+        "command": "grep -rE '(omfwd|StreamDriver|Protocol|Target|Port)' /etc/rsyslog.conf /etc/rsyslog.d/",
+        "file_path": "/etc/rsyslog.conf, /etc/rsyslog.d/*.conf",
+        "navigation": null,
+        "expected_output": "Lines showing 'Protocol=\"tcp\"' with 'StreamDriver=\"gtls\"' indicate TLS; absence of StreamDriver with 'Protocol=\"udp\"' indicates udp_syslog."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check syslog-ng transport configuration for the destination driver type (network, syslog, http) and tls() block presence.",
+        "command": "grep -rE '(destination|transport|tls|port)' /etc/syslog-ng/syslog-ng.conf /etc/syslog-ng/conf.d/",
+        "file_path": "/etc/syslog-ng/syslog-ng.conf, /etc/syslog-ng/conf.d/*.conf",
+        "navigation": null,
+        "expected_output": "A destination block with 'transport(\"tls\")' indicates tcp_syslog_tls; 'transport(\"udp\")' indicates udp_syslog."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Filebeat or Fluentd log shipper output configuration to identify the endpoint protocol.",
+        "command": "grep -rE '(hosts|protocol|ssl|scheme|port)' /etc/filebeat/filebeat.yml /etc/fluent/fluent.conf /etc/fluentd/",
+        "file_path": "/etc/filebeat/filebeat.yml, /etc/fluent/fluent.conf",
+        "navigation": null,
+        "expected_output": "Filebeat 'protocol: https' or Fluentd '<store>' with 'scheme https' confirms HTTPS; absence of ssl/tls directives with plain TCP port indicates tcp_syslog_plain."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap to probe the monitoring ingestion endpoint and confirm which port and protocol is actively accepting connections.",
+        "command": "nmap -sV -p 514,601,6514,5044,9200,443 <monitoring-endpoint-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Port 6514 open with TLS service confirms tcp_syslog_tls; port 514 UDP open confirms udp_syslog; port 443 confirms HTTPS."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "udp_syslog",
+      "tcp_syslog_plain",
+      "tcp_syslog_tls",
+      "https",
+      "relp_tls"
+    ]
+  },
+  {
+    "option_name": "tls_enabled",
+    "option_description": "Controls whether TLS encryption is activated on the log transport channel between the log producer (syslog daemon or log shipper) and the monitoring or aggregation endpoint, ensuring that log data is encrypted in transit rather than transmitted in cleartext.",
+    "security_impact": "The Rego policy evaluates 'not input.tls_enabled' as a standalone condition in 'plaintext_log_transport', meaning even if the protocol field is missing or ambiguous, absence of TLS directly triggers the high-severity exposure (score 8). This also feeds into 'insecure_protocol_selection_udp_syslog' which checks 'not input.tls_enabled' when the syslog transport is UDP. Without TLS, all log content including stack traces, credentials in error messages, and internal IP topology is exposed to passive interception (T1040) on any shared network segment.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check rsyslog for StreamDriver configuration which activates the GTLS driver. Absence of these directives means TLS is not enabled.",
+        "command": "grep -E '(StreamDriver|StreamDriverMode|DefaultNetstreamDriver)' /etc/rsyslog.conf /etc/rsyslog.d/*.conf",
+        "file_path": "/etc/rsyslog.conf, /etc/rsyslog.d/*.conf",
+        "navigation": null,
+        "expected_output": "'DefaultNetstreamDriver gtls' and 'StreamDriverMode 1' confirm TLS is enabled; no output means TLS is not configured (false)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Filebeat output section for ssl or tls configuration blocks which enable TLS for Elasticsearch or Logstash outputs.",
+        "command": "grep -A5 'output\\.' /etc/filebeat/filebeat.yml | grep -E '(ssl|tls|protocol|enabled)'",
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "'ssl.enabled: true' or 'protocol: https' confirms TLS enabled; missing ssl block or 'ssl.enabled: false' means false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a TLS handshake directly to the log ingestion port to verify TLS is actively serving on the endpoint.",
+        "command": "openssl s_client -connect <monitoring-host>:<log-port> -starttls syslog < /dev/null 2>&1 | grep -E '(Cipher|Protocol|CONNECTED|error)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'CONNECTED' with 'Protocol: TLSv1.2' or 'TLSv1.3' confirms TLS is enabled; 'ssl handshake failure' or connection on plain port confirms false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "mtls_mode",
+    "option_description": "Specifies the mutual TLS authentication posture for log transport, distinguishing between full mutual authentication where both client and server certificates are presented and verified ('mutual'), server-only TLS where only the server presents a certificate ('server_only'), and no TLS at all ('disabled').",
+    "security_impact": "The Rego policy triggers 'missing_mutual_tls_authentication' (score 8) under three distinct conditions: when mtls_mode is 'disabled', when it is 'server_only' (client identity is not verified), and critically when it is declared 'mutual' but client certificate validation is not actually enforced or CA validation is absent. This prevents adversary-in-the-middle attacks (T1557) and protocol impersonation (T1001.003). Server-only TLS allows any host to connect as a log source, enabling rogue log injection into the aggregation pipeline.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the Logstash input plugin for mutual TLS directives. Both 'ssl_certificate_authorities' (server side) and 'ssl_certificate'+'ssl_key' (client side if server) must be present for mutual mode.",
+        "command": "grep -rE '(ssl_verify_mode|ssl_certificate_authorities|ssl_certificate|ssl_key|client_auth)' /etc/logstash/conf.d/",
+        "file_path": "/etc/logstash/conf.d/*.conf",
+        "navigation": null,
+        "expected_output": "'ssl_verify_mode => force_peer' combined with 'ssl_certificate_authorities' confirms mutual; 'ssl_verify_mode => peer' without client cert requirement indicates server_only; no ssl directives means disabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect syslog-ng tls() block for both key-file/cert-file and peer-verify directives which together indicate mutual TLS.",
+        "command": "grep -A20 'tls(' /etc/syslog-ng/syslog-ng.conf | grep -E '(key-file|cert-file|peer-verify|ca-file)'",
+        "file_path": "/etc/syslog-ng/syslog-ng.conf",
+        "navigation": null,
+        "expected_output": "Presence of 'peer-verify(required-trusted)' with both 'key-file' and 'cert-file' on server side confirms mutual; 'peer-verify(optional-untrusted)' or missing peer-verify means server_only or disabled."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt connection to the log ingestion endpoint without a client certificate to determine if the server enforces mutual authentication.",
+        "command": "openssl s_client -connect <monitoring-host>:<log-port> < /dev/null 2>&1 | grep -E '(Verify return|handshake failure|CONNECTED|Certificate)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection succeeding without client cert indicates server_only; 'handshake failure' or 'tlsv1 alert certificate required' when no client cert is provided confirms mutual mode enforcement."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "disabled",
+      "server_only",
+      "mutual"
+    ]
+  },
+  {
+    "option_name": "client_certificate_validation_enforced",
+    "option_description": "Controls whether the monitoring or aggregation service is explicitly configured to require and cryptographically validate TLS client certificates presented by connecting log sources, rejecting connections from any source that cannot present a valid certificate signed by a trusted CA.",
+    "security_impact": "The Rego policy checks 'not input.client_certificate_validation_enforced' even when 'mtls_mode == \"mutual\"', meaning declaring mutual TLS in the mode field is insufficient without confirming the server-side enforcement is active. Without this control, rogue log sources can connect to the aggregation endpoint and inject fabricated or misleading log records into the pipeline, enabling log poisoning attacks. This maps to T1557 (adversary-in-the-middle for log injection) and T1001.003 (service impersonation).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Verify Elasticsearch or OpenSearch security configuration requires client certificate authentication for log ingestion connections.",
+        "command": "grep -E '(xpack.security.http.ssl.client_authentication|xpack.security.transport.ssl.verification_mode)' /etc/elasticsearch/elasticsearch.yml",
+        "file_path": "/etc/elasticsearch/elasticsearch.yml",
+        "navigation": null,
+        "expected_output": "'xpack.security.http.ssl.client_authentication: required' confirms enforcement is active; 'optional' or absent entry means false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check nginx or OpenResty reverse proxy configuration fronting the log aggregator for ssl_verify_client directive.",
+        "command": "grep -rE '(ssl_verify_client|ssl_client_certificate|ssl_verify_depth)' /etc/nginx/nginx.conf /etc/nginx/conf.d/",
+        "file_path": "/etc/nginx/nginx.conf, /etc/nginx/conf.d/*.conf",
+        "navigation": null,
+        "expected_output": "'ssl_verify_client require' with a valid 'ssl_client_certificate' CA path confirms enforcement; 'ssl_verify_client off' or absent means false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Logstash beats input plugin for ssl_verify_mode set to force_peer which mandates client certificate validation.",
+        "command": "grep -E '(ssl_verify_mode|require_client_auth|ssl_certificate_authorities)' /etc/logstash/conf.d/*.conf",
+        "file_path": "/etc/logstash/conf.d/*.conf",
+        "navigation": null,
+        "expected_output": "'ssl_verify_mode => force_peer' confirms the server rejects clients without valid certificates; 'peer' or 'none' means client validation is not enforced."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to connect to the log ingestion endpoint with no client certificate and confirm the server rejects the connection.",
+        "command": "openssl s_client -connect <log-aggregator-host>:<port> -no_ssl3 < /dev/null 2>&1 | grep -E '(alert|Verify|handshake|CONNECTED)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'tlsv1 alert certificate required' or 'handshake failure' confirms enforcement is active (true); successful connection without client cert means false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "ca_certificate_pinned_or_validated",
+    "option_description": "Controls whether log shipper or syslog daemon clients are configured to validate the monitoring service's TLS certificate against a trusted Certificate Authority bundle or pinned certificate, preventing impersonation of the monitoring endpoint by an attacker presenting a fraudulent certificate.",
+    "security_impact": "The Rego policy checks 'not input.ca_certificate_pinned_or_validated' as an independent condition under 'missing_mutual_tls_authentication', meaning even if mutual TLS mode is configured, failure to validate the server's certificate on the client side triggers the high-severity exposure. Without CA validation, an attacker can stand up a rogue log collector with a self-signed certificate, redirect log traffic via DNS poisoning or ARP spoofing, and silently collect all log data (T1557). Log shippers with ssl_verify set to false or missing CA bundles are particularly prevalent.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect Filebeat output configuration for ssl.certificate_authorities and confirm ssl.verification_mode is not set to 'none' or 'certificate' without a CA.",
+        "command": "grep -E '(certificate_authorities|verification_mode|ssl.enabled|ca_cert|cafile)' /etc/filebeat/filebeat.yml",
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "'ssl.certificate_authorities: [\"/etc/filebeat/ca.crt\"]' with 'ssl.verification_mode: full' confirms validation is enabled (true); 'verification_mode: none' or missing ca path means false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Fluentd or Fluent Bit TLS output plugin configuration for ca_cert or ca_path directives.",
+        "command": "grep -rE '(ca_cert|ca_path|ssl_ca_cert|cafile|tls_ca_cert|verify_ssl)' /etc/fluent/fluent.conf /etc/fluent/conf.d/ /etc/fluent-bit/fluent-bit.conf",
+        "file_path": "/etc/fluent/fluent.conf, /etc/fluent-bit/fluent-bit.conf",
+        "navigation": null,
+        "expected_output": "'ca_cert /etc/ssl/certs/monitoring-ca.pem' confirms a CA bundle is configured (true); 'verify_ssl false' or absent ca directives means false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check rsyslog DefaultNetstreamDriverCAFile directive which pins the CA certificate for outbound TLS log connections.",
+        "command": "grep -rE '(DefaultNetstreamDriverCAFile|cafile|StreamDriverPermittedPeers)' /etc/rsyslog.conf /etc/rsyslog.d/",
+        "file_path": "/etc/rsyslog.conf, /etc/rsyslog.d/*.conf",
+        "navigation": null,
+        "expected_output": "'DefaultNetstreamDriverCAFile /etc/pki/tls/certs/ca-bundle.crt' with 'StreamDriverPermittedPeers' set confirms CA validation (true); absence of CAFile means false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl to test whether the log shipper's configured CA would accept the monitoring endpoint's certificate, simulating client-side validation.",
+        "command": "openssl verify -CAfile <path-to-configured-ca-bundle> <(openssl s_client -connect <monitoring-host>:<port> < /dev/null 2>/dev/null | openssl x509)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'stdin: OK' confirms the CA bundle validates the server certificate (true); 'unable to get local issuer certificate' indicates CA validation is misconfigured or absent."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "minimum_tls_version",
+    "option_description": "Specifies the lowest TLS protocol version that the log transport channel will accept during handshake negotiation, controlling whether deprecated versions such as TLS 1.0 and TLS 1.1 can be negotiated between log shippers and the monitoring aggregator.",
+    "security_impact": "The Rego policy triggers 'weak_or_deprecated_tls_cipher_suites' (score 8) directly when minimum_tls_version is 'TLS1.0' or 'TLS1.1'. These protocol versions are vulnerable to BEAST, POODLE, and downgrade attacks that allow decryption of captured log traffic (T1600). TLS 1.0 and 1.1 have been deprecated by RFC 8996. Environments that have not explicitly set a minimum version often inherit library defaults which may still negotiate TLS 1.0 for compatibility, silently exposing sensitive log content to cryptanalytic attacks (T1600.001).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check Filebeat TLS configuration for ssl.supported_protocols which explicitly defines the minimum TLS version.",
+        "command": "grep -E '(supported_protocols|min_version|tls_min_version|ssl_min_version)' /etc/filebeat/filebeat.yml /etc/logstash/conf.d/*.conf",
+        "file_path": "/etc/filebeat/filebeat.yml, /etc/logstash/conf.d/*.conf",
+        "navigation": null,
+        "expected_output": "'ssl.supported_protocols: [TLSv1.2, TLSv1.3]' confirms minimum is TLS1.2; absence of this directive means the library default applies and must be tested."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect syslog-ng tls() block for ssl-options directive which can disable older protocol versions.",
+        "command": "grep -E '(ssl-options|ssl-version|tls-version)' /etc/syslog-ng/syslog-ng.conf /etc/syslog-ng/conf.d/*.conf",
+        "file_path": "/etc/syslog-ng/syslog-ng.conf",
+        "navigation": null,
+        "expected_output": "'ssl-options(no-sslv2, no-sslv3, no-tlsv1, no-tlsv11)' confirms TLS1.2 minimum; absence means default negotiation which may include TLS1.0."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt TLS 1.0 and TLS 1.1 handshakes against the log ingestion endpoint to confirm whether they are accepted or rejected.",
+        "command": "openssl s_client -connect <monitoring-host>:<log-port> -tls1 < /dev/null 2>&1 | grep -E '(Protocol|handshake|alert|CONNECTED)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'handshake failure' or 'no protocols available' for -tls1 and -tls1_1 flags confirms TLS1.2 as minimum; 'Protocol: TLSv1' in CONNECTED output confirms TLS1.0 is permitted."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap ssl-enum-ciphers script to enumerate all accepted TLS protocol versions on the log aggregation port.",
+        "command": "nmap --script ssl-enum-ciphers -p <log-port> <monitoring-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output listing only 'TLSv1.2' and/or 'TLSv1.3' sections confirms secure minimum; presence of 'TLSv1.0' or 'TLSv1.1' sections indicates the minimum is set too low."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLS1.2",
+      "TLS1.3",
+      "TLS1.0",
+      "TLS1.1"
+    ]
+  },
+  {
+    "option_name": "enabled_cipher_suites",
+    "option_description": "Enumerates the explicit list of TLS cipher suites enabled on the log transport channel on both the log shipper client and monitoring aggregator server side, including any weak ciphers such as RC4, NULL, EXPORT-grade, or anonymous Diffie-Hellman suites that may have been inadvertently left enabled.",
+    "security_impact": "The Rego policy evaluates 'regex.match(\"(?i)(RC4|NULL|EXPORT|aNULL|ADH|EXP-)\", input.enabled_cipher_suites)' to detect any weak cipher in the enabled list, triggering 'weak_or_deprecated_tls_cipher_suites' (score 8). RC4 is broken and allows stream cipher attacks; NULL ciphers provide no encryption; EXPORT-grade ciphers (512-bit RSA) are trivially broken (FREAK attack); anonymous DH suites provide no authentication. Enumeration of the actual cipher list is critical because many systems inherit broad OpenSSL defaults that include these suites unless explicitly restricted (T1600, T1600.001).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client to connect and report the negotiated cipher suite for the log ingestion endpoint.",
+        "command": "openssl s_client -connect <monitoring-host>:<log-port> < /dev/null 2>&1 | grep -E '(Cipher|New,)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384' confirms a strong AEAD cipher; 'RC4' or 'EXP-' in the cipher name indicates a weak cipher is being negotiated."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap ssl-enum-ciphers script to obtain a complete list of all cipher suites accepted by the monitoring endpoint on the log port.",
+        "command": "nmap --script ssl-enum-ciphers -p <log-port> <monitoring-host> 2>/dev/null | grep -E '(TLS_|SSL_|NULL|RC4|EXPORT|ADH|EXP)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should list only AEAD ciphers (AES-GCM, CHACHA20). Presence of lines containing 'RC4', 'NULL', 'EXPORT', 'ADH', or 'EXP' indicates weak ciphers are accepted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Extract the cipher suite configuration string from Filebeat, Logstash, or nginx log ingestion proxy configuration files.",
+        "command": "grep -rE '(cipher_suites|ssl_ciphers|ciphers|cipher-list)' /etc/filebeat/filebeat.yml /etc/logstash/conf.d/ /etc/nginx/conf.d/ /etc/syslog-ng/syslog-ng.conf",
+        "file_path": "/etc/filebeat/filebeat.yml, /etc/nginx/conf.d/*.conf, /etc/logstash/conf.d/*.conf",
+        "navigation": null,
+        "expected_output": "An OpenSSL cipher string without '!RC4', '!NULL', '!EXPORT' exclusions or a permissive default ('HIGH:ALL') indicates weak ciphers may be present; explicit AEAD-only list indicates strong configuration."
+      },
+      {
+        "type": "command",
+        "instruction": "Use testssl.sh to perform a comprehensive cipher scan against the log ingestion endpoint, testing for all known weak cipher categories.",
+        "command": "testssl.sh --cipher-per-proto --color 0 <monitoring-host>:<log-port> 2>/dev/null | grep -E '(RC4|NULL|EXPORT|ADH|MEDIUM|WEAK|offered)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines marked 'not offered' for RC4, NULL, EXPORT, and ADH categories confirms these are disabled; 'offered' for any of these categories indicates they are present in the enabled list."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"TLS_AES_256_GCM_SHA384\", \"TLS_CHACHA20_POLY1305_SHA256\", \"ECDHE-RSA-AES256-GCM-SHA384\"]",
+      "[\"HIGH:!aNULL:!MD5\"]",
+      "[\"RC4-SHA\", \"AES256-SHA\"]"
+    ]
+  },
+  {
+    "option_name": "weak_cipher_explicitly_disabled",
+    "option_description": "Indicates whether the TLS configuration on both the log shipper and monitoring aggregator explicitly excludes RC4, NULL, EXPORT-grade, and anonymous Diffie-Hellman cipher suites through deny-list directives in OpenSSL cipher strings or equivalent allowlist-only configurations, as opposed to relying on library defaults.",
+    "security_impact": "The Rego policy uses 'not input.weak_cipher_explicitly_disabled' as a standalone condition that independently triggers 'weak_or_deprecated_tls_cipher_suites' (score 8), meaning that even if no obviously weak ciphers are currently detected in the enabled list, the absence of explicit exclusion directives leaves the system vulnerable to future library changes or misconfiguration that could re-enable them. Explicit denial via '!RC4', '!NULL', '!EXPORT', '!aNULL', '!ADH' in OpenSSL cipher strings or allowlist-only configurations ensures weak ciphers cannot be negotiated even after software updates (T1600, T1600.001).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Verify that the nginx or HAProxy configuration fronting the log aggregator contains explicit weak cipher exclusions in the ssl_ciphers directive.",
+        "command": "grep -E '(ssl_ciphers|ssl_cipher_list)' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/haproxy/haproxy.cfg",
+        "file_path": "/etc/nginx/nginx.conf, /etc/haproxy/haproxy.cfg",
+        "navigation": null,
+        "expected_output": "A cipher string containing '!RC4:!NULL:!EXPORT:!aNULL:!ADH:!EXP' or equivalent confirms explicit disabling (true); a permissive string like 'HIGH:ALL' or 'ECDHE+AESGCM' without exclusions means the check cannot confirm explicit disabling."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Filebeat ssl.cipher_suites configuration to confirm it uses an explicit allowlist of strong AEAD ciphers without any weak suite inclusions.",
+        "command": "grep -A10 'ssl:' /etc/filebeat/filebeat.yml | grep -E '(cipher_suites|supported_protocols)'",
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "An explicit list containing only TLS 1.3 suites or AEAD ciphers like 'TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384' with no RC4/NULL/EXPORT entries confirms true; an empty or defaulted cipher_suites field means false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Logstash input and output plugin cipher suite configuration for explicit weak cipher negation in OpenSSL format strings.",
+        "command": "grep -rE '(cipher_suites|ciphers|ssl_cipher_suites)' /etc/logstash/conf.d/ /etc/logstash/logstash.yml",
+        "file_path": "/etc/logstash/conf.d/*.conf, /etc/logstash/logstash.yml",
+        "navigation": null,
+        "expected_output": "Cipher suite list containing '!RC4', '!NULL', '!EXPORT', '!aNULL', '!ADH' markers confirms explicit disabling (true); default or absent cipher configuration means false and relies on OpenSSL defaults."
+      },
+      {
+        "type": "command",
+        "instruction": "Validate that the OpenSSL cipher string used by the log transport produces a list containing no weak suites by expanding it locally.",
+        "command": "openssl ciphers -v 'ECDHE+AESGCM:ECDHE+CHACHA20:!RC4:!NULL:!EXPORT:!aNULL:!ADH:!EXP' 2>/dev/null | grep -E '(RC4|NULL|EXPORT|ADH|EXP)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output (empty result) after grepping the expanded cipher list confirms the exclusion directives are effective (true); any matching lines indicate weak ciphers remain in the resolved set."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "per_message_integrity_mechanism",
+    "option_description": "Controls which cryptographic mechanism, if any, is applied to each individual log record to guarantee integrity in transit. Options are HMAC (a shared-secret message authentication code computed per record), digital_signature (asymmetric signing per record), or none (no per-record integrity protection, relying solely on transport-layer controls).",
+    "security_impact": "The Rego rule `log_message_integrity_absence` fires when `per_message_integrity_mechanism == 'none'` and `log_receiver_integrity_verification_enabled` is false, flagging a high-criticality exposure (score 8). Even with TLS, a compromised TLS terminator or in-path proxy can silently alter log field values, downgrade severity levels, or delete entries without detection. HMAC or digital signatures ensure tampering is detectable at the receiver regardless of transport-layer compromise.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the log shipper configuration file for HMAC or signing directives. In Fluentd, look for `<filter>` blocks using `fluent-plugin-record-modifier` with HMAC fields or custom Ruby HMAC filters. In Logstash, look for a `fingerprint` filter plugin set to `SHA256` with a secret. In Vector, look for `transforms` of type `lua` or `remap` computing `hmac_sha256`.",
+        "command": null,
+        "file_path": "/etc/fluentd/fluent.conf, /etc/logstash/conf.d/*.conf, /etc/vector/vector.toml, /etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "A filter or transform block referencing an HMAC key, signing certificate path, or cryptographic library call. Absence of any such block indicates 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "Search all log shipper config directories for HMAC or signature keywords to confirm whether per-record integrity is configured.",
+        "command": "grep -rEi 'hmac|signature|signing_key|record_mac|integrity' /etc/fluentd/ /etc/logstash/ /etc/vector/ /etc/filebeat/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines referencing hmac keys or signing parameters. No output indicates 'none' is the effective value."
+      },
+      {
+        "type": "api",
+        "instruction": "If using Vector, query the Vector GraphQL API to enumerate transform configurations and check for HMAC-producing remap transforms.",
+        "command": "curl -s -X POST http://localhost:8686/graphql -H 'Content-Type: application/json' -d '{\"query\":\"{transforms{edges{node{componentId componentType}}}}\"}",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of transforms; cross-reference each `remap` or `lua` transform config file for HMAC logic."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform or observability team to confirm whether a per-record integrity standard is defined in the logging architecture design document. Ask specifically whether the SIEM or log collector expects an HMAC field or signed envelope on every inbound record.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented decision either confirming HMAC/signature use or acknowledging its absence and accepted risk."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "hmac",
+      "digital_signature"
+    ]
+  },
+  {
+    "option_name": "log_transport_tls_enabled",
+    "option_description": "Indicates whether the log forwarding channel between the log shipper/agent and the monitoring or aggregation service uses TLS to encrypt data in transit and provide transport-layer integrity. This is independent of per-message integrity controls and governs confidentiality of the stream as a whole.",
+    "security_impact": "The Rego rules `log_message_integrity_absence`, `log_stream_eavesdropping_via_span_or_tap`, and `internal_routing_path_exposure` all reference `log_transport_tls_enabled`. When false, the entire log stream — including stack traces, error messages, credentials accidentally logged, and internal topology — is exposed to passive interception (MITRE T1040) and SPAN/TAP-based eavesdropping (T1020.001). The `log_message_integrity_absence` rule also uses this value: even if per-record integrity exists, absence of TLS amplifies exposure by enabling bulk capture.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the log shipper configuration for TLS listener or output directives. In Filebeat, look for `ssl.certificate` and `ssl.key` under the `output.logstash` or `output.elasticsearch` block. In Fluentd, look for `<transport tls>` inside `<match>` blocks. In rsyslog, look for `*.* @@(o)host:port` with `omfwd` and `StreamDriver=gtls`.",
+        "command": null,
+        "file_path": "/etc/filebeat/filebeat.yml, /etc/fluentd/fluent.conf, /etc/rsyslog.conf, /etc/rsyslog.d/*.conf, /etc/vector/vector.toml",
+        "navigation": null,
+        "expected_output": "TLS certificate and key paths present and `ssl.enabled: true` or `<transport tls>` block confirmed. Absence indicates false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use `openssl s_client` to probe the log collector endpoint and confirm TLS is being negotiated. Replace HOST and PORT with the actual log aggregator address.",
+        "command": "openssl s_client -connect HOST:PORT -verify_return_error </dev/null 2>&1 | grep -E 'Cipher|Protocol|Verify return code'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing a negotiated TLS protocol (e.g., TLSv1.3) and cipher suite. A 'connection refused' or plaintext banner indicates TLS is not enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Capture a sample of live log transport traffic on the interface used by the log shipper to confirm encryption. Run for 5 seconds and inspect for readable plaintext log data.",
+        "command": "tcpdump -i any -A -c 100 'dst port 5044 or dst port 514 or dst port 6514' 2>/dev/null | grep -E '(level|message|error|warn|INFO|ERROR)' | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No readable log content in the capture output (encrypted). Readable log messages in the output confirm TLS is NOT enabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Elastic Cloud or Kibana Fleet management UI, navigate to Fleet > Agent Policies > [policy name] > Outputs and verify the output configuration shows 'SSL/TLS enabled' with certificate paths populated.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kibana > Fleet > Agent Policies > [Select Policy] > Settings > Outputs > [Output Name] > SSL/TLS section",
+        "expected_output": "SSL enabled toggle is ON with CA certificate, client certificate, and client key fields populated."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_receiver_integrity_verification_enabled",
+    "option_description": "Controls whether the log collection or SIEM service actively validates per-message integrity (MAC or digital signature) on each inbound log record and takes action — rejection or alerting — on verification failures. Without this, even if the shipper computes HMACs, the receiver never checks them.",
+    "security_impact": "The Rego rule `log_message_integrity_absence` fires on two distinct conditions involving this attribute: (1) when `per_message_integrity_mechanism == 'none'` AND this is false — no integrity anywhere; (2) when a mechanism is configured on the sender but this is still false AND TLS is absent — the HMAC is computed but never verified, making it security theater. Both conditions produce a high-criticality score-8 exposure for T1565.002 (Transmitted Data Manipulation).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the log collector ingest pipeline configuration for HMAC validation steps. In Logstash, look for a `ruby` filter or custom plugin that calls an HMAC verification function. In Graylog, check the 'Processing Pipelines' for an HMAC rule. In Splunk, review `props.conf` and `transforms.conf` for HMAC field extraction and a custom alert action. In Loki, check the ruler configuration for integrity checks.",
+        "command": null,
+        "file_path": "/etc/logstash/conf.d/*.conf, /etc/graylog/server/server.conf, /opt/splunk/etc/system/local/props.conf, /etc/loki/loki.yaml",
+        "navigation": null,
+        "expected_output": "A filter or pipeline stage referencing HMAC verification with logic to reject or alert on mismatch. Absence indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "Search the collector pipeline configuration directory for HMAC verification or signature validation keywords.",
+        "command": "grep -rEi 'hmac_verify|verify_signature|mac_check|integrity_check|reject.*hmac|signature.*valid' /etc/logstash/ /etc/graylog/ /etc/loki/ /opt/splunk/etc/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines confirming verification logic exists. No output means receiver verification is not configured (false)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Graylog, navigate to System > Pipelines > Manage Pipelines and review each pipeline stage for HMAC or signature validation rules. In Splunk, navigate to Settings > Data Inputs and review any scripted inputs or HEC token configurations for integrity validation.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Graylog: System > Pipelines > Manage Pipelines; Splunk: Settings > Data Inputs > HTTP Event Collector > Global Settings",
+        "expected_output": "A pipeline stage or input configuration showing active HMAC/signature field checking with an action on failure."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Ask the SIEM or observability team to demonstrate what happens when a log record with an invalid or missing HMAC is submitted to the collector endpoint — confirm whether an alert fires, the record is rejected, or the record is silently accepted.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A demonstrated rejection (HTTP 4xx or drop) or alert on an invalid-HMAC test record confirms true. Silent acceptance confirms false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "anti_replay_mechanism_enabled",
+    "option_description": "Indicates whether the log transport pipeline includes protections against replay attacks — specifically, whether log agents embed sequence numbers, server-validated nonces, or strictly-enforced timestamps that prevent a captured log stream segment from being retransmitted successfully.",
+    "security_impact": "The Rego rule `replay_attack_on_log_stream` fires unconditionally when `anti_replay_mechanism_enabled` is false, regardless of protocol. It also fires for TCP/TLS/HTTPS when this is false AND `server_side_timestamp_validation_window_seconds == 0`. Replay attacks allow an adversary who intercepts buffered log segments to flood the monitoring service with old events (T1562.011 — Spoof Security Alerting) or overwhelm SIEM correlation rules to mask ongoing malicious activity (T1562.006 — Indicator Blocking).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect log agent configuration for sequence number or nonce fields. In Fluentd, check for `chunk_id` or `sequence` fields injected via `record_transformer`. In Vector, look for a `remap` transform that adds a monotonic sequence counter or UUID nonce. In Filebeat, check for `sequence` field injection in processors.",
+        "command": null,
+        "file_path": "/etc/fluentd/fluent.conf, /etc/vector/vector.toml, /etc/filebeat/filebeat.yml, /etc/logstash/conf.d/*.conf",
+        "navigation": null,
+        "expected_output": "A transform or processor block that injects a unique sequence number or nonce into every record. Absence indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "Sample live log records arriving at the collector and check whether they contain a monotonically increasing sequence number or nonce field.",
+        "command": "curl -s -u admin:password 'http://localhost:9200/logs-*/_search?size=5&sort=@timestamp:desc' | python3 -c \"import sys,json; [print(h.get('_source',{}).get('sequence','MISSING'), h.get('_source',{}).get('nonce','MISSING')) for h in json.load(sys.stdin)['hits']['hits']]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Incrementing numeric sequence values or unique nonce strings per record. 'MISSING' output indicates anti-replay is not implemented."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review collector ingestion logs to determine whether duplicate or out-of-order sequence numbers trigger any rejection or alerting behavior.",
+        "command": "journalctl -u logstash --since '1 hour ago' | grep -Ei 'duplicate|sequence|replay|nonce|out.of.order' | tail -30",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log lines indicating duplicate sequence detection or replay rejection. No such lines suggest anti-replay is absent."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the logging platform team to determine whether any replay-prevention design decision was made. Ask specifically whether the log pipeline documentation references sequence numbers, nonce injection, or server-side duplicate detection.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented architecture decision confirming replay prevention is or is not in scope for the current pipeline design."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "server_side_timestamp_validation_window_seconds",
+    "option_description": "Defines the maximum acceptable age of an incoming log message based on its embedded timestamp, as enforced by the monitoring or log aggregation service. A value of 0 means the collector performs no timestamp-based age rejection, accepting arbitrarily old replayed messages. A non-zero value causes the collector to reject messages whose timestamps fall outside the configured window.",
+    "security_impact": "The Rego rule `replay_attack_on_log_stream` fires when `log_transport_protocol == 'udp'` and this value is 0, and also when protocol is TCP/TLS/HTTPS with `anti_replay_mechanism_enabled` false and this value is 0. Without a validation window, replayed log segments captured hours or days earlier can be injected into the pipeline to spoof alert conditions (T1562.011) or flood the SIEM to block detection of real incidents (T1562.006). A window of 60–300 seconds is generally sufficient to accommodate clock skew while blocking stale replays.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the monitoring service ingestion configuration for timestamp age rejection settings. In Elasticsearch/OpenSearch, look for `index.lifecycle` policies or ingest pipeline date filter processors. In Splunk, check `inputs.conf` for `max_timestamp_diff`. In Loki, check `ingester.max_chunk_age`. In Graylog, inspect the 'Processing Pipeline' for timestamp range rules.",
+        "command": null,
+        "file_path": "/opt/splunk/etc/system/local/inputs.conf, /etc/elasticsearch/elasticsearch.yml, /etc/loki/loki.yaml, /etc/graylog/server/server.conf",
+        "navigation": null,
+        "expected_output": "A parameter such as `max_timestamp_diff = 300` or an ingest pipeline date filter with a range check. Absence or 0 value indicates no window enforcement."
+      },
+      {
+        "type": "command",
+        "instruction": "Query Elasticsearch for any ingest pipeline that contains a date or age-range filter applied at ingestion time.",
+        "command": "curl -s -u elastic:PASSWORD 'http://localhost:9200/_ingest/pipeline?pretty' | python3 -c \"import sys,json; pipes=json.load(sys.stdin); [print(n, json.dumps(p.get('processors',[]))) for n,p in pipes.items() if any('date' in str(proc) or 'age' in str(proc) for proc in p.get('processors',[]))]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Pipeline names with date-range processors listed. No output indicates no timestamp window is enforced (effective value 0)."
+      },
+      {
+        "type": "command",
+        "instruction": "In Splunk, check the configured maximum timestamp difference tolerance from the inputs or transforms configuration.",
+        "command": "grep -r 'MAX_TIMESTAMP_LOOKAHEAD\\|max_timestamp_diff\\|timestamp_neatness' /opt/splunk/etc/ 2>/dev/null | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A setting like `MAX_TIMESTAMP_LOOKAHEAD = 300` confirming a window exists. No output suggests default unlimited lookahead (value effectively 0)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Graylog, navigate to System > Processing Pipelines and inspect each pipeline stage for a rule that checks the `timestamp` field age against the current server time using a `period()` or date comparison function.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Graylog: System > Processing Pipelines > Manage Rules > [Review each rule for timestamp age conditions]",
+        "expected_output": "A rule with a condition like `timestamp < now() - period('PT5M')` that triggers rejection or quarantine of old messages."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "60",
+      "300",
+      "600",
+      "3600"
+    ]
+  },
+  {
+    "option_name": "log_message_sanitization_enforced",
+    "option_description": "Controls whether the log pipeline actively sanitizes incoming log message content before ingestion — stripping or escaping newline characters (\\n, \\r), null bytes, ANSI escape sequences, printf-style format specifiers (%s, %n, %x), and other control characters that could corrupt log parsing or enable log injection attacks at the monitoring service.",
+    "security_impact": "The Rego rule `log_injection_via_malformed_messages` fires unconditionally when `log_message_sanitization_enforced` is false, generating a medium-criticality score-5 exposure. Without sanitization, a compromised upstream service or MITM attacker can craft log messages containing embedded newlines to forge additional log entries, format strings to exploit vulnerable log parsers, or ANSI escape codes to corrupt terminal-based log viewers. This maps to T1001.003 (Protocol/Service Impersonation via injected fake log records) and T1557 (Adversary-in-the-Middle log manipulation).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the log shipper and any ingest pipeline configuration for sanitization filters. In Fluentd, look for `<filter>` blocks using `record_transformer` with `gsub` or a `grep` filter rejecting control characters. In Logstash, look for `mutate { gsub }` filters targeting `\\n`, `\\r`, `%[sdx]`, or ANSI codes. In Vector, look for `remap` transforms using `replace` or `strip_ansi_escape_codes` functions.",
+        "command": null,
+        "file_path": "/etc/fluentd/fluent.conf, /etc/logstash/conf.d/*.conf, /etc/vector/vector.toml, /etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "A filter or transform stage with explicit regex or function calls stripping control characters and format strings. Absence indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "Search all pipeline configuration files for sanitization-related keywords covering newline stripping, ANSI code removal, and format-string filtering.",
+        "command": "grep -rEi 'gsub|sanitize|strip.*ansi|escape.*control|newline|\\\\\\\\n|format.string|%[sdxn]|null.byte' /etc/fluentd/ /etc/logstash/ /etc/vector/ /etc/filebeat/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing sanitization rules applied to message fields. No relevant output indicates sanitization is not enforced."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Submit a test log record containing an embedded newline and a format string directly to the log collector endpoint and verify it is either rejected or arrives sanitized.",
+        "command": "echo '{\"message\":\"normal log\\nINJECTED fake entry %s %n\",\"level\":\"info\"}' | curl -s -X POST 'http://localhost:8080/log' -H 'Content-Type: application/json' -d @-",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The collector rejects the record (non-2xx response) or the stored record shows the newline and format specifiers escaped/removed. Acceptance of the raw malicious payload confirms sanitization is false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Graylog, navigate to System > Processing Pipelines > Manage Rules and look for rules that apply `replace` or `regex_replace` functions to the `message` field targeting control characters. In Splunk, check Settings > Data Inputs > Source type transforms for TRANSFORMS with REGEX scrubbing on message content.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Graylog: System > Processing Pipelines > Manage Rules; Splunk: Settings > Data Inputs > [SourceType] > Event Transforms",
+        "expected_output": "A rule or transform applying regex replacement to strip control characters and format strings from the message field."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "log_schema_validation_enforced",
+    "option_description": "Controls whether the log collection service enforces strict schema or structural framing validation on every inbound log record at the ingestion point — rejecting or quarantining records that contain unexpected fields, missing required fields, invalid data types, or structurally malformed JSON/syslog framing that deviates from the expected schema.",
+    "security_impact": "The Rego rule `log_injection_via_malformed_messages` fires unconditionally when `log_schema_validation_enforced` is false, alongside the sanitization check. Schema validation is a complementary defense: even if content is sanitized, a structurally malformed record (e.g., extra injected JSON keys, oversized syslog PRI values, or fields with wrong types) can exploit parser bugs in the monitoring service to corrupt indices, cause false alerts, or mask real events. This maps to T1001.003 and T1557 in the Rego policy.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the collector ingest pipeline for schema enforcement configuration. In Elasticsearch, look for Index Templates with strict `dynamic: strict` or `dynamic: false` mappings. In Logstash, look for validation filters using `json` codec with schema enforcement or a `ruby` filter with field whitelisting. In Loki, check for label validation rules. In Graylog, inspect the 'Message Input' extractor configuration for strict field parsing.",
+        "command": null,
+        "file_path": "/etc/logstash/conf.d/*.conf, /etc/elasticsearch/elasticsearch.yml, /etc/loki/loki.yaml, /etc/graylog/server/server.conf",
+        "navigation": null,
+        "expected_output": "An index template with `dynamic: strict`, a validation filter with field whitelisting, or a schema definition rejecting extra fields. Absence indicates false."
+      },
+      {
+        "type": "command",
+        "instruction": "Query Elasticsearch for index templates applied to log indices and check whether `dynamic` mapping is set to `strict` or `false`, which enforces schema by rejecting unknown fields.",
+        "command": "curl -s -u elastic:PASSWORD 'http://localhost:9200/_index_template/logs*?pretty' | python3 -c \"import sys,json; t=json.load(sys.stdin); [print(n, 'dynamic:', t['index_templates'][i]['index_template'].get('template',{}).get('mappings',{}).get('dynamic','not_set')) for i,n in enumerate(t.get('index_templates',{}))]\" 2>/dev/null | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'dynamic: strict' or 'dynamic: false' for log index templates confirms schema enforcement. 'dynamic: true' or 'not_set' indicates schema validation is not enforced."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Elasticsearch Kibana, navigate to Stack Management > Index Management > Index Templates, select the template applied to log indices, and inspect the Mappings tab for the `dynamic` setting. In Splunk, navigate to Settings > Source Types and review the field extraction configuration for strict parsing rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kibana: Stack Management > Index Management > Index Templates > [logs template] > Mappings; Splunk: Settings > Source Types > [log source type] > Field Extractions",
+        "expected_output": "`dynamic: strict` in Elasticsearch, or field extraction rules in Splunk that explicitly reject records with unexpected fields or structural anomalies."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Submit a structurally invalid log record (extra unexpected top-level fields, missing required fields) to the collector endpoint and verify it is rejected.",
+        "command": "curl -s -o /dev/null -w '%{http_code}' -X POST 'http://localhost:9200/logs-test/_doc' -H 'Content-Type: application/json' -d '{\"message\":\"test\",\"INJECTED_FIELD\":\"unexpected\",\"__proto__\":{\"polluted\":true}}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 400 response indicating schema rejection of unknown fields. HTTP 201 confirms schema validation is not enforced (false)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "syslog_transport_protocol",
+    "option_description": "Specifies the network transport protocol used to forward syslog messages to the log aggregation or monitoring service. Options are UDP (connectionless, no delivery guarantee, no encryption), TCP (connection-oriented, delivery guarantee, no native encryption), TLS (TCP with TLS encryption and optional certificate validation), and RELP (Reliable Event Logging Protocol — TCP-based with application-layer acknowledgment and optional TLS).",
+    "security_impact": "The Rego rule `insecure_protocol_selection_udp_syslog` fires unconditionally when `syslog_transport_protocol == 'udp'`, regardless of TLS state (a second condition also fires explicitly). UDP syslog provides no delivery guarantees, no connection state, allows source IP spoofing, and carries no encryption. Logs can be silently dropped, spoofed by any host on the same broadcast domain, or intercepted via T1048.003 (Exfiltration Over Unencrypted Non-C2 Protocol). RELP with TLS is the strongest option; TLS over TCP is the minimum acceptable configuration for production log pipelines.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the syslog daemon configuration for the transport directive. In rsyslog, `*.* @host:514` uses UDP (single @) while `*.* @@host:514` uses TCP (double @@); `*.* @@(o)host:514` uses TCP with RELP; TLS is configured via `omfwd` with `StreamDriver=gtls`. In syslog-ng, look for `transport(udp)`, `transport(tcp)`, or `transport(tls)` inside `destination` blocks.",
+        "command": null,
+        "file_path": "/etc/rsyslog.conf, /etc/rsyslog.d/*.conf, /etc/syslog-ng/syslog-ng.conf, /etc/syslog-ng/conf.d/*.conf",
+        "navigation": null,
+        "expected_output": "A transport directive clearly indicating udp, tcp, tls, or relp. Single @ in rsyslog confirms UDP."
+      },
+      {
+        "type": "command",
+        "instruction": "Extract and display the transport directive lines from rsyslog and syslog-ng configuration files to identify the protocol in use.",
+        "command": "grep -hE '^\\s*\\*\\.\\*\\s+@|omfwd|transport\\s*=|StreamDriver' /etc/rsyslog.conf /etc/rsyslog.d/*.conf /etc/syslog-ng/syslog-ng.conf /etc/syslog-ng/conf.d/*.conf 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines like `*.* @loghost:514` (UDP), `*.* @@loghost:514` (TCP), `StreamDriver=gtls` (TLS), or `transport(relp)` confirming the protocol."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Check which port and protocol the syslog daemon is actively sending to by inspecting established connections or UDP sockets from the syslog process.",
+        "command": "ss -tunp | grep -E 'rsyslog|syslog-ng|syslogd' | awk '{print $1, $5, $6}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "UDP entries (udp) indicate UDP syslog. TCP entries on port 514 indicate plain TCP. TCP on port 6514 with TLS negotiation indicates TLS syslog. Absence of matching entries may indicate syslog is not actively forwarding."
+      },
+      {
+        "type": "command",
+        "instruction": "If using systemd-journald forwarding, check the ForwardToSyslog and journal remote configuration for the transport type used to forward to the central collector.",
+        "command": "grep -E 'ForwardToSyslog|URL|ServerName|ServerCert|KeyFile' /etc/systemd/journald.conf /etc/systemd/journal-remote.conf /etc/systemd/journal-upload.conf 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A URL starting with `https://` or certificate file references indicate TLS transport. `http://` or absence of cert references indicates unencrypted transport (effectively udp or tcp)."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "udp",
+      "tcp",
+      "tls",
+      "relp"
+    ]
+  },
+  {
+    "option_name": "log_network_path_type",
+    "option_description": "Classifies the network path over which log traffic travels from producer services to the monitoring collector, capturing the degree of physical and logical isolation of the log transport segment (e.g., dedicated isolated VLAN, shared internal segment, untrusted VLAN, or public transit).",
+    "security_impact": "The Rego policy flags log_stream_eavesdropping_via_span_or_tap when log_network_path_type is 'shared' and TLS is absent, and flags internal_routing_path_exposure when the value is 'untrusted_vlan', 'shared_internal', or 'public_transit' without network segmentation controls. Shared and untrusted paths widen the SPAN/TAP interception surface and expose log traffic to adversarial sniffing (MITRE T1040) and network boundary bridging (T1599).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Trace the routing path from a log producer host to the log collector and identify which VLAN IDs and interfaces are traversed.",
+        "command": "traceroute -n <log_collector_ip> && ip route get <log_collector_ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Hop list reveals whether traffic crosses multiple VLANs or stays on a single dedicated segment; compare VLAN tags against network diagram."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect VLAN membership and trunk configuration on the switch serving the log producer to determine if log traffic shares a trunk with untrusted VLANs.",
+        "command": "show interfaces trunk | grep -A5 <uplink_interface>  # Cisco IOS; or 'bridge vlan show' on Linux with 802.1Q bridges",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists allowed VLANs per trunk port; cross-reference against the VLAN assigned to log traffic to assess co-tenancy with untrusted segments."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the network management platform (e.g., SolarWinds NTA, Cisco DNA Center, NSX-T Manager), open the topology view, locate the log producer and log collector nodes, and trace the path to identify VLAN assignments and transit segments.",
+        "command": null,
+        "file_path": null,
+        "navigation": "NSX-T Manager → Networking → Segments → select log-transport segment → view connected entities and VLAN binding; or Cisco DNA Center → Provision → Network Topology → select device → View Details → VLAN table",
+        "expected_output": "Segment details show whether a dedicated VLAN/segment exists exclusively for log traffic or whether it is shared with application or untrusted traffic."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the network architecture documentation and IPAM records to confirm the subnet and VLAN ID used by log shippers, then cross-reference with the VLAN classification register.",
+        "command": null,
+        "file_path": "/etc/network/interfaces  # or /etc/sysconfig/network-scripts/ifcfg-<iface> on RHEL; check VLAN tag in 'vlan-raw-device' or 'VLAN_ID' fields",
+        "navigation": null,
+        "expected_output": "VLAN ID present in interface config; compare to VLAN classification register to determine if it is dedicated_isolated, dedicated_vlan, shared_internal, untrusted_vlan, or public_transit."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "shared",
+      "shared_internal",
+      "dedicated_vlan",
+      "untrusted_vlan"
+    ]
+  },
+  {
+    "option_name": "network_segmentation_controls_present",
+    "option_description": "Indicates whether network segmentation controls such as ACLs, stateful firewall rules, or microsegmentation policies (e.g., VMware NSX, Calico NetworkPolicy, AWS Security Groups) are in place to restrict log traffic to authorized producer-to-collector paths and prevent lateral access from other hosts.",
+    "security_impact": "The Rego policy triggers internal_routing_path_exposure when log_network_path_type is 'untrusted_vlan', 'shared_internal', or 'public_transit' AND network_segmentation_controls_present is false. Without these controls, any host on the shared segment can receive mirrored log traffic or inject packets toward the collector, enabling network boundary bridging (T1599) and NAT traversal attacks (T1599.001).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List firewall or ACL rules on the log producer host to confirm that outbound log traffic is restricted to the collector's IP and port only.",
+        "command": "iptables -L OUTPUT -n -v | grep -E '<collector_ip>|<log_port>'  # Linux; or 'nft list ruleset | grep -A3 log' for nftables",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An ACCEPT rule matching destination <collector_ip> port <log_port> (e.g., 5044/tcp for Beats, 514/tcp for syslog-TLS, 6514/tcp for RFC 5425) with all other traffic DROPped or REJECTed."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Calico or Kubernetes NetworkPolicy objects to confirm that log shipper pods are restricted to egress toward the log collector namespace/IP only.",
+        "command": "kubectl get networkpolicy -n <log-shipper-namespace> -o yaml | grep -A20 'egress'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NetworkPolicy egress rules list only the collector's service CIDR or pod selector; absence of egress rules or a wildcard indicates controls are missing."
+      },
+      {
+        "type": "gui",
+        "instruction": "In VMware NSX-T or a cloud security group console, inspect the distributed firewall rule set applied to the log-transport segment and verify that only producer→collector flows are permitted.",
+        "command": null,
+        "file_path": null,
+        "navigation": "NSX-T Manager → Security → Distributed Firewall → select policy applied to log-transport segment → review rules; or AWS Console → VPC → Security Groups → select group attached to log shipper ENI → Outbound Rules",
+        "expected_output": "Rules list explicitly permits destination port and IP of collector; no broad 'any' destination rules present."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review router or switch ACL configuration files for permit/deny statements governing the log VLAN or subnet.",
+        "command": null,
+        "file_path": "/etc/network/acl.conf  # or export from Cisco IOS: 'show ip access-lists' then compare to running-config",
+        "navigation": null,
+        "expected_output": "ACL entries explicitly permit only the log collector IP and required port; implicit deny or explicit deny-all catches unauthorized flows."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "hostname_verification_enabled",
+    "option_description": "Controls whether the log shipping agent validates that the TLS certificate presented by the remote monitoring endpoint contains a Subject Alternative Name (SAN) or Common Name (CN) matching the configured collector hostname, preventing connection to rogue endpoints presenting valid but mismatched certificates.",
+    "security_impact": "The Rego policy fires certificate_validation_bypass_in_log_agent when hostname_verification_enabled is false. Disabling hostname verification allows an attacker with a valid certificate for any domain to perform a TLS man-in-the-middle interception of log traffic (MITRE T1587.003, T1649), silently collecting credentials, stack traces, and internal topology data carried in log messages.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Filebeat or Elastic Agent configuration for the ssl.verification_mode directive; a value other than 'full' indicates hostname verification may be disabled.",
+        "command": null,
+        "file_path": "/etc/filebeat/filebeat.yml  # or /etc/elastic-agent/elastic-agent.yml",
+        "navigation": null,
+        "expected_output": "ssl.verification_mode: full  — any value of 'certificate', 'none', or absence of this key with a non-default build indicates hostname verification is not enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Fluentd/td-agent, inspect the <match> or <store> block for tls_verify_hostname or insecure settings.",
+        "command": null,
+        "file_path": "/etc/td-agent/td-agent.conf  # or /etc/fluentd/fluent.conf",
+        "navigation": null,
+        "expected_output": "tls_verify_hostname true should be present; absence or explicit 'false' means hostname verification is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Use OpenSSL to simulate the log agent's TLS handshake and confirm the certificate hostname matches the configured collector FQDN.",
+        "command": "openssl s_client -connect <collector_host>:<port> -servername <collector_host> 2>&1 | grep -E 'subject|CN|SAN|Verify return'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CN or SAN field matches <collector_host>; 'Verify return code: 0 (ok)' confirms a correct match. A mismatch tolerated by the agent confirms verification is bypassed."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For rsyslog TLS (gtls driver), review the action or input directives for StreamDriverPermittedPeers and DefaultNetstreamDriver settings.",
+        "command": null,
+        "file_path": "/etc/rsyslog.conf  # or /etc/rsyslog.d/*.conf",
+        "navigation": null,
+        "expected_output": "$ActionSendStreamDriverPermittedPeers <collector_fqdn> should be set; absence means no hostname check is enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "tls_verification_mode",
+    "option_description": "Specifies the strictness level of TLS certificate verification performed by the log shipping agent when establishing outbound connections to the log aggregation endpoint. 'full' enforces both certificate chain validation and hostname matching; 'certificate' validates the chain but skips hostname; 'none' and 'skip' disable all verification.",
+    "security_impact": "The Rego policy triggers certificate_validation_bypass_in_log_agent for values 'none' or 'skip' (complete bypass), and also for 'certificate' when certificate_authority_pinning_configured is false (chain validation without hostname or pinning is insufficient against rogue CAs). Both conditions allow an adversary to intercept TLS log traffic with a forged certificate (T1587.003, T1649) without detection by the agent.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the Filebeat configuration file for the ssl.verification_mode setting under the Logstash or Elasticsearch output block.",
+        "command": null,
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "output.logstash.ssl.verification_mode: full  — values of 'certificate', 'none', or 'skip' indicate degraded or absent verification."
+      },
+      {
+        "type": "command",
+        "instruction": "Grep all log shipper configuration files for common verification bypass directives across Filebeat, Vector, Fluentd, and Logstash.",
+        "command": "grep -rE '(tls_skip_verify|insecure_skip_verify|ssl.verification_mode|tls_verify|verify_mode|insecure)' /etc/filebeat/ /etc/vector/ /etc/td-agent/ /etc/logstash/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any line containing 'skip', 'none', 'false', or 'insecure: true' indicates bypassed verification; 'full' or 'true' indicates correct configuration."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Vector, inspect the TLS configuration block within the sink definition for the monitoring endpoint.",
+        "command": null,
+        "file_path": "/etc/vector/vector.toml  # or /etc/vector/vector.yaml",
+        "navigation": null,
+        "expected_output": "[sinks.<name>.tls] verify_certificate = true and verify_hostname = true should both be present and set to true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Connect to the log collector using a self-signed certificate not matching the collector hostname and observe whether the agent accepts or rejects the connection, confirming actual runtime verification behavior.",
+        "command": "openssl s_client -connect <collector_ip>:<port> -servername wronghost.example.com 2>&1 | grep -E 'Verify|error|alert'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A correctly configured agent should log a TLS handshake failure; if logs show successful connection to the rogue host, verification is disabled at runtime."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "full",
+      "certificate",
+      "none",
+      "skip"
+    ]
+  },
+  {
+    "option_name": "certificate_authority_pinning_configured",
+    "option_description": "Indicates whether the log shipping agent is configured to accept TLS certificates only from a specific trusted Certificate Authority (CA) or a pinned certificate fingerprint, preventing acceptance of certificates issued by arbitrary or rogue CAs that may be trusted by the OS root store.",
+    "security_impact": "The Rego policy fires certificate_validation_bypass_in_log_agent when tls_verification_mode is 'certificate' and certificate_authority_pinning_configured is false. Without CA pinning, an attacker who controls a CA trusted by the host OS (or who installs a rogue CA via malware) can issue a valid certificate for the collector hostname and intercept log traffic, stealing credentials and operational data (T1587.003, T1649).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Filebeat configuration for the ssl.certificate_authorities directive pointing to a specific internal CA bundle rather than relying on system trust store.",
+        "command": null,
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "ssl.certificate_authorities: ['/etc/filebeat/certs/internal-ca.crt']  — absence of this directive means the agent uses the OS trust store with no pinning."
+      },
+      {
+        "type": "command",
+        "instruction": "Search log shipper configuration directories for CA certificate file references or fingerprint pinning directives.",
+        "command": "grep -rE '(certificate_authorities|ca_file|ca_cert|tls.ca|ssl.ca|fingerprint|cert_fingerprint)' /etc/filebeat/ /etc/vector/ /etc/td-agent/ /etc/logstash/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A path to a CA PEM file or a SHA-256 fingerprint value should be present; absence indicates no pinning is configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Fluentd with fluent-plugin-secure-forward or built-in TLS, check for ca_cert_path or ca_path in the match block.",
+        "command": null,
+        "file_path": "/etc/td-agent/td-agent.conf",
+        "navigation": null,
+        "expected_output": "ca_cert_path /etc/td-agent/certs/ca.crt should reference a specific internal CA; system_cert_store: true without an additional ca_cert_path indicates reliance on OS trust store only."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Vector sinks, check for the ca_file directive under the tls configuration block.",
+        "command": null,
+        "file_path": "/etc/vector/vector.toml",
+        "navigation": null,
+        "expected_output": "[sinks.<name>.tls] ca_file = \"/etc/vector/certs/internal-ca.pem\"  — absence means Vector uses the system CA bundle without pinning."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "per_source_rate_limiting_enabled",
+    "option_description": "Controls whether the log transport pipeline enforces rate limits on a per-source-service basis, capping the volume of log messages any single producer can inject into the shared log channel within a given time window, preventing one runaway or compromised service from monopolizing transport capacity.",
+    "security_impact": "The Rego policy unconditionally triggers absent_rate_limiting_and_bandwidth_controls when per_source_rate_limiting_enabled is false. Without per-source limits, a misconfigured or attacker-controlled service can flood the log channel, causing silent log loss for all other services (MITRE T1499.002 Service Exhaustion Flood) and creating monitoring blind spots that conceal concurrent attacks. Log flooding is also a known technique to exhaust SIEM ingest quotas.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Logstash pipeline configuration for throttle filter plugins or rate-limit input settings applied per source tag or IP.",
+        "command": null,
+        "file_path": "/etc/logstash/conf.d/*.conf  # or /usr/share/logstash/pipeline/",
+        "navigation": null,
+        "expected_output": "A 'throttle' filter block with 'before_count', 'after_count', and 'period' settings, keyed by '%{host}' or '%{source}', indicates per-source rate limiting is configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the Fluentd configuration for a throttle or bandwidth_limiter plugin applied per source tag.",
+        "command": null,
+        "file_path": "/etc/td-agent/td-agent.conf  # or /etc/fluentd/fluent.conf",
+        "navigation": null,
+        "expected_output": "<filter **> @type throttle group_key ${tag} group_bucket_limit 1000 group_reset_rate 100 </filter>  — absence of any throttle filter means no per-source rate limiting is in place."
+      },
+      {
+        "type": "command",
+        "instruction": "For Vector, inspect pipeline configuration files for the rate_limit_duration_secs and rate_limit_num directives within transform or sink components.",
+        "command": "grep -rE '(rate_limit|throttle|burst|max_events)' /etc/vector/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "rate_limit_num and rate_limit_duration_secs present in a remap or throttle transform component; absence indicates no rate limiting."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review rsyslog rate-limiting directives (imuxsock, imtcp, or imrelp input module settings) for per-source message rate controls.",
+        "command": null,
+        "file_path": "/etc/rsyslog.conf  # or /etc/rsyslog.d/49-network.conf",
+        "navigation": null,
+        "expected_output": "module(load=\"imtcp\" MaxSessions=\"500\") with RateLimit.Interval and RateLimit.Burst parameters set per input; absence means rsyslog accepts unlimited messages per source."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "backpressure_mechanism_configured",
+    "option_description": "Indicates whether the log transport pipeline implements a backpressure or flow-control mechanism that signals upstream log producers to reduce their send rate when the downstream channel, buffer, or collector is saturated, rather than silently dropping excess log records.",
+    "security_impact": "The Rego policy fires absent_rate_limiting_and_bandwidth_controls when backpressure_mechanism_configured is false AND the log_channel_overflow_policy is 'drop_oldest', 'drop_newest', or 'not_configured'. Without backpressure, buffer saturation caused by a flooding service (T1499.002) or a slow collector results in silent, unacknowledged log loss across all producers, creating monitoring blind spots that enable indicator blocking (T1562.006) and mask concurrent attacks.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check whether Filebeat or Elastic Agent is configured with a persistent queue (disk-based) and acknowledgement-based delivery to provide natural backpressure to the OS process writing logs.",
+        "command": null,
+        "file_path": "/etc/filebeat/filebeat.yml  # or /etc/elastic-agent/elastic-agent.yml",
+        "navigation": null,
+        "expected_output": "queue.disk: max_size: 10gb or queue.mem with flush.min_events and flush.timeout indicates buffered delivery; output.logstash.pipelining > 0 with ACK tracking indicates backpressure-capable transport. Absence means memory-only queue with silent drop on overflow."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Logstash, verify that persistent queues are enabled, which naturally provide backpressure by blocking input plugins when the queue is full.",
+        "command": null,
+        "file_path": "/etc/logstash/logstash.yml",
+        "navigation": null,
+        "expected_output": "queue.type: persisted with queue.max_bytes: <size> and queue.drain: true — 'queue.type: memory' without overflow controls means no durable backpressure."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Vector's acknowledgements and buffering configuration to determine whether it uses disk buffers with blocking overflow behavior.",
+        "command": null,
+        "file_path": "/etc/vector/vector.toml",
+        "navigation": null,
+        "expected_output": "[sinks.<name>.buffer] type = \"disk\" max_size = 10737418240 when_full = \"block\"  — when_full = \"drop_newest\" or absence of a disk buffer indicates no true backpressure."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kafka-backed log pipelines, check producer configuration for 'block.on.buffer.full' or 'max.block.ms' settings that implement backpressure at the producer level.",
+        "command": "grep -rE '(block.on.buffer|max.block.ms|queue.buffering|backpressure)' /etc/kafka/ /etc/filebeat/ /etc/logstash/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "max.block.ms set to a non-zero value (e.g., 60000) or block.on.buffer.full=true indicates Kafka producer will block on backpressure; absence or max.block.ms=0 means non-blocking drop behavior."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "log_channel_overflow_policy",
+    "option_description": "Defines the behavior of the log transport buffer or message queue when it reaches capacity: whether excess log records are silently discarded (drop_oldest, drop_newest), the producer is blocked until space is available (block), excess records are spilled to persistent disk storage (disk_buffer), or no policy is configured (not_configured), which typically defaults to silent dropping.",
+    "security_impact": "The Rego policy fires absent_rate_limiting_and_bandwidth_controls when backpressure_mechanism_configured is false AND log_channel_overflow_policy is 'drop_oldest', 'drop_newest', or 'not_configured'. Silent dropping of logs during a flood event (whether accidental or attacker-induced via T1499.002) creates monitoring blind spots that enable indicator blocking (T1562.006) and allow attackers to mask activity by triggering overflow. Only 'block' or 'disk_buffer' policies preserve log integrity under load.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect Logstash's logstash.yml for queue.type and the overflow behavior when the persistent queue is full (controlled by the dead_letter_queue or pipeline worker blocking).",
+        "command": null,
+        "file_path": "/etc/logstash/logstash.yml",
+        "navigation": null,
+        "expected_output": "queue.type: persisted with no explicit drop configuration defaults to blocking (producer workers block); queue.type: memory with no dead_letter_queue means events are dropped silently on overflow — classify as 'drop_newest'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Vector, check the when_full parameter in the buffer configuration block for each sink to determine the overflow policy.",
+        "command": null,
+        "file_path": "/etc/vector/vector.toml  # or /etc/vector/vector.yaml",
+        "navigation": null,
+        "expected_output": "[sinks.<name>.buffer] when_full = \"block\"  — values of 'drop_newest' or absence of a disk buffer with no explicit block policy map to 'drop_newest' or 'not_configured'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Kafka producer configurations used as a log transport broker, inspect the producer's queue.buffering.max.messages and queue.buffering.max.ms alongside the behavior on buffer full.",
+        "command": null,
+        "file_path": "/etc/kafka/producer.properties  # or application-level producer config",
+        "navigation": null,
+        "expected_output": "max.block.ms > 0 maps to 'block'; queue.buffering.overflow.strategy=drop_oldest or drop_newest maps accordingly; absence of explicit settings with default librdkafka behavior typically results in 'drop_oldest'."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the Fluentd or td-agent buffer configuration for overflow_action to determine the configured policy.",
+        "command": "grep -rA5 '<buffer>' /etc/td-agent/td-agent.conf /etc/fluentd/fluent.conf 2>/dev/null | grep -E '(overflow_action|queued_chunks_limit|total_limit)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "overflow_action block indicates backpressure; overflow_action drop_oldest or drop_newest indicates silent log loss; absence of overflow_action defaults to 'throw_exception' which may cause producer errors but does not persist logs — classify as 'drop_newest' equivalent."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "drop_oldest",
+      "drop_newest",
+      "not_configured",
+      "disk_buffer",
+      "block"
+    ]
+  },
+  {
+    "option_name": "switch_port_mirror_audit_enabled",
+    "option_description": "Controls whether network infrastructure monitoring is in place to detect unauthorized SPAN sessions, TAP configurations, or port mirroring on switches handling log transport traffic. When enabled, alerts fire on unexpected mirror session creation or changes to switch mirror configurations.",
+    "security_impact": "The Rego policy fires the log_stream_eavesdropping_via_span_or_tap exposure when switch_port_mirror_audit_enabled is false AND log transport TLS is not enabled. SPAN/TAP attacks are silent — they duplicate traffic without disrupting the flow, enabling long-term passive collection of log contents (MITRE T1040, T1020.001). Without this audit control, an attacker with switch access can mirror the log transport segment indefinitely without detection. Even when TLS is present, absence of SPAN auditing leaves the physical interception path unmonitored. Setting this to true requires evidence of active compliance scanning or SNMP/syslog alerting on mirror config changes.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query Cisco IOS/IOS-XE switches in the log transport path for active SPAN sessions and verify whether SNMP traps are configured to alert on configuration changes.",
+        "command": "show monitor session all | grep -E '(Session|Source|Destination|Status)' && show snmp trap | grep config",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active SPAN sessions should be documented and expected. SNMP trap output should show 'config' traps enabled and pointing to a SIEM or NMS collector IP."
+      },
+      {
+        "type": "command",
+        "instruction": "On Arista EOS or Juniper switches, list mirror/monitoring sessions and confirm syslog is forwarding configuration change events to the central monitoring service.",
+        "command": "show monitor session | cat && show logging | grep -i 'mirror\\|span\\|monitor'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only documented mirror sessions appear. Syslog output shows configuration events are being forwarded. Absence of any logging config suggests audit is disabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In your network management platform (e.g., SolarWinds NTA, Cisco DNA Center, or Zabbix), navigate to the switch compliance policy section and verify an alert rule exists for SPAN/mirror session creation on switches in the log transport VLAN.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cisco DNA Center: Assurance > Network Settings > Compliance Policy > Search 'SPAN' | SolarWinds: Alerts > Manage Alerts > Filter by 'port mirror' or 'SPAN'",
+        "expected_output": "An active alert policy targeting switches in the log forwarding segment with trigger condition on monitor session configuration changes, with confirmed recent alert history or test execution."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network operations team to determine if configuration compliance scanning (e.g., Cisco CX, Rancid/Oxidized with diff alerting, or Ansible audit playbooks) runs against switches in the log path and whether SPAN creation generates a ticket or alert.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team can demonstrate a runbook or ticketing integration where switch config diffs including 'monitor session' commands trigger an alert. No such process or tool confirms the attribute should be set to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  }
+]

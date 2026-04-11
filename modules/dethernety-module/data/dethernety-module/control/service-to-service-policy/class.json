@@ -1,0 +1,8 @@
+{
+  "name": "Service-to-Service Policy",
+  "classType": "control",
+  "type": "control",
+  "description": "Service-to-service authentication and authorization enforcement provides cryptographic identity verification and policy-based access control across internal service mesh boundaries, eliminating implicit trust between microservices and ensuring only authorized service principals can invoke protected endpoints.",
+  "category": "Application Security",
+  "status": "reviewed"
+}

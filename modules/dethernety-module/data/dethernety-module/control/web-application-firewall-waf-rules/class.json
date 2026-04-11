@@ -1,0 +1,8 @@
+{
+  "name": "Web Application Firewall (WAF) Rules",
+  "classType": "control",
+  "type": "control",
+  "description": "A Web Application Firewall (WAF) providing application-layer protection through configurable rule sets, delivering detection accuracy, prevention coverage, and operational visibility for web server traffic.",
+  "category": "Application Security",
+  "status": "reviewed"
+}

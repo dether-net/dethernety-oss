@@ -1,0 +1,1438 @@
+[
+  {
+    "option_name": "ingress_allowlist_enforced",
+    "option_description": "Controls whether a positive (allowlist) ingress filtering policy is active on the application tier boundary, ensuring only explicitly permitted traffic from the DMZ or presentation layer is accepted and all other traffic is implicitly denied.",
+    "security_impact": "The Rego policy fires the 'insufficient_ingress_filtering_from_dmz' exposure whenever 'not input.ingress_allowlist_enforced' evaluates true. Without an allowlist posture, any source can attempt connections to application servers, enabling network boundary bridging (T1599) and alternative-protocol exfiltration (T1048). This is the foundational gate that all other ingress controls depend upon.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, list all security group inbound rules for application tier instances and check whether a catch-all 0.0.0.0/0 deny is absent (security groups are default-deny, so verify no over-permissive allow exists) and that only explicit permit rules are present.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:Tier,Values=application --query 'SecurityGroups[*].{ID:GroupId,Name:GroupName,Ingress:IpPermissions}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON listing inbound rules; absence of 0.0.0.0/0 allow-all entries and presence of specific source CIDR permit rules confirms an allowlist posture."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux hosts using iptables, dump the INPUT chain rules to verify a default DROP policy and explicit ACCEPT rules for known sources only.",
+        "command": "iptables -L INPUT -n -v --line-numbers",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Chain INPUT policy DROP with numbered ACCEPT rules specifying known source IPs or subnets only; no blanket ACCEPT rule should appear."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Management Console, navigate to EC2 > Security Groups, filter by the application tier tag, and inspect each security group's Inbound Rules tab to confirm all rules specify explicit source CIDR ranges rather than 0.0.0.0/0 or ::/0.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > EC2 > Security Groups > [Filter: Tag=Tier:application] > Select Group > Inbound Rules tab",
+        "expected_output": "All inbound rules display specific CIDR sources (e.g., 10.0.1.0/24) rather than 0.0.0.0/0; no wildcard source entries present."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If using nftables on RHEL/Rocky Linux application servers, inspect the nftables ruleset configuration file for the input chain default policy and explicit accept rules.",
+        "command": "nft list ruleset | grep -A 30 'chain input'",
+        "file_path": "/etc/nftables.conf",
+        "navigation": null,
+        "expected_output": "Chain input block shows 'type filter hook input priority 0; policy drop;' followed by specific ip saddr accept statements for DMZ subnets."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default, insecure)",
+      "true (allowlist enforced)"
+    ]
+  },
+  {
+    "option_name": "permitted_protocols",
+    "option_description": "Defines the explicit list of network protocols allowed through the ingress filter at the application tier boundary. This array captures every protocol that has an active permit rule, making over-permissiveness immediately visible when non-application protocols appear.",
+    "security_impact": "The Rego policy triggers 'insufficient_ingress_filtering_from_dmz' independently for each of SSH, RDP, and TELNET appearing in this array, even when ingress_allowlist_enforced is true. Management protocols permitted on the application ingress path expose remote service interfaces (T1021) and create vectors for network boundary bridging (T1599). Only application-layer protocols such as HTTPS should appear; presence of any management or infrastructure protocol constitutes a finding.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query AWS security group inbound rules for the application tier and extract the protocol and port fields to build the permitted protocol list.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:Tier,Values=application --query 'SecurityGroups[*].IpPermissions[*].{Proto:IpProtocol,FromPort:FromPort,ToPort:ToPort}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table showing protocol/port combinations; expected output contains only tcp/443 (HTTPS) and possibly tcp/80 (HTTP). Presence of tcp/22 (SSH), tcp/3389 (RDP), or tcp/23 (Telnet) indicates over-permissiveness."
+      },
+      {
+        "type": "command",
+        "instruction": "On the application tier firewall or host, use ss or netstat combined with iptables to enumerate which port/protocol combinations have active ACCEPT rules inbound.",
+        "command": "iptables -L INPUT -n | awk '/ACCEPT/ {print $0}' | grep -oP 'dpt:[0-9]+' | sort -u",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of destination ports with ACCEPT rules; should contain only application ports (443, 80). Ports 22, 23, 3389 should not appear."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If using a Palo Alto Networks or Fortinet perimeter firewall, export or view the security policy for the DMZ-to-AppTier zone pair and list all permitted application or service objects.",
+        "command": null,
+        "file_path": "/opt/panorama/exported_policy.xml",
+        "navigation": "Palo Alto Panorama > Policies > Security > [Filter Source Zone: DMZ, Destination Zone: AppTier] > Review Application/Service columns",
+        "expected_output": "Policy rows show 'ssl' or 'web-browsing' applications only. No entries for 'ssh', 'rdp', 'telnet', or 'icmp' in permitted services."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap from a DMZ test host to scan the application tier boundary on common management ports and confirm they are filtered or closed.",
+        "command": "nmap -p 22,23,3389,8080,443,80 --open <app_tier_subnet> -oN /tmp/app_tier_probe.txt",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ports 22, 23, and 3389 show as 'filtered' or 'closed'; only 443 (and optionally 80) show as 'open'."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['HTTPS']",
+      "['HTTPS', 'HTTP']",
+      "['HTTPS', 'HTTP', 'SSH']",
+      "['HTTPS', 'HTTP', 'RDP', 'ICMP']"
+    ]
+  },
+  {
+    "option_name": "source_ip_restriction_applied",
+    "option_description": "Controls whether ingress rules on the application tier boundary scope permitted traffic to specific, known source IP addresses or CIDR ranges (DMZ subnets, load balancer VIPs) rather than allowing broad any-source or 0.0.0.0/0 access.",
+    "security_impact": "The Rego policy fires 'insufficient_ingress_filtering_from_dmz' when ingress_allowlist_enforced is true but source_ip_restriction_applied is false. An allowlist of protocols without source IP pinning still permits any external host to attempt connections, enabling adversaries to bridge the network boundary (T1599) from arbitrary origins. Restricting sources to known DMZ or load balancer addresses closes this gap.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect AWS security group inbound rules and identify whether any ACCEPT rule uses 0.0.0.0/0 or overly broad /8 or /16 CIDRs as the source.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:Tier,Values=application --query 'SecurityGroups[*].IpPermissions[*].IpRanges[*].CidrIp' --output text | sort -u",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists only specific subnets (e.g., 10.0.1.0/28 for DMZ LB subnet). Presence of 0.0.0.0/0 or broad ranges like 10.0.0.0/8 indicates source restriction is not applied."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Linux host using iptables, list INPUT chain rules and extract source IP fields to verify they reference specific subnets.",
+        "command": "iptables -L INPUT -n | awk '/ACCEPT/ {print $4, $5}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each ACCEPT rule shows a specific source CIDR (e.g., 10.10.1.0/28) in the source column. '0.0.0.0/0' as a source on any ACCEPT rule fails this control."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Portal, navigate to the application tier Network Security Group, select Inbound Security Rules, and review the Source field for each Allow rule to confirm it references a specific IP group or subnet rather than 'Any' or 'Internet'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Network Security Groups > [AppTier-NSG] > Inbound Security Rules > Review Source column for all Allow rules",
+        "expected_output": "All Allow rules display specific IP address ranges or Application Security Group references; no rules show Source as 'Any' or 'Internet'."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Azure Resource Manager API to retrieve NSG rules and verify source address prefixes are not set to wildcard values.",
+        "command": "az network nsg rule list --nsg-name AppTier-NSG --resource-group <rg-name> --query '[?access==`Allow`].{Name:name,Source:sourceAddressPrefix,SourcePrefixes:sourceAddressPrefixes}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Source columns show specific CIDR ranges (e.g., 10.0.1.0/24). Values of '*', 'Internet', or 'Any' indicate source restriction is not applied."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default, any-source permitted)",
+      "true (scoped to DMZ/LB subnets)"
+    ]
+  },
+  {
+    "option_name": "default_ingress_policy",
+    "option_description": "Defines the fallback action taken by the application tier boundary firewall, security group, or network ACL when inbound traffic does not match any explicit permit rule. This is the foundational catch-all that determines whether unmatched traffic is dropped or passes through.",
+    "security_impact": "The Rego policy fires 'insufficient_ingress_filtering_from_dmz' when default_ingress_policy is 'allow_all' or 'not_configured', regardless of other control settings. A default-allow or unconfigured posture means any traffic not explicitly denied can reach application servers, enabling lateral movement, boundary bridging (T1599), and alternative-protocol abuse (T1048). Only 'deny_all' satisfies the policy.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the iptables INPUT chain default policy on Linux application servers to confirm it is DROP (deny_all) rather than ACCEPT or RETURN.",
+        "command": "iptables -L INPUT | head -1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Chain INPUT (policy DROP)' confirms deny_all. 'Chain INPUT (policy ACCEPT)' maps to allow_all and is a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS Network ACLs (stateless), list the rules and identify the lowest-priority rule to confirm a deny-all catch-all exists at the end of the ACL.",
+        "command": "aws ec2 describe-network-acls --filters Name=tag:Tier,Values=application --query 'NetworkAcls[*].Entries[?RuleAction==`deny`]|[*].{Rule:RuleNumber,CIDR:CidrBlock,Action:RuleAction}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A rule with RuleNumber 32767 (or the highest number) showing CIDR 0.0.0.0/0 and Action deny confirms deny_all default. Absence of this rule maps to not_configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Cisco ASA or IOS-based firewalls protecting the app tier, inspect the access-list applied to the DMZ-facing interface and confirm the last entry is an explicit deny.",
+        "command": "show access-list DMZ_TO_APP_ACL",
+        "file_path": "/running-config",
+        "navigation": null,
+        "expected_output": "Final ACL entry reads 'deny ip any any' confirming deny_all. If no such entry exists, the implicit deny is present in Cisco IOS but should be verified as not_configured for other platforms."
+      },
+      {
+        "type": "gui",
+        "instruction": "In GCP Console, navigate to VPC Network > Firewall Rules, filter by the application tier network tag, and confirm that an 'implied-deny-all' or explicit deny-all rule appears at the lowest priority.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GCP Console > VPC Network > Firewall Rules > [Filter: Target Tags = app-tier] > Review Priority and Action columns for the lowest-priority rule",
+        "expected_output": "A rule with the highest priority number (65534 or custom) showing Action 'Deny' and IP ranges '0.0.0.0/0' confirms deny_all. Only explicit Allow rules for known sources should precede it."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "deny_all (secure, expected)",
+      "allow_all (insecure)",
+      "not_configured (insecure default)"
+    ]
+  },
+  {
+    "option_name": "egress_acl_enforced",
+    "option_description": "Controls whether explicit port-level and protocol-level egress filtering rules are applied to outbound connections initiated by application tier servers toward backend systems such as databases, caches, and internal microservices.",
+    "security_impact": "The Rego policy fires 'unrestricted_egress_to_backend_tiers' when egress_acl_enforced is false. Without egress controls, a compromised application server can freely initiate connections to any backend system on any port, enabling direct exploitation of remote services (T1210) and data exfiltration (T1048). Egress ACLs are the first enforcement layer preventing an app-tier compromise from cascading to the data tier.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, check whether outbound rules on application tier security groups are restricted (non-default) or still set to the default allow-all egress rule.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:Tier,Values=application --query 'SecurityGroups[*].{ID:GroupId,Egress:IpPermissionsEgress}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Egress rules should list specific port/protocol/destination combinations. A single entry with IpProtocol '-1' and CidrIp '0.0.0.0/0' indicates egress_acl_enforced=false."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux application servers using iptables, list the OUTPUT chain to confirm explicit egress permit rules exist for backend ports rather than a blanket ACCEPT policy.",
+        "command": "iptables -L OUTPUT -n -v --line-numbers",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Chain OUTPUT (policy DROP)' with specific ACCEPT rules for backend ports (e.g., 5432 for PostgreSQL, 6379 for Redis) confirms egress_acl_enforced=true."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes environments, list NetworkPolicy objects in the application namespace and verify at least one egress NetworkPolicy is defined and applied to app pods.",
+        "command": "kubectl get networkpolicy -n app-tier -o yaml | grep -A 20 'egress:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows egress rules with specific ports and pod/namespace selectors. Absence of any egress stanza or a NetworkPolicy with an empty egress block indicates no egress ACL."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the Terraform or CloudFormation infrastructure-as-code definition for application tier security groups to determine if egress rules have been explicitly defined beyond the default allow-all.",
+        "command": null,
+        "file_path": "terraform/modules/app_tier/security_groups.tf",
+        "navigation": null,
+        "expected_output": "Resource blocks contain 'egress' rule definitions with specific from_port, to_port, protocol, and cidr_blocks values. Absence of explicit egress blocks or a single rule with protocol '-1' and cidr '0.0.0.0/0' maps to egress_acl_enforced=false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default, unrestricted egress)",
+      "true (explicit egress rules present)"
+    ]
+  },
+  {
+    "option_name": "permitted_egress_scope",
+    "option_description": "Characterizes how precisely outbound traffic from application tier components is constrained. 'unrestricted' means no meaningful egress filtering; 'port_only' means traffic is limited by port/protocol but any destination is reachable; 'specific_destination' means egress is scoped to both required ports and explicit backend IP addresses or subnets.",
+    "security_impact": "The Rego policy fires 'unrestricted_egress_to_backend_tiers' for 'unrestricted' unconditionally, and for 'port_only' when east_west_inspection_enabled is false. Port-only filtering still allows a compromised app server to reach any backend IP on the permitted port, enabling pivoting to unintended systems (T1210) and exfiltration (T1048). Only 'specific_destination' reliably constrains lateral movement potential.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect AWS security group egress rules and classify them: if CidrIp is '0.0.0.0/0' with no port restrictions it's unrestricted; if CidrIp is '0.0.0.0/0' with port restrictions it's port_only; if CidrIp references specific backend subnets it's specific_destination.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:Tier,Values=application --query 'SecurityGroups[*].IpPermissionsEgress[*].{Proto:IpProtocol,FromPort:FromPort,ToPort:ToPort,Dest:IpRanges[*].CidrIp}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rows showing specific CIDR destinations (e.g., 10.0.3.0/28) with explicit ports maps to specific_destination. '0.0.0.0/0' with ports maps to port_only. '0.0.0.0/0' with protocol '-1' maps to unrestricted."
+      },
+      {
+        "type": "command",
+        "instruction": "On Linux hosts, review iptables OUTPUT chain rules and classify egress scope by whether destination IP constraints (--dst) are present alongside port constraints (--dport).",
+        "command": "iptables -L OUTPUT -n --line-numbers | grep ACCEPT",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules showing both destination IP (e.g., 10.0.3.5) and destination port (--dport 5432) indicate specific_destination. Rules with port only and 0.0.0.0/0 destination indicate port_only."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Kubernetes NetworkPolicy egress rules to determine if egress is restricted to specific pod selectors and ports (specific_destination), ports only (port_only), or has no restrictions (unrestricted).",
+        "command": "kubectl get networkpolicy -n app-tier -o json | jq '.items[].spec.egress[] | {ports: .ports, to: .to}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Entries with both 'ports' and 'to' fields populated with specific values indicate specific_destination. 'ports' populated but 'to' empty or absent indicates port_only. Completely empty egress or no NetworkPolicy indicates unrestricted."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network or cloud security team to determine whether egress firewall rules for the application tier reference a named destination group (e.g., 'DatabaseServers' IP group) or only reference port numbers.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Team confirms egress rules reference named IP groups or specific CIDR blocks for each backend service, not just port numbers, confirming specific_destination scope."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "unrestricted (default, insecure)",
+      "port_only (partial control)",
+      "specific_destination (secure, expected)"
+    ]
+  },
+  {
+    "option_name": "east_west_inspection_enabled",
+    "option_description": "Controls whether traffic flowing laterally from application tier servers to backend tier systems (east-west) passes through an active inspection point such as an intrusion detection/prevention system, next-generation firewall, or service mesh with policy enforcement, rather than traversing directly without inspection.",
+    "security_impact": "The Rego policy fires 'unrestricted_egress_to_backend_tiers' when permitted_egress_scope is 'port_only' and east_west_inspection_enabled is false. Port-only filtering without inspection allows protocol abuse and payload-level attacks to pass undetected. East-west inspection is the detective and preventive control that compensates when destination-specific egress rules cannot be fully applied, blocking exploitation of remote services (T1210) and detecting exfiltration (T1048).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether a service mesh (Istio/Linkerd) is active on application tier pods and whether its policies are in ENFORCE mode rather than permissive/audit mode.",
+        "command": "kubectl get peerauthentication -n app-tier -o yaml | grep -E 'mode:|mtls:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'mode: STRICT' in PeerAuthentication confirms mTLS enforcement (inspection proxy active). 'mode: PERMISSIVE' or 'mode: DISABLE' indicates inspection is not enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify whether an inline IDS/IPS sensor or next-gen firewall is positioned in the traffic path by checking routing or security policy configurations on the network device handling app-to-backend traffic.",
+        "command": "show running-config | grep -A 5 'inspect'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'inspect http', 'inspect tcp', or similar policy-map entries confirming inline traffic inspection is active on the zone-pair handling east-west traffic."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Palo Alto Panorama or the firewall GUI, navigate to Policies > Security and verify that a security policy exists for the AppTier-to-BackendTier zone pair with an active Threat Prevention security profile attached.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Panorama > Policies > Security > [Filter Source Zone: AppTier, Destination Zone: BackendTier] > Review Profile column",
+        "expected_output": "Policy row shows a Threat Prevention or IPS profile name in the Profile column, not 'none'. Profile should be in blocking mode, not detection-only."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the current network architecture diagram from the infrastructure team and confirm whether a security appliance or sidecar proxy is physically or logically inline between the application subnet and database/backend subnet.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture diagram shows an inspection device (NGFW, IPS, or service mesh proxy) on the traffic path between the app and backend subnets. A direct route between subnets with no inspection hop indicates east_west_inspection_enabled=false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default, no inspection)",
+      "true (IDS/IPS or service mesh enforcing)"
+    ]
+  },
+  {
+    "option_name": "intra_zone_acl_enforced",
+    "option_description": "Controls whether explicit access control rules are applied to restrict peer-to-peer communication between components within the same application tier security boundary—specifically between web servers and application servers—preventing unrestricted east-west traversal within the zone.",
+    "security_impact": "The Rego policy fires 'east_west_lateral_movement_within_boundary' when intra_zone_acl_enforced is false (when microsegmentation technology is not 'none') and when both intra_zone_acl_enforced and east_west_traffic_monitored are absent. Without intra-zone ACLs, a compromised web server can directly communicate with any application server on any port, enabling lateral movement via exploitation of remote services (T1210) and abuse of software deployment tools (T1072) without crossing any monitored boundary.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In AWS, check whether application tier web servers and app servers reside in separate security groups with explicit allow rules between them rather than sharing a single security group with open intra-group communication.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:Tier,Values=application --query 'SecurityGroups[*].{SG:GroupId,Name:GroupName,IngressSources:IpPermissions[*].UserIdGroupPairs[*].GroupId}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Web-tier security group has inbound rules referencing the load balancer SG ID only. App-server security group has inbound rules referencing only the web-tier SG ID on specific application ports. Shared SG IDs or open intra-group rules indicate intra_zone_acl_enforced=false."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes environments, verify that NetworkPolicy objects exist in the application namespace that restrict pod-to-pod traffic to specific port/selector combinations rather than allowing all intra-namespace communication.",
+        "command": "kubectl get networkpolicy -n app-tier -o json | jq '.items[] | {name: .metadata.name, podSelector: .spec.podSelector, ingress: .spec.ingress}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each NetworkPolicy shows a specific podSelector (e.g., role=web-server or role=app-server) with ingress rules referencing only the appropriate peer's labels and ports. Absence of NetworkPolicies or a default-allow policy indicates intra_zone_acl_enforced=false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a web server host within the application tier, attempt a connection to a non-application port on an adjacent application server to verify the connection is blocked by intra-zone ACLs.",
+        "command": "nc -zv <app_server_ip> 22 && echo 'OPEN' || echo 'BLOCKED'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused or timed out with 'BLOCKED' output confirms intra-zone ACLs are enforced. A successful connection to management ports from peer hosts indicates intra_zone_acl_enforced=false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the Terraform or Ansible infrastructure code defining intra-zone security group or firewall rules to confirm that web-server-to-app-server communication is explicitly scoped by port and that no wildcard allow rules exist within the zone.",
+        "command": "grep -r 'app_tier' terraform/ | grep -E '(ingress|egress|security_group_rule)'",
+        "file_path": "terraform/modules/app_tier/intra_zone_rules.tf",
+        "navigation": null,
+        "expected_output": "Configuration shows separate security group resources for web servers and app servers with explicit cross-references limited to required application ports (e.g., 8080, 8443). No rule blocks with protocol = '-1' or all-ports range between intra-zone groups."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default, unrestricted intra-zone traffic)",
+      "true (explicit intra-zone ACLs enforced)"
+    ]
+  },
+  {
+    "option_name": "microsegmentation_technology",
+    "option_description": "Identifies the specific technology or mechanism enforcing intra-zone access controls between components within the application tier, such as host-based firewalls, Kubernetes network policies, cloud security groups, a service mesh, or SDN-defined policies. A value of 'none' means no microsegmentation is in place.",
+    "security_impact": "The Rego rule east_west_lateral_movement_within_boundary fires immediately when this value is 'none', creating a high-criticality exposure. Even when a technology is present, the rule also fires if intra_zone_acl_enforced is false, meaning the technology must be actively enforcing rules. Without microsegmentation, a compromised web server can freely reach all peer application servers over any port, enabling unrestricted lateral movement within the boundary.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Kubernetes clusters, list all NetworkPolicy objects in the application tier namespace to confirm whether network policies are defined and applied to app-tier pods.",
+        "command": "kubectl get networkpolicy -n <app-tier-namespace> -o yaml",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more NetworkPolicy resources scoped to web-server and app-server pod selectors with explicit ingress/egress rules; absence indicates 'none'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the cloud provider API to list security groups or VPC firewall rules associated with application tier instances. For AWS, retrieve security groups attached to EC2 or ECS instances in the app tier.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:Tier,Values=application --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Security group entries with inbound rules explicitly permitting only required ports from specific source security groups; overly broad 0.0.0.0/0 rules indicate inadequate segmentation."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the service mesh management console (e.g., Istio Kiali, Consul UI, or Linkerd dashboard), navigate to the traffic policies or authorization policies section for the application tier namespace and verify AuthorizationPolicy or traffic rules are applied between services.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kiali > Graph > Namespace: <app-tier> > Policies panel | Consul UI > Intentions > filter by source/destination in app tier | Linkerd Dashboard > Namespace > Policy",
+        "expected_output": "Explicit allow/deny authorization policies between web-server and app-server service identities; no policies present indicates 'none' or ineffective control."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect host-based firewall rules on application tier servers (iptables or nftables on Linux, Windows Defender Firewall on Windows) to determine if intra-zone traffic is subject to allow-list rules.",
+        "command": "iptables -L -n -v --line-numbers 2>/dev/null || nft list ruleset 2>/dev/null",
+        "file_path": "/etc/iptables/rules.v4",
+        "navigation": null,
+        "expected_output": "Explicit ACCEPT rules for permitted intra-zone source IPs/ports with a default DROP policy; a default ACCEPT with no restrict rules indicates host-based firewall is present but not effectively enforcing microsegmentation."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (common in legacy on-premises deployments and early cloud lift-and-shift)",
+      "security_groups (most common in AWS/GCP/Azure cloud-native deployments)",
+      "network_policy (standard in Kubernetes-native environments)",
+      "service_mesh (mature microservices environments with Istio, Linkerd, or Consul Connect)",
+      "host_based_firewall (common in VM-based deployments without cloud-native controls)",
+      "sdn_policy (found in NSX-T or ACI-managed data center environments)"
+    ]
+  },
+  {
+    "option_name": "east_west_traffic_monitored",
+    "option_description": "Indicates whether network traffic flowing laterally between web servers and application servers within the same application tier boundary is actively captured and analyzed by an IDS, flow logging system, or equivalent visibility tool capable of identifying anomalous lateral movement patterns.",
+    "security_impact": "The Rego rule east_west_lateral_movement_within_boundary fires when both intra_zone_acl_enforced and east_west_traffic_monitored are false, meaning that even without strong access controls, monitoring provides a compensating detection layer. A value of false means that an attacker moving laterally between web and application servers inside the boundary will generate no alerts, creating a complete blind spot for the incident response team. This is a high-criticality attribute.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether VPC Flow Logs or equivalent cloud-native flow logging is enabled on the subnets or network interfaces hosting application tier components.",
+        "command": "aws ec2 describe-flow-logs --filter Name=resource-id,Values=<app-tier-subnet-id> --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "FlowLogStatus: ACTIVE with LogDestination pointing to CloudWatch Logs or S3; empty result or FAILED status indicates east-west traffic is not logged."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the IDS/IPS sensor deployment configuration (e.g., Suricata, Zeek, or Snort) to confirm sensors are placed on internal switch spans or tap points covering intra-zone traffic, not only at the perimeter.",
+        "command": "grep -r 'af-packet\\|interface\\|pcap' /etc/suricata/suricata.yaml 2>/dev/null || grep -r 'interface' /etc/snort/snort.conf 2>/dev/null",
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "Interface definitions referencing internal network segments (e.g., a trunk or span port for the application VLAN), not only the external-facing interface."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the service mesh observability console (Kiali, Jaeger, or Consul UI), verify that traffic between all web-server and app-server service pairs is being traced and that telemetry dashboards show intra-zone request rates, error rates, and latencies.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kiali > Graph > Enable edge labels > confirm all app-tier service edges show traffic metrics | Jaeger > Services > verify web-service and app-service appear as traced services",
+        "expected_output": "All service pairs within the application tier show active telemetry; missing edges or zero traffic on known-active paths indicates monitoring gaps."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network operations or security operations team to confirm whether east-west traffic alerts are configured in the SIEM and whether any alerts have been triggered or reviewed within the past 30 days.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation of active detection rules scoped to intra-application-tier source/destination pairs with documented review cadence; inability to identify such rules indicates east_west_traffic_monitored should be set to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most common; east-west monitoring is frequently overlooked in favor of perimeter-only controls)",
+      "true (observed in mature security programs using service meshes, NDR platforms, or dedicated internal IDS sensor deployment)"
+    ]
+  },
+  {
+    "option_name": "service_account_scope",
+    "option_description": "Captures whether service accounts or API keys used by application tier components are unique to each individual component (web server instance, app server instance) or are shared across multiple components within the tier. This attribute drives trust boundary analysis for credential compromise scenarios.",
+    "security_impact": "The Rego rule trust_propagation_via_shared_service_accounts fires immediately when this value is 'shared_across_components', treating shared credentials as a direct high-criticality exposure. Even with unique_per_component, the rule still fires if internal_interface_reauth_enforced is false. Shared credentials mean that compromising any single web or application server gives an attacker a credential that grants access to all other components sharing that identity, eliminating isolation between instances.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "In AWS, enumerate IAM roles attached to EC2 instances or ECS task definitions in the application tier and check whether the same role ARN is assigned to both web-server and app-server instance profiles.",
+        "command": "aws ec2 describe-instances --filters Name=tag:Tier,Values=application --query 'Reservations[*].Instances[*].[InstanceId,IamInstanceProfile.Arn]' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each instance type (web vs. app) should show distinct IAM role ARNs; identical role ARNs across web-server and app-server instance groups indicate shared_across_components."
+      },
+      {
+        "type": "command",
+        "instruction": "On Kubernetes, list service accounts assigned to pods in the application tier namespace and check for reuse of the same service account name across web-server and app-server deployments.",
+        "command": "kubectl get pods -n <app-tier-namespace> -o jsonpath='{range .items[*]}{.metadata.name}{\"\\t\"}{.spec.serviceAccountName}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Distinct service account names per deployment (e.g., web-server-sa vs. app-server-sa); a single shared service account name across all pods indicates shared_across_components."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review application configuration files, environment variable definitions, or secrets manager references to identify whether the same API key or client credential name is referenced by both web-server and app-server configuration templates.",
+        "command": "grep -rE 'API_KEY|SERVICE_ACCOUNT|CLIENT_ID|CLIENT_SECRET' /etc/app-config/ /opt/app/config/ 2>/dev/null | sort | uniq",
+        "file_path": "/etc/app-config/web-server.conf",
+        "navigation": null,
+        "expected_output": "Distinct credential variable names or vault paths for web-server and app-server configuration files; identical credential references in both files indicate shared_across_components."
+      },
+      {
+        "type": "gui",
+        "instruction": "In HashiCorp Vault, navigate to the AppRole or Kubernetes auth method configuration and compare the policies and roles attached to web-server vs. app-server applications to verify they are distinct.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Vault UI > Access > Auth Methods > kubernetes or approle > Roles > compare role definitions for web-server and app-server",
+        "expected_output": "Separate role entries with distinct policy sets for web-server and app-server; a single shared role or identical policies suggest shared credential scope."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "shared_across_components (common in legacy applications and environments without a secrets management platform)",
+      "unique_per_component (observed in cloud-native deployments with IAM roles per service, Kubernetes service accounts per deployment, or vault dynamic secrets)"
+    ]
+  },
+  {
+    "option_name": "internal_interface_reauth_enforced",
+    "option_description": "Determines whether each internal API call or service-to-service communication between components within the application tier requires the calling component to present its own independent credential, rather than propagating the trust of an existing authenticated session or inheriting the calling component's identity implicitly.",
+    "security_impact": "The Rego rule trust_propagation_via_shared_service_accounts fires when service_account_scope is 'unique_per_component' but internal_interface_reauth_enforced is false. This means even with unique credentials per component, the absence of re-authentication at internal interfaces allows a compromised component to impersonate or silently inherit trust when calling peer services. The rule treats this as a high-criticality exposure because it enables horizontal privilege propagation without credential theft.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the service mesh mTLS configuration to confirm that mutual TLS is enforced in STRICT mode for all intra-tier service communication, requiring both caller and callee to present valid certificates.",
+        "command": "kubectl get peerauthentication -n <app-tier-namespace> -o yaml",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PeerAuthentication resources with mtls.mode: STRICT applied to all services in the namespace; PERMISSIVE or absence of PeerAuthentication indicates re-authentication is not enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the API gateway (AWS API Gateway, Kong, or Apigee) for internal route configurations to confirm that authentication plugins or authorizers are attached to inter-service routes, not only to external-facing routes.",
+        "command": "aws apigatewayv2 get-routes --api-id <internal-api-id> --query 'Items[*].[RouteKey,AuthorizationType,AuthorizerId]' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All internal routes show a non-NONE AuthorizationType (e.g., JWT, AWS_IAM, or CUSTOM); routes with NONE indicate that internal callers are not required to re-authenticate."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review middleware authentication configuration files for application servers (e.g., Spring Security config, OAuth2 resource server settings, or nginx auth_request directives) to verify that inbound internal service calls are validated against a token or certificate.",
+        "command": "grep -rE 'oauth2|jwt|mtls|auth_request|require_auth|client_cert' /etc/nginx/conf.d/ /opt/app/src/main/resources/application.yml 2>/dev/null",
+        "file_path": "/opt/app/src/main/resources/application.yml",
+        "navigation": null,
+        "expected_output": "Configuration entries showing JWT validation, mTLS client certificate requirements, or auth_request directives on internal location blocks; absence indicates re-authentication is not enforced."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview application architects and review API design documentation to determine whether inter-service calls include an Authorization header, mutual TLS certificate, or equivalent credential, or whether they rely on network-level trust (same VPC/namespace) as the sole authentication mechanism.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented requirement for each service to present a token or certificate when calling peer services; reliance on network adjacency as authentication evidence indicates internal_interface_reauth_enforced is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in monolithic or early microservices deployments that rely on network-level trust within a shared VPC or namespace)",
+      "true (found in zero-trust architectures using service mesh mTLS, OAuth2 client credentials flow for M2M, or API gateway token validation on internal routes)"
+    ]
+  },
+  {
+    "option_name": "credential_rotation_days",
+    "option_description": "Specifies the maximum number of days permitted between mandatory rotation of service account credentials or API keys used by application tier components. A value of 0 indicates rotation is continuous or automated on each use; higher values indicate less frequent rotation. Valid range is 0 to 3650 days.",
+    "security_impact": "The Rego rule trust_propagation_via_shared_service_accounts fires when service_account_scope is 'shared_across_components' AND credential_rotation_days exceeds 90. Long-lived shared credentials compound the trust propagation risk: if a credential is compromised and shared across components, a 365-day rotation period gives an attacker up to a year of valid access. Even with unique credentials, infrequent rotation extends the window of exposure for any stolen credential.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the secrets manager or vault to retrieve the TTL or lease duration configured for application tier credentials. In HashiCorp Vault, check the role's token TTL or secret lease settings.",
+        "command": "vault read auth/approle/role/<app-tier-role-name> | grep -E 'token_ttl|token_max_ttl|secret_id_ttl'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "token_ttl and secret_id_ttl values expressed in hours/days; divide by 86400 to convert seconds to days. Values exceeding 7776000 seconds (90 days) indicate rotation_days > 90."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS IAM users with programmatic access keys used by application tier components, list all access keys and their creation dates to calculate effective key age and infer rotation frequency.",
+        "command": "aws iam list-access-keys --user-name <app-tier-service-user> --query 'AccessKeyMetadata[*].[AccessKeyId,CreateDate,Status]' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CreateDate timestamps for each key; compare against today's date to determine key age. Keys older than 90 days with Active status indicate credential_rotation_days exceeds the recommended threshold."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the CI/CD pipeline or configuration management tooling (e.g., Ansible Vault, Terraform, or GitHub Actions secrets) for scheduled credential rotation jobs or secret expiry settings.",
+        "command": "grep -rE 'rotation|expire|ttl|max_age|renew' /etc/cron.d/ /var/spool/cron/ /opt/pipeline/.github/workflows/ 2>/dev/null",
+        "file_path": "/etc/cron.d/credential-rotation",
+        "navigation": null,
+        "expected_output": "A cron job or pipeline step with a defined rotation schedule (e.g., 0 0 1 * * for monthly); absence of any scheduled rotation task indicates manual or no rotation."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the cloud IAM console, navigate to service account or API key settings for application tier identities and check the key creation date and any configured expiry or rotation policy.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > IAM > Users > <service-user> > Security credentials tab > Access keys section | GCP Console > IAM > Service Accounts > <service-account> > Keys tab | Azure Portal > App Registrations > <app> > Certificates & secrets",
+        "expected_output": "Key creation dates and optional expiry dates; keys without expiry dates or with creation dates more than 90 days ago without a rotation policy indicate high credential_rotation_days values."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "90 (common compliance baseline aligned with CIS and NIST recommendations)",
+      "30 (security-mature organizations with automated rotation via secrets managers)",
+      "365 (frequently observed in organizations without automated rotation tooling)",
+      "0 (dynamic/ephemeral credentials via Vault dynamic secrets or AWS IAM Roles Anywhere with short-lived tokens)",
+      "Never rotated (legacy environments where keys were created at deployment and never changed)"
+    ]
+  },
+  {
+    "option_name": "boundary_traffic_inspection_enabled",
+    "option_description": "Indicates whether deep packet inspection (DPI) or equivalent network traffic analysis is actively applied at the application tier boundary ingress and egress points. This goes beyond simple stateful connection tracking to include protocol-level analysis, signature matching, and anomaly detection on both inbound and outbound flows.",
+    "security_impact": "The Rego rule boundary_monitoring_coverage_gap fires immediately when boundary_traffic_inspection_enabled is false, creating a medium-criticality exposure. Additionally, even when this is true, the rule fires if log_forwarding_to_siem_configured is false, meaning inspection without log forwarding still leaves a coverage gap. Without DPI at the boundary, protocol anomalies, command-and-control beaconing, and data exfiltration attempts over permitted protocols pass through undetected.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether an IDS/IPS process is running on the boundary enforcement device or an inline sensor host and whether it is configured to inspect traffic on the application tier boundary interface.",
+        "command": "systemctl status suricata snort 2>/dev/null; ps aux | grep -E 'suricata|snort|zeek|bro'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active suricata, snort, or zeek process with a running state; absence of these processes or a stopped state indicates no inline inspection is in place."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the WAF or NGFW configuration deployed at the application tier boundary to confirm inspection rules are applied to both inbound and outbound interfaces, not only stateful connection tracking.",
+        "command": "grep -E 'inspect|dpi|deep.packet|content|signature|policy' /etc/firewalld/zones/app-tier.xml /etc/pf.conf /etc/ufw/before.rules 2>/dev/null",
+        "file_path": "/etc/firewalld/zones/app-tier.xml",
+        "navigation": null,
+        "expected_output": "Inspection directives or content-matching rules applied to both ingress and egress interfaces; only stateful tracking entries (state established,related) without content inspection indicate DPI is not enabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the cloud or on-premises NGFW management console (Palo Alto Panorama, Fortinet FortiManager, AWS Network Firewall, or Check Point SmartConsole), navigate to the security policy applied to the application tier zone and verify that threat prevention profiles (IPS, application identification, or equivalent) are attached to rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Network Firewall > Firewall policies > <app-tier-policy> > Stateful rule groups | Palo Alto Panorama > Policies > Security > App-Tier policy > Profile Settings column | FortiManager > Policy & Objects > Policy > check IPS/App Control profile column",
+        "expected_output": "Threat prevention, IPS, or application control profiles attached to rules covering app-tier ingress and egress traffic; rules with only allow/deny actions and no inspection profile indicate DPI is not enabled."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS Network Firewall deployments, retrieve the stateful rule group configuration to confirm deep inspection rules (not only stateless pass/drop) are applied to the application tier firewall policy.",
+        "command": "aws network-firewall describe-firewall-policy --firewall-policy-arn <app-tier-policy-arn> --query 'FirewallPolicy.StatefulRuleGroupReferences' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-empty StatefulRuleGroupReferences list with rule groups containing Suricata-compatible rules or managed threat signatures; empty StatefulRuleGroupReferences indicates only stateless filtering is applied."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in cloud environments relying solely on security groups or NACLs for boundary enforcement without a deployed NGFW or IDS)",
+      "true (observed in regulated industries and organizations deploying AWS Network Firewall, Palo Alto VM-Series, or inline Suricata/Zeek sensors)"
+    ]
+  },
+  {
+    "option_name": "boundary_traffic_logging_scope",
+    "option_description": "Defines the extent of network traffic logging at the application tier boundary, specifying whether both inbound (ingress) and outbound (egress) flows are captured, or whether logging is limited to only one direction or disabled entirely. Logging scope applies to both allowed and denied traffic events.",
+    "security_impact": "The Rego rule boundary_monitoring_coverage_gap fires whenever boundary_traffic_logging_scope is not 'both'. This means ingress_only, egress_only, or none all trigger a medium-criticality exposure. Logging only ingress misses data exfiltration and C2 callbacks; logging only egress misses initial access attempts and boundary crossing events. The rule requires bidirectional coverage to close monitoring blind spots at the boundary.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "For AWS-based deployments, check VPC Flow Log configuration on application tier subnets to determine the traffic type being captured (ALL, ACCEPT, or REJECT) and whether both inbound and outbound traffic are covered.",
+        "command": "aws ec2 describe-flow-logs --filter Name=resource-id,Values=<app-tier-subnet-id> --query 'FlowLogs[*].[FlowLogId,TrafficType,LogDestinationType,DeliverLogsStatus]' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TrafficType: ALL with DeliverLogsStatus: SUCCESS indicates both ingress and egress are logged ('both'); TrafficType: ACCEPT or REJECT only indicates partial coverage; no flow log entry indicates 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the logging configuration on the boundary firewall or IDS to determine which interfaces and traffic directions are captured in logs.",
+        "command": "grep -E 'log|logging|output|flow' /etc/suricata/suricata.yaml 2>/dev/null | grep -E 'interface|dir|inbound|outbound|both'",
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "Logging sections referencing both inbound and outbound interfaces or a trunk interface capturing all directions; a single interface configuration for only one direction indicates ingress_only or egress_only."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the NGFW management console, navigate to the logging profile attached to the application tier security policy rules and verify that both session-start/end logging and denied-traffic logging are enabled for both ingress and egress rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto Panorama > Objects > Log Forwarding > <app-tier-profile> > verify Log type covers both Threat and Traffic for all rules | AWS Console > VPC > Flow Logs tab on the app-tier subnet | Azure Portal > NSG > Diagnostic settings > Flow logs",
+        "expected_output": "Log forwarding profiles showing Traffic and Threat log types for all directions with a non-null destination; rules with logging disabled or only one traffic direction indicate partial scope."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the SIEM or log aggregation platform to check whether recent log events from the application tier boundary include records with both source-to-app-tier and app-tier-to-backend direction fields, confirming bidirectional coverage.",
+        "command": "grep -E '(INGRESS|EGRESS|IN|OUT)' /var/log/fw/app-tier.log 2>/dev/null | awk '{print $5}' | sort | uniq -c",
+        "file_path": "/var/log/fw/app-tier.log",
+        "navigation": null,
+        "expected_output": "Roughly balanced counts of ingress (IN/INGRESS) and egress (OUT/EGRESS) log entries; presence of only one direction in logs confirms a partial logging scope."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "both (security-mature deployments with VPC Flow Logs set to ALL, or NGFW logging full bidirectional traffic)",
+      "ingress_only (common in organizations that prioritize inbound threat detection but overlook egress monitoring)",
+      "egress_only (rare; occasionally seen in DLP-focused configurations)",
+      "none (frequently observed in cloud environments where flow logs were not enabled at initial deployment)"
+    ]
+  },
+  {
+    "option_name": "log_forwarding_to_siem_configured",
+    "option_description": "Indicates whether boundary traffic logs generated at the application tier are actively forwarded to a centralized Security Information and Event Management (SIEM) platform or log aggregation system where they can be correlated with other security event sources, queried by analysts, and used to trigger automated alerts.",
+    "security_impact": "The Rego rule boundary_monitoring_coverage_gap fires when boundary_traffic_inspection_enabled is true but log_forwarding_to_siem_configured is false. This captures the scenario where inspection is occurring but findings are not reaching analysts or automated detection systems. Logs stored only on the source device are inaccessible during an incident (the device may be compromised), cannot be correlated across the environment, and provide no real-time alerting capability.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On the boundary device or log collector host, verify that a log forwarding agent (Filebeat, Fluentd, rsyslog, or Splunk Universal Forwarder) is installed, running, and actively sending logs to the SIEM endpoint.",
+        "command": "systemctl status filebeat splunkd rsyslog fluentd td-agent 2>/dev/null; ss -tnp | grep -E ':514|:5044|:8088|:9200'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active agent process with an established TCP/UDP connection to the SIEM receiver port (514 for syslog, 5044 for Logstash Beats, 8088 for Splunk HEC, or 9200 for Elasticsearch); no established connections indicate logs are not being forwarded."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the log forwarding agent configuration to confirm the SIEM destination is defined and that the input paths cover boundary device log files.",
+        "command": "grep -E 'hosts|output|server|forward|remote_syslog|destination' /etc/filebeat/filebeat.yml /etc/rsyslog.d/*.conf /etc/td-agent/td-agent.conf 2>/dev/null",
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "navigation": null,
+        "expected_output": "Output section referencing the SIEM host/IP with a non-local address; input paths covering firewall or IDS log directories; absence of output configuration or localhost-only destinations indicates forwarding is not configured."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the SIEM platform API to verify that the application tier boundary device appears as an active data source with recent log ingestion activity within the past 24 hours.",
+        "command": "curl -sk -H 'Authorization: Bearer <siem-api-token>' 'https://<siem-host>/api/data_sources' | python3 -m json.tool | grep -A5 'app-tier\\|boundary\\|firewall'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Data source entry for the boundary device with a last_seen timestamp within the past 24 hours and a non-zero event count; absence of the device in the data source list or a stale last_seen timestamp indicates forwarding is not active."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the SIEM console (Splunk, Microsoft Sentinel, IBM QRadar, or Elastic SIEM), navigate to the data source or log source inventory and search for the application tier boundary device to confirm it is listed as active with recent event ingestion.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk > Settings > Data Inputs > search for app-tier firewall source | Microsoft Sentinel > Configuration > Data connectors > verify app-tier firewall connector status | QRadar > Admin > Log Sources > filter by app-tier device IP | Elastic SIEM > Stack Management > Index Management > search for app-tier index",
+        "expected_output": "Active data source or log source entry with a Last Event time within the expected polling interval (typically under 5 minutes for streaming or under 1 hour for batch); Disabled or Never Connected status indicates log_forwarding_to_siem_configured should be set to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in environments where local logging is configured but SIEM integration was never completed or was disconnected)",
+      "true (observed in organizations with a mature SOC program using Splunk, Microsoft Sentinel, IBM QRadar, or a cloud-native logging pipeline feeding a SIEM)"
+    ]
+  },
+  {
+    "option_name": "cross_zone_alert_rules_count",
+    "option_description": "Tracks the number of active SIEM or IDS/IPS detection rules that specifically target anomalous cross-zone traffic patterns at the application tier boundary, including unexpected port usage, unauthorized zone traversal, and volumetric anomalies.",
+    "security_impact": "The Rego policy triggers the boundary_monitoring_coverage_gap exposure when cross_zone_alert_rules_count equals 0, even if log forwarding to SIEM is configured. A zero count means boundary-crossing events—lateral movement, exfiltration attempts, or protocol anomalies—produce no alerts, creating a blind spot exploitable via T1599 (Network Boundary Bridging) and T1205 (Traffic Signaling).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Splunk ES, navigate to Security Intelligence > Network > Network Traffic and filter saved correlation searches tagged 'application-tier' or 'cross-zone'. Count searches with status 'Enabled'. In QRadar, go to Offenses > Rules, filter by rule group containing application boundary rules, and count enabled rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Splunk ES: Security Intelligence > Network > Network Traffic > Correlation Searches | QRadar: Offenses > Rules > Filter by group",
+        "expected_output": "A numeric count of enabled rules; zero indicates a critical monitoring gap."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Splunk REST API for saved searches tagged with cross-zone or application boundary keywords and count those that are enabled.",
+        "command": "curl -sk -u admin:password https://splunk-host:8089/servicesNS/admin/search/saved/searches?search=cross_zone&output_mode=json | python3 -c \"import json,sys; d=json.load(sys.stdin); print(sum(1 for e in d['entry'] if e['content'].get('disabled','0')=='0'))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer output representing the count of enabled cross-zone alert rules."
+      },
+      {
+        "type": "command",
+        "instruction": "On a Suricata or Snort IDS host, count enabled rules referencing application-tier subnet ranges or cross-zone port combinations in the active rules file.",
+        "command": "grep -cE 'alert.*tcp.*(10\\.10\\.1\\.|10\\.10\\.2\\.).*->.*any' /etc/suricata/rules/application-boundary.rules 2>/dev/null || echo 0",
+        "file_path": "/etc/suricata/rules/application-boundary.rules",
+        "navigation": null,
+        "expected_output": "Integer count of matching alert rules; value should be greater than 0 for adequate coverage."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the SOC or network security team to request a list of all active SIEM correlation rules and IDS signatures scoped to application-tier ingress/egress traffic. Ask specifically for rules that fire on unexpected zone traversal, non-standard ports, or traffic volume spikes.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented inventory of rules; absence of rules or inability to enumerate them confirms a monitoring gap."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "3",
+      "12",
+      "25",
+      "50"
+    ]
+  },
+  {
+    "option_name": "dedicated_oob_management_network_configured",
+    "option_description": "Indicates whether SSH (TCP/22), RDP (TCP/3389), and management API traffic to application-tier servers is exclusively routed through a physically or logically separate out-of-band management network or VLAN, isolated from the application traffic path.",
+    "security_impact": "The Rego policy fires management_plane_ingress_not_isolated when this attribute is false and either management protocols are detected on the application ingress path or source IP restriction is absent. Without OOB separation, management interfaces are reachable from the same network path as public application traffic, directly exposing them to T1021 (Remote Services) and T1190 (Exploit Public-Facing Application) attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On a Linux application server, list all network interfaces and their associated VLANs or bridge memberships. Confirm a dedicated management interface (e.g., eth1 tagged with mgmt VLAN) exists separate from the primary application interface.",
+        "command": "ip addr show && cat /proc/net/vlan/config 2>/dev/null || ip -d link show",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows at least two distinct interfaces or VLAN tags: one for application traffic (e.g., eth0, VLAN 100) and a separate management interface (e.g., eth1, VLAN 900)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review network interface configuration files to identify VLAN assignments per interface and confirm that management VLAN IDs differ from application VLAN IDs.",
+        "command": "grep -rE 'VLAN|vlan|MGMT|management' /etc/network/interfaces /etc/sysconfig/network-scripts/ 2>/dev/null",
+        "file_path": "/etc/network/interfaces",
+        "navigation": null,
+        "expected_output": "Distinct VLAN IDs for management (e.g., vlan_id=900) and application traffic (e.g., vlan_id=100) on separate interface stanzas."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the cloud provider console (AWS VPC, Azure Virtual Network, or GCP VPC), navigate to the application server's network interface attachments. Verify that a secondary NIC is attached and associated with a dedicated management subnet with restricted routing.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console: EC2 > Instances > Select Instance > Networking tab > Network Interfaces | Azure Portal: Virtual Machines > Networking > Network Interfaces",
+        "expected_output": "Two or more NICs listed, with one attached to a subnet named 'mgmt' or 'management' and separate from the app-tier subnet."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to reach the application server's SSH port via the application-facing IP address. If OOB management is properly configured, this connection should be refused or filtered by firewall policy.",
+        "command": "nc -zv <app-server-app-ip> 22 2>&1; nc -zv <app-server-mgmt-ip> 22 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection to app-facing IP on port 22 should time out or be refused; connection to management IP on port 22 should succeed only from authorized management hosts."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "management_protocols_allowed_on_app_ingress",
+    "option_description": "An enumerated list of management protocols (e.g., SSH, RDP, HTTPS-MGMT-API) whose traffic is permitted inbound through the same security group rules, ACLs, or firewall policies that govern normal HTTP/HTTPS application traffic to the application tier.",
+    "security_impact": "The Rego policy triggers management_plane_ingress_not_isolated when this list is non-empty and no dedicated OOB management network is configured. Any entry in this list means management ports are reachable via the application ingress path, broadening the attack surface for T1021 (Remote Services) exploitation. Each protocol present represents an additional vector adversaries can probe from untrusted networks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query AWS security group rules attached to application-tier instances for inbound rules permitting ports 22, 3389, or known management API ports (e.g., 8443, 8080, 9443).",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:tier,Values=application --query 'SecurityGroups[*].IpPermissions[?contains(`[22,3389,8443,9443]`, to_number(FromPort))].{Port:FromPort,Protocol:IpProtocol,Source:IpRanges}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table output listing any inbound rules on ports 22/3389/8443; an empty result indicates management protocols are not on the application ingress path."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect firewall or iptables rules on application servers to identify ACCEPT rules for management ports on the primary application-facing interface.",
+        "command": "iptables -L INPUT -v -n --line-numbers | grep -E '(:22 |:3389 |:8443 |:9443 )'",
+        "file_path": "/etc/iptables/rules.v4",
+        "navigation": null,
+        "expected_output": "Lines matching management ports; if results appear on the application-facing interface (e.g., eth0), those protocols should be listed in this attribute."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Portal, navigate to the application-tier Network Security Group (NSG), select Inbound Security Rules, and filter for rules with destination ports 22, 3389, or management API port ranges. Record any permitted protocols.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal: Network Security Groups > Select App-Tier NSG > Inbound Security Rules > Filter Destination Port",
+        "expected_output": "Rules table showing port 22 (SSH) or 3389 (RDP) as allowed; these should be absent or restricted to management-only source ranges."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Azure REST API to retrieve all inbound NSG rules for the application subnet and filter for management port entries.",
+        "command": "az network nsg rule list --nsg-name <app-nsg-name> --resource-group <rg-name> --query \"[?contains(['22','3389','8443'], destinationPortRange)].{Name:name,Port:destinationPortRange,Source:sourceAddressPrefix,Access:access}\" --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table output; 'Allow' entries for ports 22/3389 indicate management protocols are permitted on the application ingress path and should be captured in this list."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[]",
+      "[\"SSH\"]",
+      "[\"RDP\"]",
+      "[\"SSH\", \"RDP\"]",
+      "[\"SSH\", \"RDP\", \"HTTPS-MGMT-API\"]"
+    ]
+  },
+  {
+    "option_name": "management_access_source_restricted_to_mgmt_zone",
+    "option_description": "Indicates whether inbound management protocol traffic (SSH, RDP, management APIs) is constrained by firewall rules, security group rules, or ACLs to originate exclusively from approved management-zone CIDR ranges or bastion host IP addresses, blocking access from application-tier or untrusted source ranges.",
+    "security_impact": "The Rego policy triggers management_plane_ingress_not_isolated when this is false and no dedicated OOB management network is configured, creating two compounding weaknesses. Without source IP restriction, any host that can reach the application-tier ingress—including compromised DMZ systems or external attackers—can attempt to authenticate to management interfaces, enabling T1021 (Remote Services) and T1190 (Exploit Public-Facing Application) attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all security group or firewall rules permitting SSH/RDP ingress and inspect their source CIDR ranges. Rules sourced from 0.0.0.0/0 or non-management CIDRs indicate the control is not properly restricted.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:tier,Values=application --query 'SecurityGroups[*].IpPermissions[?FromPort==`22`||FromPort==`3389`].{Port:FromPort,Sources:IpRanges[*].CidrIp}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output with source CIDRs listed; only management VLAN ranges (e.g., 10.0.255.0/24) should appear. Presence of 0.0.0.0/0 or application-tier CIDRs confirms this attribute is false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review TCP wrappers or hosts.allow/hosts.deny files on Linux application servers for SSH source restrictions, and check sshd_config for AllowUsers or AllowGroups combined with Match Address blocks.",
+        "command": "grep -E 'AllowUsers|AllowGroups|Match Address|ListenAddress' /etc/ssh/sshd_config; cat /etc/hosts.allow 2>/dev/null",
+        "file_path": "/etc/ssh/sshd_config",
+        "navigation": null,
+        "expected_output": "Match Address blocks listing only management CIDR ranges; absence of any source restriction in sshd_config indicates this attribute is false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the GCP Console, navigate to VPC Network > Firewall Rules and filter for rules targeting the application-tier instances on ports 22 and 3389. Examine the Source IP ranges field for each rule.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GCP Console: VPC Network > Firewall Rules > Filter by target tag = app-tier > Inspect Source IP ranges for port 22/3389 rules",
+        "expected_output": "Source IP ranges should contain only management subnet CIDRs (e.g., 10.0.255.0/24). Presence of 0.0.0.0/0 sets this attribute to false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a non-management source IP (e.g., a workstation on the application subnet or an external test host), attempt a TCP connection to an application server's SSH port to verify whether the connection is blocked by source IP filtering.",
+        "command": "nc -zv -w 5 <app-server-ip> 22 2>&1 && echo 'REACHABLE - restriction NOT enforced' || echo 'BLOCKED - restriction enforced'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'BLOCKED - restriction enforced' indicates source IP restriction is active; 'REACHABLE' confirms this attribute should be set to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "certificate_trust_store_scope",
+    "option_description": "Specifies the trust anchor scope used by application-tier components when validating TLS certificates for internal inter-zone service-to-service connections: a tightly scoped private CA bundle (private_ca_restricted), the OS/system-wide store including public CAs (system_wide_public_ca), or no certificate validation at all (no_validation).",
+    "security_impact": "The Rego policy fires inter_zone_certificate_trust_misconfiguration when this is set to system_wide_public_ca without certificate pinning enforced, or when set to no_validation. Using the system trust store allows any certificate signed by a public CA (thousands of trusted roots) to be accepted for internal connections, enabling T1557 (Adversary-in-the-Middle) attacks using publicly obtained certificates. The no_validation value eliminates all TLS protection against impersonation.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the TLS client configuration for internal services (e.g., Java application server truststore, Python requests CA bundle, Node.js ca option, nginx proxy_ssl_trusted_certificate). Determine whether custom internal CA certificates or the system default store is referenced.",
+        "command": "find /etc/ssl /opt/app /etc/pki -name 'truststore.jks' -o -name 'ca-bundle.crt' -o -name 'internal-ca.pem' 2>/dev/null | head -20; grep -rE 'ssl_ca_cert|cafile|trustStore|ca_bundle|NODE_EXTRA_CA_CERTS' /opt/app/config/ 2>/dev/null",
+        "file_path": "/opt/app/config/",
+        "navigation": null,
+        "expected_output": "References to an internal CA file (e.g., /opt/app/certs/internal-ca.pem) indicate private_ca_restricted; references to /etc/ssl/certs/ca-certificates.crt indicate system_wide_public_ca."
+      },
+      {
+        "type": "command",
+        "instruction": "For Java-based application servers, list the contents of the JVM truststore and count entries. An internal-only store should contain only a small number of private CA certificates.",
+        "command": "keytool -list -keystore $JAVA_HOME/lib/security/cacerts -storepass changeit 2>/dev/null | grep -cE 'trustedCertEntry'; keytool -list -v -keystore /opt/app/certs/truststore.jks -storepass apppass 2>/dev/null | grep 'Owner:'",
+        "file_path": "/opt/app/certs/truststore.jks",
+        "navigation": null,
+        "expected_output": "The internal truststore should show a small number of entries (e.g., 1-5) from a private CA. The default JVM cacerts contains 80+ public CA entries, indicating system_wide_public_ca."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect running application processes for TLS-related environment variables or startup flags that indicate certificate validation behavior, particularly flags that disable verification.",
+        "command": "ps aux | grep -E 'verify=none|VERIFY=NONE|ssl_verify_peer=0|NODE_TLS_REJECT_UNAUTHORIZED=0|InsecureSkipVerify|verify_ssl=False'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of any of these flags indicates no_validation. Clean output (no matches) does not confirm private_ca_restricted but eliminates the worst-case value."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Using OpenSSL, test an internal inter-zone TLS connection and observe which CA certificates are presented in the trust chain. Examine the issuer chain depth and root CA identity.",
+        "command": "openssl s_client -connect <internal-app-server>:443 -CAfile /opt/app/certs/internal-ca.pem 2>&1 | grep -E 'Verify return code|Certificate chain|issuer'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Verify return code: 0 (ok)' with chain showing only internal CA names confirms private_ca_restricted. Chains showing public CAs (DigiCert, Let's Encrypt) indicate system_wide_public_ca."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "system_wide_public_ca",
+      "private_ca_restricted",
+      "no_validation"
+    ]
+  },
+  {
+    "option_name": "self_signed_certificates_in_use",
+    "option_description": "Indicates whether any TLS connections between application-tier zones use self-signed certificates—certificates where the Subject field equals the Issuer field with no chain to a certificate authority—rather than certificates issued by a managed internal or external CA.",
+    "security_impact": "The Rego policy fires inter_zone_certificate_trust_misconfiguration when self-signed certificates are in use and certificate pinning is not enforced. Self-signed certificates cannot be revoked through standard PKI mechanisms and cannot be verified by peers without manual trust installation. Combined with no pinning, any attacker who can intercept inter-zone traffic can substitute their own self-signed certificate for T1557 (Adversary-in-the-Middle) interception and T1587.003 (Digital Certificates) abuse.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Connect to each internal application server's HTTPS port and check whether the certificate Subject equals the Issuer, which indicates a self-signed certificate.",
+        "command": "for host in app-server-01 app-server-02 app-server-03; do echo \"=== $host ===\"; echo | openssl s_client -connect $host:443 2>/dev/null | openssl x509 -noout -subject -issuer 2>/dev/null; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If 'subject' and 'issuer' values are identical for any host, that certificate is self-signed and this attribute should be true."
+      },
+      {
+        "type": "command",
+        "instruction": "Scan the application subnet for all TLS-enabled services and programmatically compare Subject and Issuer fields to identify self-signed certificates at scale.",
+        "command": "nmap -p 443,8443,8080 --script ssl-cert 10.10.1.0/24 2>/dev/null | grep -A5 'Subject\\|Issuer' | grep -E '(Subject|Issuer):' | paste - - | awk '{if ($1==$2) print \"SELF-SIGNED: \" FILENAME}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any 'SELF-SIGNED' output confirms this attribute is true. Clean output indicates certificates are CA-issued."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect application server TLS certificate files on disk and check whether certificate Subject and Issuer match, indicating self-signed status.",
+        "command": "for cert in $(find /etc/ssl /opt/app/certs -name '*.pem' -o -name '*.crt' 2>/dev/null); do subj=$(openssl x509 -in $cert -noout -subject 2>/dev/null); iss=$(openssl x509 -in $cert -noout -issuer 2>/dev/null); [ \"$subj\" = \"$iss\" ] && echo \"SELF-SIGNED: $cert\"; done",
+        "file_path": "/etc/ssl/certs/",
+        "navigation": null,
+        "expected_output": "Any file path printed with 'SELF-SIGNED' prefix confirms self-signed certificates are in use."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS Certificate Manager (ACM) or an internal Vault PKI secrets engine for certificates issued to application-tier hosts and identify any that were not issued through a managed CA.",
+        "command": "aws acm list-certificates --query 'CertificateSummaryList[*].{DomainName:DomainName,ARN:CertificateArn}' --output table; vault list pki/certs 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Certificates not appearing in ACM or Vault PKI records may be self-signed and warrant direct inspection on the host."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "certificate_pinning_enforced",
+    "option_description": "Indicates whether TLS client components making inter-zone connections enforce certificate or public-key pinning, binding expected certificate fingerprints or public key hashes to specific service endpoints to prevent acceptance of substitute certificates from unauthorized issuers.",
+    "security_impact": "The Rego policy fires inter_zone_certificate_trust_misconfiguration when self-signed certificates are in use without pinning, or when the system-wide public CA trust store is used without pinning. Without pinning, an attacker with a certificate from any trusted CA (or who has forged a self-signed cert that a peer accepts) can impersonate internal services via T1557 (Adversary-in-the-Middle). Pinning is the compensating control that prevents trust store scope and self-signed certificate weaknesses from being exploitable.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect application service TLS client configuration files for pinning directives. For Java services, look for certificate pinning libraries or custom TrustManager implementations. For Python, check requests session configuration or certifi overrides.",
+        "command": "grep -rE 'pin_certificate|PublicKeyPinning|cert_fingerprint|ssl_fingerprint|HPKP|pinned_cert|TrustPinning|CertificatePin' /opt/app/ /etc/app/ 2>/dev/null | grep -v '.pyc'",
+        "file_path": "/opt/app/config/",
+        "navigation": null,
+        "expected_output": "Matches indicate pinning configuration is present. No matches suggest pinning is not configured, warranting this attribute to be set to false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For nginx reverse proxies or upstream TLS connections, check whether proxy_ssl_certificate and proxy_ssl_trusted_certificate directives reference specific certificate files pinned to particular upstream services.",
+        "command": "grep -rE 'proxy_ssl_trusted_certificate|grpc_ssl_trusted_certificate|proxy_ssl_verify|ssl_client_certificate' /etc/nginx/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Presence of proxy_ssl_trusted_certificate with a specific CA file and proxy_ssl_verify=on indicates CA-pinning. Absence indicates no pinning."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review application code repositories and deployment configurations for evidence of certificate or public-key pinning implementation. Ask developers whether inter-zone TLS clients use custom trust managers, pinning libraries, or infrastructure-level pinning controls.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented pinning implementation in code review or architecture documentation. Lack of awareness or documentation confirms this attribute is false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a man-in-the-middle TLS interception test against an internal inter-zone connection using a certificate from a different CA or a substituted self-signed certificate. If pinning is enforced, the client should reject the substituted certificate with a handshake error.",
+        "command": "# Use mitmproxy in transparent mode on a test network segment:\n# mitmproxy --mode transparent --ssl-insecure\n# Monitor client-side for: ssl.SSLError: certificate verify failed or TLS handshake failure\necho | openssl s_client -connect <internal-service>:443 -CAfile /tmp/substitute-ca.pem 2>&1 | grep -E 'Verify return code|handshake failure'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A TLS handshake failure or 'Verify return code' error when a substitute certificate is presented confirms pinning is enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "outbound_destination_restriction",
+    "option_description": "Specifies the enforcement level of egress destination controls on outbound traffic from the application tier: allowlist_enforced (only explicitly approved external IPs/domains permitted), partial_restriction (some destinations blocked or some ports restricted but not comprehensive), or none (arbitrary external destinations permitted without filtering).",
+    "security_impact": "The Rego policy fires outbound_dns_and_http_egress_for_exfiltration when this is set to none and unrestricted egress protocols exist, or when set to partial_restriction without egress traffic inspection. An unrestricted egress posture enables T1071.004 (DNS) tunneling for covert C2 and data exfiltration, T1567 (Exfiltration Over Web Service), and T1048 (Exfiltration Over Alternative Protocol). Even partial restriction without inspection leaves exploitable channels for data exfiltration through permitted protocols.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect cloud provider egress security group rules or network ACL outbound rules for the application tier. Any rules permitting destination 0.0.0.0/0 on ports 80, 443, or 53 without additional destination filtering indicate partial or no restriction.",
+        "command": "aws ec2 describe-security-groups --filters Name=tag:tier,Values=application --query 'SecurityGroups[*].IpPermissionsEgress[?IpRanges[?CidrIp==`0.0.0.0/0`]].{Protocol:IpProtocol,FromPort:FromPort,ToPort:ToPort,Destination:IpRanges[*].CidrIp}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules with 0.0.0.0/0 destination on ports 53, 80, or 443 confirm none or partial_restriction. Empty output or rules with specific destination CIDRs only indicates allowlist_enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Squid proxy or firewall egress ACL configuration files to determine whether outbound HTTP/S and DNS traffic is restricted to an approved destination list.",
+        "command": "grep -E 'acl.*dstdomain|http_access|dst|dstdom_regex|dns_nameservers' /etc/squid/squid.conf 2>/dev/null | head -40",
+        "file_path": "/etc/squid/squid.conf",
+        "navigation": null,
+        "expected_output": "Presence of 'acl allowed_sites dstdomain' with an explicit list followed by 'http_access deny !allowed_sites' confirms allowlist_enforced. Absence of destination ACLs indicates none."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an application-tier server, attempt outbound connections to known non-approved external destinations on ports 53, 80, and 443. Successful connections to arbitrary external IPs confirm unrestricted or partially restricted egress.",
+        "command": "curl -m 5 --max-filesize 100 http://example.com 2>&1 | grep -E 'Connected|curl: |HTTP/'; dig @8.8.8.8 example.com +time=5 2>&1 | grep -E 'ANSWER|connection timed out'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Successful HTTP response or DNS resolution from non-approved servers confirms none or partial_restriction. Connection timeouts or explicit denial messages indicate allowlist_enforced."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Palo Alto NGFW or Cisco FTD management console, navigate to Security Policies and filter for outbound rules applied to the application-tier zone. Review whether destination criteria use explicit address groups (allowlist) or 'any' as the destination.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Palo Alto Panorama: Policies > Security > Filter Source Zone = app-tier > Review Destination Address column | Cisco FMC: Policies > Access Control > Filter by source zone app-tier",
+        "expected_output": "Policies showing 'any' in the Destination Address field confirm none or partial_restriction. Named address groups with specific IP ranges confirm allowlist_enforced."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "partial_restriction",
+      "allowlist_enforced"
+    ]
+  },
+  {
+    "option_name": "egress_protocols_unrestricted",
+    "option_description": "Tracks which protocols and ports (e.g., dns_udp53, dns_tcp53, http_tcp80, https_tcp443) are permitted outbound from the application tier to arbitrary external destinations (0.0.0.0/0 or broad CIDR ranges) without restriction. An empty array indicates no unrestricted egress protocols exist; a populated array lists the specific protocol/port identifiers found.",
+    "security_impact": "The Rego policy triggers the 'Outbound Dns And Http Egress For Exfiltration' exposure when this array is non-empty and either outbound_destination_restriction is 'none', or it is 'partial_restriction' and egress_traffic_inspection_enabled is false. Unrestricted outbound DNS enables DNS tunneling (T1071.004) for covert C2 and data exfiltration, while unrestricted HTTP/S enables exfiltration over web services (T1567) and alternative protocol abuse (T1048). Even a single permitted protocol in this list combined with weak destination controls creates a viable exfiltration channel.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, enumerate all outbound security group rules for application tier subnets and identify rules permitting broad CIDR ranges on DNS or HTTP ports.",
+        "command": "aws ec2 describe-security-groups --filters 'Name=vpc-id,Values=<vpc-id>' --query \"SecurityGroups[*].{SG:GroupId,Egress:IpPermissionsEgress[?(@.IpRanges[?CidrIp=='0.0.0.0/0'] || @.Ipv6Ranges[?CidrIpv6=='::/0'])]}\" --output json | jq '.[] | select(.Egress != null) | {SG: .SG, Rules: [.Egress[] | select(.IpRanges[].CidrIp == \"0.0.0.0/0\") | {Proto: .IpProtocol, FromPort: .FromPort, ToPort: .ToPort}]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output listing security group IDs with outbound rules targeting 0.0.0.0/0; ports 53, 80, 443 in results indicate unrestricted egress. An empty Egress array or rules restricted to known internal CIDRs indicates compliant state."
+      },
+      {
+        "type": "command",
+        "instruction": "On Azure, query Network Security Group outbound rules for application-tier NSGs to find rules allowing DNS or HTTP to Internet destinations.",
+        "command": "az network nsg list --resource-group <rg-name> --query \"[*].{NSG:name, OutboundRules:securityRules[?direction=='Outbound' && access=='Allow' && (destinationAddressPrefix=='*' || destinationAddressPrefix=='Internet')].{Name:name,DestPort:destinationPortRange,Proto:protocol}}\" --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table output showing NSG outbound allow rules targeting '*' or 'Internet'; presence of port 53, 80, or 443 entries indicates protocols that should be added to the egress_protocols_unrestricted array."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Management Console, navigate to VPC > Security Groups, filter by the application tier VPC, select each security group associated with app tier instances, open the Outbound Rules tab, and identify rules with Destination 0.0.0.0/0 on ports 53, 80, or 443.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > VPC > Security Groups > [select app-tier SG] > Outbound Rules tab > filter Destination = 0.0.0.0/0",
+        "expected_output": "Rules table showing protocol, port range, and destination; document each row with port 53/80/443 and destination 0.0.0.0/0 as entries for egress_protocols_unrestricted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For on-premises or VM-based deployments, review the iptables or nftables egress rules on application server hosts to identify ACCEPT rules for external destinations on relevant ports.",
+        "command": "iptables -L OUTPUT -n -v --line-numbers | grep -E '(dpt:53|dpt:80|dpt:443)' | grep -v '10\\.' | grep -v '172\\.' | grep -v '192\\.168'",
+        "file_path": "/etc/iptables/rules.v4",
+        "navigation": null,
+        "expected_output": "Lines showing ACCEPT rules for ports 53, 80, or 443 with non-RFC1918 destination addresses confirm unrestricted egress for those protocols."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[] (compliant — no unrestricted protocols)",
+      "[\"https_tcp443\"]",
+      "[\"dns_udp53\", \"https_tcp443\"]",
+      "[\"dns_udp53\", \"dns_tcp53\", \"http_tcp80\", \"https_tcp443\"]"
+    ]
+  },
+  {
+    "option_name": "egress_traffic_inspection_enabled",
+    "option_description": "Indicates whether all outbound traffic from the application tier is routed through an egress inspection control — such as a next-generation firewall with TLS inspection, an explicit forward proxy (e.g., Squid, Zscaler), or an inline IDS/IPS — that can analyze, log, and block anomalous or exfiltration-indicative outbound patterns before traffic reaches external destinations.",
+    "security_impact": "The Rego policy uses this attribute as a mitigating control: the 'Outbound Dns And Http Egress For Exfiltration' exposure fires when outbound_destination_restriction is 'partial_restriction', egress_traffic_inspection_enabled is false, and egress_protocols_unrestricted is non-empty. Without inspection, DNS tunneling (T1071.004), web service exfiltration (T1567), and alternative protocol abuse (T1048) can occur silently. The inspection layer is the last-line detection control when destination-based restrictions are only partially applied, making its absence a critical blind spot.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify whether application tier instances have a static route or forced-tunnel configuration directing all internet-bound traffic to an inspection appliance or proxy IP, rather than routing directly to an internet gateway.",
+        "command": "aws ec2 describe-route-tables --filters 'Name=association.subnet-id,Values=<app-tier-subnet-id>' --query 'RouteTables[*].Routes[?DestinationCidrBlock==`0.0.0.0/0`].{Dest:DestinationCidrBlock,NextHop:NatGatewayId,TGW:TransitGatewayId,Instance:InstanceId,NetworkInterface:NetworkInterfaceId}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If 0.0.0.0/0 routes to a NAT Gateway with no inspection, inspection is likely absent. If it routes to a Transit Gateway or a Network Virtual Appliance instance ID, confirm that appliance performs TLS inspection or proxying."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network or cloud security team to confirm whether a mandatory egress proxy (e.g., Squid, Blue Coat, Zscaler Private Access) is enforced for application tier hosts, and verify that direct internet routes are blocked for those hosts.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation or architecture diagram showing proxy enforcement, firewall policy preventing direct internet routing, and confirmation that TLS inspection certificates are deployed on app tier hosts."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From an application tier host, attempt a direct HTTPS connection to an external IP (bypassing DNS) to verify whether traffic is blocked or intercepted by an inspection device. Compare with proxy-routed traffic to confirm inspection is mandatory.",
+        "command": "curl -v --connect-timeout 5 https://93.184.216.34 2>&1 | head -30",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If inspection is enforced, the connection should either be blocked (connection refused/timeout) or intercepted (certificate presented by proxy CA, not the origin server). Direct success with the origin server's certificate indicates inspection is NOT enabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check proxy enforcement configuration on application tier servers to confirm outbound HTTP/HTTPS traffic is mandatorily redirected through an inspection proxy via environment variables, PAC files, or OS-level proxy settings.",
+        "command": "grep -rE '(http_proxy|https_proxy|HTTPS_PROXY|HTTP_PROXY)' /etc/environment /etc/profile.d/ /etc/systemd/system/*.service 2>/dev/null",
+        "file_path": "/etc/environment",
+        "navigation": null,
+        "expected_output": "Lines showing proxy URL assignments (e.g., https_proxy=http://proxy.internal:8080) confirm proxy enforcement is configured at the OS level; empty output suggests no mandatory proxy enforcement."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (compliant — egress proxy or NGFW inspection enforced)",
+      "false (non-compliant — direct internet egress without inspection)",
+      "null (not assessed)"
+    ]
+  },
+  {
+    "option_name": "middleware_content_inspection_enabled",
+    "option_description": "Indicates whether messages traversing the application tier boundary via AMQP or JMS protocols are subjected to deep content-level inspection — including payload validation against an approved schema, WAF-style pattern filtering, or inline message security gateway processing — before being delivered to downstream consumers or backend systems.",
+    "security_impact": "The Rego policy triggers the 'Zone Boundary Bypass Via Allowed Middleware Protocols' exposure when both middleware_content_inspection_enabled and middleware_sender_authentication_enforced are false, and additionally when the middleware is exposed in 'external' or 'dmz' zones without content inspection. Without content inspection, adversaries can inject malicious payloads into message queues to abuse trusted protocol channels (T1071, T1071.005), effectively bypassing boundary controls that operate at the network layer since AMQP/JMS traffic is permitted.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review RabbitMQ broker plugin configuration to determine whether message interception plugins (e.g., rabbitmq-message-interceptor, custom shovel with validation) or an external policy engine is configured for content inspection.",
+        "command": "rabbitmq-plugins list | grep -E '(interceptor|validation|shovel|policy)'",
+        "file_path": "/etc/rabbitmq/rabbitmq.conf",
+        "navigation": null,
+        "expected_output": "Enabled plugins list showing an interception or validation plugin indicates content inspection may be active; verify the plugin is actually performing schema/payload validation rather than just routing."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Apache ActiveMQ or IBM MQ deployments, inspect broker XML configuration for message validation interceptors, destination policies with message size/content filters, or references to an external message security gateway.",
+        "command": "grep -E '(messageInterceptor|validationPlugin|contentFilter|securityPlugin)' /etc/activemq/activemq.xml",
+        "file_path": "/etc/activemq/activemq.xml",
+        "navigation": null,
+        "expected_output": "XML entries referencing interceptor or validation classes indicate content inspection is configured. Absence of such entries confirms content inspection is not enabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS SQS/SNS or Azure Service Bus console, check whether messages pass through an API Gateway, Lambda authorizer, or Azure API Management layer that performs schema validation before reaching the broker.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > API Gateway > [app-tier message ingestion API] > Method Execution > Request Validator; or Azure Portal > API Management > APIs > [message ingestion endpoint] > Inbound Processing Policies",
+        "expected_output": "Presence of request validators with schema models or inbound policies with validation rules confirms content inspection is enabled. No validators or policies indicates false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview middleware or integration architects to determine whether a dedicated message security gateway (e.g., Layer7 API Gateway, IBM DataPower, Axway) sits inline at the AMQP/JMS boundary entry point and performs payload inspection.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture documentation showing an inline gateway with active content inspection policy; if no such gateway exists or it is in monitoring-only mode, set value to false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common — most broker deployments lack inline content inspection)",
+      "true (compliant — dedicated message security gateway or validation plugin active)"
+    ]
+  },
+  {
+    "option_name": "middleware_sender_authentication_enforced",
+    "option_description": "Indicates whether the message broker or middleware endpoint at the application tier boundary requires and validates the identity of all message producers before accepting messages. Authentication mechanisms include SASL (PLAIN, SCRAM, GSSAPI/Kerberos), mutual TLS (mTLS) with client certificates, or token-based authentication, with anonymous/unauthenticated producer connections explicitly rejected.",
+    "security_impact": "The Rego policy triggers 'Zone Boundary Bypass Via Allowed Middleware Protocols' when both middleware_content_inspection_enabled and middleware_sender_authentication_enforced are false, and also fires independently when the middleware is exposed in 'external' or 'dmz' zones without sender authentication. Without sender authentication, any host with network access to broker ports can inject arbitrary messages (T1071.005, T1071), enabling zone boundary traversal through trusted protocol channels and potentially triggering malicious processing by backend consumers. Combined with external/DMZ exposure, unauthenticated brokers are directly exploitable.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the RabbitMQ configuration to verify that the default guest user is disabled, SASL mechanisms require authentication, and anonymous connections are rejected. Also check whether TLS client certificate verification is enforced.",
+        "command": "grep -E '(auth_mechanisms|ssl_options|default_user|loopback_users|anonymous)' /etc/rabbitmq/rabbitmq.conf",
+        "file_path": "/etc/rabbitmq/rabbitmq.conf",
+        "navigation": null,
+        "expected_output": "Lines showing 'auth_mechanisms.1 = PLAIN' with non-guest credentials and 'ssl_options.verify = verify_peer' with 'ssl_options.fail_if_no_peer_cert = true' confirm mTLS enforcement. Presence of 'default_user = guest' accessible from non-loopback addresses indicates authentication is NOT enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Attempt an anonymous or unauthenticated AMQP connection to the broker from an application tier host to verify whether the broker rejects unauthenticated producers.",
+        "command": "python3 -c \"import pika; conn = pika.BlockingConnection(pika.ConnectionParameters(host='<broker-host>', credentials=pika.credentials.PlainCredentials('', '')));\" 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An 'ACCESS_REFUSED' or 'NOT_ALLOWED' exception indicates authentication is enforced. A successful connection with empty credentials confirms authentication is NOT enforced and the value should be false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Apache Kafka deployments used as JMS-compatible brokers, review the server.properties file for SASL or mTLS listener configuration to confirm client authentication is required.",
+        "command": "grep -E '(security.protocol|sasl.mechanism|ssl.client.auth|listeners|authorizer)' /etc/kafka/server.properties",
+        "file_path": "/etc/kafka/server.properties",
+        "navigation": null,
+        "expected_output": "Entries showing 'ssl.client.auth=required' and SASL_SSL listeners confirm authentication enforcement. 'PLAINTEXT' listeners or 'ssl.client.auth=none' indicates unauthenticated access is permitted."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Azure Service Bus portal, verify that Shared Access Signature (SAS) policies or Azure AD authentication is required and that public network access without authentication is disabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Service Bus Namespace > [namespace] > Settings > Shared Access Policies; confirm no policies grant SendListen without token requirement; also check Networking > disable public network access if applicable",
+        "expected_output": "All SAS policies require a valid token; 'Local Authentication' is not set to disabled without a compensating AD auth policy. Absence of any authentication requirement confirms false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in internal-only broker deployments that rely solely on network-level access control)",
+      "true (compliant — SASL or mTLS enforced, anonymous connections rejected)"
+    ]
+  },
+  {
+    "option_name": "middleware_protocol_exposure_zone",
+    "option_description": "Classifies which network zone has reachability to AMQP (ports 5672/5671) or JMS broker ports. The three possible values reflect whether the broker is reachable from 'external' networks (internet-facing), the 'dmz' (semi-trusted perimeter zone), or only 'internal' application tier networks (most restrictive). This is determined by reviewing firewall rules, network ACLs, security group bindings, and broker listener interface bindings.",
+    "security_impact": "The Rego policy uses this attribute to escalate risk: when middleware_protocol_exposure_zone is 'external' or 'dmz', the 'Zone Boundary Bypass Via Allowed Middleware Protocols' exposure fires independently for each missing control (sender authentication absent OR content inspection absent). Exposure in the DMZ or externally means broker ports are reachable from lower-trust networks, dramatically increasing the attack surface for T1071.005 (Publish/Subscribe Protocol abuse) and T1071 (Application Layer Protocol). Internal-only exposure limits the attack surface to already-compromised internal hosts.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, identify which subnets the broker is deployed in and determine whether those subnets have routes to an internet gateway or are accessible from DMZ subnets via security group rules.",
+        "command": "aws ec2 describe-network-interfaces --filters 'Name=private-ip-address,Values=<broker-ip>' --query 'NetworkInterfaces[*].{SubnetId:SubnetId,SGs:Groups[*].GroupId,VpcId:VpcId}' --output json && aws ec2 describe-route-tables --filters 'Name=association.subnet-id,Values=<broker-subnet-id>' --query 'RouteTables[*].Routes' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Route table showing only local VPC routes and no internet gateway route confirms internal zone. An IGW route or peering to a DMZ VPC indicates dmz or external exposure. Cross-reference security group rules for ports 5671-5672."
+      },
+      {
+        "type": "command",
+        "instruction": "Perform a port scan from a DMZ or external vantage point to confirm whether AMQP ports are reachable from outside the internal application tier.",
+        "command": "nmap -sT -p 5671,5672 <broker-ip-or-hostname> --open 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ports shown as 'filtered' or 'closed' from a DMZ/external host confirm internal-only exposure. Ports shown as 'open' from DMZ or external networks indicate dmz or external zone value respectively."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the broker's listener binding configuration to determine which network interfaces and addresses AMQP listeners are bound to, confirming whether they are bound to internal-only or all interfaces.",
+        "command": "grep -E '(listeners|interface|bind|AMQP_PORT|NODE_IP_ADDRESS|listener\\.)' /etc/rabbitmq/rabbitmq.conf /etc/activemq/activemq.xml 2>/dev/null",
+        "file_path": "/etc/rabbitmq/rabbitmq.conf",
+        "navigation": null,
+        "expected_output": "Listener bound to a private RFC1918 IP address confirms internal exposure. Listener bound to '0.0.0.0' or a public IP requires further firewall review to determine actual zone reachability."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the cloud console, review the security group or firewall rules associated with the broker instances and identify whether source CIDRs for ports 5671/5672 include external IP ranges, DMZ subnet CIDRs, or only application-tier internal CIDRs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > EC2 > Security Groups > [broker SG] > Inbound Rules > filter by Port 5671 or 5672; Azure Portal > Network Security Groups > [broker NSG] > Inbound Security Rules",
+        "expected_output": "Source restricted to application-tier CIDR only = internal. Source includes DMZ CIDR = dmz. Source includes 0.0.0.0/0 or internet-routable CIDR = external."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "internal (expected compliant state)",
+      "dmz (elevated risk — common in poorly segmented architectures)",
+      "external (critical finding — broker directly internet-accessible)"
+    ]
+  },
+  {
+    "option_name": "failover_paths_policy_parity",
+    "option_description": "Indicates whether all redundant and failover network paths — including load balancer secondary backends, active-passive NIC failover interfaces, BGP failover routes, and backup connectivity circuits — have firewall rules, ACLs, and security group policies that are identical or functionally equivalent to those applied on the primary boundary enforcement path. A value of false means at least one redundant path lacks policy parity with the primary path.",
+    "security_impact": "The Rego policy triggers 'Inconsistent Boundary Enforcement Across Redundant Paths' exposure when failover_paths_policy_parity is false (checked via 'not input.failover_paths_policy_parity'). Asymmetric policy application on failover paths creates exploitable gaps (T1599 — Network Boundary Bridging) that adversaries can abuse during or by inducing failover events. Failover paths with weaker policies become fallback channels (T1008) for C2 or lateral movement that would be blocked on the primary path. This is particularly dangerous because failover conditions are often not monitored as closely as steady-state operations.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, enumerate all security groups associated with both primary and failover/secondary ENIs of application tier load balancers and instances, then compare inbound and outbound rule sets for differences.",
+        "command": "aws ec2 describe-instances --filters 'Name=tag:Tier,Values=application' --query 'Reservations[*].Instances[*].{ID:InstanceId,PrimaryENI:NetworkInterfaces[?Attachment.DeviceIndex==`0`].Groups,SecondaryENIs:NetworkInterfaces[?Attachment.DeviceIndex!=`0`].Groups}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON showing all ENIs and their associated security groups; if primary ENI security groups differ from secondary ENI security groups, parity is absent. Identical security group IDs across all ENIs indicates parity."
+      },
+      {
+        "type": "command",
+        "instruction": "For on-premises environments with multiple uplinks or VLAN interfaces, compare iptables rule counts and key rules between the primary and secondary/failover network interfaces on application tier hosts.",
+        "command": "for iface in $(ip link show | awk -F': ' '/^[0-9]+:/{print $2}' | grep -v lo); do echo \"=== $iface ===\"; iptables -L -n --line-numbers | grep $iface 2>/dev/null || iptables -L -n --line-numbers; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Identical rule sets across all interfaces indicate parity. Differences in ACCEPT/DROP rules between primary and secondary interfaces confirm policy disparity and a false value."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Terraform, CloudFormation, or Ansible infrastructure-as-code for the application tier to verify that security group attachments and ACL associations are explicitly applied to all failover and secondary network resources, not just primary ones.",
+        "command": "grep -rn 'failover\\|secondary\\|backup\\|standby' infrastructure/ | grep -E '(security_group|acl|nsg|firewall_policy)' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IaC files showing security_group_ids or network_acl_id references for both primary and failover resources with matching policy IDs confirm parity. Missing security references on failover resources indicates false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to EC2 > Load Balancers, select the application tier ALB or NLB, review the security groups and target group health checks for both primary and failover target groups, then verify that backend security groups are consistent.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > EC2 > Load Balancers > [app-tier LB] > Security tab (SGs on LB) and Description tab (target groups); then EC2 > Target Groups > [each TG] > Targets tab > verify each target instance uses identical security groups",
+        "expected_output": "All target instances and load balancer ENIs associated with identical security group sets confirms parity. Any instance using a different security group on a failover path indicates false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (compliant — policy parity verified across all paths)",
+      "false (common finding — failover interfaces provisioned without replicating primary policy)",
+      "null (not assessed — redundant paths not inventoried)"
+    ]
+  },
+  {
+    "option_name": "redundant_path_inspection_enabled",
+    "option_description": "Indicates whether deep packet inspection (DPI), IDS/IPS sensors, or equivalent traffic analysis tools are actively applied to redundant and failover network paths — including secondary NICs, backup WAN circuits, and failover routes — and not only to the primary network path. This requires that inspection appliances either receive mirrored traffic from all paths or are inline on all paths including failover.",
+    "security_impact": "The Rego policy independently triggers 'Inconsistent Boundary Enforcement Across Redundant Paths' exposure when redundant_path_inspection_enabled is false (checked via 'not input.redundant_path_inspection_enabled'). Without inspection on redundant paths, adversaries can route traffic through failover interfaces to evade IDS/IPS monitoring (T1599 — Network Boundary Bridging), establish fallback C2 channels (T1008) through uninspected secondary routes, and conduct lateral movement or exfiltration during failover events when only the primary path is monitored. The monitoring gap compounds the risk of policy parity issues.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, verify that VPC Traffic Mirroring sessions are configured to capture traffic from all ENIs on application tier instances, including secondary/failover ENIs, not just the primary ENI.",
+        "command": "aws ec2 describe-traffic-mirror-sessions --query 'TrafficMirrorSessions[*].{SessionID:TrafficMirrorSessionId,SourceENI:NetworkInterfaceId,TargetID:TrafficMirrorTargetId,Filter:TrafficMirrorFilterId}' --output json && aws ec2 describe-network-interfaces --filters 'Name=attachment.instance-id,Values=<instance-id>' --query 'NetworkInterfaces[*].{ENI:NetworkInterfaceId,Device:Attachment.DeviceIndex}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Cross-referencing traffic mirror sessions against all ENIs on app tier instances; every ENI (DeviceIndex 0, 1, 2...) should appear as a SourceENI in a mirror session. Any ENI not appearing in mirror sessions confirms inspection is absent on that path."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review IDS/IPS sensor deployment configuration (e.g., Snort, Suricata) to verify that sensor interface listening configuration includes all physical or virtual interfaces, including failover interfaces.",
+        "command": "grep -E '(interface|af-packet|pcap|DAQ)' /etc/suricata/suricata.yaml | grep -v '#'",
+        "file_path": "/etc/suricata/suricata.yaml",
+        "navigation": null,
+        "expected_output": "YAML entries listing multiple interface names (e.g., eth0, eth1, bond1) under the af-packet or pcap section confirm multi-path inspection. Only a single interface listed indicates secondary paths are not inspected."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security team to obtain the IDS/IPS sensor placement topology diagram and verify that tap or span points exist on all redundant and failover paths, not just the primary perimeter path.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture diagram showing span/tap points on each redundant circuit or failover interface with confirmed IDS/IPS processing. Diagrams showing inspection only on primary path confirm redundant_path_inspection_enabled is false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Trigger or simulate a failover event, then generate known IDS/IPS test traffic (e.g., EICAR test string over HTTP) through the failover path and confirm whether the IDS/IPS generates an alert, verifying that the failover path is under active inspection.",
+        "command": "curl -s http://<test-destination>/$(python3 -c \"print('X5O!P%@AP[4\\\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*')\") 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An IDS/IPS alert generated and visible in the SIEM or sensor console within 60 seconds of sending test traffic over the failover path confirms inspection is active. No alert generated confirms redundant_path_inspection_enabled is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common — IDS/IPS deployed only on primary path, failover paths overlooked)",
+      "true (compliant — all paths including failover covered by inspection)",
+      "null (not assessed)"
+    ]
+  },
+  {
+    "option_name": "failover_boundary_crossing_logged",
+    "option_description": "Indicates whether boundary crossing events — specifically network traffic transiting the application tier boundary — are captured in logs when that traffic flows through redundant or failover network paths, providing complete audit trail parity between primary and failover path logging. This requires that firewall logs, flow logs (e.g., VPC Flow Logs, NetFlow), or equivalent telemetry from failover interfaces are forwarded to the central logging system.",
+    "security_impact": "The Rego policy independently triggers 'Inconsistent Boundary Enforcement Across Redundant Paths' exposure when failover_boundary_crossing_logged is false (checked via 'not input.failover_boundary_crossing_logged'). This has criticality 'low' with a score of 2, but it is a foundational forensic requirement: without logging on failover paths, adversaries exploiting fallback channels (T1008) or performing network boundary bridging (T1599) during failover events leave no audit trail, preventing incident detection, investigation, and response. Logging gaps on failover paths are particularly exploitable because failover events are often treated as operational incidents rather than security events.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On AWS, verify that VPC Flow Logs are enabled at the VPC or subnet level for the application tier and that they cover all traffic (ACCEPT and REJECT). Then confirm that the Flow Log covers all ENIs including secondary/failover ENIs by checking the resource-level scope.",
+        "command": "aws ec2 describe-flow-logs --filter 'Name=resource-id,Values=<app-tier-vpc-id>' --query 'FlowLogs[*].{LogGroupName:LogGroupName,Status:FlowLogStatus,TrafficType:TrafficType,ResourceId:ResourceId,LogDestType:LogDestinationType}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Flow logs with TrafficType=ALL and Status=ACTIVE covering the application tier VPC ID confirm logging is enabled. LogDestinationType should be cloud-watch-logs or s3 (with confirmed delivery). If no flow logs are returned, logging is absent and value is false."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Simulate a failover event and then query the central SIEM or log aggregation system for flow log entries originating from the failover interface IP or subnet CIDR within the failover window to confirm log delivery from the secondary path.",
+        "command": "aws logs filter-log-events --log-group-name '/aws/vpc/flowlogs/app-tier' --start-time $(date -d '30 minutes ago' +%s000) --filter-pattern '\"<failover-interface-ip>\"' --query 'events[*].{Timestamp:timestamp,Message:message}' --output json | head -50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log entries showing srcaddr or dstaddr matching the failover interface IP during the simulated failover window confirm logging is active on that path. Zero results despite confirmed failover traffic indicates logging is absent and value is false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS CloudWatch or Azure Monitor console, navigate to the flow logs or Network Watcher logs for the application tier, filter by the failover subnet or secondary NIC, and verify that log entries are present and current.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > CloudWatch > Log Groups > [VPC Flow Log group] > Log Streams > search for stream matching failover ENI ID; OR Azure Portal > Monitor > Network > Network Watcher > NSG Flow Logs > [failover subnet NSG] > verify storage account has recent log files",
+        "expected_output": "Active log streams with recent entries (within last 24 hours) for failover path ENIs or subnets confirm logging is enabled. Missing log streams or empty/stale log groups confirm false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the SIEM ingestion configuration and log source inventory to verify that failover path logging sources (secondary ENI flow logs, backup circuit NetFlow exporters, or standby firewall log streams) are explicitly listed as active ingestion sources.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SIEM log source inventory showing explicit entries for failover interface flow logs or NetFlow sources with recent last-seen timestamps confirms logging parity. Absence of failover path sources in the SIEM inventory confirms false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common — flow logs enabled only on primary subnets, failover subnets omitted)",
+      "true (compliant — all paths including failover captured in centralized logging)",
+      "null (not assessed — failover path logging coverage not verified)"
+    ]
+  }
+]

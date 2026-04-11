@@ -1,0 +1,8 @@
+{
+  "name": "Artifact Promotion Flow",
+  "classType": "dataFlow",
+  "type": "Artifact Promotion Flow",
+  "description": "Data in transit from the CI/CD Pipeline Engine to the Artifact Repository and Container Registry, carrying built binaries, container images, SBOMs, and cryptographic signatures. High sensitivity as the primary injection point for supply-chain attacks. Write access on this flow must be tightly scoped to pipeline service identities.",
+  "category": "Software Supply Chain",
+  "status": "draft"
+}

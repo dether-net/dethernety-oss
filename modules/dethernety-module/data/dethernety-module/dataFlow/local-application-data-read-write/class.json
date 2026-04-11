@@ -1,0 +1,8 @@
+{
+  "name": "Local Application Data Read/Write",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "Local filesystem access dataflows present transit vulnerabilities primarily on the local communication channel between application processes and the OS filesystem layer. While traditional network encryption does not apply, the data-in-transit risks center on IPC channel integrity, UNIX socket or named pipe security, kernel-mediated data paths, shared memory exposure, and the absence of integrity verification on data moving between application and storage subsystems.",
+  "category": "Data Flows",
+  "status": "reviewed"
+}

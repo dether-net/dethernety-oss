@@ -1,0 +1,145 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1599.001",
+      "name": "Network Address Translation Traversal",
+      "relevance": "Attackers can traverse NAT boundaries to reach management plane interfaces that should be restricted."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1665",
+      "name": "Hide Infrastructure",
+      "relevance": "Adversaries may hide infrastructure used to bypass management plane ingress controls."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1572",
+      "name": "Protocol Tunneling",
+      "relevance": "Telemetry egress paths can be abused to tunnel exfiltrated data out of the network disguised as legitimate monitoring traffic."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.006",
+      "name": "Indicator Blocking",
+      "relevance": "Blocking telemetry indicators on egress paths prevents detection of exfiltration activity."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1078",
+      "name": "Valid Accounts",
+      "relevance": "Shared credentials across zones allow adversaries to use the same valid account to move between security boundaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1110.004",
+      "name": "Credential Stuffing",
+      "relevance": "Shared credentials increase the risk of credential stuffing attacks succeeding across multiple zones."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1072",
+      "name": "Software Deployment Tools",
+      "relevance": "Monitoring agents deployed via software deployment tools can be abused as a lateral movement vector across network zones."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1210",
+      "name": "Exploitation of Remote Services",
+      "relevance": "Vulnerabilities in monitoring agent remote services can be exploited to move laterally between zones."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1040",
+      "name": "Network Sniffing",
+      "relevance": "An unsegmented management VLAN allows adversaries to sniff sensitive management traffic across the broadcast domain."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1599",
+      "name": "Network Boundary Bridging",
+      "relevance": "Lack of VLAN segmentation enables bridging between management and other network boundaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1484.002",
+      "name": "Trust Modification",
+      "relevance": "Orchestration controllers can be abused to modify trust relationships and propagate elevated trust across zones."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1595.002",
+      "name": "Vulnerability Scanning",
+      "relevance": "Exposed health check endpoints can be discovered and scanned by adversaries to identify vulnerabilities across zone boundaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1016",
+      "name": "System Network Configuration Discovery",
+      "relevance": "Health check endpoints may reveal network configuration and zone topology information to adversaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1020.001",
+      "name": "Traffic Duplication",
+      "relevance": "Blind spots at zone boundaries may allow traffic duplication and exfiltration without detection."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1095",
+      "name": "Non-Application Layer Protocol",
+      "relevance": "Unmonitored out-of-band channels often use non-application layer protocols that bypass standard monitoring controls."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1205",
+      "name": "Traffic Signaling",
+      "relevance": "Adversaries may use traffic signaling over out-of-band channels to covertly communicate without triggering monitored paths."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1553",
+      "name": "Subvert Trust Controls",
+      "relevance": "Supply chain implants in monitoring agents subvert trust controls to appear as legitimate signed software."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1090.001",
+      "name": "Internal Proxy",
+      "relevance": "An overpermissive service mesh sidecar can act as an internal proxy enabling unauthorized traffic routing within the management zone."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.004",
+      "name": "Disable or Modify System Firewall",
+      "relevance": "Stale firewall rules effectively modify firewall policy to permit legacy access that should be blocked."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.013",
+      "name": "Disable or Modify Network Device Firewall",
+      "relevance": "Legacy management access permitted by stale rules on network device firewalls exposes management interfaces to unauthorized access."
+    }
+  ],
+  "respondsWith": []
+}

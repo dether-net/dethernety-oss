@@ -1,0 +1,667 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "full_disk_encryption_enabled": {
+        "type": "boolean",
+        "title": "Full Disk Encryption Enabled",
+        "description": "Indicates whether full-disk or volume-level encryption is enabled and active on the device (e.g., BitLocker, FileVault, LUKS, or equivalent).",
+        "default": false
+      },
+      "encryption_scope": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Encryption Scope",
+        "description": "Describes the extent of disk encryption coverage: full (all volumes/partitions encrypted), partial (only select partitions encrypted), or none (no encryption applied)."
+      },
+      "screen_lock_enabled": {
+        "type": "boolean",
+        "title": "Screen Lock Enabled",
+        "description": "Whether a screen lock (PIN, password, pattern, or biometric) is enforced on the device when idle or after a timeout.",
+        "default": false
+      },
+      "screen_lock_type": {
+        "type": "string",
+        "enum": [
+          "none",
+          "swipe",
+          "pattern_simple",
+          "pin",
+          "password",
+          "biometric_only",
+          "biometric_with_fallback"
+        ],
+        "title": "Screen Lock Authentication Type",
+        "description": "The type of credential used to unlock the device screen."
+      },
+      "minimum_passcode_length": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 32,
+        "title": "Minimum Passcode Length",
+        "description": "The minimum number of characters or digits required for the device screen lock passcode/PIN as enforced by policy."
+      },
+      "biometric_fallback_factor": {
+        "type": "string",
+        "enum": [
+          "none",
+          "swipe",
+          "weak_pin",
+          "strong_pin",
+          "password"
+        ],
+        "title": "Biometric Fallback Authentication Factor",
+        "description": "The fallback authentication method available when biometric authentication fails or is bypassed."
+      },
+      "standard_users_have_local_admin": {
+        "type": "boolean",
+        "title": "Standard Users Granted Local Administrator Privileges",
+        "description": "Indicates whether standard (non-IT) end users are members of the local Administrators group on their devices, granting persistent elevated privileges.",
+        "default": false
+      },
+      "privileged_access_management_enforced": {
+        "type": "boolean",
+        "title": "Privileged Access Management (PAM) or Least Privilege Tool Enforced",
+        "description": "Indicates whether a privileged access management solution (e.g., just-in-time elevation, application allow-listing with elevation) is deployed and active, replacing persistent local admin rights.",
+        "default": false
+      },
+      "endpoint_protection_status": {
+        "type": "string",
+        "enum": [
+          "active",
+          "disabled",
+          "tampered",
+          "not_installed"
+        ],
+        "title": "Endpoint Protection Status",
+        "description": "Operational status of antivirus, EDR, or host-based IPS on the device."
+      },
+      "signature_age_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Signature / Definition Age (Days)",
+        "description": "Number of days since the endpoint protection software last successfully updated its threat signature or definition database."
+      },
+      "broad_exclusion_paths": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Broad Endpoint Protection Exclusion Paths",
+        "description": "List of filesystem paths or path patterns configured as scan/detection exclusions in the endpoint protection tool that are considered overly broad.",
+        "default": []
+      },
+      "days_since_critical_patch_available": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Days Since Critical Patch Available",
+        "description": "Number of days elapsed since the most recent critical OS, driver, or firmware patch was released by the vendor without the device having applied it.",
+        "default": 0
+      },
+      "patch_scope": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Unpatched Critical Patch Scope",
+        "description": "List of component types with outstanding critical patches not yet applied on the device. Possible elements: 'os', 'driver', 'uefi_bios'.",
+        "default": []
+      },
+      "secure_boot_enabled": {
+        "type": "boolean",
+        "title": "Secure Boot Enabled",
+        "description": "Whether UEFI Secure Boot is enabled on the device, preventing execution of unsigned or untrusted bootloaders and OS loaders.",
+        "default": false
+      },
+      "secure_boot_custom_db_state": {
+        "type": "string",
+        "enum": [
+          "default_trusted",
+          "custom_trusted",
+          "untrusted_or_unknown"
+        ],
+        "title": "Secure Boot Custom Key Database State",
+        "description": "Indicates whether the Secure Boot signature database contains only Microsoft/OEM-trusted certificates, has been extended with custom certificates, or has been replaced with untrusted/unknown certificates.",
+        "default": "default_trusted"
+      },
+      "mdm_enrollment_status": {
+        "type": "string",
+        "enum": [
+          "enrolled",
+          "not_enrolled",
+          "enrollment_pending"
+        ],
+        "title": "MDM/UEM Enrollment Status",
+        "description": "Whether the device is enrolled in a Mobile Device Management or Unified Endpoint Management solution, and whether compliance is actively enforced.",
+        "default": "not_enrolled"
+      },
+      "byod_policy_enforced": {
+        "type": "boolean",
+        "title": "BYOD Policy Enforcement Active",
+        "description": "Whether a formal BYOD policy with conditional access controls is actively enforced, blocking unenrolled personal devices from accessing corporate resources.",
+        "default": false
+      },
+      "remote_wipe_capability_available": {
+        "type": "boolean",
+        "title": "Remote Wipe Capability Available",
+        "description": "Whether IT has the ability to remotely wipe or selectively wipe corporate data from the device in the event of loss, theft, or termination.",
+        "default": false
+      },
+      "plaintext_credential_files_found": {
+        "type": "boolean",
+        "title": "Plaintext Credential Files Detected",
+        "description": "Whether credential files (e.g., .env, config.ini, credentials.txt, private keys) containing plaintext passwords, API keys, or tokens exist in user-accessible directories on the device.",
+        "default": false
+      },
+      "browser_master_password_enforced": {
+        "type": "boolean",
+        "title": "Browser Master Password Enforced",
+        "description": "Whether the browser's saved password store is protected by a master password or OS-level credential protection equivalent, preventing unauthenticated access to stored credentials.",
+        "default": false
+      },
+      "os_credential_manager_protection_enabled": {
+        "type": "boolean",
+        "title": "OS Credential Manager Protection Enabled",
+        "description": "Whether the operating system's credential manager (Windows Credential Manager, macOS Keychain, Linux Secret Service/gnome-keyring) is actively protecting stored credentials with encryption tied to authenticated user sessions.",
+        "default": true
+      },
+      "host_firewall_enabled": {
+        "type": "boolean",
+        "title": "Host Firewall Enabled",
+        "description": "Whether the OS-level host firewall (e.g., Windows Defender Firewall, iptables/ufw on Linux, pf on macOS) is currently enabled and active.",
+        "default": false
+      },
+      "inbound_default_policy": {
+        "type": "string",
+        "enum": [
+          "deny",
+          "allow_all",
+          "unknown"
+        ],
+        "title": "Inbound Default Firewall Policy",
+        "description": "The default action applied to inbound connections not matched by an explicit rule."
+      },
+      "usb_storage_policy": {
+        "type": "string",
+        "enum": [
+          "blocked",
+          "restricted",
+          "unrestricted"
+        ],
+        "title": "USB Storage Device Policy",
+        "description": "The enforcement policy applied to USB mass storage devices on the endpoint — whether they are blocked, restricted (read-only or allow-listed), or unrestricted.",
+        "default": "unrestricted"
+      },
+      "removable_media_audit_enabled": {
+        "type": "boolean",
+        "title": "Removable Media Audit Logging Enabled",
+        "description": "Whether connection, read, and write events for removable media devices are logged and forwarded to a centralized audit system."
+      },
+      "device_control_tool_deployed": {
+        "type": "boolean",
+        "title": "Device Control Tool Deployed",
+        "description": "Whether a dedicated device control solution (e.g., endpoint DLP agent, MDM device restriction profile, or GPO-based device class blocking) is actively deployed and enforced on the endpoint.",
+        "default": false
+      },
+      "log_forwarding_enabled": {
+        "type": "boolean",
+        "title": "Log Forwarding Enabled",
+        "description": "Whether endpoint device logs (authentication, process execution, network connections) are configured to forward to a central SIEM or log aggregator.",
+        "default": false
+      },
+      "siem_last_event_age_hours": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Hours Since Last Event Received by SIEM",
+        "description": "Number of hours since the SIEM or log aggregator last received an event from this endpoint. A high value indicates log forwarding may be broken or disabled."
+      },
+      "log_tamper_protection_enabled": {
+        "type": "boolean",
+        "title": "Local Log Tamper Protection Enabled",
+        "description": "Whether local logs are protected against tampering or deletion by non-privileged processes (e.g., log files have restricted permissions, tamper protection is enabled on the EDR agent, or write-once log storage is configured).",
+        "default": false
+      },
+      "auto_connect_to_open_networks_enabled": {
+        "type": "boolean",
+        "title": "Auto-Connect to Open Networks Enabled",
+        "description": "Whether the device is configured to automatically connect to open (unsecured) Wi-Fi networks without user confirmation.",
+        "default": false
+      },
+      "auto_reconnect_to_known_networks_enabled": {
+        "type": "boolean",
+        "title": "Auto-Reconnect to Previously Seen Networks Enabled",
+        "description": "Whether the device automatically reconnects to any previously joined network by SSID match alone, without requiring additional validation such as certificate checking, making it vulnerable to evil-twin attacks.",
+        "default": false
+      },
+      "wifi_security_policy_enforced_via_mdm": {
+        "type": "boolean",
+        "title": "Wi-Fi Security Policy Enforced via MDM",
+        "description": "Whether a mobile device management (MDM) policy is actively enforced that restricts auto-join behavior and prohibits connections to open or untrusted Wi-Fi networks.",
+        "default": false
+      },
+      "software_allowlisting_enforced": {
+        "type": "boolean",
+        "title": "Software Allowlisting Enforced",
+        "description": "Indicates whether an application allowlisting/whitelisting control (e.g., AppLocker, WDAC, Gatekeeper, SELinux policy) is actively enforced on the endpoint, preventing execution of unapproved software.",
+        "default": false
+      },
+      "it_approved_software_policy_exists": {
+        "type": "boolean",
+        "title": "IT-Approved Software Policy Exists and Is Enforced",
+        "description": "Indicates whether a documented and technically enforced software approval/vetting policy exists that requires IT sign-off before installation, backed by a managed software catalog or MDM-level restriction.",
+        "default": false
+      },
+      "endpoint_admin_rights_scope": {
+        "type": "string",
+        "enum": [
+          "standard_user",
+          "local_admin",
+          "full_admin"
+        ],
+        "title": "Endpoint User Admin Rights Scope",
+        "description": "Describes the level of administrative privilege granted to the end user on their device, which directly controls whether they can self-install arbitrary software.",
+        "default": "standard_user"
+      },
+      "nac_or_conditional_access_enabled": {
+        "type": "boolean",
+        "title": "NAC or Conditional Access Policy Enabled",
+        "description": "Whether a network access control system or conditional access policy is actively enforced to gate corporate application or VPN access.",
+        "default": false
+      },
+      "device_health_checks_enforced": {
+        "type": "boolean",
+        "title": "Device Health Posture Checks Enforced",
+        "description": "Whether the NAC or conditional access policy actively verifies device health signals (patch level, disk encryption status, EDR health) as a condition of granting access.",
+        "default": false
+      },
+      "non_compliant_device_action": {
+        "type": "string",
+        "enum": [
+          "block",
+          "quarantine",
+          "allow_with_warning",
+          "allow_unrestricted"
+        ],
+        "title": "Action Taken for Non-Compliant Devices",
+        "description": "The enforcement action applied when a device fails health posture checks."
+      }
+    },
+    "required": [
+      "full_disk_encryption_enabled",
+      "encryption_scope",
+      "screen_lock_enabled",
+      "screen_lock_type",
+      "minimum_passcode_length",
+      "biometric_fallback_factor",
+      "standard_users_have_local_admin",
+      "privileged_access_management_enforced",
+      "endpoint_protection_status",
+      "signature_age_days",
+      "broad_exclusion_paths",
+      "days_since_critical_patch_available",
+      "patch_scope",
+      "secure_boot_enabled",
+      "secure_boot_custom_db_state",
+      "mdm_enrollment_status",
+      "byod_policy_enforced",
+      "remote_wipe_capability_available",
+      "plaintext_credential_files_found",
+      "browser_master_password_enforced",
+      "os_credential_manager_protection_enabled",
+      "host_firewall_enabled",
+      "inbound_default_policy",
+      "usb_storage_policy",
+      "removable_media_audit_enabled",
+      "device_control_tool_deployed",
+      "log_forwarding_enabled",
+      "siem_last_event_age_hours",
+      "log_tamper_protection_enabled",
+      "auto_connect_to_open_networks_enabled",
+      "auto_reconnect_to_known_networks_enabled",
+      "wifi_security_policy_enforced_via_mdm",
+      "software_allowlisting_enforced",
+      "it_approved_software_policy_exists",
+      "endpoint_admin_rights_scope",
+      "nac_or_conditional_access_enabled",
+      "device_health_checks_enforced",
+      "non_compliant_device_action"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/biometric_fallback_factor"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/byod_policy_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/device_health_checks_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/minimum_passcode_length"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/nac_or_conditional_access_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/non_compliant_device_action"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_access_management_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/screen_lock_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/screen_lock_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/standard_users_have_local_admin"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_admin_rights_scope"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/browser_master_password_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_storage_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/full_disk_encryption_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/os_credential_manager_protection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/plaintext_credential_files_found"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_enforcement_source"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/broad_exclusion_paths"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/days_since_critical_patch_available"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/endpoint_protection_status"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secure_boot_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/signature_age_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/software_allowlisting_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/it_approved_software_policy_exists"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_compliance_policy_max_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secure_boot_custom_db_state"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/auto_connect_to_open_networks_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/auto_reconnect_to_known_networks_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/device_control_tool_deployed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/host_firewall_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/inbound_default_policy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/usb_storage_policy"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/wifi_security_policy_enforced_via_mdm"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_forwarding_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/siem_last_event_age_hours"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_tamper_protection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/removable_media_audit_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mdm_enrollment_status"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/device_ownership_type"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/device_risk_tier"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/remote_wipe_capability_available"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

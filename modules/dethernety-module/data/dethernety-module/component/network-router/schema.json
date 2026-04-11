@@ -1,0 +1,651 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "routing_protocol_in_use": {
+        "type": "string",
+        "enum": [
+          "none",
+          "ospf",
+          "bgp",
+          "eigrp",
+          "rip",
+          "other"
+        ],
+        "title": "Dynamic Routing Protocol in Use",
+        "description": "The dynamic routing protocol configured on the routing component"
+      },
+      "routing_protocol_authentication_enabled": {
+        "type": "boolean",
+        "title": "Routing Protocol Authentication Enabled",
+        "description": "Whether cryptographic authentication (MD5 or stronger) is configured for the dynamic routing protocol on all active interfaces/peers",
+        "default": false
+      },
+      "routing_authentication_strength": {
+        "type": "string",
+        "enum": [
+          "none",
+          "plaintext",
+          "md5",
+          "sha256_or_stronger"
+        ],
+        "title": "Routing Authentication Algorithm Strength",
+        "description": "The cryptographic algorithm used for routing protocol authentication when authentication is enabled"
+      },
+      "bgp_md5_authentication_enabled": {
+        "type": "boolean",
+        "title": "BGP MD5 Authentication Enabled",
+        "description": "Indicates whether TCP MD5 authentication is configured for BGP peering sessions to prevent session hijacking and fraudulent route injection.",
+        "default": false
+      },
+      "bgp_session_type": {
+        "type": "string",
+        "enum": [
+          "ebgp",
+          "ibgp",
+          "mixed"
+        ],
+        "title": "BGP Session Type",
+        "description": "Indicates whether the BGP sessions are external (eBGP), internal (iBGP), or mixed, which affects the risk profile of missing authentication.",
+        "default": "ebgp"
+      },
+      "management_acl_configured": {
+        "type": "boolean",
+        "title": "Management Plane ACL Configured",
+        "description": "Whether IP-based access control lists are configured to restrict which source addresses can reach management interfaces (SSH, Telnet, SNMP, web UI).",
+        "default": false
+      },
+      "management_protocols_enabled": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Enabled Management Protocols",
+        "description": "List of management protocols currently enabled on the device (e.g., 'telnet', 'snmp_v1', 'snmp_v2c', 'http', 'ssh', 'snmp_v3')."
+      },
+      "management_source_network": {
+        "type": "string",
+        "title": "Management Allowed Source Network",
+        "description": "The network range permitted to access management interfaces. A value of '0.0.0.0/0' or '::/0' indicates unrestricted access from any source.",
+        "default": "0.0.0.0/0"
+      },
+      "telnet_enabled": {
+        "type": "boolean",
+        "title": "Telnet Management Enabled",
+        "description": "Indicates whether Telnet (TCP/23) is enabled as a management interface on the routing component, transmitting credentials and configuration in plaintext.",
+        "default": false
+      },
+      "snmp_version": {
+        "type": "string",
+        "enum": [
+          "v1",
+          "v2c",
+          "v3",
+          "v1_v2c",
+          "v1_v2c_v3",
+          "disabled"
+        ],
+        "title": "SNMP Protocol Version",
+        "description": "The SNMP version(s) configured on the routing component. SNMPv1 and SNMPv2c transmit community strings and MIB data in plaintext; SNMPv3 provides authentication and encryption."
+      },
+      "ssh_enforced_as_exclusive": {
+        "type": "boolean",
+        "title": "SSH Enforced as Exclusive Management Protocol",
+        "description": "Indicates whether SSH is configured as the sole permitted management protocol, explicitly disabling all plaintext alternatives on all VTY lines and management interfaces.",
+        "default": false
+      },
+      "default_credentials_unchanged": {
+        "type": "boolean",
+        "title": "Default Credentials Unchanged",
+        "description": "Indicates whether the device is still using factory-default username/password combinations (e.g., admin/admin, cisco/cisco, admin/blank).",
+        "default": false
+      },
+      "password_complexity_enforced": {
+        "type": "boolean",
+        "title": "Password Complexity Policy Enforced",
+        "description": "Indicates whether the device enforces a password complexity policy (minimum length, character classes) that prevents trivially guessable passwords.",
+        "default": false
+      },
+      "privileged_access_requires_authentication": {
+        "type": "boolean",
+        "title": "Privileged Access Requires Authentication",
+        "description": "Indicates whether accessing privileged/configuration mode on the device requires a password (e.g., enable secret configured, privileged exec requires credentials).",
+        "default": false
+      },
+      "prefix_list_filter_configured": {
+        "type": "boolean",
+        "title": "Prefix List Filter Configured",
+        "description": "Whether prefix-list filters are applied to routing protocol neighbor statements to restrict accepted/advertised routes",
+        "default": false
+      },
+      "route_map_filter_configured": {
+        "type": "boolean",
+        "title": "Route Map Filter Configured",
+        "description": "Whether route-map filters are applied to routing protocol neighbors as an alternative mechanism to restrict route acceptance and propagation",
+        "default": false
+      },
+      "operator_account_privilege_level": {
+        "type": "string",
+        "enum": [
+          "read_only",
+          "operator",
+          "elevated",
+          "full_admin"
+        ],
+        "title": "Operator Account Privilege Level",
+        "description": "The privilege level assigned to operator or read-only monitoring accounts on the routing component."
+      },
+      "least_privilege_policy_enforced": {
+        "type": "boolean",
+        "title": "Least Privilege Policy Enforced",
+        "description": "Whether the routing component enforces a least-privilege access policy that restricts operator/monitoring accounts from making configuration changes.",
+        "default": false
+      },
+      "centralized_syslog_configured": {
+        "type": "boolean",
+        "title": "Centralized Syslog/SIEM Configured",
+        "description": "Whether the routing component is configured to forward logs to a centralized syslog server or SIEM platform",
+        "default": false
+      },
+      "routing_change_logging_enabled": {
+        "type": "boolean",
+        "title": "Routing Change Event Logging Enabled",
+        "description": "Whether logging is explicitly enabled for routing table changes, BGP/OSPF/IS-IS session resets, and route redistribution events",
+        "default": false
+      },
+      "config_change_logging_enabled": {
+        "type": "boolean",
+        "title": "Configuration Change Logging Enabled",
+        "description": "Whether modifications to routing configuration (e.g., ACL changes, redistribution policy edits, prefix-list updates) are logged",
+        "default": false
+      },
+      "firmware_patch_status": {
+        "type": "string",
+        "enum": [
+          "current",
+          "minor_behind",
+          "significantly_behind",
+          "unknown"
+        ],
+        "title": "Firmware/OS Patch Status",
+        "description": "Whether the routing device firmware or OS is current, behind by minor versions, or significantly out of date relative to the latest vendor security release"
+      },
+      "known_cve_unpatched": {
+        "type": "boolean",
+        "title": "Known CVE Without Applied Patch",
+        "description": "Whether one or more publicly disclosed CVEs affecting the installed routing OS or firmware version remain unpatched on the device",
+        "default": false
+      },
+      "patch_management_policy_enforced": {
+        "type": "boolean",
+        "title": "Patch Management Policy Enforced",
+        "description": "Whether a documented and enforced patch management process exists that ensures routing devices receive security updates within the organization's defined SLA"
+      },
+      "snmp_community_strings": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "SNMP Community Strings",
+        "description": "List of SNMP community strings configured on the routing device"
+      },
+      "snmp_write_access_enabled": {
+        "type": "boolean",
+        "title": "SNMP Write Access Enabled",
+        "description": "Indicates whether any SNMP community string is configured with read-write (RW) access, allowing SET operations",
+        "default": false
+      },
+      "snmp_acl_configured": {
+        "type": "boolean",
+        "title": "SNMP ACL Configured",
+        "description": "Indicates whether an access control list (ACL) is applied to restrict which hosts can access SNMP community strings"
+      },
+      "copp_policy_configured": {
+        "type": "boolean",
+        "title": "Control Plane Policing Policy Configured",
+        "description": "Indicates whether a Control Plane Policing (CoPP) or control plane protection policy is actively configured and applied on the router to rate-limit or police traffic destined to the CPU.",
+        "default": false
+      },
+      "cpu_rate_limit_configured": {
+        "type": "boolean",
+        "title": "CPU Rate Limiting Configured",
+        "description": "Indicates whether any platform-level CPU rate limiting or receive ACL (rACL) is configured to restrict the volume of traffic reaching the routing engine CPU, independent of a formal CoPP policy.",
+        "default": false
+      },
+      "plaintext_credential_types_found": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Plaintext Credential Types Found",
+        "description": "List of credential types discovered in plaintext within configuration files or backup repositories (e.g., 'routing_protocol_key', 'snmp_community_string', 'management_password', 'bgp_md5_key', 'ospf_key').",
+        "default": []
+      },
+      "credential_storage_encrypted": {
+        "type": "boolean",
+        "title": "Credential Storage Encrypted",
+        "description": "Whether all credentials stored in configuration files are protected by strong, irreversible encryption. False means at least one credential is stored in plaintext or weakly encrypted form.",
+        "default": false
+      },
+      "ip_source_routing_enabled": {
+        "type": "boolean",
+        "title": "IP Source Routing Enabled",
+        "description": "Indicates whether the router accepts and forwards packets with IP source routing options (loose or strict source routing) set in the IP header.",
+        "default": false
+      },
+      "source_routing_scope": {
+        "type": "string",
+        "enum": [
+          "none",
+          "external_only",
+          "all"
+        ],
+        "title": "Source Routing Acceptance Scope",
+        "description": "Defines which interfaces or directions accept source-routed packets: all interfaces, only external-facing interfaces, or none.",
+        "default": "none"
+      },
+      "acl_blocks_source_routed_packets": {
+        "type": "boolean",
+        "title": "ACL Blocks Source-Routed Packets",
+        "description": "Indicates whether an access control list (ACL) is in place to explicitly drop packets carrying IP source routing options, providing a compensating control.",
+        "default": false
+      },
+      "icmp_redirects_enabled": {
+        "type": "boolean",
+        "title": "ICMP Redirect Messages Enabled",
+        "description": "Indicates whether the routing interface accepts and processes ICMP redirect messages, allowing external hosts to modify the routing table.",
+        "default": true
+      },
+      "interface_role": {
+        "type": "string",
+        "enum": [
+          "external",
+          "dmz",
+          "internal",
+          "management"
+        ],
+        "title": "Interface Role",
+        "description": "The functional role of the routing interface, indicating whether it faces external/untrusted networks or internal trusted segments."
+      },
+      "secure_redirects_enabled": {
+        "type": "boolean",
+        "title": "Secure ICMP Redirects Only",
+        "description": "Indicates whether the interface is configured to accept ICMP redirects only from gateways listed in the routing table (secure redirects), rather than from any host.",
+        "default": false
+      },
+      "ntp_authentication_enabled": {
+        "type": "boolean",
+        "title": "NTP Authentication Enabled",
+        "description": "Indicates whether NTP authentication (e.g., MD5 or SHA keys) is configured on the router to validate NTP server identity",
+        "default": false
+      },
+      "ntp_servers_configured": {
+        "type": "boolean",
+        "title": "NTP Servers Configured",
+        "description": "Indicates whether one or more NTP servers are configured on the router, meaning the device is actively attempting time synchronization",
+        "default": false
+      },
+      "ntp_access_group_configured": {
+        "type": "boolean",
+        "title": "NTP Access Group Restriction Configured",
+        "description": "Indicates whether an NTP access-group (or equivalent ACL) is applied to restrict which peers/servers can interact with the NTP service",
+        "default": false
+      }
+    },
+    "required": [
+      "routing_protocol_in_use",
+      "routing_protocol_authentication_enabled",
+      "routing_authentication_strength",
+      "bgp_md5_authentication_enabled",
+      "bgp_session_type",
+      "management_acl_configured",
+      "management_protocols_enabled",
+      "management_source_network",
+      "telnet_enabled",
+      "snmp_version",
+      "ssh_enforced_as_exclusive",
+      "default_credentials_unchanged",
+      "password_complexity_enforced",
+      "privileged_access_requires_authentication",
+      "prefix_list_filter_configured",
+      "route_map_filter_configured",
+      "operator_account_privilege_level",
+      "least_privilege_policy_enforced",
+      "centralized_syslog_configured",
+      "routing_change_logging_enabled",
+      "config_change_logging_enabled",
+      "firmware_patch_status",
+      "known_cve_unpatched",
+      "patch_management_policy_enforced",
+      "snmp_community_strings",
+      "snmp_write_access_enabled",
+      "snmp_acl_configured",
+      "copp_policy_configured",
+      "cpu_rate_limit_configured",
+      "plaintext_credential_types_found",
+      "credential_storage_encrypted",
+      "ntp_authentication_enabled",
+      "ntp_servers_configured",
+      "ntp_access_group_configured"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bgp_md5_authentication_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_storage_encrypted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_credentials_unchanged"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_policy_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_acl_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/management_protocols_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_source_network"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ntp_authentication_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/operator_account_privilege_level"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/password_complexity_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/plaintext_credential_types_found"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_access_requires_authentication"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/routing_authentication_strength"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/routing_protocol_authentication_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_community_strings"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_write_access_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ntp_access_group_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ntp_servers_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_acl_configured"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bgp_session_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/copp_policy_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cpu_rate_limit_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/management_interface_exposure"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/prefix_list_filter_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/route_map_filter_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/routing_protocol_in_use"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/snmp_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ssh_enforced_as_exclusive"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/telnet_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/internet_facing"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unauthenticated_interface_count"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/acl_blocks_source_routed_packets"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/icmp_redirects_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/interface_role"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ip_source_routing_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secure_redirects_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/source_routing_scope"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/centralized_syslog_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/routing_change_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/config_change_logging_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/firmware_patch_status"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/known_cve_unpatched"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_management_policy_enforced"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

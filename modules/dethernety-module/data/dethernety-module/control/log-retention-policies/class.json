@@ -1,0 +1,8 @@
+{
+  "name": "Log Retention Policies",
+  "classType": "control",
+  "type": "Log Retention Policies",
+  "description": "Log retention policy defines storage duration and archival conditions for security logs, directly enabling forensic investigation, compliance verification, and audit trail completeness. Proper configuration ensures logs remain available throughout incident response windows and regulatory retention periods.",
+  "category": "Policies and Procedures",
+  "status": "reviewed"
+}

@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "name": "dethernety-module",
+  "displayName": "Dethernety Module",
+  "description": "General, technology agnostic classes for everyday threat modeling. It contains general networking, computing and storage classes, for services that are typical for both could or on-premises deployments.",
+  "version": "1.0.0",
+  "tags": [
+    "studio"
+  ],
+  "exportedAt": "2026-04-11T05:31:19.125Z",
+  "exportedFrom": "studio",
+  "classCount": 102
+}

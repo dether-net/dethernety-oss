@@ -1,0 +1,499 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "mfa_enforcement_status": {
+        "type": "string",
+        "enum": [
+          "required",
+          "optional",
+          "disabled"
+        ],
+        "title": "MFA Enforcement Status",
+        "description": "Whether MFA is enforced (required/mandatory), optional, or disabled for authentication across the organization"
+      },
+      "mfa_enrolled_user_percentage": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "title": "MFA Enrolled User Percentage",
+        "description": "Percentage of active/in-scope user accounts that have completed MFA enrollment with at least one factor registered (0-100)"
+      },
+      "privileged_accounts_mfa_enforced": {
+        "type": "boolean",
+        "title": "MFA Enforced on Privileged Accounts",
+        "description": "Whether MFA is mandatorily enforced for all privileged and administrative accounts (e.g., domain admins, cloud IAM admins, root accounts) with no bypass or exception pathways",
+        "default": false
+      },
+      "mfa_bypass_mechanisms_present": {
+        "type": "boolean",
+        "title": "MFA Bypass Mechanisms Present",
+        "description": "Whether known MFA bypass paths exist, such as legacy authentication protocols (IMAP, POP3, SMTP, basic auth, NTLM) that skip MFA, trusted IP/network exclusions, remembered device policies without expiry, or admin-level exclusions",
+        "default": false
+      },
+      "strongest_enrolled_factor_type": {
+        "type": "string",
+        "enum": [
+          "hardware_token",
+          "biometric",
+          "totp_app",
+          "push_notification",
+          "sms_otp",
+          "voice_otp",
+          "none"
+        ],
+        "title": "Strongest Enrolled Factor Type",
+        "description": "The highest-assurance authentication factor type currently enrolled and enforced for users, reflecting the ceiling of identity assurance the MFA configuration can provide"
+      },
+      "phishing_resistant_factor_required": {
+        "type": "boolean",
+        "title": "Phishing-Resistant Factor Required",
+        "description": "Indicates whether at least one phishing-resistant factor (FIDO2/WebAuthn hardware token or platform biometric bound to origin) is required as part of MFA, preventing credential relay and real-time phishing attacks",
+        "default": false
+      },
+      "auth_event_logging_enabled": {
+        "type": "boolean",
+        "title": "Authentication Event Logging Enabled",
+        "description": "Whether the system is configured to generate logs for authentication events including MFA attempts",
+        "default": false
+      },
+      "logged_event_fields": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Logged Authentication Event Fields",
+        "description": "The set of data fields captured in each authentication event log entry (e.g., factor_type, success_failure_status, timestamp, source_ip, device_fingerprint)"
+      },
+      "anomalous_login_detection_enabled": {
+        "type": "boolean",
+        "title": "Anomalous Login Detection Enabled",
+        "description": "Whether the MFA system or identity provider has anomalous login detection actively enabled, including detection of out-of-region logins, impossible travel, and simultaneous sessions",
+        "default": false
+      },
+      "detection_signal_coverage": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Detection Signal Coverage",
+        "description": "List of anomalous login signal types currently enabled for detection (e.g., out_of_region, impossible_travel, rapid_factor_retry, simultaneous_sessions, new_device, tor_or_vpn_exit)"
+      },
+      "automated_response_action": {
+        "type": "string",
+        "enum": [
+          "none",
+          "step_up_challenge",
+          "block"
+        ],
+        "title": "Automated Response Action on Detection",
+        "description": "The automated action taken when an anomalous login is detected",
+        "default": "none"
+      },
+      "privileged_mfa_factor_strength": {
+        "type": "string",
+        "enum": [
+          "hardware_key_fido2",
+          "totp_authenticator_app",
+          "sms_voice_otp",
+          "none"
+        ],
+        "title": "MFA Factor Strength for Privileged Accounts",
+        "description": "The strongest MFA factor type required for privileged account authentication, reflecting resistance to phishing, SIM-swap, and credential relay attacks"
+      },
+      "privileged_account_mfa_coverage_percent": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "title": "Privileged Account MFA Enrollment Coverage (%)",
+        "description": "Percentage of identified privileged and administrative accounts that have MFA actively enrolled and enforced"
+      },
+      "privileged_mfa_bypass_paths_exist": {
+        "type": "boolean",
+        "title": "Privileged MFA Bypass Paths Exist",
+        "description": "Whether any documented or discoverable bypass paths exist for MFA on privileged accounts, such as break-glass accounts without MFA, legacy authentication protocols enabled for admin accounts, or conditional access exclusion groups containing privileged users",
+        "default": false
+      },
+      "legacy_protocol_auth_disabled": {
+        "type": "boolean",
+        "title": "Legacy Protocol Authentication Disabled",
+        "description": "Indicates whether legacy authentication protocols (e.g., Basic Auth, NTLM, IMAP/POP3 with password) that bypass MFA are blocked or disabled",
+        "default": false
+      },
+      "insecure_recovery_paths_disabled": {
+        "type": "boolean",
+        "title": "Insecure MFA Recovery Paths Disabled",
+        "description": "Indicates whether insecure fallback recovery mechanisms (e.g., SMS-only account recovery, security question bypass, help-desk override without verification) that allow MFA circumvention are disabled",
+        "default": false
+      },
+      "trusted_device_exceptions_restricted": {
+        "type": "boolean",
+        "title": "Trusted Device MFA Exceptions Restricted",
+        "description": "Indicates whether remember-this-device or persistent trusted device exceptions that skip MFA for extended or indefinite periods are disabled or tightly restricted with short expiry"
+      },
+      "mfa_integrated_systems": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "MFA-Integrated Systems",
+        "description": "List of system types where MFA is enforced at the authentication layer (e.g., sso, vpn, cloud_services, on_premises_apps, admin_consoles)",
+        "default": []
+      },
+      "unprotected_authentication_entry_points": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Unprotected Authentication Entry Points",
+        "description": "Number of authentication entry points (login endpoints, services, or applications) that are not covered by MFA enforcement"
+      },
+      "mfa_bypass_paths_exist": {
+        "type": "boolean",
+        "title": "MFA Bypass Paths Exist",
+        "description": "Whether any documented or discovered bypass mechanisms exist that allow authentication without completing MFA (e.g., legacy protocol fallback, IP-based exclusions, break-glass without MFA) — scoped to integration coverage assessment",
+        "default": false
+      },
+      "failed_mfa_lockout_enabled": {
+        "type": "boolean",
+        "title": "Failed MFA Lockout Enabled",
+        "description": "Whether the system automatically locks or temporarily disables an account after a configured number of failed second-factor authentication attempts"
+      },
+      "failed_mfa_attempt_threshold": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "title": "Failed MFA Attempt Threshold",
+        "description": "The maximum number of consecutive failed second-factor attempts allowed before an automated response is triggered"
+      },
+      "automated_response_actions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Automated Response Actions on Failed MFA",
+        "description": "List of automated response actions configured to trigger on repeated failed second-factor attempts (e.g., account_lockout, alert_admin, session_termination, rate_limiting)"
+      },
+      "phishing_resistant_factor_types": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Phishing-Resistant Factor Types Deployed",
+        "description": "List of phishing-resistant authentication factor types currently deployed and available to users (e.g., FIDO2, WebAuthn, hardware_security_key, passkey)",
+        "default": []
+      },
+      "phishing_resistant_factor_enrollment_percentage": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "title": "User Enrollment Percentage for Phishing-Resistant Factors",
+        "description": "Percentage of in-scope user accounts that have enrolled at least one phishing-resistant factor",
+        "default": 0
+      },
+      "phishing_resistant_factor_enforcement_scope": {
+        "type": "string",
+        "enum": [
+          "all_users",
+          "privileged_users_only",
+          "optional_available",
+          "not_enforced"
+        ],
+        "title": "Enforcement Scope for Phishing-Resistant Factors",
+        "description": "Defines whether phishing-resistant MFA is enforced (required, not just available) and for which user population",
+        "default": "not_enforced"
+      },
+      "fallback_to_phishable_factor_permitted": {
+        "type": "boolean",
+        "title": "Fallback to Phishable Factor Permitted",
+        "description": "Indicates whether the authentication policy allows users to fall back to phishable factors (e.g., SMS OTP, email OTP, TOTP) when a phishing-resistant factor is unavailable",
+        "default": false
+      },
+      "self_service_enrollment_available": {
+        "type": "boolean",
+        "title": "Self-Service MFA Enrollment Available",
+        "description": "Indicates whether users can enroll MFA devices and methods without requiring help desk intervention"
+      },
+      "user_friction_level": {
+        "type": "string",
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "excessive"
+        ],
+        "title": "MFA User Friction Level",
+        "description": "Assessed level of friction imposed on users by the MFA implementation, influencing likelihood of workaround adoption"
+      },
+      "mfa_bypass_workarounds_detected": {
+        "type": "boolean",
+        "title": "MFA Bypass Workarounds Detected",
+        "description": "Indicates whether shadow IT or informal workarounds (e.g., shared accounts, persistent sessions, application-specific passwords without MFA) have been identified in use to circumvent MFA prompts"
+      }
+    },
+    "required": [
+      "mfa_enforcement_status",
+      "mfa_enrolled_user_percentage",
+      "privileged_accounts_mfa_enforced",
+      "mfa_bypass_mechanisms_present",
+      "strongest_enrolled_factor_type",
+      "phishing_resistant_factor_required",
+      "auth_event_logging_enabled",
+      "logged_event_fields",
+      "anomalous_login_detection_enabled",
+      "detection_signal_coverage",
+      "automated_response_action",
+      "privileged_mfa_factor_strength",
+      "privileged_account_mfa_coverage_percent",
+      "privileged_mfa_bypass_paths_exist",
+      "legacy_protocol_auth_disabled",
+      "insecure_recovery_paths_disabled",
+      "trusted_device_exceptions_restricted",
+      "mfa_integrated_systems",
+      "unprotected_authentication_entry_points",
+      "mfa_bypass_paths_exist",
+      "phishing_resistant_factor_types",
+      "phishing_resistant_factor_enrollment_percentage",
+      "phishing_resistant_factor_enforcement_scope",
+      "fallback_to_phishable_factor_permitted"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/fallback_to_phishable_factor_permitted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/insecure_recovery_paths_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/legacy_protocol_auth_disabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_bypass_mechanisms_present"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_bypass_paths_exist"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enforcement_status"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enrolled_user_percentage"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_integrated_systems"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/phishing_resistant_factor_enforcement_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/phishing_resistant_factor_enrollment_percentage"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/phishing_resistant_factor_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/phishing_resistant_factor_types"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_account_mfa_coverage_percent"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_accounts_mfa_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_mfa_bypass_paths_exist"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_mfa_factor_strength"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/strongest_enrolled_factor_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unprotected_authentication_entry_points"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/protected_systems_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/trusted_device_exceptions_restricted"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/automated_response_actions"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/failed_mfa_attempt_threshold"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/failed_mfa_lockout_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_bypass_workarounds_detected"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/self_service_enrollment_available"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/user_friction_level"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/anomalous_login_detection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/auth_event_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/detection_signal_coverage"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/logged_event_fields"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/automated_response_action"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_export_or_siem_integration"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

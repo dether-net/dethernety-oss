@@ -1,0 +1,1154 @@
+[
+  {
+    "option_name": "privileged_mode_enabled",
+    "option_description": "Controls whether a container is launched with the --privileged flag, which grants the full host Linux capability set, disables seccomp syscall filtering, and bypasses AppArmor/SELinux enforcement. This effectively dissolves the isolation boundary between the container trust zone and the host kernel.",
+    "security_impact": "The Rego policy triggers `privileged_flag_zone_collapse` whenever this is true, assigning a criticality score of 8. It also triggers `lsm_profile_absence_lateral_access` and `writable_root_filesystem_boundary_persistence` as compounding conditions. A privileged container operates within the host trust zone, enabling unrestricted lateral movement to sibling containers and direct host resource access.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect a running Docker container's HostConfig to check the Privileged field",
+        "command": "docker inspect <container_name_or_id> | jq '.[].HostConfig.Privileged'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns 'true' if privileged mode is enabled, 'false' if not"
+      },
+      {
+        "type": "command",
+        "instruction": "Query all pods in a Kubernetes namespace for privileged securityContext settings",
+        "command": "kubectl get pods -n <namespace> -o json | jq '.items[].spec.containers[].securityContext.privileged'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns 'true' for privileged containers, 'null' or 'false' for non-privileged"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Kubernetes pod manifest YAML for privileged flag in securityContext",
+        "command": null,
+        "file_path": "/etc/kubernetes/manifests/<pod>.yaml or application deployment YAML",
+        "navigation": null,
+        "expected_output": "Look for 'privileged: true' under spec.containers[].securityContext; absence or 'false' is the secure state"
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Kubernetes API to retrieve the privileged flag for a specific pod",
+        "command": "kubectl get pod <pod_name> -n <namespace> -o jsonpath='{.spec.containers[*].securityContext.privileged}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty output or 'false' indicates non-privileged; 'true' indicates a boundary violation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (secure default, workloads with no elevated requirements)",
+      "true (high-risk; observed in infrastructure tooling, node agents, legacy CI/CD pipelines)"
+    ]
+  },
+  {
+    "option_name": "granted_capabilities",
+    "option_description": "Enumerates the Linux capabilities explicitly added to a container beyond the OCI/Docker default capability set (e.g., CAP_NET_ADMIN, CAP_SYS_PTRACE, CAP_SYS_MODULE, CAP_SYS_ADMIN). Each granted capability expands the container's access to privileged kernel operations.",
+    "security_impact": "The Rego policy triggers `excessive_capability_grant_boundary_bypass` (score 8) if any of CAP_SYS_ADMIN, CAP_NET_ADMIN, CAP_SYS_PTRACE, or CAP_SYS_MODULE appear in this list, or if any capabilities are granted without `capability_drop_all_enforced`. These capabilities allow network interface manipulation, cross-zone process memory inspection, and kernel module loading — each representing a discrete boundary enforcement hole.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect Docker container runtime configuration for added capabilities",
+        "command": "docker inspect <container_name_or_id> | jq '.[].HostConfig.CapAdd'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns an array of added capabilities (e.g., ['CAP_NET_ADMIN']) or null if none added"
+      },
+      {
+        "type": "command",
+        "instruction": "Query all Kubernetes pods for added capabilities across all namespaces",
+        "command": "kubectl get pods -A -o json | jq '.items[] | .metadata.name as $pod | .spec.containers[] | select(.securityContext.capabilities.add != null) | {pod: $pod, caps: .securityContext.capabilities.add}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lists pod names and their added capabilities; empty output indicates no extra capabilities"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Docker Compose file for cap_add entries",
+        "command": "grep -A5 'cap_add' docker-compose.yml",
+        "file_path": "docker-compose.yml",
+        "navigation": null,
+        "expected_output": "Lists capabilities added per service; secure posture shows no dangerous capabilities such as SYS_ADMIN or SYS_PTRACE"
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve added capabilities for a specific Kubernetes container via jsonpath",
+        "command": "kubectl get pod <pod_name> -n <namespace> -o jsonpath='{.spec.containers[*].securityContext.capabilities.add}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty brackets '[]' or absent output is the secure state; any listed capability requires justification"
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[] (secure default)",
+      "['CAP_NET_BIND_SERVICE'] (low-risk, binding ports below 1024)",
+      "['CAP_SYS_ADMIN'] (high-risk; observed in storage drivers, monitoring agents)",
+      "['CAP_NET_ADMIN', 'CAP_SYS_PTRACE'] (high-risk; observed in legacy network tools and debuggers)"
+    ]
+  },
+  {
+    "option_name": "capability_drop_all_enforced",
+    "option_description": "Indicates whether the container configuration explicitly drops ALL Linux capabilities before selectively re-adding only the minimum required ones (the drop: [ALL] pattern). This enforces a least-privilege capability baseline rather than relying on the runtime's default capability set.",
+    "security_impact": "The Rego policy triggers `excessive_capability_grant_boundary_bypass` (score 8) when this is false and any capabilities are present in `granted_capabilities`. Without dropping all defaults first, containers retain the full Docker default capability set (e.g., CAP_CHOWN, CAP_DAC_OVERRIDE, CAP_SETUID), which can be abused to escalate within or traverse zone boundaries even without explicitly adding dangerous capabilities.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check Docker container runtime configuration for capability drop settings",
+        "command": "docker inspect <container_name_or_id> | jq '.[].HostConfig.CapDrop'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure output is ['ALL']; null or empty indicates default caps are retained"
+      },
+      {
+        "type": "command",
+        "instruction": "Query Kubernetes pods for capability drop configurations",
+        "command": "kubectl get pods -A -o json | jq '.items[] | .metadata.name as $pod | .spec.containers[] | {pod: $pod, drop: .securityContext.capabilities.drop}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure state shows 'drop: [\"ALL\"]' for each container; null indicates no drop enforcement"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Kubernetes deployment manifests for capability drop configuration",
+        "command": "grep -A10 'capabilities:' <deployment.yaml>",
+        "file_path": "<path_to_deployment_manifest>.yaml",
+        "navigation": null,
+        "expected_output": "Look for 'drop: [ALL]' under securityContext.capabilities; its absence is a finding"
+      },
+      {
+        "type": "api",
+        "instruction": "Use kubectl jsonpath to check dropped capabilities for a specific pod",
+        "command": "kubectl get pod <pod_name> -n <namespace> -o jsonpath='{.spec.containers[*].securityContext.capabilities.drop}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'[ALL]' per container is the secure baseline; empty or absent output requires remediation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common default; most legacy workloads do not explicitly drop capabilities)",
+      "true (hardened deployments, CIS Benchmark-compliant environments, PCI/FedRAMP workloads)"
+    ]
+  },
+  {
+    "option_name": "seccomp_profile_type",
+    "option_description": "Specifies the seccomp (secure computing mode) profile applied to the container, which filters which Linux syscalls the container process is permitted to invoke. 'Unconfined' applies no filtering, 'RuntimeDefault' uses the container runtime's built-in profile, and 'Localhost' uses a custom profile defined on the node.",
+    "security_impact": "The Rego policy triggers `missing_seccomp_profile_syscall_exposure` (score 8) whenever this is 'Unconfined', exposing the full host kernel syscall surface. Syscalls such as unshare, ptrace, keyctl, and mount can be leveraged to manipulate namespace boundaries and extract credentials from adjacent zones. When privileged mode is enabled, seccomp is not enforced regardless of this setting, compounding the exposure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the seccomp profile for a running Docker container via inspect",
+        "command": "docker inspect <container_name_or_id> | jq '.[].HostConfig.SecurityOpt'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secure output includes 'seccomp=<profile_json_or_path>'; absence or 'seccomp=unconfined' is a finding"
+      },
+      {
+        "type": "command",
+        "instruction": "Query Kubernetes pods for seccomp profile configuration",
+        "command": "kubectl get pod <pod_name> -n <namespace> -o jsonpath='{.spec.securityContext.seccompProfile.type} {.spec.containers[*].securityContext.seccompProfile.type}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'RuntimeDefault' or 'Localhost' is secure; empty output means Unconfined in Kubernetes versions prior to 1.27"
+      },
+      {
+        "type": "command",
+        "instruction": "Check legacy Kubernetes seccomp annotations on pods",
+        "command": "kubectl get pod <pod_name> -n <namespace> -o jsonpath='{.metadata.annotations.seccomp\\.security\\.alpha\\.kubernetes\\.io/pod}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'runtime/default' or a named profile path is secure; empty means Unconfined"
+      },
+      {
+        "type": "api",
+        "instruction": "List all pods in a namespace missing a seccomp profile using jq filtering",
+        "command": "kubectl get pods -n <namespace> -o json | jq '.items[] | select(.spec.securityContext.seccompProfile == null) | .metadata.name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any pod name returned indicates missing seccomp profile at pod level and requires container-level verification"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "Unconfined (insecure default in most Kubernetes versions prior to 1.27)",
+      "RuntimeDefault (recommended minimum; broad adoption in hardened clusters)",
+      "Localhost (custom profiles; observed in high-security environments requiring tailored syscall allowlists)"
+    ]
+  },
+  {
+    "option_name": "lsm_profile_assigned",
+    "option_description": "Indicates whether an AppArmor or SELinux mandatory access control (MAC) profile is explicitly assigned and actively enforced for the container at runtime — as opposed to being unconfined or absent. MAC profiles restrict what files, devices, and kernel interfaces container processes can access, enforcing policy beyond Linux DAC.",
+    "security_impact": "The Rego policy triggers `lsm_profile_absence_lateral_access` (score 5) when this is false, or when assigned but the mode is unconfined or permissive. Without MAC enforcement, container processes are governed only by discretionary controls, permitting unrestricted access to shared kernel objects, IPC namespaces, and device nodes — enabling cross-workload information flow between zones that MAC would deny.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check AppArmor profile assignment for a running Docker container",
+        "command": "docker inspect <container_name_or_id> | jq '.[].AppArmorProfile'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A named profile (e.g., 'docker-default' or custom name) is the secure state; empty string or 'unconfined' is a finding"
+      },
+      {
+        "type": "command",
+        "instruction": "Check AppArmor enforcement status on the host and verify container profile is loaded",
+        "command": "aa-status 2>/dev/null | grep -E 'profiles are in enforce mode|docker'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Container profile should appear under 'enforce mode' profiles; absence indicates unconfined state"
+      },
+      {
+        "type": "command",
+        "instruction": "Check SELinux labels assigned to Kubernetes pods",
+        "command": "kubectl get pod <pod_name> -n <namespace> -o jsonpath='{.spec.securityContext.seLinuxOptions} {.spec.containers[*].securityContext.seLinuxOptions}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Populated seLinuxOptions with type and level indicates MAC assignment; empty output means relying on default context only"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect Kubernetes pod for AppArmor annotations or securityContext.appArmorProfile",
+        "command": "kubectl get pod <pod_name> -n <namespace> -o jsonpath='{.metadata.annotations}' | grep apparmor",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'container.apparmor.security.beta.kubernetes.io/<container>: <profile>' indicates assignment; absence means unconfined"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common default; most Kubernetes deployments rely on runtime-default without explicit MAC)",
+      "true (hardened environments; AppArmor enabled on Ubuntu/Debian nodes with docker-default; SELinux on RHEL/CentOS nodes)"
+    ]
+  },
+  {
+    "option_name": "lsm_profile_mode",
+    "option_description": "Specifies the operational enforcement mode of the assigned AppArmor or SELinux profile: 'enforcing' actively blocks policy violations, 'permissive' logs violations without blocking (audit-only mode), and 'unconfined' applies no LSM restrictions to the container process regardless of profile assignment.",
+    "security_impact": "The Rego policy triggers `lsm_profile_absence_lateral_access` (score 5) when this is 'unconfined' or 'permissive', even if `lsm_profile_assigned` is true. Permissive mode is a common operational mistake — teams enable it for debugging and fail to revert — leaving containers with logging but no actual enforcement. Only 'enforcing' mode provides the MAC protection that prevents cross-workload lateral access within a zone.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check global AppArmor enforcement status on the container host",
+        "command": "aa-status | head -5 && cat /sys/module/apparmor/parameters/enabled",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Y' from the module parameter and profiles listed in enforce mode indicates enforcing; 'N' means disabled"
+      },
+      {
+        "type": "command",
+        "instruction": "Check SELinux enforcement mode on the host node",
+        "command": "getenforce && sestatus | grep 'Current mode'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Enforcing' is the secure state; 'Permissive' or 'Disabled' are findings requiring remediation"
+      },
+      {
+        "type": "command",
+        "instruction": "Verify a specific container's AppArmor profile mode by checking the profile in aa-status",
+        "command": "docker inspect <container_name_or_id> | jq -r '.[].AppArmorProfile' | xargs -I{} sh -c 'aa-status 2>/dev/null | grep -A1 \"in enforce mode\" | grep {} || echo \"NOT IN ENFORCE MODE\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Profile name listed under enforce mode section is secure; 'NOT IN ENFORCE MODE' requires investigation"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review SELinux configuration file for system-wide mode setting",
+        "command": "cat /etc/selinux/config | grep '^SELINUX='",
+        "file_path": "/etc/selinux/config",
+        "navigation": null,
+        "expected_output": "'SELINUX=enforcing' is the secure baseline; 'permissive' or 'disabled' is a finding"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "unconfined (common default on many distributions and cloud-managed Kubernetes nodes)",
+      "enforcing (RHEL/CentOS with SELinux; Ubuntu with AppArmor and docker-default profile)",
+      "permissive (frequently observed in troubleshooting contexts that were never reverted to enforcing)"
+    ]
+  },
+  {
+    "option_name": "read_only_root_filesystem",
+    "option_description": "Controls whether the container's root filesystem is mounted as read-only at runtime. When enabled, container processes cannot modify binaries, write new executables, or alter configuration files on the root filesystem, limiting an attacker's ability to establish persistence or install lateral movement tooling after initial compromise.",
+    "security_impact": "The Rego policy triggers `writable_root_filesystem_boundary_persistence` (score 5) whenever this is false, and the score compounds when `privileged_mode_enabled` is also true. A writable root filesystem enables a compromised workload to modify binaries, install network scanning tools, or manipulate shared filesystem mount points that bridge trust zones — enabling staged lateral movement preparation within the boundary enforcement layer.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect Docker container runtime spec for read-only root filesystem setting",
+        "command": "docker inspect <container_name_or_id> | jq '.[].HostConfig.ReadonlyRootfs'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'true' indicates read-only root filesystem is enforced; 'false' or null is a finding"
+      },
+      {
+        "type": "command",
+        "instruction": "Query all Kubernetes pods for readOnlyRootFilesystem setting",
+        "command": "kubectl get pods -A -o json | jq '.items[] | .metadata.name as $pod | .metadata.namespace as $ns | .spec.containers[] | {namespace: $ns, pod: $pod, container: .name, readOnly: .securityContext.readOnlyRootFilesystem}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'readOnly: true' for each container is the secure state; 'false' or null indicates writable root filesystem"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Kubernetes deployment manifest for readOnlyRootFilesystem configuration",
+        "command": "grep -n 'readOnlyRootFilesystem' <deployment.yaml>",
+        "file_path": "<path_to_deployment_manifest>.yaml",
+        "navigation": null,
+        "expected_output": "'readOnlyRootFilesystem: true' in securityContext is secure; absence defaults to false (writable)"
+      },
+      {
+        "type": "api",
+        "instruction": "Use kubectl jsonpath to retrieve readOnlyRootFilesystem for a specific pod's containers",
+        "command": "kubectl get pod <pod_name> -n <namespace> -o jsonpath='{range .spec.containers[*]}{.name}: {.securityContext.readOnlyRootFilesystem}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'<container_name>: true' for all containers is secure; 'false' or empty per container is a finding"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (insecure default; majority of production workloads observed without this setting)",
+      "true (hardened environments; typically requires tmpfs mounts for /tmp and /var/run to maintain application functionality)"
+    ]
+  },
+  {
+    "option_name": "network_mode",
+    "option_description": "Controls which network namespace the container operates within — its own isolated namespace (bridge, overlay, none), the host's namespace (host), a shared namespace with another container (container_shared), or a custom-defined network. This determines whether container-level network boundary enforcement is possible at all.",
+    "security_impact": "The Rego policy triggers network_namespace_ingress_egress_gap when network_mode is 'host' or 'container_shared' (without network_policy_enforced). A host-mode container eliminates the network-layer zone boundary entirely, bypassing all CNI-enforced ingress/egress filtering. A container_shared mode container inherits another container's network namespace, allowing traffic to bypass per-container policy controls and enabling cross-workload traffic inspection without network traversal.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect a running Docker container's network mode using docker inspect with a Go template filter.",
+        "command": "docker inspect <container_name_or_id> --format='{{.HostConfig.NetworkMode}}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns a string such as 'bridge', 'host', 'none', or 'container:<id>' indicating the configured network mode."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes pods, retrieve the network mode from the pod spec. Note that Kubernetes manages network namespaces per-pod; use hostNetwork field instead for the equivalent check, but confirm the runtime network_mode via crictl.",
+        "command": "crictl inspect $(crictl ps --name <container_name> -q) | jq '.info.runtimeSpec.linux.namespaces[] | select(.type==\"network\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A namespace entry with a non-empty 'path' field indicates the container has its own network namespace. An empty or absent path indicates host namespace sharing."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Docker Compose deployments, inspect the service definition for the network_mode key in the compose file.",
+        "command": null,
+        "file_path": "docker-compose.yml or docker-compose.override.yml",
+        "navigation": null,
+        "expected_output": "A 'network_mode: host' or 'network_mode: container:<name>' entry indicates namespace sharing. Absence of the key defaults to bridge mode."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Docker Engine API directly to retrieve the container's HostConfig including NetworkMode.",
+        "command": "curl --unix-socket /var/run/docker.sock http://localhost/containers/<container_id>/json | jq '.HostConfig.NetworkMode'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON string value such as 'bridge', 'host', 'none', or 'container:<id>'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "bridge (most common default for standalone Docker containers)",
+      "host (frequently misconfigured in performance-sensitive or legacy workloads)",
+      "container_shared (common in sidecar injection patterns, e.g., Istio proxies)",
+      "overlay (multi-host Docker Swarm deployments)",
+      "none (hardened or air-gapped workloads)"
+    ]
+  },
+  {
+    "option_name": "host_network_enabled",
+    "option_description": "A boolean flag indicating whether the container is configured to share the host machine's network namespace. When enabled, the container sees and can bind to all host network interfaces, ports, and routes — no virtual network interface or namespace boundary separates the container from the host network stack.",
+    "security_impact": "The Rego policy unconditionally triggers network_namespace_ingress_egress_gap when host_network_enabled is true. With host networking, all CNI-enforced NetworkPolicy rules, iptables FORWARD chain rules, and virtual bridge filtering are bypassed — the container communicates as if it were a host process. This eliminates the entire network-layer trust zone boundary, exposing host services to the container and container services directly to the host network segment without any container-level filtering.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Kubernetes, check the pod spec's hostNetwork field using kubectl.",
+        "command": "kubectl get pod <pod_name> -n <namespace> -o jsonpath='{.spec.hostNetwork}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns 'true' if host networking is enabled, or an empty string (equivalent to false) if not set."
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate all pods across all namespaces that have hostNetwork enabled to perform a broad audit.",
+        "command": "kubectl get pods --all-namespaces -o json | jq '.items[] | select(.spec.hostNetwork==true) | {namespace: .metadata.namespace, name: .metadata.name}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of namespace/name pairs for all pods running with host network access. Empty output indicates no host-network pods exist."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Kubernetes pod/deployment manifest files in source control or on disk for the hostNetwork field.",
+        "command": "grep -r 'hostNetwork' /path/to/manifests/ --include='*.yaml' --include='*.yml' -l",
+        "file_path": "/path/to/k8s/manifests/",
+        "navigation": null,
+        "expected_output": "File paths containing hostNetwork entries; review each for 'hostNetwork: true'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Kubernetes Dashboard, navigate to the Workloads > Pods view, select a pod, and inspect the pod's YAML or configuration tab for the hostNetwork property under spec.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kubernetes Dashboard → Workloads → Pods → [select pod] → YAML tab → spec.hostNetwork",
+        "expected_output": "The spec section will show 'hostNetwork: true' if enabled, or the field will be absent (false)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (expected default for all workloads; absence of field implies false)",
+      "true (observed in node-level daemonsets such as kube-proxy, Calico node, Prometheus node-exporter, and legacy applications requiring direct host port access)"
+    ]
+  },
+  {
+    "option_name": "network_policy_enforced",
+    "option_description": "Indicates whether a network policy resource (Kubernetes NetworkPolicy, Calico NetworkPolicy, Cilium NetworkPolicy, or iptables rules for standalone containers) is applied to this specific container or pod to restrict both ingress and egress traffic independently of namespace-level isolation primitives.",
+    "security_impact": "The Rego policy references network_policy_enforced as a mitigating condition for the network_namespace_ingress_egress_gap rule — specifically, a container_shared network_mode without network_policy_enforced triggers the exposure. Without a network policy, all traffic to and from the container is unrestricted at the CNI layer regardless of what other namespace isolation may exist, allowing unrestricted lateral movement between workload zones sharing the same cluster network segment.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all NetworkPolicy resources in a namespace and verify whether any policy's podSelector matches the target pod's labels.",
+        "command": "kubectl get networkpolicy -n <namespace> -o yaml | grep -A5 'podSelector'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NetworkPolicy entries with podSelector matching the pod's labels indicate policy enforcement. An empty list or no matching selector means no policy is applied to this pod."
+      },
+      {
+        "type": "command",
+        "instruction": "Check which NetworkPolicies select a specific pod by cross-referencing pod labels against policy selectors.",
+        "command": "kubectl get pod <pod_name> -n <namespace> --show-labels && kubectl get networkpolicy -n <namespace> -o json | jq '.items[] | select(.spec.podSelector.matchLabels != null) | {name: .metadata.name, selector: .spec.podSelector.matchLabels}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If pod labels overlap with any policy's matchLabels, that policy applies. No overlap means the pod is unprotected by any network policy."
+      },
+      {
+        "type": "command",
+        "instruction": "For standalone Docker containers, inspect iptables rules scoped to the container's network namespace to verify filtering rules exist.",
+        "command": "nsenter -t $(docker inspect -f '{{.State.Pid}}' <container_name>) -n iptables -L -n -v",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DROP or REJECT rules in INPUT/OUTPUT chains indicate filtering is in place. A policy-only ACCEPT chain indicates no effective filtering."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Kubernetes API to retrieve NetworkPolicy objects in the target namespace and check for matching selectors programmatically.",
+        "command": "curl -sk -H 'Authorization: Bearer <token>' https://<apiserver>/apis/networking.k8s.io/v1/namespaces/<namespace>/networkpolicies | jq '.items[].spec.podSelector'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns podSelector objects; an empty podSelector ({}) matches all pods in the namespace."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (very common — many clusters have NetworkPolicy-capable CNI but no policies defined)",
+      "true (mature security postures, PCI/HIPAA-regulated environments, zero-trust cluster configurations)"
+    ]
+  },
+  {
+    "option_name": "egress_network_policy_enforced",
+    "option_description": "Specifically tracks whether an egress-scoped network policy is applied to the container or pod, restricting outbound connections to only explicitly permitted destinations. Unlike the broader network_policy_enforced flag, this attribute focuses exclusively on the outbound traffic control plane.",
+    "security_impact": "The Rego policy triggers absent_egress_filtering_trust_zone_exfiltration when egress_network_policy_enforced is false and cni_policy_enforcement_capable is true — meaning the infrastructure can enforce policy but isn't doing so. A second condition also fires when egress_network_policy_enforced is true but egress_policy_default_deny is false, as allow-all-with-exceptions postures are insufficient. Without egress filtering, a compromised container can freely exfiltrate data, probe sibling zone services, or establish C2 channels across trust zone boundaries.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect NetworkPolicy resources in the namespace for policies that include an egress stanza with explicit allow rules targeting the pod.",
+        "command": "kubectl get networkpolicy -n <namespace> -o json | jq '.items[] | select(.spec.policyTypes[]? == \"Egress\") | {name: .metadata.name, egress: .spec.egress, selector: .spec.podSelector}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policies with policyTypes including 'Egress' and a populated egress stanza indicate egress filtering. An empty egress array on a policy with policyTypes: [Egress] is a default-deny policy."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for Calico GlobalNetworkPolicy or NetworkPolicy resources with egress rules if Calico is the CNI plugin.",
+        "command": "kubectl get globalnetworkpolicy -o yaml 2>/dev/null | grep -A10 'egress' ; kubectl get networkpolicy -n <namespace> -o yaml | grep -A10 'egress'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "YAML blocks showing egress rules with destination selectors, CIDRs, or port restrictions indicate enforced egress filtering."
+      },
+      {
+        "type": "command",
+        "instruction": "For Cilium environments, list CiliumNetworkPolicy resources and check for egress rules.",
+        "command": "kubectl get ciliumnetworkpolicy -n <namespace> -o yaml | grep -A15 'egress'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CiliumNetworkPolicy with egress entries containing toPorts or toEndpoints selectors indicates Cilium-enforced egress policy."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Validate egress filtering effectiveness by attempting an outbound connection from within the container to a destination that should be blocked.",
+        "command": "kubectl exec -it <pod_name> -n <namespace> -- curl -m 5 http://169.254.169.254/latest/meta-data/ 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A timeout or connection refused response indicates egress filtering is active. A successful HTTP response indicates unrestricted egress to internal cloud metadata services."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (dominant in most Kubernetes deployments; egress policies are less commonly configured than ingress)",
+      "true (environments with explicit data exfiltration controls, PCI DSS scope, or zero-trust network architectures)"
+    ]
+  },
+  {
+    "option_name": "egress_policy_default_deny",
+    "option_description": "Indicates whether a default-deny egress posture is established at the namespace or cluster level, requiring all outbound connections to be explicitly allowed via policy rules rather than relying on per-workload allow-list policies alone. This creates a fail-closed posture for egress traffic.",
+    "security_impact": "The Rego policy triggers absent_egress_filtering_trust_zone_exfiltration even when egress_network_policy_enforced is true if egress_policy_default_deny is false and cni_policy_enforcement_capable is true. Without a default-deny baseline, any workload without an explicit egress policy has unrestricted outbound access — defeating the purpose of per-pod egress policies because new pods or misconfigured pods default to allow-all. A default-deny posture ensures zone traversal requires explicit authorization.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search for a catch-all NetworkPolicy in the namespace that specifies Egress in policyTypes with an empty or absent egress rules array, which implements default-deny.",
+        "command": "kubectl get networkpolicy -n <namespace> -o json | jq '.items[] | select(.spec.podSelector == {} or .spec.podSelector.matchLabels == null) | select(.spec.policyTypes[]? == \"Egress\") | {name: .metadata.name, egress_rules: .spec.egress}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A policy with empty podSelector (matching all pods), policyTypes including 'Egress', and a null or empty egress array implements default-deny. No such policy means no default-deny posture."
+      },
+      {
+        "type": "command",
+        "instruction": "List all NetworkPolicy resources in a namespace with their policyTypes and egress rule counts to identify default-deny candidates.",
+        "command": "kubectl get networkpolicy -n <namespace> -o json | jq '.items[] | {name: .metadata.name, podSelector: .spec.podSelector, policyTypes: .spec.policyTypes, egress_rule_count: (.spec.egress // [] | length)}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A policy with podSelector: {}, policyTypes: [Egress], and egress_rule_count: 0 is a default-deny egress policy."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review namespace-level baseline policy manifests in the GitOps or IaC repository for a default-deny NetworkPolicy pattern.",
+        "command": "grep -r 'policyTypes' /path/to/manifests/ --include='*.yaml' -A5 | grep -B2 'Egress'",
+        "file_path": "/path/to/k8s/namespace-policies/",
+        "navigation": null,
+        "expected_output": "YAML entries showing 'policyTypes: [Egress]' associated with an empty podSelector and no egress rules block indicate a default-deny policy file exists in the repository."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform or security team to determine whether namespace bootstrapping procedures include deploying a default-deny NetworkPolicy as a baseline control.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation of a documented, enforced namespace onboarding process that includes a default-deny NetworkPolicy template indicates procedural default-deny posture."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in the vast majority of Kubernetes clusters; default-deny egress requires explicit operational design)",
+      "true (security-hardened clusters, regulated workloads, environments following CIS Kubernetes Benchmark Level 2)"
+    ]
+  },
+  {
+    "option_name": "cni_policy_enforcement_capable",
+    "option_description": "Tracks whether the Container Network Interface plugin installed and running in the cluster is both capable of enforcing Kubernetes NetworkPolicy rules and has its policy enforcement component actively running. Policy-incapable CNI plugins (e.g., Flannel without a policy engine) will silently ignore NetworkPolicy resources even if they exist.",
+    "security_impact": "The Rego policy triggers absent_egress_filtering_trust_zone_exfiltration unconditionally when cni_policy_enforcement_capable is false — regardless of whether egress policies exist. This is because NetworkPolicy objects without an enforcement-capable CNI are purely declarative with no runtime effect. The absence of enforcement capability means all zone boundary network controls defined via NetworkPolicy are non-functional, making the entire policy layer illusory while operators may believe egress filtering is active.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the CNI plugin by inspecting DaemonSets in the kube-system namespace, which host CNI agents.",
+        "command": "kubectl get daemonsets -n kube-system -o wide | grep -iE 'calico|cilium|weave|flannel|canal|antrea'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DaemonSet names such as 'calico-node', 'cilium', 'weave-net', or 'antrea-agent' identify the CNI. 'kube-flannel-ds' without accompanying calico/canal indicates a policy-incapable setup."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the CNI configuration files on a cluster node to identify the active plugin and whether a policy controller is referenced.",
+        "command": "cat /etc/cni/net.d/*.conf* 2>/dev/null || cat /etc/cni/net.d/*.conflist 2>/dev/null | jq '.plugins[].type'",
+        "file_path": "/etc/cni/net.d/",
+        "navigation": null,
+        "expected_output": "Plugin types such as 'calico', 'cilium', 'weave', or 'antrea' indicate policy-capable CNI. 'flannel' alone indicates no policy enforcement capability."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify that a NetworkPolicy controller or agent pod is running — policy-capable CNIs require an active control-plane component to translate policies to eBPF/iptables rules.",
+        "command": "kubectl get pods -n kube-system -o wide | grep -iE 'calico-kube-controllers|cilium-operator|weave|antrea-controller'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Running pods for the CNI's policy controller component confirm enforcement capability is active. Absence of a policy controller pod despite CNI daemonset presence may indicate a degraded state."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Create a test NetworkPolicy that denies all ingress to a test pod and verify that traffic is actually blocked, confirming the CNI enforces policies.",
+        "command": "kubectl apply -f - <<EOF\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: test-deny-all\n  namespace: <namespace>\nspec:\n  podSelector:\n    matchLabels:\n      app: test-target\n  policyTypes:\n  - Ingress\nEOF\nkubectl exec -it <source_pod> -n <namespace> -- curl -m 3 http://<test_target_ip>/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A connection timeout confirms the CNI enforces the NetworkPolicy. A successful connection confirms the CNI does NOT enforce policies despite the policy existing."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in clusters using Flannel alone, or older/minimal cluster setups on kubeadm without policy CNI)",
+      "true (GKE, EKS, AKS default configurations with Calico or Cilium; clusters explicitly configured for network policy enforcement)"
+    ]
+  },
+  {
+    "option_name": "mounted_secret_paths",
+    "option_description": "An array of filesystem paths within the container where secrets, tokens, or credentials have been mounted — including Kubernetes service account tokens, TLS certificates, API keys in secret volumes, configMaps containing credentials, and hostPath mounts pointing to credential directories on the host.",
+    "security_impact": "The Rego policy triggers credential_bleed_via_mounted_secret_paths when count(mounted_secret_paths) > 0 combined with secret_mount_scope in ['adjacent_zone', 'cluster_wide']. Multiple conditions reinforce this: the presence of automount_service_account_token with broad scope, and the absence of read_only_secret_mounts_enforced with broad-scope secrets. Mounted credentials create a propagation pathway — if the container boundary is breached, the attacker immediately gains credentials that authenticate in adjacent or cluster-wide trust zones without additional exploitation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect a pod's volume mounts to enumerate all secret, projected, and configMap volumes mounted into containers.",
+        "command": "kubectl get pod <pod_name> -n <namespace> -o json | jq '.spec.containers[].volumeMounts[] | select(.mountPath | test(\"/secrets|/tls|/token|/credentials|/keys\"; \"i\")) | {name: .name, path: .mountPath}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of volume mount names and paths indicating where credentials are accessible within the container. The default service account token typically mounts at /var/run/secrets/kubernetes.io/serviceaccount."
+      },
+      {
+        "type": "command",
+        "instruction": "List all volume definitions in a pod spec to identify secret-type volumes and their projected sources.",
+        "command": "kubectl get pod <pod_name> -n <namespace> -o json | jq '.spec.volumes[] | select(.secret != null or .projected != null or .configMap != null) | {name: .name, type: (if .secret != null then \"secret\" elif .projected != null then \"projected\" else \"configMap\" end)}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Volume entries of type 'secret' or 'projected' (which includes serviceAccountToken sources) represent credential mount paths to evaluate."
+      },
+      {
+        "type": "command",
+        "instruction": "Directly inspect the container's filesystem at runtime to enumerate credential-related paths that are currently accessible.",
+        "command": "kubectl exec -it <pod_name> -n <namespace> -- find / -maxdepth 6 \\( -name '*.pem' -o -name '*.key' -o -name 'token' -o -name 'ca.crt' -o -name '.aws' -o -name 'credentials' \\) 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "File paths such as /var/run/secrets/kubernetes.io/serviceaccount/token, /etc/tls/tls.key, or /run/secrets/aws/credentials indicate mounted credential paths."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Audit deployment and pod manifest files in source control for volume and volumeMount definitions referencing Secret resources.",
+        "command": "grep -r 'secretName\\|serviceAccountToken\\|mountPath.*secret\\|mountPath.*tls\\|mountPath.*cred' /path/to/manifests/ --include='*.yaml' -l",
+        "file_path": "/path/to/k8s/manifests/",
+        "navigation": null,
+        "expected_output": "File paths containing secret mount configurations; review each to catalog mount paths and associated secret names."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['/var/run/secrets/kubernetes.io/serviceaccount'] (auto-mounted service account token — present by default in most pods)",
+      "[] (empty — only when automountServiceAccountToken: false and no explicit secret volumes defined)",
+      "['/var/run/secrets/kubernetes.io/serviceaccount', '/etc/tls', '/run/secrets/vault'] (multi-credential workloads such as service meshes or secret-injection sidecars)",
+      "['/etc/ssl/certs/tls.crt', '/etc/ssl/private/tls.key'] (TLS-terminating workloads)"
+    ]
+  },
+  {
+    "option_name": "secret_mount_scope",
+    "option_description": "Classifies the trust zone reach of credentials mounted into the container — whether they are scoped exclusively to the container's own trust zone and namespace (same_zone), grant access to adjacent namespaces or services in neighboring zones (adjacent_zone), or provide cluster-wide access such as cluster-admin service accounts, wildcard TLS certificates, or cross-namespace API tokens (cluster_wide).",
+    "security_impact": "The Rego policy triggers credential_bleed_via_mounted_secret_paths specifically when secret_mount_scope is in ['adjacent_zone', 'cluster_wide'] — a same_zone scope alone does not trigger the exposure. This reflects the trust boundary violation model: credentials scoped only to the current zone don't enable zone traversal, but adjacent_zone or cluster_wide credentials allow an attacker who breaches the container to immediately authenticate against services in other trust zones, propagating trust without additional exploitation and undermining zone segmentation design.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For service account tokens, inspect the associated ClusterRoleBindings and RoleBindings to determine the scope of permissions granted — cluster-wide bindings indicate cluster_wide scope.",
+        "command": "SA=$(kubectl get pod <pod_name> -n <namespace> -o jsonpath='{.spec.serviceAccountName}'); kubectl get clusterrolebinding -o json | jq --arg sa \"$SA\" --arg ns \"<namespace>\" '.items[] | select(.subjects[]? | select(.kind==\"ServiceAccount\" and .name==$sa and .namespace==$ns)) | {binding: .metadata.name, role: .roleRef.name}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ClusterRoleBinding entries indicate cluster_wide scope. RoleBindings in the same namespace indicate same_zone. RoleBindings in other namespaces indicate adjacent_zone scope."
+      },
+      {
+        "type": "command",
+        "instruction": "Review the RBAC permissions of the pod's service account to assess whether it can access resources outside its own namespace.",
+        "command": "kubectl auth can-i --list --as=system:serviceaccount:<namespace>:<serviceaccount_name> --all-namespaces 2>/dev/null | grep -v '^no$' | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Entries showing permissions across all namespaces or for cluster-scoped resources (nodes, PersistentVolumes, ClusterRoles) indicate cluster_wide or adjacent_zone scope."
+      },
+      {
+        "type": "command",
+        "instruction": "For TLS certificates mounted as secrets, inspect the certificate's Subject Alternative Names to determine if it is a wildcard or cross-zone certificate.",
+        "command": "kubectl exec -it <pod_name> -n <namespace> -- openssl x509 -in /etc/tls/tls.crt -noout -text 2>/dev/null | grep -A5 'Subject Alternative Name\\|Subject:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Wildcard SANs (*.cluster.local, *.svc) or SANs covering multiple namespaces/services indicate adjacent_zone or cluster_wide scope. Single-service SANs indicate same_zone."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the credential issuance and RBAC design documentation with the platform team to determine the intended scope and whether least-privilege principles were applied to service account role bindings.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation confirming namespace-scoped RoleBindings with minimal permissions indicates same_zone design intent. Undocumented or overly broad ClusterRoleBindings indicate scope creep toward cluster_wide."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "same_zone (ideal posture; workloads with namespace-scoped service accounts and workload-specific TLS certificates)",
+      "cluster_wide (common in infrastructure components like ingress controllers, monitoring agents, cert-manager, and Helm tiller — frequently misconfigured on application workloads)",
+      "adjacent_zone (cross-namespace operator patterns, multi-tenant service accounts, shared secret stores accessed by multiple namespaces)"
+    ]
+  },
+  {
+    "option_name": "read_only_secret_mounts_enforced",
+    "option_description": "Controls whether all volume mounts referencing Kubernetes Secret, projected, or service account token volumes have the readOnly field explicitly set to true. When false or absent, the container process can write back to the mounted secret path, enabling both credential modification and exfiltration.",
+    "security_impact": "The Rego rule credential_bleed_via_mounted_secret_paths fires when mounted_secret_paths is non-empty and read_only_secret_mounts_enforced is false (or absent) — even without full privilege escalation. A writable secret mount allows a compromised workload to overwrite TLS keys or tokens in the mounted volume, potentially affecting adjacent zone consumers of the same secret, amplifying the trust propagation blast radius beyond the breached container.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate all pod volume mounts that reference Secret volumes and check the readOnly field for each container spec in the cluster.",
+        "command": "kubectl get pods --all-namespaces -o json | jq -r '.items[] | .metadata.namespace + \"/\" + .metadata.name as $pod | .spec.volumes[]? | select(.secret or .projected or .serviceAccountToken) | .name as $vname | $pod + \" vol=\" + $vname' && kubectl get pods --all-namespaces -o json | jq '[.items[] | {pod: (.metadata.namespace+\"/\"+.metadata.name), mounts: [.spec.containers[].volumeMounts[]? | select(.readOnly != true)]}] | .[] | select(.mounts | length > 0)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty output indicates all mounts are readOnly; any listed mount/pod pair indicates a writable secret-bearing mount that sets this attribute to false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the raw Pod or Deployment YAML manifests stored in version control and verify that every volumeMount block for secret/projected volumes contains 'readOnly: true'.",
+        "command": "grep -rn 'readOnly' ./manifests/ | grep -v 'readOnly: true'",
+        "file_path": "manifests/ (repository root for Helm charts or raw YAML manifests)",
+        "navigation": null,
+        "expected_output": "No output from the grep means all secret mounts are readOnly; any match reveals a missing or false readOnly setting."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Kubernetes API server directly to extract volumeMount readOnly status for all containers referencing secret volumes.",
+        "command": "curl -s -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://$KUBERNETES_SERVICE_HOST/api/v1/pods | jq '[.items[] | select(.spec.volumes[]? | .secret or .projected) | {pod: .metadata.name, ns: .metadata.namespace, writable_mounts: [.spec.containers[].volumeMounts[]? | select(.readOnly != true) | .name]}] | .[] | select(.writable_mounts | length > 0)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON objects listing pods and their writable mounts; empty array indicates compliance."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Kubernetes Dashboard or Rancher UI, navigate to each Workload > Pod detail view, select a container, and inspect the Volume Mounts table for the Read-Only column value on any secret-typed volume.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kubernetes Dashboard → Workloads → Pods → [select pod] → Containers → [select container] → Volume Mounts table → Read Only column",
+        "expected_output": "All secret/projected volume mounts should show 'true' in the Read Only column."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (compliant)",
+      "false (default when readOnly omitted — non-compliant)",
+      "null (field absent — defaults to false, treated as non-compliant)"
+    ]
+  },
+  {
+    "option_name": "automount_service_account_token",
+    "option_description": "Controls whether Kubernetes automatically projects the pod's service account token into the container filesystem at /var/run/secrets/kubernetes.io/serviceaccount. The token is mounted if automountServiceAccountToken is true or unset at either the ServiceAccount or Pod spec level.",
+    "security_impact": "The Rego rule credential_bleed_via_mounted_secret_paths fires directly when automount_service_account_token is true and secret_mount_scope is adjacent_zone or cluster_wide. An auto-mounted token grants the container's service account permissions against the Kubernetes API without the workload requiring such access, creating a credential propagation pathway that can be leveraged to enumerate or manipulate resources in adjacent trust zones if the container boundary is breached.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check both the ServiceAccount-level and Pod-level automountServiceAccountToken fields for all workloads in the cluster.",
+        "command": "kubectl get pods --all-namespaces -o json | jq '[.items[] | {pod: (.metadata.namespace+\"/\"+.metadata.name), automount: .spec.automountServiceAccountToken, sa: .spec.serviceAccountName}]' && kubectl get serviceaccounts --all-namespaces -o json | jq '[.items[] | select(.automountServiceAccountToken != false) | {sa: (.metadata.namespace+\"/\"+.metadata.name), automount: .automountServiceAccountToken}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Pods where automount is null or true, combined with ServiceAccounts where automountServiceAccountToken is also null or true, indicate the token will be mounted."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify whether the token file actually exists inside a running container to confirm auto-mounting is active.",
+        "command": "kubectl exec -n <namespace> <pod-name> -- ls /var/run/secrets/kubernetes.io/serviceaccount/token 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the file path is returned, the token is mounted (attribute is true). 'No such file' confirms auto-mount is disabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Search Helm chart values and raw Kubernetes YAML manifests for explicit automountServiceAccountToken declarations at both Pod and ServiceAccount levels.",
+        "command": "grep -rn 'automountServiceAccountToken' ./manifests/",
+        "file_path": "manifests/ (Helm charts, Kustomize overlays, or raw YAML)",
+        "navigation": null,
+        "expected_output": "Every pod and service account spec should show 'automountServiceAccountToken: false'; absent entries default to true."
+      },
+      {
+        "type": "api",
+        "instruction": "Audit the API server for service accounts that have not explicitly disabled token auto-mounting.",
+        "command": "kubectl get serviceaccounts --all-namespaces -o json | jq '[.items[] | select(.automountServiceAccountToken == null or .automountServiceAccountToken == true) | {namespace: .metadata.namespace, name: .metadata.name}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any service account listed will auto-mount tokens into pods unless the pod spec overrides it with false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (default when field is absent — non-compliant for workloads not needing API access)",
+      "false (explicitly disabled — compliant)",
+      "null (absent — treated as true)"
+    ]
+  },
+  {
+    "option_name": "ipc_namespace_mode",
+    "option_description": "Defines the IPC namespace isolation level for the container or pod: 'private' gives the pod its own isolated IPC namespace, 'host' shares the host kernel's IPC namespace, 'shared_pod' allows multiple containers in the same pod to share one IPC namespace, and 'shareable' exposes a pod's IPC namespace for other pods to join.",
+    "security_impact": "The Rego rule ipc_namespace_cross_zone_signal_injection fires unconditionally when ipc_namespace_mode is 'host', and also fires for 'shared_pod' or 'shareable' when cross_zone_workloads_share_ipc is true. In host mode, any workload can read or write shared memory segments and semaphores belonging to host processes and all other containers, collapsing the IPC trust boundary entirely. Shareable/shared_pod modes with cross-zone co-location allow the same class of attack without full host exposure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify pods using host IPC namespace by querying the pod spec hostIPC field across the cluster.",
+        "command": "kubectl get pods --all-namespaces -o json | jq '[.items[] | select(.spec.hostIPC == true) | {pod: (.metadata.namespace+\"/\"+.metadata.name), hostIPC: .spec.hostIPC}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any entry in the output indicates a pod with ipc_namespace_mode='host'; empty output indicates no host IPC sharing."
+      },
+      {
+        "type": "command",
+        "instruction": "For Docker-managed containers, inspect the IPC mode directly from the container runtime.",
+        "command": "docker inspect --format '{{.Name}} IpcMode={{.HostConfig.IpcMode}}' $(docker ps -q)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show 'private' for all containers; 'host', 'shareable', or 'container:<id>' indicates non-private IPC namespace modes."
+      },
+      {
+        "type": "command",
+        "instruction": "Use crictl to inspect IPC namespace configuration on container runtime interface (CRI) environments like containerd.",
+        "command": "crictl inspect $(crictl ps -q) | jq '.info.runtimeSpec.linux.namespaces[] | select(.type==\"ipc\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A namespace entry with a 'path' field pointing to the host or another pod indicates shared IPC; absence of a path means private namespace."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Kubernetes pod manifest files for hostIPC and the shareProcessNamespace fields that influence IPC isolation.",
+        "command": "grep -rn 'hostIPC\\|shareProcessNamespace\\|ipc' ./manifests/",
+        "file_path": "manifests/ (Pod, Deployment, StatefulSet, DaemonSet YAML)",
+        "navigation": null,
+        "expected_output": "'hostIPC: false' or absent, and no 'shareable' runtime flags indicates private mode (compliant default)."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "private (default — compliant)",
+      "host (non-compliant — collapses host IPC boundary)",
+      "shared_pod (context-dependent)",
+      "shareable (risk depends on cross_zone_workloads_share_ipc)"
+    ]
+  },
+  {
+    "option_name": "cross_zone_workloads_share_ipc",
+    "option_description": "Indicates whether containers or pods belonging to different trust zones (e.g., frontend vs. backend tiers, separate tenants, privileged vs. unprivileged workloads) are co-located within the same IPC namespace, enabling shared memory segments and semaphore access across zone boundaries.",
+    "security_impact": "The Rego rule ipc_namespace_cross_zone_signal_injection fires when ipc_namespace_mode is 'shared_pod' or 'shareable' and cross_zone_workloads_share_ipc is true — and fires again for lack of seccomp IPC syscall restriction in that same condition. Shared IPC between trust zones allows an attacker in one zone to manipulate shared memory segments owned by workloads in adjacent zones without any network traversal, bypassing CNI-level segmentation controls entirely.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List pods that use shareable IPC mode and correlate their zone/tier labels to identify cross-zone co-location.",
+        "command": "kubectl get pods --all-namespaces -o json | jq '[.items[] | select(.spec.hostIPC == true or (.metadata.annotations[\"container.apparmor.security.beta.kubernetes.io/ipc\"] // \"\" | contains(\"shareable\"))) | {pod: (.metadata.namespace+\"/\"+.metadata.name), zone: .metadata.labels.zone, tier: .metadata.labels.tier}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Pods from different zone or tier label values sharing the same node and IPC mode indicate cross_zone_workloads_share_ipc=true."
+      },
+      {
+        "type": "command",
+        "instruction": "Check which pods on the same node share an IPC namespace by comparing their ipc namespace inode numbers from /proc.",
+        "command": "for pid in $(pgrep -P 1); do echo -n \"PID $pid ipc_ns=\"; ls -la /proc/$pid/ns/ipc; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Processes with identical ipc namespace inode numbers share an IPC namespace; cross-reference with trust zone labels to detect cross-zone sharing."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review pod placement policies, PodAffinity/PodAntiAffinity rules, and namespace topology to determine if workloads from different security tiers are scheduled to share IPC contexts.",
+        "command": "kubectl get pods --all-namespaces --show-labels -o wide | sort -k8",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Pods from different zone labels scheduled on the same node with shared IPC configuration confirms cross_zone_workloads_share_ipc=true."
+      },
+      {
+        "type": "api",
+        "instruction": "Query OPA/Gatekeeper or Kyverno admission controller audit results for policies that enforce IPC isolation between zones.",
+        "command": "kubectl get constrainttemplate,constraint --all-namespaces -o json | jq '[.items[] | select(.spec.names.kind | test(\"IPC|Namespace|Zone\"; \"i\")) | {kind: .kind, name: .metadata.name}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Absence of any IPC zone isolation constraint indicates no automated enforcement, requiring manual verification of cross-zone placement."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default — compliant, zones are isolated)",
+      "true (non-compliant when combined with shared/host IPC mode)"
+    ]
+  },
+  {
+    "option_name": "seccomp_ipc_syscalls_restricted",
+    "option_description": "Indicates whether the active seccomp profile for the container explicitly blocks or restricts IPC-related system calls — specifically shmget, shmat, shmctl, semget, semop, semctl, msgget, msgsnd, msgrcv — limiting the ability to exploit shared IPC namespaces even if the IPC namespace boundary is misconfigured.",
+    "security_impact": "The Rego rule ipc_namespace_cross_zone_signal_injection fires an additional condition when ipc_namespace_mode is 'host', 'shared_pod', or 'shareable' and cross_zone_workloads_share_ipc is true and seccomp_ipc_syscalls_restricted is false. Without this restriction, a compromised container can call shmget/shmat to attach to existing shared memory segments of adjacent zone workloads, or use semop to manipulate semaphores controlling cross-zone resource access — even a RuntimeDefault seccomp profile may not block these syscalls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the seccomp profile annotation or securityContext for each pod and verify whether IPC syscalls are explicitly denied in the active profile.",
+        "command": "kubectl get pods --all-namespaces -o json | jq '[.items[] | {pod: (.metadata.namespace+\"/\"+.metadata.name), seccomp: (.metadata.annotations[\"seccomp.security.alpha.kubernetes.io/pod\"] // .spec.securityContext.seccompProfile.type // \"Unconfined\")}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Pods showing 'Unconfined' have no IPC syscall restriction; pods with 'RuntimeDefault' require further profile inspection to confirm IPC syscall coverage."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect a custom seccomp profile JSON to verify whether IPC-related syscalls are listed in the 'syscalls' block with action SCMP_ACT_ERRNO or SCMP_ACT_KILL.",
+        "command": "cat /var/lib/kubelet/seccomp/profiles/<profile-name>.json | jq '[.syscalls[] | select(.names[] | test(\"shm|sem|msg\")) | {names: .names, action: .action}]'",
+        "file_path": "/var/lib/kubelet/seccomp/profiles/<profile-name>.json",
+        "navigation": null,
+        "expected_output": "Entries for shmget, shmat, shmctl, semget, semop, semctl, msgget, msgsnd, msgrcv with action 'SCMP_ACT_ERRNO' or 'SCMP_ACT_KILL' confirm restriction is active."
+      },
+      {
+        "type": "command",
+        "instruction": "Use seccomp-tools or strace to test whether IPC syscalls are actually blocked at runtime for a target container.",
+        "command": "kubectl exec -n <namespace> <pod-name> -- strace -e trace=ipc -c dd if=/dev/zero of=/dev/null count=1 2>&1 | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If IPC syscalls are blocked, strace will report EPERM or ENOSYS; if they succeed, the seccomp profile does not restrict them."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the RuntimeDefault seccomp profile provided by the container runtime to check whether IPC syscalls are in its allowlist or denylist.",
+        "command": "cat /usr/share/containers/seccomp.json | jq '.syscalls[] | select(.names[] | test(\"shmget|shmat|semget|semop|msgget|msgsnd|msgrcv\"))'",
+        "file_path": "/usr/share/containers/seccomp.json (containerd) or /etc/docker/seccomp.json (Docker)",
+        "navigation": null,
+        "expected_output": "If shmget, shmat, semget, semop etc. appear with 'SCMP_ACT_ALLOW', the RuntimeDefault profile does not restrict them and a custom profile is required."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default — RuntimeDefault does not block IPC syscalls; non-compliant for shared IPC scenarios)",
+      "true (custom seccomp profile with explicit IPC syscall deny rules — compliant)"
+    ]
+  },
+  {
+    "option_name": "syscall_auditing_enabled",
+    "option_description": "Indicates whether system call-level auditing is active for container processes — via Linux auditd rules targeting container PIDs, seccomp profiles configured in audit/log mode, or Kubernetes audit policies extended to capture syscall activity — providing forensic visibility into lateral movement attempts.",
+    "security_impact": "The Rego rule monitoring_blind_spot_intra_zone_lateral_movement fires when both syscall_auditing_enabled and ebpf_runtime_monitoring_enabled are false, and also when syscall_auditing_enabled and container_network_flow_logging_enabled are both false. Without syscall-level visibility, an attacker pivoting through the container boundary — using ptrace, unshare, keyctl, or mount syscalls — leaves no auditable trace, making forensic reconstruction of zone traversal events impossible.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether auditd is running on the host node and has rules targeting container-related syscalls or cgroup paths.",
+        "command": "auditctl -l | grep -E 'execve|ptrace|unshare|keyctl|mount|open' && systemctl is-active auditd",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'active' from systemctl and matching audit rules confirm syscall auditing is enabled; no rules or inactive service means this attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify whether Kubernetes audit policy captures syscall-relevant events by inspecting the audit policy file and checking for running audit log output.",
+        "command": "cat /etc/kubernetes/audit-policy.yaml | grep -E 'level|verb|resource' && ls -lh /var/log/kubernetes/audit/audit.log",
+        "file_path": "/etc/kubernetes/audit-policy.yaml",
+        "navigation": null,
+        "expected_output": "A policy with level 'Request' or 'RequestResponse' and an actively written audit log confirms audit logging; note this captures API-level events, not raw syscalls."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect auditd rules for container process tree coverage using cgroup-based or PID namespace-scoped audit rules.",
+        "command": "auditctl -l | grep -E 'cgroup|container|docker|containerd|kubelet' && cat /etc/audit/rules.d/*.rules",
+        "file_path": "/etc/audit/rules.d/*.rules",
+        "navigation": null,
+        "expected_output": "Rules scoped to container process paths or cgroup hierarchies confirm container-aware syscall auditing is configured."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform team or review runbook documentation to confirm whether a centralized auditd or seccomp audit-mode profile is deployed to all cluster nodes as part of the node provisioning baseline.",
+        "command": "kubectl get nodes -o json | jq '[.items[] | {node: .metadata.name, labels: .metadata.labels}]' | grep -i audit",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Node labels or annotations referencing an audit profile, or staff confirmation of a node hardening baseline, indicate syscall auditing is enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in most managed Kubernetes deployments — non-compliant)",
+      "true (enabled with auditd rules or seccomp audit mode — compliant)"
+    ]
+  },
+  {
+    "option_name": "ebpf_runtime_monitoring_enabled",
+    "option_description": "Indicates whether an eBPF-based behavioral monitoring agent — such as Falco with its eBPF probe, Tetragon, or Cilium Hubble — is deployed and actively collecting runtime signals including process execution events, file access patterns, and network connection attempts for container workloads.",
+    "security_impact": "The Rego rule monitoring_blind_spot_intra_zone_lateral_movement fires when ebpf_runtime_monitoring_enabled is false combined with either missing syscall auditing or missing network flow logging — covering all three blind-spot combinations. eBPF-based monitoring is the primary detection mechanism for intra-zone lateral movement techniques like credential file reads, unexpected outbound connections to adjacent zone endpoints, and privilege escalation attempts that occur entirely within userspace without generating Kubernetes API events.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether a Falco eBPF probe or kernel module is loaded and the Falco daemon is running on the node.",
+        "command": "kubectl get pods --all-namespaces -o wide | grep -E 'falco|tetragon|hubble' && lsmod | grep -E 'falco|bpf' && systemctl is-active falco 2>/dev/null || true",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Running Falco/Tetragon pods and a loaded bpf or falco kernel module confirm eBPF runtime monitoring is active; absence of any means this attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify that Falco rules targeting lateral movement indicators are active and generating alerts by checking the Falco rules directory and alert output.",
+        "command": "kubectl exec -n falco $(kubectl get pod -n falco -l app=falco -o jsonpath='{.items[0].metadata.name}') -- falco --list | grep -E 'network|credential|privilege|exec'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules matching lateral movement patterns (unexpected network connections, credential reads, privilege escalation) listed confirms the agent is configured; empty output means rules are absent."
+      },
+      {
+        "type": "command",
+        "instruction": "For Tetragon deployments, check whether TracingPolicy CRDs with network and file monitoring hooks are installed and active.",
+        "command": "kubectl get tracingpolicy --all-namespaces 2>/dev/null && kubectl get pods -n kube-system -l app.kubernetes.io/name=tetragon -o wide",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TracingPolicy resources and running Tetragon pods on all nodes confirm eBPF monitoring is deployed; CRD not found means Tetragon is absent."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Cilium Hubble UI or Grafana dashboard connected to a Falco/Tetragon data source, verify that real-time process and network event streams are being populated with container workload activity.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Hubble UI → Flows tab (verify container namespace flows appear) | Grafana → Falco dashboard → verify alert event rate > 0 for test workloads",
+        "expected_output": "Live event streams with container process and network events confirm eBPF monitoring is active and forwarding data."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in vanilla Kubernetes clusters — non-compliant)",
+      "true (Falco with eBPF driver deployed cluster-wide with lateral movement rules — compliant)",
+      "true (Tetragon with TracingPolicy — compliant)"
+    ]
+  },
+  {
+    "option_name": "container_network_flow_logging_enabled",
+    "option_description": "Indicates whether network flow logging is active at the CNI plugin layer, capturing inter-container and inter-zone traffic metadata — including source/destination pod, port, protocol, and policy verdict — via mechanisms such as Cilium Hubble flow logs, Calico flow logs, VPC flow logs for pod CIDR ranges, or NetworkPolicy audit logs.",
+    "security_impact": "The Rego rule monitoring_blind_spot_intra_zone_lateral_movement fires when container_network_flow_logging_enabled is false combined with either missing eBPF monitoring or missing syscall auditing. Without network flow logs, lateral movement attempts — such as a compromised container probing adjacent zone service endpoints or exfiltrating credentials via outbound connections — produce no observable audit trail, leaving the monitoring blind spot that allows attackers to perform reconnaissance and staged movement undetected.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether Cilium Hubble is enabled and forwarding flow logs by querying the Hubble relay and inspecting recent flow records.",
+        "command": "kubectl get pods -n kube-system -l k8s-app=hubble-relay -o wide && hubble observe --last 20 --output json 2>/dev/null | head -5 || kubectl exec -n kube-system $(kubectl get pod -n kube-system -l k8s-app=cilium -o jsonpath='{.items[0].metadata.name}') -- hubble observe --last 5 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON flow records with source/destination pod identities and verdicts confirm Hubble flow logging is active; connection refused or empty means Hubble is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "For Calico CNI deployments, verify whether Felix flow log configuration is enabled and log files are being written.",
+        "command": "kubectl get felixconfiguration default -o json | jq '.spec | {flowLogsEnabled: .flowLogsEnabled, flowLogsFlushInterval: .flowLogsFlushInterval}' 2>/dev/null && ls -lh /var/log/calico/flowlogs/ 2>/dev/null",
+        "file_path": "/var/log/calico/flowlogs/",
+        "navigation": null,
+        "expected_output": "'flowLogsEnabled: true' in FelixConfiguration and recently written flow log files confirm Calico flow logging is active."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for NetworkPolicy audit logging via the Kubernetes API server audit policy or CNI-specific audit log configuration.",
+        "command": "grep -r 'NetworkPolicy\\|networkpolic' /etc/kubernetes/audit-policy.yaml 2>/dev/null && kubectl get networkpolicy --all-namespaces | wc -l",
+        "file_path": "/etc/kubernetes/audit-policy.yaml",
+        "navigation": null,
+        "expected_output": "Audit policy entries for NetworkPolicy resource types and non-zero NetworkPolicy count suggest policy-level flow auditing is configured."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify that container network flow logs are being forwarded to the SIEM or log aggregation system by querying for recent pod-to-pod flow records.",
+        "command": "kubectl logs -n logging $(kubectl get pod -n logging -l app=fluentd -o jsonpath='{.items[0].metadata.name}') --tail=50 | grep -E 'flow|hubble|calico|networkpolicy' && curl -s 'http://elasticsearch:9200/container-flows-*/_count' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log entries referencing flow data and a non-zero document count in the SIEM index confirm that flow logs are being collected and forwarded."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default — most CNI deployments have flow logging disabled; non-compliant)",
+      "true (Cilium with Hubble enabled and log export configured — compliant)",
+      "true (Calico with flowLogsEnabled: true and SIEM forwarding — compliant)"
+    ]
+  },
+  {
+    "option_name": "cpu_limit_enforced",
+    "option_description": "Controls whether a CPU resource limit is configured and enforced for the container via cgroup cpu.max (cgroups v2) or cpu_quota/cpu_shares (cgroups v1), preventing unbounded CPU consumption that could starve adjacent workloads or degrade boundary enforcement security controls.",
+    "security_impact": "The Rego rule `cgroup_resource_limit_absence_noisy_neighbor_zone_disruption` fires when `not input.cpu_limit_enforced` is true. Without a CPU limit, a container in one trust zone can monopolize host CPU cycles, causing monitoring agents, seccomp enforcement threads, and LSM evaluation to starve — degrading the runtime security controls that enforce zone boundaries. This is a low-criticality finding but degrades the overall integrity of boundary enforcement for adjacent zones.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect a running Docker container's cgroup CPU quota configuration directly.",
+        "command": "docker inspect <container_id> --format '{{.HostConfig.CpuQuota}} {{.HostConfig.CpuShares}} {{.HostConfig.NanoCpus}}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-zero values for CpuQuota (e.g., 100000) or NanoCpus indicate an enforced CPU limit. A value of 0 for all fields means no limit is enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the Kubernetes pod spec for CPU resource limits via kubectl.",
+        "command": "kubectl get pod <pod_name> -n <namespace> -o jsonpath='{.spec.containers[*].resources.limits.cpu}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A value like '500m' or '2' confirms a CPU limit is set. An empty output means no CPU limit is configured."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the enforced cgroup cpu.max value on the host for the running container.",
+        "command": "cat /sys/fs/cgroup/$(docker inspect <container_id> --format '{{.Id}}')/cpu.max",
+        "file_path": "/sys/fs/cgroup/<container_cgroup_path>/cpu.max",
+        "navigation": null,
+        "expected_output": "A value like '100000 100000' (quota period) indicates enforcement. 'max 100000' means unlimited — no CPU cap is enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Kubernetes API server for resource limits on all containers in a namespace.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' https://<kube-api>/api/v1/namespaces/<namespace>/pods | jq '.items[].spec.containers[].resources.limits.cpu'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output should show CPU limit values for each container. Null or absent fields indicate no limit is configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "memory_limit_enforced",
+    "option_description": "Controls whether a memory resource limit is configured and enforced for the container via cgroup memory.max (cgroups v2) or memory.limit_in_bytes (cgroups v1), preventing memory exhaustion that could cause OOM conditions affecting adjacent workloads and degrading security controls such as logging daemons and policy agents.",
+    "security_impact": "The Rego rule `cgroup_resource_limit_absence_noisy_neighbor_zone_disruption` fires when `not input.memory_limit_enforced` is true. Without a memory ceiling, a runaway or malicious container workload can exhaust host memory, causing the OOM killer to terminate critical security processes such as audit daemons, sidecar proxies, or the container runtime itself — collapsing zone boundary enforcement. Memory exhaustion is a common DoS vector that facilitates indirect boundary violations.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect Docker container memory limits via docker inspect.",
+        "command": "docker inspect <container_id> --format 'Memory: {{.HostConfig.Memory}} MemorySwap: {{.HostConfig.MemorySwap}}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Memory values greater than 0 (e.g., Memory: 536870912 for 512Mi) indicate enforcement. A value of 0 means no memory limit is configured."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Kubernetes pod memory limits using kubectl.",
+        "command": "kubectl get pod <pod_name> -n <namespace> -o jsonpath='{.spec.containers[*].resources.limits.memory}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output like '512Mi' or '1Gi' confirms an enforced memory limit. Empty output means no limit is set."
+      },
+      {
+        "type": "command",
+        "instruction": "Read the cgroup memory.max file directly on the host for the container's cgroup.",
+        "command": "CGPATH=$(cat /proc/$(docker inspect <container_id> --format '{{.State.Pid}}')/cgroup | grep memory | cut -d: -f3); cat /sys/fs/cgroup${CGPATH}/memory.max",
+        "file_path": "/sys/fs/cgroup/<container_cgroup_path>/memory.max",
+        "navigation": null,
+        "expected_output": "A numeric byte value (e.g., 536870912) confirms enforcement. The string 'max' indicates no memory limit is configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "pid_limit_enforced",
+    "option_description": "Controls whether a PID limit is configured and enforced for the container via cgroup pids.max, preventing PID namespace exhaustion attacks (fork bombs) that could fill the host PID table and deny new processes to security-critical components such as audit daemons, LSM enforcement threads, and sidecar proxies.",
+    "security_impact": "The Rego rule `cgroup_resource_limit_absence_noisy_neighbor_zone_disruption` fires when `not input.pid_limit_enforced` is true. Without a PID cap, a container can execute a fork bomb or rapid process spawning attack that exhausts the host-level PID namespace, preventing security controls from spawning new processes and indirectly collapsing enforcement across all zone boundaries on the same kernel. This degrades the availability of boundary enforcement infrastructure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the pids.max cgroup value for a running container on the host.",
+        "command": "CGPATH=$(cat /proc/$(docker inspect <container_id> --format '{{.State.Pid}}')/cgroup | grep pids | cut -d: -f3); cat /sys/fs/cgroup${CGPATH}/pids.max",
+        "file_path": "/sys/fs/cgroup/<container_cgroup_path>/pids.max",
+        "navigation": null,
+        "expected_output": "A numeric value (e.g., 1024) confirms a PID limit is enforced. The string 'max' means no PID limit is configured."
+      },
+      {
+        "type": "command",
+        "instruction": "Query Kubernetes pod spec for PID limit settings.",
+        "command": "kubectl get pod <pod_name> -n <namespace> -o jsonpath='{.spec.containers[*].resources.limits}' && kubectl get pod <pod_name> -n <namespace> -o jsonpath='{.spec.os}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "In Kubernetes 1.22+, pidsLimit may appear in node configuration. Absence in resource limits typically means no container-level PID limit is explicitly set."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect Docker container PID limit configuration.",
+        "command": "docker inspect <container_id> --format '{{.HostConfig.PidsLimit}}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A positive integer (e.g., 1024) indicates an enforced PID limit. A value of 0 or -1 means no limit is configured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the container runtime daemon configuration for default PID limits.",
+        "command": "cat /etc/docker/daemon.json | jq '.default-ulimits'",
+        "file_path": "/etc/docker/daemon.json",
+        "navigation": null,
+        "expected_output": "A nproc ulimit entry with a non-zero value indicates a default PID limit is applied. Absence means no default PID ceiling is enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

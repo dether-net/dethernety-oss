@@ -1,0 +1,1492 @@
+[
+  {
+    "option_name": "managed_rule_groups_enabled",
+    "option_description": "Controls whether one or more managed rule groups (e.g., AWS Managed Rules, Azure Managed Rulesets, OWASP Core Rule Set) are actively associated with the WAF in enforcement mode rather than count/log-only mode.",
+    "security_impact": "The Rego policy rule_set_coverage_depth requires managed_rule_groups_enabled == true as a prerequisite condition for any coverage depth score. Without this, the WAF lacks a foundational, vendor-maintained layer of protection against known attack patterns. Managed rule groups provide breadth across thousands of signatures without requiring custom rule authorship.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In AWS WAF, list all WebACLs and inspect each for ManagedRuleGroupStatement entries whose OverrideAction is not set to COUNT.",
+        "command": "aws wafv2 list-web-acls --scope REGIONAL --query 'WebACLs[*].{Name:Name,Id:Id}' --output table && aws wafv2 get-web-acl --name <WebACL_NAME> --scope REGIONAL --id <WebACL_ID> | jq '.WebACL.Rules[] | select(.Statement.ManagedRuleGroupStatement != null) | {Name:.Name, OverrideAction:.OverrideAction}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more rules returned with ManagedRuleGroupStatement present and OverrideAction showing 'None' (not 'Count'), confirming enforcement mode."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Azure WAF policy via REST API to verify managed ruleset is enabled and in Prevention mode.",
+        "command": "az network application-gateway waf-policy show --name <POLICY_NAME> --resource-group <RG_NAME> --query '{State:managedRules.managedRuleSets, Mode:policySettings.mode}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "managedRuleSets array is non-empty and policySettings.mode is 'Prevention', confirming managed rules are active in enforcement."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to WAF & Shield > Web ACLs > select the target ACL > Rules tab. Verify at least one rule of type 'AWS Managed rule group' is listed with Override action set to 'Use rule group action' (not 'Set all to count').",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [Select ACL] > Rules tab > inspect rule type and Override action column",
+        "expected_output": "At least one managed rule group row visible with Override action showing 'Use rule group action'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity or NGINX WAF deployments, inspect the configuration file for Include directives pointing to OWASP CRS rule files and confirm SecRuleEngine is not set to DetectionOnly when these includes are active.",
+        "command": "grep -E 'Include|SecRuleEngine' /etc/modsecurity/modsecurity.conf /etc/modsecurity/crs/*.conf 2>/dev/null",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "Include lines referencing CRS rule files and SecRuleEngine set to 'On' (not 'DetectionOnly')."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "owasp_top10_categories_covered",
+    "option_description": "Counts the distinct OWASP Top 10 attack categories (e.g., A01 Broken Access Control, A03 Injection, A07 XSS) for which at least one active WAF rule exists in enforcement/block mode, not merely count or log mode.",
+    "security_impact": "The Rego policy rule_set_coverage_depth requires owasp_top10_categories_covered >= 7 when rule_action_mode is 'enforcement', or >= 8 when mode is 'mixed'. Values below these thresholds mean the WAF has gaps against well-documented, commonly exploited vulnerability classes, leaving the application exposed to attacks such as SQL injection, XSS, and command injection.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In AWS WAF, list active managed rule groups and cross-reference the AWS documentation mapping each group to OWASP categories. Then count distinct categories covered by rules not in COUNT override mode.",
+        "command": "aws wafv2 get-web-acl --name <WebACL_NAME> --scope REGIONAL --id <WebACL_ID> | jq '[.WebACL.Rules[] | select(.Statement.ManagedRuleGroupStatement != null and .OverrideAction.None != null) | .Statement.ManagedRuleGroupStatement.Name]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of active managed rule group names; cross-reference with AWS OWASP mapping documentation to count covered categories (target >= 7)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cloudflare WAF, navigate to Security > WAF > Managed Rules. Review the OWASP Core Ruleset enabled paranoia level and the Cloudflare Managed Ruleset categories to map active enforcement rules to OWASP Top 10 categories.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cloudflare Dashboard > Security > WAF > Managed Rules > review enabled rulesets and categories",
+        "expected_output": "Managed ruleset categories visible with action set to 'Block'; map category names to OWASP Top 10 list and count distinct categories."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For OWASP CRS (ModSecurity), inspect the active rule files. Each CRS rule file corresponds to an attack category. Count the number of rule files included whose category maps to an OWASP Top 10 entry.",
+        "command": "ls /etc/modsecurity/crs/rules/ | grep -E '^REQUEST-9[0-9]{2}' | sed 's/REQUEST-[0-9]*-//' | sort -u",
+        "file_path": "/etc/modsecurity/crs/rules/",
+        "navigation": null,
+        "expected_output": "List of active CRS rule categories (e.g., SQL-INJECTION, XSS, RFI, LFI, RCE); count entries mapping to OWASP Top 10 to confirm >= 7 categories."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the WAF rule coverage matrix from the security engineering team. This document should map each active rule or rule group to specific OWASP Top 10 categories and indicate the enforcement action applied.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A completed coverage matrix showing >= 7 OWASP Top 10 categories with at least one rule in block/enforce mode per category."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "5",
+      "7",
+      "8",
+      "10"
+    ]
+  },
+  {
+    "option_name": "rule_action_mode",
+    "option_description": "Describes the predominant action mode of the WAF's active rule set — whether rules are blocking/preventing matched requests (enforcement), only logging/counting them (detection_only), a significant mix of both (mixed), or no rules are active (disabled).",
+    "security_impact": "The Rego policy rule_set_coverage_depth activates only when rule_action_mode is 'enforcement' (requiring owasp_top10_categories_covered >= 7) or 'mixed' (requiring >= 8 categories). A value of 'detection_only' or 'disabled' means the WAF produces no preventive action — attacks traverse to the origin server unchallenged despite being detected.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In AWS WAF, inspect override actions on each managed rule group and individual rule actions. Determine if the majority are set to COUNT (detection) or use rule-action (enforcement).",
+        "command": "aws wafv2 get-web-acl --name <WebACL_NAME> --scope REGIONAL --id <WebACL_ID> | jq '.WebACL.Rules[] | {Name:.Name, OverrideAction:.OverrideAction, Action:.Action}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules with Action.Block or OverrideAction.None indicate enforcement. Rules with Action.Count or OverrideAction.Count indicate detection_only. Presence of both indicates mixed mode."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity, check the SecRuleEngine directive value across all configuration files. 'On' indicates enforcement, 'DetectionOnly' indicates detection_only, 'Off' indicates disabled.",
+        "command": "grep -rn 'SecRuleEngine' /etc/modsecurity/ /etc/nginx/modsec/ 2>/dev/null",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecRuleEngine On = enforcement; SecRuleEngine DetectionOnly = detection_only; SecRuleEngine Off = disabled."
+      },
+      {
+        "type": "api",
+        "instruction": "For Azure Application Gateway WAF, retrieve the policy settings to determine if the policy mode is Prevention (enforcement) or Detection.",
+        "command": "az network application-gateway waf-policy show --name <POLICY_NAME> --resource-group <RG_NAME> --query 'policySettings.mode' --output tsv",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Prevention' maps to enforcement mode; 'Detection' maps to detection_only mode."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cloudflare WAF Dashboard, navigate to Security > WAF > Managed Rules and review the action column for each enabled ruleset. Check if the global WAF mode is set to 'Block' or 'Log'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cloudflare Dashboard > Security > WAF > Managed Rules > Action column per ruleset",
+        "expected_output": "Action column showing 'Block' for the majority of rules confirms enforcement mode; 'Log' confirms detection_only."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "enforcement",
+      "detection_only",
+      "mixed",
+      "disabled"
+    ]
+  },
+  {
+    "option_name": "waf_operation_mode",
+    "option_description": "Controls the global operational mode of the WAF — whether it actively blocks matched requests (blocking), only detects and logs without intervening (detection), or is entirely disabled. This is the master enforcement switch independent of individual rule actions.",
+    "security_impact": "The Rego policy false_positive_minimization requires waf_operation_mode to be either 'blocking' or 'detection' (combined with tuning enabled and anomaly threshold >= 5). The inline_blocking_enforcement policy requires waf_operation_mode == 'blocking'. A mode of 'disabled' or 'detection' alone means no traffic is ever blocked, rendering the WAF purely observational and providing no preventive security value.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In AWS WAF, check the WebACL default action — Block or Allow — which governs the global operation mode. Also inspect whether all rule group overrides are set to COUNT, which would functionally reduce blocking to detection.",
+        "command": "aws wafv2 get-web-acl --name <WebACL_NAME> --scope REGIONAL --id <WebACL_ID> --query '{DefaultAction:WebACL.DefaultAction, Rules:WebACL.Rules[*].{Name:Name,Override:OverrideAction}}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DefaultAction showing 'Block' and rules with OverrideAction 'None' confirms blocking mode. All-'Count' overrides indicates detection mode despite block default."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity, check the SecRuleEngine directive. For F5 ASM, check the Enforcement Mode setting in the policy XML. For Cloudflare, check the zone-level WAF mode configuration.",
+        "command": "grep -n 'SecRuleEngine' /etc/modsecurity/modsecurity.conf; cat /etc/nginx/conf.d/modsec.conf | grep 'modsecurity '",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecRuleEngine On = blocking; SecRuleEngine DetectionOnly = detection; modsecurity off = disabled."
+      },
+      {
+        "type": "api",
+        "instruction": "For Cloudflare WAF, use the API to retrieve the zone's WAF settings and check the current mode.",
+        "command": "curl -s -X GET 'https://api.cloudflare.com/client/v4/zones/<ZONE_ID>/settings/waf' -H 'Authorization: Bearer <API_TOKEN>' -H 'Content-Type: application/json' | jq '.result.value'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'on' with managed rules set to block action = blocking; 'on' with log-only action = detection; 'off' = disabled."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure Portal, navigate to Application Gateway > WAF Policy > Policy Settings and check the Mode field value (Prevention = blocking, Detection = detection).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > Application Gateway > [Gateway] > Web application firewall > WAF Policy > Policy Settings > Mode",
+        "expected_output": "Mode field showing 'Prevention' confirms blocking mode; 'Detection' confirms detection-only mode."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "blocking",
+      "detection",
+      "disabled"
+    ]
+  },
+  {
+    "option_name": "false_positive_tuning_enabled",
+    "option_description": "Indicates whether the WAF has been configured with rule exceptions, exclusions, allow-list entries, or custom tuning profiles specifically designed to prevent legitimate known-good traffic from being incorrectly blocked by WAF rules.",
+    "security_impact": "The Rego policy false_positive_minimization requires false_positive_tuning_enabled == true (combined with waf_operation_mode in blocking/detection and anomaly_score_threshold >= 5). Without tuning, aggressive enforcement rules in blocking mode cause legitimate user traffic to be blocked, leading to availability issues and pressure to disable WAF protections entirely — ultimately degrading security posture.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "In AWS WAF, check for rule group exclusion configurations (ExcludedRules) and IP set allow-list rules with Action set to Allow preceding managed rule groups.",
+        "command": "aws wafv2 get-web-acl --name <WebACL_NAME> --scope REGIONAL --id <WebACL_ID> | jq '.WebACL.Rules[] | {Name:.Name, ExcludedRules:.Statement.ManagedRuleGroupStatement.ExcludedRules, Action:.Action} | select(.ExcludedRules != null or .Action.Allow != null)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules returned with non-empty ExcludedRules arrays or Allow action rules positioned before managed groups confirm false positive tuning is active."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For OWASP CRS with ModSecurity, inspect the crs-setup.conf and any application-specific exclusion files for SecRuleRemoveById, SecRuleRemoveByTag, or ctl:ruleRemoveById directives.",
+        "command": "grep -rn 'SecRuleRemoveById\\|SecRuleRemoveByTag\\|ctl:ruleRemove\\|SecRuleUpdateTargetById' /etc/modsecurity/crs/ /etc/modsecurity/custom/ 2>/dev/null",
+        "file_path": "/etc/modsecurity/crs/crs-setup.conf",
+        "navigation": null,
+        "expected_output": "SecRuleRemoveById or SecRuleUpdateTargetById entries present indicating specific rule exclusions have been configured to suppress false positives."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Azure WAF Policy, navigate to Custom Rules and Exclusions tabs. Check Exclusions tab for configured request attribute exclusions (header, cookie, query string) scoped to specific rules or rule groups.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Azure Portal > WAF Policy > [Policy] > Exclusions tab",
+        "expected_output": "Exclusion entries present with conditions and scope defined, indicating active false positive tuning."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS WAF, retrieve IP sets and regex pattern sets used in allow-list rules to confirm allow-listing of known-good IP ranges or user agents is configured.",
+        "command": "aws wafv2 list-ip-sets --scope REGIONAL --output table && aws wafv2 list-rule-groups --scope REGIONAL --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IP sets or rule groups present representing allow-listed CIDRs or patterns for known-good traffic sources (CDNs, monitoring systems, trusted partners)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "anomaly_score_threshold",
+    "option_description": "Configures the cumulative anomaly score at which a request is blocked when using anomaly-scoring WAF modes (such as OWASP CRS). Each matched rule adds a score; only when the total exceeds this threshold is the request blocked, allowing multiple lower-confidence signals to combine before enforcement triggers.",
+    "security_impact": "The Rego policy false_positive_minimization requires anomaly_score_threshold >= 5. Values below 5 cause single-rule matches (even low-severity ones) to trigger blocking, producing high false positive rates. Values of 5 or higher require multiple rule matches before blocking, significantly reducing operational disruption from false positives while maintaining effectiveness against multi-signal attacks. Valid range is 1-100.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For OWASP CRS with ModSecurity, inspect the crs-setup.conf for the inbound_anomaly_score_threshold and outbound_anomaly_score_threshold variable values.",
+        "command": "grep -E 'inbound_anomaly_score_threshold|outbound_anomaly_score_threshold|tx.anomaly_score_threshold' /etc/modsecurity/crs/crs-setup.conf",
+        "file_path": "/etc/modsecurity/crs/crs-setup.conf",
+        "navigation": null,
+        "expected_output": "tx.inbound_anomaly_score_threshold value returned; values of 5 or higher (e.g., 5=critical, 8=error, 10=warning level) indicate adequate false positive mitigation."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS WAF using AWSManagedRulesATPRuleSet or custom rule groups with score-based actions, retrieve rule sensitivity settings. AWS WAF uses sensitivity level rather than numeric score — check for HIGH/LOW sensitivity.",
+        "command": "aws wafv2 get-web-acl --name <WebACL_NAME> --scope REGIONAL --id <WebACL_ID> | jq '.WebACL.Rules[] | select(.Statement.ManagedRuleGroupStatement != null) | {Name:.Name, ManagedParams:.Statement.ManagedRuleGroupStatement.ManagedRuleGroupConfigs}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ManagedRuleGroupConfigs showing sensitivity settings for applicable rule groups. Low sensitivity maps to higher effective threshold (fewer false positives)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Cloudflare WAF, navigate to Security > WAF > Managed Rules > OWASP Core Ruleset settings. The 'Sensitivity' slider (Low/Medium/High) maps to anomaly score threshold — Low sensitivity = higher effective threshold.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cloudflare Dashboard > Security > WAF > Managed Rules > OWASP Core Ruleset > Sensitivity",
+        "expected_output": "Sensitivity set to 'Low' (threshold ~25) or 'Medium' (threshold ~10) confirms anomaly_score_threshold >= 5 condition is met."
+      },
+      {
+        "type": "api",
+        "instruction": "For F5 BIG-IP ASM, query the REST API to retrieve the policy's anomaly detection threshold configuration.",
+        "command": "curl -sk -u admin:<PASSWORD> 'https://<F5_HOST>/mgmt/tm/asm/policies/<POLICY_ID>/settings' | python3 -m json.tool | grep -i 'threshold\\|anomaly\\|score'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response showing anomaly score or detection threshold value; confirm value >= 5 for adequate false positive suppression."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "5",
+      "7",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "option_name": "waf_inline_deployment",
+    "option_description": "Indicates whether the WAF is physically positioned inline in the traffic path — as a reverse proxy, API gateway, or embedded module — so that it receives every request before it reaches the web server and can physically drop/reject matched requests in real time.",
+    "security_impact": "The Rego policy inline_blocking_enforcement requires waf_inline_deployment == true combined with waf_operation_mode == 'blocking'. An out-of-band or traffic mirroring deployment receives copies of traffic but cannot intercept or block requests — it can only detect and alert. Without inline deployment, blocking mode configuration in the WAF software is meaningless from a prevention standpoint.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Perform a traceroute or path analysis from an external client to the web server origin. Confirm that the WAF IP/hostname appears as a hop in the path between the client and origin, proving inline positioning.",
+        "command": "traceroute <WEB_APPLICATION_FQDN> && curl -v --max-time 10 https://<WEB_APPLICATION_FQDN> 2>&1 | grep -i 'Server\\|Via\\|X-WAF\\|CF-Ray\\|X-Sucuri'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "WAF IP or vendor header (e.g., CF-Ray for Cloudflare, X-Sucuri-ID for Sucuri) present in response headers, confirming traffic passes through WAF before reaching origin."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS WAF, confirm the WebACL is associated with a resource (ALB, CloudFront, API Gateway, AppSync) that sits in the traffic path by listing WebACL associations.",
+        "command": "aws wafv2 list-resources-for-web-acl --web-acl-arn <WEBACL_ARN> --output json && aws wafv2 get-web-acl-for-resource --resource-arn <ALB_OR_CF_ARN> --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "WebACL is associated with an ALB, CloudFront distribution, or API Gateway ARN that serves as the entry point for all web traffic, confirming inline deployment."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to WAF & Shield > Web ACLs > select the WebACL > Associated AWS Resources tab. Verify the ACL is attached to a load balancer, CloudFront distribution, or API Gateway that all production traffic passes through.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [ACL] > Associated AWS Resources tab",
+        "expected_output": "At least one resource listed (ALB, CloudFront, API GW) confirming WAF is in the inline traffic path; empty association list means WAF is not inline."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the network architecture diagram with the infrastructure team. Confirm that the WAF is the first point of ingress for all external HTTP/HTTPS traffic and that no bypass routes exist allowing direct access to origin servers (e.g., security groups restricting origin access to WAF IPs only).",
+        "command": "aws ec2 describe-security-groups --filters 'Name=tag:Name,Values=*web*,*origin*' | jq '.SecurityGroups[] | {GroupName:.GroupName, IngressRules:.IpPermissions}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Origin server security groups showing inbound rules restricted to WAF IP ranges only (not 0.0.0.0/0), confirming inline deployment with no bypass paths."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "active_blocking_rule_count",
+    "option_description": "Controls the total count of WAF rules configured with a blocking action (block/deny/drop) rather than a passive logging-only or allow action. This represents the number of rules that will actively terminate or reject matching requests.",
+    "security_impact": "Directly gates the inline_blocking_enforcement countermeasure in the Rego policy. The condition `input.active_blocking_rule_count > 0` must be satisfied alongside blocking mode and inline deployment for the enforcement countermeasure to activate. A value of 0 means all traffic passes through regardless of WAF mode, rendering the WAF purely decorative from a prevention standpoint. Managed rule group overrides that silently downgrade actions to 'count only' can reduce this value without obvious visibility.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the AWS WAF v2 API to list all rules and filter for those with a Block action. For each WebACL, retrieve its rules and count non-overridden block actions.",
+        "command": "aws wafv2 get-web-acl --name <WebACL-Name> --scope REGIONAL --id <WebACL-ID> | jq '[.WebACL.Rules[] | select(.Action.Block != null or (.OverrideAction == null and .Statement.ManagedRuleGroupStatement == null))] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing the number of rules with Block action configured, e.g., 42"
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, navigate to WAF & Shield > Web ACLs > select your WebACL > Rules tab. Review each rule's Action column and count entries showing 'Block'. For managed rule groups, expand the group and check that no rules have been overridden to 'Count'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [WebACL Name] > Rules > review Action column",
+        "expected_output": "Visible list of rules where Action column shows 'Block'; managed rule group overrides section should show no 'Count' overrides"
+      },
+      {
+        "type": "command",
+        "instruction": "For Azure Front Door WAF or Application Gateway WAF, use Azure CLI to retrieve the policy and count block-action rules.",
+        "command": "az network application-gateway waf-policy rule list --policy-name <policy-name> --resource-group <rg> --query \"[?action=='Block'] | length(@)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer count of rules with Block action, e.g., 15"
+      },
+      {
+        "type": "command",
+        "instruction": "For Cloudflare WAF, use the Cloudflare API to list firewall rules filtered by block action.",
+        "command": "curl -s -X GET \"https://api.cloudflare.com/client/v4/zones/<ZONE_ID>/firewall/rules?action=block&per_page=500\" -H \"Authorization: Bearer <API_TOKEN>\" | jq '.result | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response with result array; jq outputs integer count of block-action rules"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (detection-only deployments)",
+      "10-50 (managed rule groups with default block actions)",
+      "50-200 (mature deployments with managed + custom block rules)",
+      "500+ (high-security environments with extensive custom rule sets)"
+    ]
+  },
+  {
+    "option_name": "inspected_request_components",
+    "option_description": "Defines the specific HTTP request components that WAF rules actively evaluate, such as HEADERS, URI, QUERY_STRING, POST_BODY, and COOKIES. Rules that do not target a component cannot detect attacks embedded within it.",
+    "security_impact": "Directly drives the request_inspection_completeness countermeasure in the Rego policy. The policy requires all of HEADERS, URI, QUERY_STRING, and COOKIES to be present in this array, combined with post_body_inspection_enabled and full coverage mode, for the countermeasure to activate. Missing components create inspection blind spots — for example, omitting POST_BODY allows SQL injection and command injection payloads delivered via form submissions to pass undetected.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Retrieve the WebACL configuration and extract the FieldToMatch definitions from all active rules to identify which request components are targeted.",
+        "command": "aws wafv2 get-web-acl --name <WebACL-Name> --scope REGIONAL --id <WebACL-ID> | jq '[.WebACL.Rules[].Statement | .. | objects | select(has(\"FieldToMatch\")) | .FieldToMatch | keys[0]] | unique'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Array of unique HTTP components being inspected, e.g., [\"Body\", \"Headers\", \"QueryString\", \"UriPath\", \"Cookies\"]"
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS WAF Console, select each active rule and expand its statement. Under 'Inspect', verify which field is targeted. Compile a list of all unique fields across all active rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [WebACL] > Rules > [each rule] > Edit > Inspect field",
+        "expected_output": "Each rule shows a specific field under Inspect; collect all unique fields to populate the component list"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity WAF, inspect rule files to identify which VARIABLES (ARGS, REQUEST_HEADERS, REQUEST_URI, REQUEST_COOKIES, REQUEST_BODY) are targeted by active rules.",
+        "command": "grep -rh '^SecRule' /etc/modsecurity/rules/ | grep -oP 'SecRule \\K[^\\s\"]+' | tr '|' '\\n' | sort -u | grep -E '(ARGS|HEADERS|URI|COOKIES|BODY)'",
+        "file_path": "/etc/modsecurity/rules/",
+        "navigation": null,
+        "expected_output": "List of unique MODSEC variables targeted by rules, e.g., ARGS, REQUEST_HEADERS, REQUEST_COOKIES, REQUEST_URI"
+      },
+      {
+        "type": "command",
+        "instruction": "For F5 BIG-IP ASM, use tmsh to list the policy enforcement settings and verify which parameter locations are enabled for inspection.",
+        "command": "tmsh list asm policy <policy-name> parameters-enforcement | grep -E '(url|parameter|header|cookie|body)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy parameter enforcement settings showing enabled/disabled status per component type"
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"URI\", \"QUERY_STRING\"] (minimal deployments)",
+      "[\"URI\", \"QUERY_STRING\", \"HEADERS\"] (common partial coverage)",
+      "[\"HEADERS\", \"URI\", \"QUERY_STRING\", \"COOKIES\", \"POST_BODY\"] (full coverage)",
+      "[\"URI\", \"QUERY_STRING\", \"POST_BODY\", \"HEADERS\", \"COOKIES\", \"METHOD\"] (extended coverage)"
+    ]
+  },
+  {
+    "option_name": "post_body_inspection_enabled",
+    "option_description": "Controls whether the WAF inspects the HTTP POST request body content. When disabled, any payload delivered in POST request bodies (form data, JSON, XML, file uploads) bypasses all WAF rules regardless of content.",
+    "security_impact": "Required by the request_inspection_completeness countermeasure in the Rego policy — the condition `input.post_body_inspection_enabled == true` must be satisfied alongside component coverage and full inspection mode. POST body inspection is frequently disabled by default in cloud WAF offerings due to compute overhead. Without it, SQL injection, command injection, XSS, and SSRF payloads submitted via application forms or API endpoints are completely invisible to the WAF, representing one of the most common inspection gaps in production deployments.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Check AWS WAF WebACL rules for Body FieldToMatch entries and verify no size constraints exclude typical payloads. Also check if managed rule groups include body inspection rules.",
+        "command": "aws wafv2 get-web-acl --name <WebACL-Name> --scope REGIONAL --id <WebACL-ID> | jq '.WebACL.Rules[].Statement | .. | objects | select(.FieldToMatch.Body != null) | .FieldToMatch.Body'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-empty result with Body field match entries; empty result indicates no POST body inspection rules are active"
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS WAF Console, navigate to the WebACL and review each rule's Inspect field. Look for rules targeting 'Body'. Also check the default body inspection size limit under Web ACL > Configuration > Body inspection size limit.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [WebACL] > Configuration > Body inspection size limit (should be set; default is 8KB)",
+        "expected_output": "Body inspection size limit set to 8KB or higher; at least one rule targeting Body field visible"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity, verify REQUEST_BODY phase processing is enabled and the request body access directive is active in the main configuration.",
+        "command": "grep -E '(SecRequestBodyAccess|SecRequestBodyLimit|REQUEST_BODY)' /etc/modsecurity/modsecurity.conf",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecRequestBodyAccess On — if 'Off', POST body inspection is disabled globally"
+      },
+      {
+        "type": "command",
+        "instruction": "For NGINX with ModSecurity, test POST body inspection by sending a known WAF test payload in a POST body and checking if it is blocked or logged.",
+        "command": "curl -s -o /dev/null -w '%{http_code}' -X POST https://<target>/test -H 'Content-Type: application/x-www-form-urlencoded' -d 'test=<script>alert(1)</script>' && echo ' (200=not inspecting body, 403=body inspection active)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 403 response confirms POST body inspection is active; HTTP 200 suggests body inspection is disabled"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (AWS WAF default without explicit body rule)",
+      "true (after explicitly adding body inspection rules or enabling managed rules that inspect body)",
+      "false (performance-optimized deployments that accept the risk)",
+      "true (PCI-DSS compliant or high-security application WAFs)"
+    ]
+  },
+  {
+    "option_name": "inspection_rule_coverage_mode",
+    "option_description": "Represents the breadth of the WAF rule set's coverage across HTTP request components. 'full' indicates rules exist for all components; 'partial' indicates one or more components are unaddressed by any active rule; 'none' indicates no component-level inspection rules are active regardless of WAF mode.",
+    "security_impact": "Functions as a qualifying condition in the request_inspection_completeness Rego countermeasure — `input.inspection_rule_coverage_mode == \"full\"` is required alongside specific component presence and POST body inspection. A 'partial' value means attack categories can be exploited through unmonitored request components, and a 'none' value indicates the WAF has no meaningful detection capability at the component level. This attribute synthesizes the overall inspection posture from individual component-level rule assessments.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Enumerate all FieldToMatch types across all active WAF rules and compare against the expected full set {Headers, Uri, QueryString, Body, Cookies} to determine if coverage is full, partial, or none.",
+        "command": "aws wafv2 get-web-acl --name <WebACL-Name> --scope REGIONAL --id <WebACL-ID> | jq '[.WebACL.Rules[].Statement | .. | objects | select(has(\"FieldToMatch\")) | .FieldToMatch | keys[0]] | unique | sort' | python3 -c \"import sys,json; covered=set(json.load(sys.stdin)); full={'Body','Headers','QueryString','UriPath','Cookies'}; print('full' if full.issubset(covered) else ('none' if not covered else 'partial'))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Prints 'full', 'partial', or 'none' based on coverage across expected HTTP components"
+      },
+      {
+        "type": "gui",
+        "instruction": "Compile a matrix of WAF rules vs HTTP components by reviewing each rule's Inspect target in the WAF console. Mark each component as covered or not. If all five core components (headers, URI, query string, body, cookies) have at least one active rule, classify as 'full'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [WebACL] > Rules > audit each rule's Inspect field and map to component coverage matrix",
+        "expected_output": "All five components appear at least once across active rules = full; any missing = partial; none present = none"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the WAF policy documentation or runbook maintained by the security team to determine the intended inspection scope. Cross-reference documented scope against actual rule configuration to detect drift.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Security runbook or change management records indicating intended component coverage; compare against API/console findings"
+      },
+      {
+        "type": "command",
+        "instruction": "For Imperva WAF or similar enterprise WAFs, query the management API to retrieve the security policy and extract which request element types are covered.",
+        "command": "curl -s -X GET 'https://<imperva-api>/api/prov/v1/sites/<site-id>/security' -H 'x-API-id: <api-id>' -H 'x-API-key: <api-key>' | jq '.security.parameter_pollution,.security.sql_injection,.security.xss' | grep -c 'enabled'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Count of enabled protection categories; correlate with component coverage to determine full/partial/none"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "partial (most real-world deployments using only managed rule groups without supplemental custom rules)",
+      "full (security-mature deployments with comprehensive rule sets)",
+      "none (newly deployed WAFs in monitor mode before any rules are activated)",
+      "partial (deployments that enable core OWASP rules but skip cookie or header inspection)"
+    ]
+  },
+  {
+    "option_name": "custom_rules_enabled",
+    "option_description": "Indicates whether the WAF platform's custom rule creation and enforcement engine is activated, allowing administrators to define rules beyond vendor-provided managed rule sets that address application-specific traffic patterns, business logic abuse, and organization-unique threat scenarios.",
+    "security_impact": "Prerequisite for the custom_rule_configurability countermeasure in the Rego policy — `input.custom_rules_enabled == true` is the first condition that must be satisfied. Without custom rules capability, the WAF is limited to generic managed rule sets that cannot address application-specific vulnerabilities, proprietary API structures, or business logic attacks. This is distinct from merely having the feature licensed — the engine must be active and operational.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Check the WAF WebACL for the presence of any non-ManagedRuleGroup rule statements, which indicates custom rule capability is active and in use.",
+        "command": "aws wafv2 get-web-acl --name <WebACL-Name> --scope REGIONAL --id <WebACL-ID> | jq '.WebACL.Rules[] | select(.Statement.ManagedRuleGroupStatement == null) | {name: .Name, type: (.Statement | keys[0])}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-empty list of rules with non-managed statement types (ByteMatchStatement, IPSetReferenceStatement, etc.) confirms custom rules are enabled and active"
+      },
+      {
+        "type": "gui",
+        "instruction": "In the WAF console, attempt to add a new custom rule. Navigate to the WebACL rules tab and look for an 'Add my own rules and rule groups' option. Verify the UI allows rule creation with custom conditions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [WebACL] > Rules > Add rules > 'Add my own rules and rule groups'",
+        "expected_output": "Option present and accessible (not greyed out) confirms custom rules capability is enabled for this WebACL"
+      },
+      {
+        "type": "command",
+        "instruction": "For F5 BIG-IP ASM, verify custom rule policy enforcement is enabled via tmsh.",
+        "command": "tmsh list asm policy <policy-name> custom-rules | grep -E '(enabled|active|status)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing custom rules enforcement status = enabled"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity, verify that the rules engine is active and custom rule files are included and loaded. Check that SecRuleEngine is not set to Off and that custom rule files are referenced.",
+        "command": "grep -E '^(SecRuleEngine|Include)' /etc/modsecurity/modsecurity.conf /etc/nginx/modsec/main.conf 2>/dev/null",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecRuleEngine DetectionOnly or On (not Off); Include directives pointing to custom rule files"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (any WAF with at least one non-managed rule configured)",
+      "false (WAF deployments that rely solely on vendor managed rule groups)",
+      "true (enterprise WAFs where custom rules are standard practice)",
+      "false (cloud WAF free tiers that may not support custom rule creation)"
+    ]
+  },
+  {
+    "option_name": "active_custom_rule_count",
+    "option_description": "Represents the count of user-defined WAF rules that are currently in an enabled/active state and being enforced. Excludes vendor-managed rule groups and excludes any custom rules in draft, disabled, or test-only states.",
+    "security_impact": "Second condition required by the custom_rule_configurability Rego countermeasure — `input.active_custom_rule_count > 0` must be true alongside custom rules being enabled and block mode configured. A value of 0 means even if custom rules capability is enabled, no organization-specific protections are deployed, leaving only generic managed rule coverage. This directly affects the WAF's ability to address application-specific attack surfaces that managed rules do not cover.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the WebACL to count all non-managed rule group rules that have an active/enabled status. Exclude any rules with an OverrideAction that indicates they are from managed groups.",
+        "command": "aws wafv2 get-web-acl --name <WebACL-Name> --scope REGIONAL --id <WebACL-ID> | jq '[.WebACL.Rules[] | select(.Statement.ManagedRuleGroupStatement == null and .Statement.RuleGroupReferenceStatement == null)] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer count of custom (non-managed) rules active in the WebACL, e.g., 7"
+      },
+      {
+        "type": "command",
+        "instruction": "For Cloudflare WAF, count all custom firewall rules that are in 'enabled' state using the API.",
+        "command": "curl -s \"https://api.cloudflare.com/client/v4/zones/<ZONE_ID>/firewall/rules?per_page=500\" -H \"Authorization: Bearer <API_TOKEN>\" | jq '[.result[] | select(.paused == false)] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer count of non-paused (active) custom firewall rules"
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS WAF Console, view the WebACL rules list and filter for rules not belonging to managed rule groups. Count only those showing as active (not overridden to Count). Azure users: navigate to WAF Policy > Custom Rules and count enabled entries.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [WebACL] > Rules > identify non-managed rules with Block or Allow action",
+        "expected_output": "Visible count of custom rules with non-managed origin and active enforcement status"
+      },
+      {
+        "type": "command",
+        "instruction": "For ModSecurity, count the number of custom SecRule directives in user-defined rule files (excluding vendor/OWASP CRS files) that are not marked as disabled.",
+        "command": "find /etc/modsecurity/custom-rules/ -name '*.conf' -exec grep -c '^SecRule' {} \\; 2>/dev/null | awk '{s+=$1} END {print s}'",
+        "file_path": "/etc/modsecurity/custom-rules/",
+        "navigation": null,
+        "expected_output": "Sum of all active SecRule directives in custom rule files, e.g., 23"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (managed-only WAF deployments)",
+      "1-10 (minimal custom rules for application-specific paths)",
+      "10-50 (mature application WAF with tuned custom protections)",
+      "50-200 (enterprise WAF with comprehensive custom rule coverage for complex applications)"
+    ]
+  },
+  {
+    "option_name": "custom_rule_enforcement_mode",
+    "option_description": "Specifies the operational mode of deployed custom rules — whether they actively block matching requests ('block'), only log/detect matches without taking action ('detect_only'), or are inactive ('disabled'). This applies specifically to user-defined rules as opposed to managed rule group actions.",
+    "security_impact": "Final qualifying condition for the custom_rule_configurability Rego countermeasure — `input.custom_rule_enforcement_mode == \"block\"` must be satisfied alongside enabled status and non-zero count. Custom rules in detect_only mode provide visibility but zero prevention, meaning attackers who trigger those rules are never stopped. This is a common state during initial deployment or tuning phases that organizations often fail to graduate from, leaving custom protections permanently non-enforcing.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the WebACL and examine the Action field of all non-managed rules to determine if they are set to Block, Allow (pass), or Count (detect-only).",
+        "command": "aws wafv2 get-web-acl --name <WebACL-Name> --scope REGIONAL --id <WebACL-ID> | jq '.WebACL.Rules[] | select(.Statement.ManagedRuleGroupStatement == null) | {name: .Name, action: (.Action | keys[0])}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON list of custom rules with their action type; all should show 'Block' for enforcement mode; 'Count' indicates detect_only; absence of rules = disabled"
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS WAF Console, open the WebACL and review the Action column for each custom rule. 'Block' = block mode; 'Count' = detect_only; verify no custom rules have been inadvertently set to Allow.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [WebACL] > Rules > Action column for non-managed rules",
+        "expected_output": "Custom rules display 'Block' in the Action column; any showing 'Count' are in detect_only mode"
+      },
+      {
+        "type": "command",
+        "instruction": "For Cloudflare WAF custom rules, retrieve the action field for each enabled custom rule to determine enforcement mode.",
+        "command": "curl -s \"https://api.cloudflare.com/client/v4/zones/<ZONE_ID>/firewall/rules?per_page=500\" -H \"Authorization: Bearer <API_TOKEN>\" | jq '.result[] | select(.paused == false) | {description: .description, action: .action}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array of active rules showing action field; 'block' = enforcement, 'log' or 'allow' = detect_only or disabled"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity custom rules, check whether custom rule files use 'deny' (block) or 'pass/log' (detect_only) as their disruptive action, and verify SecRuleEngine is set to 'On' rather than 'DetectionOnly'.",
+        "command": "grep -E '^SecRuleEngine' /etc/modsecurity/modsecurity.conf; grep -rh 'id:[0-9]' /etc/modsecurity/custom-rules/ | grep -oP '(deny|pass|block|log)' | sort | uniq -c",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecRuleEngine On = block mode active; SecRuleEngine DetectionOnly = detect_only global override; rule action counts show majority using 'deny'"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "detect_only (common during initial WAF deployment and tuning phases)",
+      "block (production security-mature deployments)",
+      "disabled (placeholder rules created but not yet activated)",
+      "detect_only (persistent state in organizations that never complete WAF tuning cycles)"
+    ]
+  },
+  {
+    "option_name": "logging_enabled",
+    "option_description": "Controls whether the WAF records all inspected requests and enforcement actions, including rule match events, allow/block decisions, and challenge responses. This is the master toggle for WAF audit visibility.",
+    "security_impact": "Directly gates the logging_and_audit_completeness countermeasure in the Rego policy. The rule requires input.logging_enabled == true as its first condition — without this, no downstream log detail level, destination, or event type configuration can satisfy the policy, regardless of how they are set. Disabling this eliminates all forensic trail for WAF-inspected traffic.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the WAF administration console, navigate to the WAF policy or web ACL settings, then locate the Logging section or Logging Configuration tab. Confirm the logging toggle or enable/disable switch is set to enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WAF Console → Web ACLs → [Select ACL] → Logging and Metrics → Logging Status",
+        "expected_output": "Logging status displayed as 'Enabled' with an associated log destination ARN or endpoint."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the WAF API to retrieve the logging configuration for the target web ACL or policy. For AWS WAFv2, call GetLoggingConfiguration with the web ACL resource ARN.",
+        "command": "aws wafv2 get-logging-configuration --resource-arn arn:aws:wafv2:REGION:ACCOUNT_ID:regional/webacl/NAME/ID",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON response containing a LoggingConfiguration object. Absence of this object or an empty response indicates logging is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "For on-premises WAF solutions such as ModSecurity, check the main configuration file for the SecAuditEngine directive, which controls the logging master toggle.",
+        "command": "grep -i 'SecAuditEngine' /etc/modsecurity/modsecurity.conf",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecAuditEngine On — values of 'Off' or 'RelevantOnly' indicate logging is disabled or partial."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Nginx with ModSecurity or NAXSI, inspect the WAF module configuration block within the nginx.conf or included site configuration files for logging directives.",
+        "command": "grep -rn 'modsec_audit_log\\|access_log\\|error_log' /etc/nginx/nginx.conf /etc/nginx/conf.d/",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Active log file paths defined and not commented out, confirming logging is enabled at the web server layer."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_detail_level",
+    "option_description": "Determines the granularity and richness of data captured in WAF log entries. 'full' records complete request headers, body content, matched rule IDs, and the action taken. 'standard' captures rule matches and actions without request body content. 'minimal' logs only block or allow decisions. 'none' disables detail capture entirely.",
+    "security_impact": "The Rego policy for logging_and_audit_completeness requires input.log_detail_level to be in ['full', 'standard']. A 'minimal' or 'none' setting fails this condition, preventing the countermeasure from being satisfied. 'full' is required for forensic investigations involving payload reconstruction; 'standard' is the minimum acceptable for compliance-grade audit trails. Insufficient detail impedes incident response and threat intelligence enrichment.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Access the WAF logging configuration panel and inspect the log verbosity or detail level selector. For AWS WAFv2, this is controlled via the logging filter or log scope settings when configuring a Kinesis Firehose or S3 logging destination.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WAF Console → Web ACLs → [Select ACL] → Logging and Metrics → Edit Logging Configuration → Log Scope / Log Filter",
+        "expected_output": "A dropdown or radio button showing the selected verbosity level (Full, Standard, Minimal, or equivalent vendor terminology)."
+      },
+      {
+        "type": "api",
+        "instruction": "For cloud WAF providers, retrieve the logging configuration object and inspect the logging filter or redacted fields settings to determine captured detail level. AWS WAFv2 logging includes LoggingFilter and RedactedFields attributes.",
+        "command": "aws wafv2 get-logging-configuration --resource-arn arn:aws:wafv2:REGION:ACCOUNT_ID:regional/webacl/NAME/ID --query 'LoggingConfiguration.{Destination:LogDestinationConfigs,RedactedFields:RedactedFields,Filter:LoggingFilter}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output showing RedactedFields (fields omitted from logs) and LoggingFilter settings. An empty RedactedFields array and no restrictive filters indicate 'full' detail capture."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity, inspect the SecAuditLogParts directive which defines which parts of the transaction are recorded (A=audit log header, B=request headers, C=request body, F=response headers, H=audit log trailer, Z=final boundary).",
+        "command": "grep -i 'SecAuditLogParts' /etc/modsecurity/modsecurity.conf",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecAuditLogParts ABCFHZ indicates full detail. ABFHZ (without C) omits request body (standard). ABFZ alone is minimal. Missing or minimal parts indicate reduced fidelity."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Examine a sample WAF log entry to empirically verify the level of detail being captured. Confirm presence of request URI, headers, POST body (if applicable), matched rule ID, and action fields.",
+        "command": "tail -50 /var/log/modsec_audit.log | python3 -m json.tool 2>/dev/null || tail -50 /var/log/modsec_audit.log",
+        "file_path": "/var/log/modsec_audit.log",
+        "navigation": null,
+        "expected_output": "Log entries containing request headers section, request body section, and response/action sections confirm 'full' detail. Entries with only rule match IDs and actions indicate 'standard'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "minimal",
+      "standard",
+      "full",
+      "none"
+    ]
+  },
+  {
+    "option_name": "log_destination_configured",
+    "option_description": "Indicates whether WAF logs are being forwarded to a persistent, external, or centralized destination such as a SIEM platform, S3 bucket, CloudWatch Logs group, Elasticsearch cluster, or syslog endpoint. Without a configured destination, logs may only exist transiently in local buffers or not be persisted at all.",
+    "security_impact": "The Rego logging_and_audit_completeness policy requires input.log_destination_configured == true. Even with logging enabled and full detail level set, logs stored only locally provide no resilience against log tampering, host compromise, or disk failure. A centralized destination is essential for forensic durability, SIEM correlation, and compliance requirements such as PCI-DSS and SOC 2 log retention mandates.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the WAF API for the logging configuration and verify that one or more log destination ARNs or endpoints are specified and reachable. For AWS WAFv2, inspect the LogDestinationConfigs field.",
+        "command": "aws wafv2 get-logging-configuration --resource-arn arn:aws:wafv2:REGION:ACCOUNT_ID:regional/webacl/NAME/ID --query 'LoggingConfiguration.LogDestinationConfigs'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-empty array containing at least one valid ARN pointing to a Kinesis Firehose delivery stream, CloudWatch Logs group, or S3 bucket. An empty array or null indicates no destination is configured."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the WAF logging configuration and verify a log destination is listed and shows an active or connected status. For cloud WAFs, check that the linked Kinesis Firehose or S3 bucket exists and has not been deleted.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WAF Console → Web ACLs → [Select ACL] → Logging and Metrics → Logging Destination",
+        "expected_output": "One or more destination entries displayed with a valid resource identifier (ARN, endpoint URL, or bucket path) and a status of 'Active' or 'Connected'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity or open-source WAF deployments, inspect the audit log configuration for local file paths versus remote syslog or centralized logging endpoints.",
+        "command": "grep -E 'SecAuditLog|SecAuditLogStorageDir|error_log' /etc/modsecurity/modsecurity.conf /etc/nginx/nginx.conf 2>/dev/null",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecAuditLog pointing to a file path confirms local logging. Check for rsyslog or Filebeat configuration forwarding these paths to a remote SIEM or log aggregator."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Verify connectivity from the WAF host or delivery service to the configured log destination endpoint. For syslog-based forwarding, test UDP/TCP port 514 or 6514 reachability to the SIEM receiver.",
+        "command": "nc -zv SIEM_HOST 514 && echo 'Syslog destination reachable' || echo 'Destination unreachable'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Successful TCP/UDP connection to the syslog or log aggregation endpoint confirms the destination is reachable and log forwarding is operationally functional."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "logged_event_types",
+    "option_description": "Defines the specific categories of WAF events that are captured in logs. Valid categories include rule_matches (events where a rule condition was triggered), allowed_requests (requests that passed all rules), blocked_requests (requests that were denied), rate_limit_events (requests that exceeded throttling thresholds), and challenge_events (requests served a CAPTCHA or JS challenge).",
+    "security_impact": "The Rego logging_and_audit_completeness policy specifically checks that 'blocked_requests' and 'rule_matches' are both present in input.logged_event_types. Omitting blocked_requests eliminates the audit trail for all WAF-enforced denials, making it impossible to detect attacks or demonstrate protective controls. Omitting rule_matches removes evidence of detection hits needed for tuning and incident investigation. Logging only allowed_requests provides no security value.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Retrieve the WAF logging configuration and inspect the LoggingFilter conditions or equivalent event category selectors to enumerate which event types are actively captured.",
+        "command": "aws wafv2 get-logging-configuration --resource-arn arn:aws:wafv2:REGION:ACCOUNT_ID:regional/webacl/NAME/ID --query 'LoggingConfiguration.LoggingFilter.Filters'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array of filter conditions showing action types (ALLOW, BLOCK, COUNT) and behavior settings. All three action types present with KEEP behavior indicates comprehensive event type coverage."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the WAF logging configuration screen, locate the log filter or event type inclusion settings. Review checkboxes or multi-select fields for each event category (blocked, allowed, rule match, rate limit, challenge) and confirm which are selected.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WAF Console → Web ACLs → [Select ACL] → Logging and Metrics → Edit Logging Configuration → Filter Logs",
+        "expected_output": "All critical event categories (blocked_requests, rule_matches at minimum) shown as selected or included. An 'All Requests' or 'No Filter' option being selected is also acceptable and indicates comprehensive logging."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Analyze existing WAF log files or SIEM-collected WAF events to verify presence of all expected event type fields. Check for entries with action=BLOCK, action=ALLOW, terminatingRuleId, and rateBasedRuleMatchedKeys fields.",
+        "command": "aws s3 cp s3://WAF-LOG-BUCKET/PREFIX/$(date +%Y/%m/%d)/ /tmp/waf-logs/ --recursive && zcat /tmp/waf-logs/*.gz | head -20 | python3 -m json.tool | grep -E '\"action\"|\"terminatingRuleId\"|\"rateBasedRuleMatchedKeys\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log entries showing action values of both ALLOW and BLOCK, terminatingRuleId fields on blocked entries, and rateBasedRuleMatchedKeys on rate-limited entries confirm comprehensive event type coverage."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the WAF administrator or review the WAF operational runbook to confirm which event types were intentionally included or excluded when the logging configuration was last reviewed or modified.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation or verbal confirmation that blocked_requests and rule_matches are explicitly included in the logging scope, with a change record showing when this was last verified."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"rule_matches\", \"blocked_requests\"]",
+      "[\"rule_matches\", \"blocked_requests\", \"allowed_requests\", \"rate_limit_events\", \"challenge_events\"]",
+      "[\"blocked_requests\"]",
+      "[]"
+    ]
+  },
+  {
+    "option_name": "rate_limiting_enabled",
+    "option_description": "The master toggle that activates rate limiting or request throttling rule processing within the WAF. When enabled, the WAF evaluates request rates per source IP (or other key) against defined thresholds and applies the configured enforcement action. When disabled, no throttling occurs regardless of threshold or action settings.",
+    "security_impact": "The Rego rate_limiting_and_throttling_enforcement policy requires input.rate_limiting_enabled == true as its first condition. Without this, the countermeasure against volumetric application-layer abuse (credential stuffing, scraping, DDoS L7) cannot be satisfied. Rate limiting is the primary WAF-based defense against automated attack tooling that generates high request volumes from individual sources, and its absence leaves applications exposed to exhaustion and enumeration attacks.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "List all WAF rules or rule groups associated with the web ACL and check for the presence of active RateBasedStatement rule types. For AWS WAFv2, use list-web-acls and then get-web-acl to inspect rule statements.",
+        "command": "aws wafv2 get-web-acl --name ACL_NAME --scope REGIONAL --id ACL_ID --query 'WebACL.Rules[?Statement.RateBasedStatement].{Name:Name,Action:Action,RateLimit:Statement.RateBasedStatement.Limit}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-empty array containing at least one rule with a RateBasedStatement and a defined Limit value confirms rate limiting is enabled and configured."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the WAF rule configuration interface, navigate to the Rules section of the web ACL and inspect the rule list for any rules of type 'Rate-based rule' or 'Throttle rule'. Confirm the rule status is active and not disabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WAF Console → Web ACLs → [Select ACL] → Rules → Review rule list for rate-based rule type entries",
+        "expected_output": "One or more rate-based rules listed with a status of 'Active' or 'Enabled' and a defined request threshold value."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For HAProxy-based WAF or Nginx rate limiting configurations, inspect the upstream configuration for limit_req_zone and limit_req directives, which implement request throttling.",
+        "command": "grep -rn 'limit_req\\|limit_req_zone\\|stick-table\\|tcp-request\\|rate-limit' /etc/nginx/ /etc/haproxy/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Active limit_req directives (not commented out) referencing a defined limit_req_zone confirm that rate limiting is enabled at the web layer."
+      },
+      {
+        "type": "command",
+        "instruction": "For cloud WAF services using Terraform or CloudFormation IaC, inspect the infrastructure code to confirm rate-based rules are defined and have a non-zero limit with an action other than COUNT.",
+        "command": "grep -A 10 'rate_based_statement\\|RateBasedStatement' *.tf **/*.tf 2>/dev/null || grep -A 10 'RateBasedStatement' template.yaml cloudformation/*.yaml 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IaC blocks containing rate_based_statement with a limit attribute and a block or count action confirm rate limiting is provisioned and enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "rate_limit_threshold",
+    "option_description": "Specifies the maximum number of HTTP requests allowed from a single source IP address (or defined aggregation key) within a rolling evaluation window, typically measured in a 5-minute period. When a source exceeds this count, the configured enforcement action is triggered. A value of 0 indicates no threshold has been set.",
+    "security_impact": "The Rego rate_limiting_and_throttling_enforcement policy requires input.rate_limit_threshold > 0. A zero value means the rate limiting rule exists structurally but has no effective trigger point, rendering it non-functional. The threshold value directly determines the WAF's sensitivity to volumetric attacks — thresholds set too high (e.g., 1,000,000) provide no practical protection against credential stuffing or L7 DDoS, while thresholds set too low may cause false positives against legitimate high-volume API consumers.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Retrieve the web ACL configuration and extract the Limit value from all RateBasedStatement rule definitions. This represents the request count per 5-minute window that triggers the rule.",
+        "command": "aws wafv2 get-web-acl --name ACL_NAME --scope REGIONAL --id ACL_ID --query 'WebACL.Rules[?Statement.RateBasedStatement].Statement.RateBasedStatement.Limit'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer value greater than 0 (e.g., 2000, 5000) representing the configured rate limit threshold. AWS WAFv2 minimum supported value is 100."
+      },
+      {
+        "type": "gui",
+        "instruction": "Open the rate-based rule editor within the WAF console. The threshold is typically displayed as a 'Request rate limit' or 'Requests per 5 minutes' field with a numeric value.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WAF Console → Web ACLs → [Select ACL] → Rules → [Select Rate-Based Rule] → Edit → Request Rate Limit field",
+        "expected_output": "A non-zero integer value displayed in the rate limit field, such as 2000, representing the maximum allowed requests per evaluation window from a single IP."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Nginx rate limiting configurations, inspect the rate parameter in the limit_req_zone directive, which defines the allowed request rate. Convert burst and rate values to understand the effective threshold.",
+        "command": "grep -A 2 'limit_req_zone\\|limit_req ' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf 2>/dev/null",
+        "file_path": "/etc/nginx/conf.d/",
+        "navigation": null,
+        "expected_output": "limit_req_zone directives showing a rate parameter such as 'rate=10r/s' (600 per minute / 3000 per 5 minutes) and limit_req directives with a burst parameter confirming the effective threshold."
+      },
+      {
+        "type": "command",
+        "instruction": "For WAF configurations managed via AWS CLI or SDKs, extract and display all rate-based rule thresholds across all web ACLs in a region for comparative review.",
+        "command": "for acl in $(aws wafv2 list-web-acls --scope REGIONAL --query 'WebACLs[].{id:Id,name:Name}' --output json | jq -r '.[] | .name + \" \" + .id'); do name=$(echo $acl | awk '{print $1}'); id=$(echo $acl | awk '{print $2}'); aws wafv2 get-web-acl --name $name --scope REGIONAL --id $id --query 'WebACL.Rules[?Statement.RateBasedStatement].{Rule:Name,Limit:Statement.RateBasedStatement.Limit}' 2>/dev/null; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of rule names paired with their configured Limit values. Zero values or absent rules indicate missing or non-functional rate limiting thresholds."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "100",
+      "1000",
+      "2000",
+      "5000",
+      "10000",
+      "0"
+    ]
+  },
+  {
+    "option_name": "rate_limit_action",
+    "option_description": "Defines the enforcement response the WAF applies when a source IP exceeds the configured rate limit threshold. 'block' immediately drops all subsequent requests from the source. 'throttle' queues or slows requests. 'challenge' serves a CAPTCHA or JavaScript challenge to verify the requester is human. 'log_only' records the event without any enforcement (detection mode). 'none' applies no action.",
+    "security_impact": "The Rego rate_limiting_and_throttling_enforcement policy requires input.rate_limit_action to be in ['block', 'throttle', 'challenge']. Actions of 'log_only' or 'none' mean the rate limiting rule detects threshold violations but takes no protective action, completely negating the countermeasure's value. Only enforcement actions provide actual protection against automated abuse, credential stuffing, and L7 DDoS. 'challenge' is recommended for ambiguous cases to reduce false positive disruption while still deterring automation.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Retrieve the web ACL and inspect the Action field of each RateBasedStatement rule. For AWS WAFv2, valid enforcement actions are Block, Allow, Count, or Captcha — Count maps to 'log_only' in this schema.",
+        "command": "aws wafv2 get-web-acl --name ACL_NAME --scope REGIONAL --id ACL_ID --query 'WebACL.Rules[?Statement.RateBasedStatement].{RuleName:Name,Action:Action}' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table output showing each rate-based rule name alongside its Action type. Action: Block indicates enforcement. Action: Count indicates log-only (non-enforcing) mode."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the rate-based rule editor, locate the 'Action' or 'Rule Action' section and confirm the selected action is Block, Throttle, or Challenge rather than Count or Allow.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WAF Console → Web ACLs → [Select ACL] → Rules → [Select Rate-Based Rule] → Edit → Rule Action",
+        "expected_output": "The Action dropdown or radio button set to 'Block' or 'CAPTCHA/Challenge'. A 'Count' selection indicates the rule is in detection-only mode and does not enforce the rate limit."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Nginx configurations, inspect the limit_req directive's behavior: the absence of the 'nodelay' parameter and the presence of a defined burst indicates throttling. For hard blocking, verify a custom error response (e.g., 429) is configured.",
+        "command": "grep -B2 -A5 'limit_req ' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf 2>/dev/null | grep -E 'limit_req|return|error_page'",
+        "file_path": "/etc/nginx/conf.d/",
+        "navigation": null,
+        "expected_output": "limit_req directives paired with return 429 or error_page 429 configurations confirm blocking enforcement. limit_req with only burst parameters (no return statement) indicates throttling/queuing behavior."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review WAF runbooks, change tickets, or deployment documentation to confirm the intended enforcement action for rate limiting rules and verify it matches the currently deployed configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written documentation specifying the rate limit action as block, throttle, or challenge, with a change record or approval showing the last review of this setting."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "block",
+      "log_only",
+      "challenge",
+      "throttle",
+      "none"
+    ]
+  },
+  {
+    "option_name": "tls_inspection_enabled",
+    "option_description": "Controls whether the WAF performs TLS termination — decrypting HTTPS traffic — before applying its rule evaluation engine to the request payload. Without TLS inspection, all encrypted HTTPS traffic passes through the WAF as opaque ciphertext, and no rules can inspect request headers, URI paths, query strings, cookies, or POST body content for HTTPS sessions.",
+    "security_impact": "The Rego ssl_tls_traffic_inspection policy requires input.tls_inspection_enabled == true. This is a high-criticality, score-8 countermeasure. Since the majority of modern web traffic is HTTPS, a WAF without TLS inspection effectively inspects only a small fraction of actual traffic. Attackers can trivially bypass all WAF protections — SQL injection, XSS, path traversal, and all other rule detections — simply by using HTTPS, which is the default for virtually all attack tooling. TLS inspection is foundational to meaningful WAF protection coverage.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the WAF or associated load balancer/proxy HTTPS listener configuration. Confirm that an SSL certificate is bound to the frontend listener, meaning TLS is being terminated at the WAF/proxy layer before traffic reaches the backend. Verify the backend connection uses HTTP or re-encrypted HTTPS separately.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Load Balancer Console → Listeners → HTTPS:443 → View/Edit → SSL Certificate → Confirm certificate is associated; WAF Console → [Associated Resource] → Confirm WAF is applied to HTTPS listener",
+        "expected_output": "An active HTTPS listener with an associated SSL/TLS certificate on the WAF or front-end proxy, indicating TLS termination occurs before WAF rule evaluation."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS environments, verify that the WAF web ACL is associated with an Application Load Balancer (ALB) that has an HTTPS listener with a valid SSL certificate. The ALB performs TLS termination, enabling WAF inspection of decrypted traffic.",
+        "command": "aws elbv2 describe-listeners --load-balancer-arn LOAD_BALANCER_ARN --query 'Listeners[?Protocol==`HTTPS`].{Port:Port,Protocol:Protocol,Cert:Certificates[0].CertificateArn}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more HTTPS listeners listed with associated certificate ARNs, confirming TLS is being terminated at the ALB layer where the WAF is applied. An empty result or HTTP-only listeners indicate no TLS inspection."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Nginx-based WAF or reverse proxy deployments, inspect the server block configuration for SSL certificate and key directives. The presence of ssl_certificate and ssl_certificate_key within the server block handling port 443 confirms TLS termination.",
+        "command": "grep -n 'ssl_certificate\\|ssl_certificate_key\\|listen.*443\\|ssl_protocols' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/* 2>/dev/null",
+        "file_path": "/etc/nginx/conf.d/",
+        "navigation": null,
+        "expected_output": "ssl_certificate and ssl_certificate_key directives present within a server block listening on port 443, confirming that Nginx (and the WAF module) processes decrypted HTTPS traffic."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform an HTTPS request to the WAF-protected endpoint and verify that the WAF rules are being applied to the decrypted content by submitting a benign test payload in the HTTPS request body or URI and confirming it triggers a WAF detection event.",
+        "command": "curl -sk 'https://TARGET_HOST/?test=<script>alert(1)</script>' -o /dev/null -w '%{http_code}' && echo ' - Check WAF logs for rule match on HTTPS request'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 403 response code or a WAF block page returned for the test XSS payload in the HTTPS request, confirming that TLS is being terminated and WAF rules are inspecting the decrypted content."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "https_traffic_inspection_scope",
+    "option_description": "Defines which HTTPS traffic is subject to decryption and inspection by the WAF, controlling whether all, partial, or no encrypted web traffic is decrypted before rule evaluation.",
+    "security_impact": "The Rego policy for ssl_tls_traffic_inspection requires https_traffic_inspection_scope == 'all' to satisfy the countermeasure. If set to 'partial' or 'none', encrypted HTTPS requests bypass rule evaluation entirely, allowing attackers to smuggle SQLi, XSS, or other payloads inside TLS tunnels that the WAF will never inspect. This is a high-criticality attribute directly gating the SSL/TLS Traffic Inspection countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query AWS WAF v2 WebACL configuration to check which rules include TLS inspection scope or review associated ALB/CloudFront listener settings for HTTPS offload.",
+        "command": "aws wafv2 get-web-acl --name <webacl-name> --scope REGIONAL --id <webacl-id> --region <region> | jq '.WebACL.Rules[] | select(.Name | test(\"tls|ssl|https\"; \"i\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rule entries referencing HTTPS listeners or TLS inspection scope; absence indicates no scoped HTTPS rules."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS WAF console, navigate to Web ACLs > select your ACL > Associated resources, then verify that all HTTPS listeners (ALB, CloudFront, API Gateway) are associated. For Cloudflare WAF, go to Security > WAF > check that all HTTPS zones are covered under the active ruleset.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [ACL Name] > Associated Resources tab",
+        "expected_output": "All HTTPS endpoints listed as associated resources with no exclusions noted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity/NGINX deployments, inspect the modsecurity.conf and nginx.conf to confirm ssl_preread or proxy_ssl settings route all HTTPS traffic through the WAF engine.",
+        "command": "grep -E 'ssl_preread|proxy_ssl|SecRule|HTTPS' /etc/nginx/nginx.conf /etc/modsecurity/modsecurity.conf",
+        "file_path": "/etc/nginx/nginx.conf",
+        "expected_output": "ssl_preread on; and SecRuleEngine On present with no path-based exclusions for HTTPS URIs."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send a crafted HTTPS request with a known WAF test payload (e.g., OWASP test string) and verify it is blocked, confirming full decryption and inspection is occurring.",
+        "command": "curl -sk 'https://<waf-protected-host>/test?param=<script>alert(1)</script>' -o /dev/null -w '%{http_code}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 403 response indicates the WAF decrypted and evaluated the HTTPS payload."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "all",
+      "partial",
+      "none"
+    ]
+  },
+  {
+    "option_name": "tls_certificate_validation_enabled",
+    "option_description": "Controls whether the WAF validates TLS certificates during termination, including certificate chain verification, trusted CA checks, and rejection of expired or self-signed certificates.",
+    "security_impact": "The Rego ssl_tls_traffic_inspection rule includes a stronger path when tls_certificate_validation_enabled == true alongside https_traffic_inspection_scope == 'all'. Without certificate validation, an attacker could present an invalid or self-signed certificate at the WAF boundary, potentially bypassing the inspection chain or enabling man-in-the-middle scenarios within internal forwarding paths. This is a medium-criticality attribute that strengthens the TLS inspection trust model.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In AWS Certificate Manager and ALB settings, verify that the HTTPS listener references a valid ACM certificate and that certificate validation mode is enforced. For Cloudflare, navigate to SSL/TLS > Overview and confirm mode is 'Full (Strict)'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > EC2 > Load Balancers > [ALB Name] > Listeners > HTTPS:443 > View/Edit Certificate",
+        "expected_output": "Certificate status shows 'Issued' or 'Active' with a trusted CA; Cloudflare shows 'Full (Strict)' mode."
+      },
+      {
+        "type": "command",
+        "instruction": "Test TLS termination at the WAF endpoint to confirm it rejects invalid certificates and validates the chain using openssl.",
+        "command": "openssl s_client -connect <waf-endpoint>:443 -verify 5 -CAfile /etc/ssl/certs/ca-certificates.crt < /dev/null 2>&1 | grep -E 'Verify return|certificate|Chain'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Verify return code: 0 (ok)' indicates valid certificate chain; non-zero indicates validation failure."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For NGINX/ModSecurity WAF deployments, check nginx.conf for ssl_verify_client and ssl_trusted_certificate directives that enforce certificate validation.",
+        "command": "grep -E 'ssl_verify_client|ssl_trusted_certificate|ssl_certificate|ssl_stapling' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf",
+        "file_path": "/etc/nginx/nginx.conf",
+        "expected_output": "ssl_verify_client on; and ssl_trusted_certificate pointing to a valid CA bundle confirms validation is enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS ALB listener attributes to confirm certificate validation settings via the AWS CLI.",
+        "command": "aws elbv2 describe-listeners --load-balancer-arn <alb-arn> | jq '.Listeners[] | select(.Protocol==\"HTTPS\") | {Port: .Port, Certificates: .Certificates, SslPolicy: .SslPolicy}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTPS listener with a valid certificate ARN and a current SSL policy (e.g., ELBSecurityPolicy-TLS13-1-2-2021-06) confirms TLS validation is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "siem_forwarding_enabled",
+    "option_description": "Controls whether WAF events and security logs are actively forwarded to a SIEM platform using syslog, API integration, or a log shipper agent, enabling centralized security monitoring.",
+    "security_impact": "The Rego siem_and_alerting_integration rule requires both siem_forwarding_enabled == true and alerting_configured == true to satisfy the countermeasure. Without SIEM forwarding, WAF block events, anomaly detections, and rule matches remain siloed in the WAF console with no correlation against other security data, preventing detection of coordinated attack campaigns or post-exploitation activity. This is a high-criticality attribute for operational visibility.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Check AWS WAF logging configuration to confirm a log destination (Kinesis Firehose, S3, or CloudWatch Logs) is configured and actively delivering to a SIEM.",
+        "command": "aws wafv2 get-logging-configuration --resource-arn <webacl-arn> | jq '{LogDestination: .LoggingConfiguration.LogDestinationConfigs, RedactedFields: .LoggingConfiguration.RedactedFields}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "LogDestinationConfigs contains an ARN pointing to a Kinesis Firehose stream or S3 bucket that feeds into the SIEM pipeline."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the WAF management console logging section and verify an active log forwarding destination is configured. For Cloudflare, check Security > WAF > Logpush jobs for an active SIEM destination.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [ACL Name] > Logging and Metrics tab > Logging configuration",
+        "expected_output": "An active logging destination is shown (not 'Logging disabled') with a configured destination ARN."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity deployments using a log shipper (Filebeat, Fluentd), verify the shipper configuration points to the SIEM and the ModSecurity audit log path is included.",
+        "command": "cat /etc/filebeat/filebeat.yml | grep -A 10 'paths:' | grep -i 'modsec\\|waf\\|audit'; systemctl status filebeat",
+        "file_path": "/etc/filebeat/filebeat.yml",
+        "expected_output": "Filebeat paths include the ModSecurity audit log path (e.g., /var/log/modsec_audit.log) and output points to the SIEM host. Service status is 'active (running)'."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify log delivery is actively occurring by checking the SIEM for recent WAF events, or inspect the intermediary delivery pipeline (e.g., Kinesis Firehose delivery stream metrics).",
+        "command": "aws firehose describe-delivery-stream --delivery-stream-name <stream-name> | jq '.DeliveryStreamDescription.Destinations[].ExtendedS3DestinationDescription.BucketARN, .DeliveryStreamDescription.DeliveryStreamStatus'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DeliveryStreamStatus is 'ACTIVE' and recent records appear in the destination bucket or SIEM query results."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "alerting_configured",
+    "option_description": "Controls whether alert rules are defined in the SIEM or WAF management console to trigger notifications on security events such as block events, rate limit triggers, or anomaly score thresholds.",
+    "security_impact": "The Rego siem_and_alerting_integration rule requires alerting_configured == true in conjunction with siem_forwarding_enabled == true. Even when logs are forwarded to a SIEM, without defined alert rules the security team receives no proactive notification of ongoing attacks, rule match spikes, or evasion attempts. This high-criticality attribute ensures that WAF detections translate into actionable incident response triggers.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In the WAF management console, check for configured CloudWatch Alarms or SNS notifications tied to WAF metrics. For Cloudflare, navigate to Notifications > Add Notification > Security Events to see active alert policies.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > CloudWatch > Alarms > search for alarms with WAF metric namespace (AWS/WAFV2)",
+        "expected_output": "One or more alarms targeting metrics like BlockedRequests or CountedRequests with defined thresholds and SNS notification actions."
+      },
+      {
+        "type": "api",
+        "instruction": "List CloudWatch alarms filtering for WAF metric namespace to confirm active alert rules are defined.",
+        "command": "aws cloudwatch describe-alarms --alarm-name-prefix 'WAF' | jq '.MetricAlarms[] | {AlarmName: .AlarmName, MetricName: .MetricName, Threshold: .Threshold, ActionsEnabled: .ActionsEnabled, AlarmActions: .AlarmActions}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more alarms with ActionsEnabled: true and AlarmActions containing an SNS topic ARN, indicating active alerting."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the security operations team or review runbook documentation to confirm alert rules exist in the SIEM (e.g., Splunk alerts, Sentinel analytics rules, Elastic SIEM rules) for WAF block event thresholds.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SIEM console > Alerts/Analytics Rules > filter by source 'WAF' or 'web_application_firewall'",
+        "expected_output": "At least one enabled alert rule targeting WAF block events, rule match counts, or anomaly thresholds with a defined notification action."
+      },
+      {
+        "type": "api",
+        "instruction": "For Azure WAF with Sentinel, query the Sentinel analytics rules API to list rules sourcing from WAF logs.",
+        "command": "az sentinel alert-rule list --resource-group <rg> --workspace-name <workspace> --query \"[?contains(kind, 'Scheduled')] | [].{Name:displayName, Enabled:enabled, Severity:severity}\" -o table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table listing active Sentinel analytics rules with 'Enabled: true' and severity ratings, including WAF-specific detection rules."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "auto_update_enabled",
+    "option_description": "Controls whether the WAF is configured to automatically pull and apply managed rule set updates without requiring manual administrator intervention, keeping detection signatures current.",
+    "security_impact": "The Rego rule_update_and_patch_currency rule evaluates auto_update_enabled == true as a required condition in both satisfaction paths. Without automatic updates, newly disclosed CVEs, zero-day web attack patterns, and updated OWASP signatures will not be incorporated into the WAF until a manual update is performed, creating detection gaps that can persist for days or weeks. This is a low-criticality attribute but directly controls detection currency.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "For AWS WAF with managed rule groups, check if version lock is disabled (which enables auto-updates) using the WAF v2 API.",
+        "command": "aws wafv2 get-web-acl --name <webacl-name> --scope REGIONAL --id <webacl-id> | jq '.WebACL.Rules[] | select(.Statement.ManagedRuleGroupStatement != null) | {Name: .Name, ManagedGroup: .Statement.ManagedRuleGroupStatement.Name, Version: .Statement.ManagedRuleGroupStatement.Version}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version field is null or absent for managed rule groups, indicating automatic version tracking is enabled rather than a pinned version."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS WAF console, navigate to each managed rule group attached to a Web ACL and verify the version is set to 'Default version' (auto-update) rather than a pinned static version.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [ACL Name] > Rules tab > [Managed Rule Group] > Edit > Version setting",
+        "expected_output": "'Default version (auto-update)' is selected, not a specific pinned version number."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity with OWASP CRS, verify a cron job or systemd timer is configured to run the rule update script automatically.",
+        "command": "crontab -l | grep -i 'crs\\|modsecurity\\|update'; systemctl list-timers | grep -i 'waf\\|modsec\\|crs'",
+        "file_path": "/etc/cron.d/",
+        "expected_output": "A cron entry or systemd timer entry exists invoking a rule update script (e.g., update-modsecurity-crs.sh) on a regular schedule."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review change management records or WAF vendor subscription settings to confirm managed rule auto-update subscriptions are active and not manually frozen.",
+        "command": null,
+        "file_path": null,
+        "navigation": "WAF vendor portal > Subscription settings > Managed Rules > Update policy",
+        "expected_output": "Auto-update policy is 'Enabled' or 'Automatic' with no manual freeze or version pin applied."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null"
+    ]
+  },
+  {
+    "option_name": "rule_set_version_age_days",
+    "option_description": "Represents the number of days since the currently active managed WAF rule set version was last updated or refreshed, indicating how current the detection signatures are.",
+    "security_impact": "The Rego rule_update_and_patch_currency rule enforces rule_set_version_age_days <= 30 as a required condition for both satisfaction paths. Rule sets older than 30 days may lack signatures for recently disclosed vulnerabilities, allowing attackers using new exploit patterns to bypass detection. A high age value indicates that newly discovered attack techniques such as novel SQLi variants or zero-day CMS exploits are not covered by current rules.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the AWS WAF managed rule group version list to identify the active version release date and calculate age in days.",
+        "command": "aws wafv2 list-available-managed-rule-group-versions --vendor-name AWS --name AWSManagedRulesCommonRuleSet --scope REGIONAL | jq '.Versions | sort_by(.LastUpdateTimestamp) | last | {Name: .Name, LastUpdated: .LastUpdateTimestamp}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output with LastUpdateTimestamp; calculate (today - LastUpdateTimestamp) in days. Values <= 30 indicate current rule sets."
+      },
+      {
+        "type": "command",
+        "instruction": "For ModSecurity with OWASP CRS, check the installed CRS version file or package metadata to determine the release date of the current rule set.",
+        "command": "cat /etc/modsecurity/crs/crs-setup.conf | grep -i 'version\\|release'; dpkg -l | grep -i 'modsecurity-crs' || rpm -qi modsecurity_crs | grep -E 'Version|Release|Install Date'",
+        "file_path": "/etc/modsecurity/crs/crs-setup.conf",
+        "expected_output": "CRS version and installation date displayed; compare install/build date against today to calculate age in days."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the WAF management console, navigate to the managed rule group details to view the currently applied version and its release date.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Managed rule groups > [Rule Group Name] > Version history tab",
+        "expected_output": "Version history shows the active version with a release date; days since that date represents rule_set_version_age_days."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Check WAF change logs or AWS Config change history to identify when the last rule set update was applied to the Web ACL.",
+        "command": "aws configservice get-resource-config-history --resource-type AWS::WAFv2::WebACL --resource-id <webacl-id> --limit 5 | jq '.configurationItems[] | {captureTime: .configurationItemCaptureTime, changeType: .configurationItemStatus}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Configuration change events showing timestamps of rule group updates; the most recent update timestamp determines the age in days."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "7",
+      "14",
+      "30",
+      "90",
+      "180"
+    ]
+  },
+  {
+    "option_name": "update_notification_configured",
+    "option_description": "Controls whether alerting or notification mechanisms are configured to inform the security team when WAF rule set updates are available or have been successfully applied.",
+    "security_impact": "The Rego rule_update_and_patch_currency rule includes a path where update_notification_configured == true alongside auto_update_enabled == true and rule_set_version_age_days <= 30. Without update notifications, administrators have no visibility into whether automatic updates are succeeding, whether updates have been paused, or when new rule versions require review and testing before deployment. This low-criticality attribute ensures operational awareness of the update lifecycle.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Check AWS SNS topics and CloudWatch Events rules configured to notify on WAF rule group version updates or AWS Security Hub findings related to WAF rule set changes.",
+        "command": "aws events list-rules --name-prefix 'WAF' | jq '.Rules[] | {Name: .Name, EventPattern: .EventPattern, State: .State}'; aws sns list-subscriptions | jq '.Subscriptions[] | select(.TopicArn | test(\"WAF\\|waf\\|security\"; \"i\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "EventBridge rules with WAF-related event patterns in 'ENABLED' state, or SNS subscriptions confirming notification endpoints are active."
+      },
+      {
+        "type": "gui",
+        "instruction": "In AWS Console, check AWS Health Dashboard and Personal Health Dashboard for configured event notifications for WAF managed rule group updates.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > AWS Health > Health Dashboard > Event log (filter by WAF); also check CloudWatch > Alarms for WAF rule update events",
+        "expected_output": "Active event subscriptions or alert rules targeting WAF rule group update events with notification actions configured."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the WAF operations team or review runbook documentation to confirm a notification process exists for rule set updates, whether automated (email, PagerDuty, Slack webhook) or manual (change ticket workflow).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review incident response runbooks, change management ticketing system, and team communication channels for WAF update notification procedures.",
+        "expected_output": "Documented procedure or active automated notification showing the team is informed when rule set updates occur."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For self-managed ModSecurity/CRS deployments, check if the update script sends email or webhook notifications upon successful or failed rule updates.",
+        "command": "grep -E 'mail|curl|webhook|notify|alert|slack' /usr/local/bin/update-modsecurity-crs.sh /etc/cron.d/waf-update 2>/dev/null",
+        "file_path": "/usr/local/bin/update-modsecurity-crs.sh",
+        "expected_output": "Script contains notification commands (e.g., mail -s 'WAF rules updated', curl to a webhook URL) confirming update notifications are sent."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false",
+      "null"
+    ]
+  },
+  {
+    "option_name": "geo_ip_filtering_enabled",
+    "option_description": "Controls whether geographic IP-based filtering rules are active and enforced in the WAF configuration, blocking or flagging traffic from high-risk or geographically restricted regions.",
+    "security_impact": "The Rego geo_ip_and_reputation_based_filtering rule requires geo_ip_filtering_enabled == true alongside ip_reputation_filtering_enabled, a blocking action mode, and current threat feed data (threat_feed_update_frequency_days <= 7). Geo-IP filtering provides preemptive prevention by dropping traffic from geographies with no legitimate business purpose, reducing the attack surface for volumetric attacks, credential stuffing, and scanning campaigns originating from high-risk regions. This is a low-criticality attribute that contributes to the geo-reputation countermeasure.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "List AWS WAF Web ACL rules to identify geo-match statements that are actively enforcing blocks rather than operating in count/monitor mode.",
+        "command": "aws wafv2 get-web-acl --name <webacl-name> --scope REGIONAL --id <webacl-id> | jq '.WebACL.Rules[] | select(.Statement.GeoMatchStatement != null) | {Name: .Name, Action: .Action, CountryCodes: .Statement.GeoMatchStatement.CountryCodes}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "GeoMatchStatement rules with Action set to 'Block' (not 'Count') and a list of CountryCodes confirms geo-IP filtering is active in enforcement mode."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the WAF Web ACL rules list and verify geo-match rules are present with a Block action. For Cloudflare, check Security > WAF > Tools > IP Access Rules or Firewall Rules with country-based conditions.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [ACL Name] > Rules tab > identify GeoMatch rules and confirm Action column shows 'Block'",
+        "expected_output": "One or more geo-match rules visible with 'Block' action and specific country code lists; rules not in 'Count' or 'Monitor' mode."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity or NGINX-based WAF deployments, inspect the configuration for GeoIP2 module directives and deny rules targeting specific country codes.",
+        "command": "grep -E 'geoip2|GeoIP|deny|allow|country' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/modsecurity/*.conf",
+        "file_path": "/etc/nginx/conf.d/",
+        "expected_output": "geoip2 database path configured with deny directives for specific country codes (e.g., if ($geoip2_data_country_code = 'XX') { return 403; }) confirms geo-IP blocking is active."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use a VPN or proxy service to simulate traffic from a blocked geography and verify the WAF returns a 403 block response, confirming enforcement mode is active.",
+        "command": "curl -sk --proxy socks5://<tor-or-vpn-proxy>:<port> 'https://<waf-protected-host>/' -o /dev/null -w 'HTTP Status: %{http_code}\\n'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 403 response when connecting from a blocked geography confirms geo-IP filtering is active and enforcing blocks rather than passively counting."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "ip_reputation_filtering_enabled",
+    "option_description": "Controls whether the WAF actively evaluates incoming traffic against IP reputation databases and threat intelligence feeds, blocking or flagging requests originating from known malicious IP ranges, botnet infrastructure, and Tor exit nodes before they reach application logic.",
+    "security_impact": "In the Rego policy, the geo_ip_and_reputation_based_filtering rule requires input.ip_reputation_filtering_enabled == true as a mandatory condition alongside geo_ip filtering and enforcement mode checks. If this attribute is false (the default), the entire geo_ip_and_reputation_based_filtering countermeasure fails to activate, leaving the WAF unable to preemptively block traffic from known-bad sources regardless of other filtering settings. Since this feature defaults to disabled, deployments that have not explicitly enabled it remain silently unprotected against reputation-based threats.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query AWS WAF v2 web ACL rules to check for IP reputation managed rule groups (e.g., AWSManagedRulesAmazonIpReputationList) using the AWS CLI.",
+        "command": "aws wafv2 get-web-acl --name <web-acl-name> --scope REGIONAL --id <web-acl-id> --query 'WebACL.Rules[?Statement.ManagedRuleGroupStatement.Name==`AWSManagedRulesAmazonIpReputationList`]' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-empty JSON array indicating the AWSManagedRulesAmazonIpReputationList rule group is present and its OverrideAction is set to 'None' (meaning rules are actively enforced, not counted)."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Management Console, navigate to WAF & Shield > Web ACLs, select the relevant ACL, open the Rules tab, and look for 'AWS-AWSManagedRulesAmazonIpReputationList' or a custom IP reputation rule group. Verify it is listed and not overridden to Count mode.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [Select ACL] > Rules tab > Inspect managed rule groups for IP reputation entries",
+        "expected_output": "The IP reputation rule group is visible in the rules list with Override action set to 'Use rule actions' rather than 'Count'."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Cloudflare API (if using Cloudflare WAF) to list firewall rules and confirm IP reputation rulesets are deployed and active in the zone's WAF configuration.",
+        "command": "curl -s -X GET 'https://api.cloudflare.com/client/v4/zones/<zone_id>/firewall/rules?per_page=100' -H 'Authorization: Bearer <api_token>' -H 'Content-Type: application/json' | jq '.result[] | select(.description | test(\"reputation\"; \"i\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more firewall rules referencing IP reputation filtering are returned with 'paused: false', indicating active enforcement."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review WAF access logs or security event logs for entries tagged with IP reputation rule IDs (e.g., AWS rule IDs prefixed with 'AWSManagedRulesAmazonIpReputationList'). Presence of such log entries confirms the feature is active and evaluating traffic.",
+        "command": "aws logs filter-log-events --log-group-name <waf-log-group> --filter-pattern '{ $.terminatingRuleId = \"AWSManagedRulesAmazonIpReputationList*\" }' --start-time $(date -d '24 hours ago' +%s000) --output json | jq '.events[0:5]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log events are returned with terminatingRuleId matching the IP reputation rule group, confirming active evaluation and enforcement."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (explicitly enabled in security-conscious deployments)",
+      "false (default state; common in newly provisioned WAF instances that have not been hardened)"
+    ]
+  },
+  {
+    "option_name": "threat_feed_update_frequency_days",
+    "option_description": "Specifies the interval in days between automatic refreshes of the geo-IP and IP reputation threat intelligence feeds used by the WAF. A lower value means the WAF operates with more current threat data, while higher values indicate stale intelligence that may miss recently identified malicious IP ranges.",
+    "security_impact": "The Rego policy enforces input.threat_feed_update_frequency_days <= 7 as a condition for the geo_ip_and_reputation_based_filtering countermeasure to pass. This means if feeds are updated less frequently than weekly, the countermeasure is not credited even if IP reputation filtering is enabled and blocking mode is configured. Stale threat feeds allow newly compromised infrastructure, freshly added Tor exit nodes, and recently observed botnet IPs to bypass reputation-based blocking, undermining the entire preemptive filtering capability.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "For AWS WAF with managed rule groups, navigate to the AWS Security Hub or WAF console to check the managed rule group version and last update timestamp, which reflects how recently AWS refreshed the underlying threat intelligence.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > WAF & Shield > Web ACLs > [Select ACL] > Rules > [Select managed rule group] > View version details and 'Last updated' timestamp",
+        "expected_output": "A 'Last updated' timestamp within the past 7 days confirms feeds are refreshed within the acceptable threshold."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the WAF provider's API for the managed rule group version metadata to determine when the threat intelligence feed was last updated.",
+        "command": "aws wafv2 list-available-managed-rule-group-versions --vendor-name AWS --name AWSManagedRulesAmazonIpReputationList --scope REGIONAL --output json | jq '.Versions[] | {Name: .Name, LastUpdateTimestamp: .LastUpdateTimestamp}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON list of versions with LastUpdateTimestamp values; the most recent entry should be within 7 days of the current date to satisfy the policy threshold."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the WAF administrator or review the threat intelligence subscription documentation to determine the contractual or configured update cadence for geo-IP and IP reputation feeds. For self-managed feeds (e.g., MaxMind, Emerging Threats), confirm the automated download schedule via cron job or CI/CD pipeline.",
+        "command": "crontab -l | grep -E 'maxmind|geoip|reputation|threat' ; systemctl list-timers | grep -i threat",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A scheduled task or cron entry showing feed refresh occurring at intervals of 7 days or fewer, or documented provider SLA confirming daily/weekly automatic updates."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity or NGINX-based WAF deployments, inspect the feed update configuration file or script to determine the refresh interval configured for IP reputation and geo-IP data sources.",
+        "command": "grep -rE 'update.*freq|refresh.*interval|cron|schedule' /etc/modsecurity/ /etc/nginx/waf/ /usr/local/etc/waf/ 2>/dev/null",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "Configuration entries or script parameters showing an update frequency value of 7 days (604800 seconds) or less, confirming compliant feed refresh cadence."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1 (daily updates; common with cloud-managed WAF providers like AWS, Cloudflare, Akamai)",
+      "7 (weekly updates; standard for managed rule subscriptions and acceptable per policy threshold)",
+      "30 (monthly updates; common in self-managed deployments using manual feed refresh processes)",
+      "90 (quarterly updates; observed in under-resourced environments with infrequent maintenance windows)"
+    ]
+  },
+  {
+    "option_name": "filtering_action_mode",
+    "option_description": "Defines the enforcement action taken by the WAF when a geo-IP or IP reputation rule is triggered. Determines whether matching traffic is actively dropped (block), presented with a challenge such as CAPTCHA (challenge), passively logged without interference (monitor or log_only), or entirely bypassed (disabled). This setting directly controls whether reputation-based filtering has a preventive effect or serves only an observational purpose.",
+    "security_impact": "The Rego policy condition input.filtering_action_mode in ['block', 'challenge'] is required for the geo_ip_and_reputation_based_filtering countermeasure to be satisfied. The default value is 'monitor', meaning that out-of-the-box WAF deployments will observe and log reputation-based matches but will not prevent any malicious traffic from reaching the application. Only 'block' or 'challenge' modes satisfy the policy, ensuring that known-bad IPs are actively prevented rather than silently permitted through the WAF with a log entry as the sole response.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For AWS WAF, retrieve the web ACL configuration and inspect the override actions and rule actions for IP reputation rule groups to determine whether they are set to Block, Count, or another mode.",
+        "command": "aws wafv2 get-web-acl --name <web-acl-name> --scope REGIONAL --id <web-acl-id> --output json | jq '.WebACL.Rules[] | select(.Statement.ManagedRuleGroupStatement.Name == \"AWSManagedRulesAmazonIpReputationList\") | {RuleName: .Name, OverrideAction: .OverrideAction, Action: .Action}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'OverrideAction: {}' (empty, meaning rule actions are used as-is) and individual rules within the group showing Action.Block rather than Action.Count, confirming block enforcement mode."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Cloudflare Dashboard, navigate to Security > WAF > Firewall Rules, and for each IP reputation or geo-blocking rule, check the Action column to confirm it is set to 'Block' or 'JS Challenge'/'Managed Challenge' rather than 'Log' or 'Allow'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cloudflare Dashboard > [Select Domain] > Security > WAF > Firewall Rules > Review Action column for reputation-based rules",
+        "expected_output": "Reputation-based firewall rules display 'Block' or 'Managed Challenge' in the Action column, not 'Log' or 'Allow'."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Cloudflare API to retrieve WAF package rule configurations and check the 'mode' field for IP reputation rules to confirm they are set to block or challenge rather than simulate (monitor).",
+        "command": "curl -s -X GET 'https://api.cloudflare.com/client/v4/zones/<zone_id>/firewall/rules' -H 'Authorization: Bearer <api_token>' | jq '.result[] | select(.description | test(\"reputation|geo|ip.block\"; \"i\")) | {id: .id, description: .description, action: .action, paused: .paused}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules matching IP reputation or geo-filtering criteria return with 'action': 'block' or 'action': 'challenge' and 'paused': false, confirming active enforcement mode."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ModSecurity-based WAF deployments, inspect the rule configuration to determine whether IP reputation SecRules use the 'deny' action (block) or 'pass'/'log' actions (monitor). Check the SecDefaultAction directive for the applicable rule phase.",
+        "command": "grep -E 'SecDefaultAction|SecRuleEngine|reputation|BLOCK_MODE' /etc/modsecurity/modsecurity.conf /etc/modsecurity/rules/*.conf 2>/dev/null | grep -v '^#'",
+        "file_path": "/etc/modsecurity/modsecurity.conf",
+        "navigation": null,
+        "expected_output": "SecRuleEngine is set to 'On' (not 'DetectionOnly'), and SecDefaultAction includes 'deny,status:403' or individual IP reputation rules explicitly use 'deny' as their action, confirming block mode enforcement."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "monitor (default; most common in initial WAF deployments during tuning phases)",
+      "block (recommended for production hardened deployments meeting policy requirements)",
+      "challenge (common for high-traffic consumer-facing applications where blocking entire IP ranges risks false positives)",
+      "log_only (observed in compliance-driven monitoring environments where availability concerns override prevention)",
+      "disabled (found in legacy configurations where specific rule groups were temporarily disabled and never re-enabled)"
+    ]
+  }
+]

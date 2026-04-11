@@ -1,0 +1,8 @@
+{
+  "name": "Load Balancer",
+  "classType": "component",
+  "type": "PROCESS",
+  "description": "A load balancer distributes client traffic across backend web servers and sits at a critical network boundary. Misconfigurations here can expose backend infrastructure, weaken encryption posture, allow unauthorized administrative access, enable traffic manipulation, and obscure malicious activity through inadequate logging. Its privileged position between external clients and internal servers makes it a high-value target for interception, bypass, and abuse.",
+  "category": "Network Management",
+  "status": "reviewed"
+}

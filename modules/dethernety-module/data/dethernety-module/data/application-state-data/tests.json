@@ -1,0 +1,95 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "session_token_data_classification": "transient",
+      "field_level_encryption_enforced_for_tokens": false,
+      "token_masking_in_logs_enabled": false,
+      "log_scope_includes_session_tokens": true,
+      "log_retention_days": 1,
+      "max_session_token_lifetime_days": 0,
+      "memory_snapshot_scrubbing_enabled": false,
+      "token_store_access_scope": "host_wide",
+      "token_logged_in_plaintext": true,
+      "cross_region_replication_enabled": true,
+      "data_transfer_agreement_status": "none",
+      "token_access_audit_logging_enabled": false,
+      "crash_report_destination": "local_disk",
+      "token_store_rbac_enabled": false,
+      "token_enumeration_commands_restricted": true,
+      "server_side_token_invalidation_on_logout": false,
+      "token_overwrite_on_disposal": true,
+      "token_classified_as_personal_data": false
+    },
+    "expectedExposures": [
+      "Session Token Retained Beyond Expiry In Logs",
+      "Plaintext Token Persistence In Memory Snapshots",
+      "Inadequate Access Control To Token Stores",
+      "Absence Of Token Disposal Procedure On Session End",
+      "Cross Border Transfer Of Session Tokens Without Residency Controls"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "field_level_encryption_enforced_for_tokens": true,
+      "token_masking_in_logs_enabled": true,
+      "token_access_audit_logging_enabled": true,
+      "session_token_data_classification": "secret",
+      "log_scope_includes_session_tokens": false,
+      "memory_snapshot_scrubbing_enabled": true,
+      "token_store_rbac_enabled": true,
+      "token_store_access_scope": "service_only",
+      "token_enumeration_commands_restricted": true,
+      "server_side_token_invalidation_on_logout": true,
+      "token_overwrite_on_disposal": true,
+      "token_logged_in_plaintext": false,
+      "token_classified_as_personal_data": false,
+      "cross_region_replication_enabled": false,
+      "log_retention_days": 0,
+      "max_session_token_lifetime_days": 0,
+      "crash_report_destination": "local_disk",
+      "data_transfer_agreement_status": "none"
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "session_token_data_classification": "transient",
+      "field_level_encryption_enforced_for_tokens": true,
+      "token_masking_in_logs_enabled": true,
+      "token_access_audit_logging_enabled": true,
+      "log_retention_days": 0,
+      "max_session_token_lifetime_days": 0,
+      "log_scope_includes_session_tokens": false,
+      "memory_snapshot_scrubbing_enabled": true,
+      "crash_report_destination": "local_disk",
+      "token_store_rbac_enabled": true,
+      "token_store_access_scope": "host_wide",
+      "token_enumeration_commands_restricted": true,
+      "server_side_token_invalidation_on_logout": true,
+      "token_overwrite_on_disposal": true,
+      "token_logged_in_plaintext": false,
+      "token_classified_as_personal_data": false,
+      "cross_region_replication_enabled": false,
+      "data_transfer_agreement_status": "none"
+    },
+    "expectedExposures": [
+      "Inadequate Access Control To Token Stores"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Missing Sensitivity Classification For Session Tokens",
+      "Inadequate Access Control To Token Stores",
+      "Absence Of Token Disposal Procedure On Session End"
+    ]
+  }
+]

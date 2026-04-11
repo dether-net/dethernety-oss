@@ -1,0 +1,8 @@
+{
+  "name": "Role-based Access Control",
+  "classType": "control",
+  "type": "Role-based Access Control",
+  "description": "Role-based Access Control (RBAC) delivers permission enforcement by grouping users into defined roles with scoped access rights, providing structured prevention of unauthorized data and function access across systems and applications.",
+  "category": "Access Management",
+  "status": "reviewed"
+}

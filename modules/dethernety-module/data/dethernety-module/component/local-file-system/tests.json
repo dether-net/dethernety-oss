@@ -1,0 +1,216 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "file_classification": "private_key",
+      "world_read_bit_set": true,
+      "world_writable_paths_found": true,
+      "filesystem_encryption_type": "none",
+      "volume_contains_sensitive_paths": true,
+      "key_storage_location": "same_volume",
+      "unauthorized_suid_sgid_binaries": [
+        "item_0"
+      ],
+      "auditd_service_running": true,
+      "sensitive_path_watch_count": 0,
+      "alternative_fs_monitoring_configured": false,
+      "tmp_mount_options": [],
+      "sensitive_data_patterns_in_logs": true,
+      "log_file_permissions_world_readable": true,
+      "fim_tool_installed": false,
+      "noexec_option_set": false,
+      "plaintext_secrets_detected": true,
+      "secret_file_world_readable": true,
+      "root_owned_world_writable_path_count": 1,
+      "disk_quota_enabled": false,
+      "kernel_has_known_cve": true,
+      "days_since_last_kernel_update": 91,
+      "backup_contains_sensitive_data": true,
+      "backup_world_readable": true,
+      "file_permission_mode": 0,
+      "sticky_bit_missing_on_world_writable_dirs": false,
+      "encryption_at_rest_enabled": false,
+      "key_file_plaintext": false,
+      "key_file_permissions_octal": "present",
+      "suid_sgid_binaries_owned_by_root": false,
+      "world_writable_suid_sgid_binary_present": false,
+      "auditd_rules_configured": false,
+      "var_tmp_mount_options": [
+        "default"
+      ],
+      "log_sanitization_enabled": true,
+      "fim_monitoring_active": false,
+      "fim_critical_paths_covered": false,
+      "nosuid_option_set": false,
+      "nodev_option_set": false,
+      "secrets_manager_in_use": false,
+      "root_owned_group_writable_path_count": 0,
+      "sticky_bit_enforced_on_writable_paths": true,
+      "quota_hard_limit_configured": false,
+      "live_kernel_patching_enabled": false,
+      "backup_file_permission_mode": 0,
+      "sensitive_data_classification": "unknown",
+      "fim_alert_notification_configured": false,
+      "affected_secret_types": [
+        "default"
+      ]
+    },
+    "expectedExposures": [
+      "World Writable Directories Or Files",
+      "Unprotected Encryption Key Storage",
+      "Suid Sgid Bit Misconfiguration",
+      "World Readable Sensitive Files",
+      "Hardcoded Secrets In Filesystem Plaintext",
+      "No Disk Quota Enforcement",
+      "Insufficient Filesystem Audit Logging",
+      "Sensitive Data In Unprotected Log Files",
+      "Insecure Backup File Permissions",
+      "Excessive Root Owned Writable Paths",
+      "Missing Filesystem Integrity Monitoring",
+      "Unrestricted Mount Options On Sensitive Partitions",
+      "Insecure Tmp Directory Configuration",
+      "Unpatched Filesystem Driver Or Kernel Vulnerabilities",
+      "Missing Encryption At Rest"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "world_read_bit_set": false,
+      "file_classification": "other",
+      "world_writable_paths_found": false,
+      "sticky_bit_missing_on_world_writable_dirs": false,
+      "encryption_at_rest_enabled": true,
+      "volume_contains_sensitive_paths": false,
+      "key_storage_location": "separate_volume",
+      "key_file_plaintext": false,
+      "key_file_permissions_octal": "__no_match__",
+      "unauthorized_suid_sgid_binaries": [],
+      "suid_sgid_binaries_owned_by_root": false,
+      "world_writable_suid_sgid_binary_present": false,
+      "alternative_fs_monitoring_configured": true,
+      "auditd_service_running": false,
+      "tmp_mount_options": [
+        "noexec",
+        "nosuid",
+        "nodev"
+      ],
+      "var_tmp_mount_options": [
+        "noexec",
+        "nosuid",
+        "nodev"
+      ],
+      "sensitive_data_patterns_in_logs": false,
+      "log_sanitization_enabled": true,
+      "fim_tool_installed": true,
+      "fim_monitoring_active": true,
+      "noexec_option_set": true,
+      "nosuid_option_set": true,
+      "nodev_option_set": true,
+      "plaintext_secrets_detected": false,
+      "root_owned_world_writable_path_count": 0,
+      "sticky_bit_enforced_on_writable_paths": true,
+      "root_owned_group_writable_path_count": 5,
+      "disk_quota_enabled": true,
+      "quota_hard_limit_configured": true,
+      "kernel_has_known_cve": false,
+      "backup_contains_sensitive_data": false,
+      "backup_world_readable": false,
+      "file_permission_mode": 0,
+      "filesystem_encryption_type": "none",
+      "auditd_rules_configured": false,
+      "sensitive_path_watch_count": 0,
+      "log_file_permissions_world_readable": false,
+      "fim_critical_paths_covered": true,
+      "secrets_manager_in_use": false,
+      "secret_file_world_readable": false,
+      "days_since_last_kernel_update": 0,
+      "live_kernel_patching_enabled": false,
+      "backup_file_permission_mode": 0,
+      "sensitive_data_classification": "unknown",
+      "fim_alert_notification_configured": false,
+      "affected_secret_types": [
+        "default"
+      ]
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "file_permission_mode": 0,
+      "file_classification": "private_key",
+      "world_read_bit_set": false,
+      "world_writable_paths_found": false,
+      "sticky_bit_missing_on_world_writable_dirs": false,
+      "encryption_at_rest_enabled": true,
+      "filesystem_encryption_type": "none",
+      "volume_contains_sensitive_paths": false,
+      "key_storage_location": "same_volume",
+      "key_file_plaintext": false,
+      "key_file_permissions_octal": "__no_match__",
+      "unauthorized_suid_sgid_binaries": [
+        "partial"
+      ],
+      "suid_sgid_binaries_owned_by_root": false,
+      "world_writable_suid_sgid_binary_present": false,
+      "auditd_rules_configured": false,
+      "auditd_service_running": false,
+      "sensitive_path_watch_count": 0,
+      "alternative_fs_monitoring_configured": true,
+      "tmp_mount_options": [
+        "partial"
+      ],
+      "var_tmp_mount_options": [
+        "partial"
+      ],
+      "log_file_permissions_world_readable": false,
+      "sensitive_data_patterns_in_logs": false,
+      "log_sanitization_enabled": true,
+      "fim_tool_installed": true,
+      "fim_monitoring_active": true,
+      "fim_critical_paths_covered": true,
+      "noexec_option_set": true,
+      "nosuid_option_set": true,
+      "nodev_option_set": true,
+      "plaintext_secrets_detected": false,
+      "secrets_manager_in_use": false,
+      "secret_file_world_readable": false,
+      "root_owned_world_writable_path_count": 0,
+      "root_owned_group_writable_path_count": 0,
+      "sticky_bit_enforced_on_writable_paths": true,
+      "disk_quota_enabled": true,
+      "quota_hard_limit_configured": true,
+      "kernel_has_known_cve": false,
+      "days_since_last_kernel_update": 0,
+      "live_kernel_patching_enabled": false,
+      "backup_file_permission_mode": 0,
+      "backup_contains_sensitive_data": false,
+      "backup_world_readable": false,
+      "sensitive_data_classification": "unknown",
+      "fim_alert_notification_configured": false,
+      "affected_secret_types": [
+        "partial"
+      ]
+    },
+    "expectedExposures": [
+      "Unprotected Encryption Key Storage",
+      "Suid Sgid Bit Misconfiguration",
+      "Insecure Tmp Directory Configuration"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "No Disk Quota Enforcement",
+      "Insufficient Filesystem Audit Logging",
+      "Missing Filesystem Integrity Monitoring",
+      "Unrestricted Mount Options On Sensitive Partitions"
+    ]
+  }
+]

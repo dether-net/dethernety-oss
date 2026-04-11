@@ -1,0 +1,469 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "privileged_mode_enabled": {
+        "type": "boolean",
+        "title": "Privileged Mode Enabled",
+        "description": "Indicates whether the container is launched with the --privileged flag, granting full host capability sets and disabling seccomp, AppArmor/SELinux enforcement, and most capability restrictions.",
+        "default": false
+      },
+      "granted_capabilities": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Granted Linux Capabilities",
+        "description": "List of Linux capabilities explicitly granted to the container beyond the default set (e.g., CAP_NET_ADMIN, CAP_SYS_PTRACE, CAP_SYS_MODULE, CAP_SYS_ADMIN).",
+        "default": []
+      },
+      "capability_drop_all_enforced": {
+        "type": "boolean",
+        "title": "All Default Capabilities Dropped",
+        "description": "Whether the container configuration explicitly drops ALL capabilities before selectively re-adding only required ones (drop: [ALL] pattern). True means the least-privilege baseline is enforced.",
+        "default": false
+      },
+      "seccomp_profile_type": {
+        "type": "string",
+        "enum": [
+          "Unconfined",
+          "RuntimeDefault",
+          "Localhost"
+        ],
+        "title": "Seccomp Profile Type",
+        "description": "The type of seccomp profile applied to the container or pod. 'Unconfined' means no syscall filtering is applied. 'RuntimeDefault' uses the container runtime's default profile. 'Localhost' uses a custom profile defined on the node. When privileged mode is enabled, seccomp is not enforced regardless of this setting.",
+        "default": "Unconfined"
+      },
+      "lsm_profile_assigned": {
+        "type": "boolean",
+        "title": "LSM Profile Assigned",
+        "description": "Indicates whether an AppArmor or SELinux mandatory access control profile is explicitly assigned and enforced for the container at runtime (not unconfined/disabled).",
+        "default": false
+      },
+      "lsm_profile_mode": {
+        "type": "string",
+        "enum": [
+          "enforcing",
+          "permissive",
+          "unconfined"
+        ],
+        "title": "LSM Profile Enforcement Mode",
+        "description": "The enforcement mode of the assigned LSM profile: enforcing means policies are actively blocking, permissive means policies log but do not block, unconfined means no LSM restrictions apply.",
+        "default": "unconfined"
+      },
+      "read_only_root_filesystem": {
+        "type": "boolean",
+        "title": "Read-Only Root Filesystem",
+        "description": "Indicates whether the container's root filesystem is mounted as read-only, preventing modification of binaries and persistent tooling installation.",
+        "default": false
+      },
+      "network_mode": {
+        "type": "string",
+        "enum": [
+          "bridge",
+          "host",
+          "container_shared",
+          "none",
+          "overlay",
+          "custom"
+        ],
+        "title": "Container Network Mode",
+        "description": "The network mode configured for the container, determining whether it has its own network namespace or shares one with the host or another container.",
+        "default": "bridge"
+      },
+      "host_network_enabled": {
+        "type": "boolean",
+        "title": "Host Network Namespace Enabled",
+        "description": "Indicates whether the container is configured to share the host's network namespace (e.g., hostNetwork: true in Kubernetes or --network=host in Docker). When true, all host network interfaces and ports are directly accessible and no container-level network boundary exists.",
+        "default": false
+      },
+      "network_policy_enforced": {
+        "type": "boolean",
+        "title": "Network Policy Enforced at Container/Pod Level",
+        "description": "Indicates whether a network policy (e.g., Kubernetes NetworkPolicy, iptables rules, CNI-enforced policy) is applied to restrict ingress/egress for this container independent of namespace isolation.",
+        "default": false
+      },
+      "egress_network_policy_enforced": {
+        "type": "boolean",
+        "title": "Egress Network Policy Enforced",
+        "description": "Whether a NetworkPolicy or equivalent CNI-level egress policy is applied to the container/pod that restricts outbound connections to explicitly permitted destinations.",
+        "default": false
+      },
+      "egress_policy_default_deny": {
+        "type": "boolean",
+        "title": "Default-Deny Egress Posture",
+        "description": "Whether the namespace or cluster has a default-deny egress policy in place, requiring workloads to explicitly opt in to permitted egress destinations.",
+        "default": false
+      },
+      "cni_policy_enforcement_capable": {
+        "type": "boolean",
+        "title": "CNI Plugin Capable of Policy Enforcement",
+        "description": "Whether the installed CNI plugin is capable of and configured to enforce NetworkPolicy rules (e.g., Calico, Cilium, Weave with policy, Canal). Plugins like Flannel without a policy engine cannot enforce egress rules even if policies exist.",
+        "default": false
+      },
+      "mounted_secret_paths": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Mounted Secret Paths",
+        "description": "List of filesystem paths where secrets, tokens, or credentials are mounted into the container (e.g., /var/run/secrets/kubernetes.io/serviceaccount, /etc/tls, /run/secrets).",
+        "default": []
+      },
+      "secret_mount_scope": {
+        "type": "string",
+        "enum": [
+          "same_zone",
+          "adjacent_zone",
+          "cluster_wide"
+        ],
+        "title": "Secret Mount Scope",
+        "description": "Indicates whether mounted secrets are scoped to the container's own zone or grant access to adjacent trust zones (e.g., cross-namespace service account tokens, cluster-admin credentials, wildcard TLS certificates).",
+        "default": "same_zone"
+      },
+      "read_only_secret_mounts_enforced": {
+        "type": "boolean",
+        "title": "Read-Only Secret Mounts Enforced",
+        "description": "Whether all secret-bearing volume mounts are configured as read-only (readOnly: true). Writable secret mounts increase exposure by allowing credential modification in addition to exfiltration."
+      },
+      "automount_service_account_token": {
+        "type": "boolean",
+        "title": "Service Account Token Auto-Mounted",
+        "description": "Whether the Kubernetes service account token is automatically mounted into the container at the default path (/var/run/secrets/kubernetes.io/serviceaccount). Unnecessary auto-mounting exposes API credentials even when the workload does not require API server access."
+      },
+      "ipc_namespace_mode": {
+        "type": "string",
+        "enum": [
+          "private",
+          "host",
+          "shared_pod",
+          "shareable"
+        ],
+        "title": "IPC Namespace Mode",
+        "description": "The IPC namespace configuration for the container or pod, indicating whether it shares the host IPC namespace, a shared pod namespace, or maintains private isolation.",
+        "default": "private"
+      },
+      "cross_zone_workloads_share_ipc": {
+        "type": "boolean",
+        "title": "Cross-Zone Workloads Share IPC Namespace",
+        "description": "Indicates whether workloads from distinct trust zones (e.g., different security tiers, tenants, or sensitivity levels) are co-located within the same IPC namespace, enabling shared memory and semaphore access across zone boundaries.",
+        "default": false
+      },
+      "seccomp_ipc_syscalls_restricted": {
+        "type": "boolean",
+        "title": "Seccomp Profile Restricts IPC Syscalls",
+        "description": "Indicates whether an active seccomp profile blocks or restricts IPC-related syscalls (shmget, shmat, semget, semop, msgget, msgsnd, msgrcv) for the container, mitigating exploitation even when IPC namespace is shared.",
+        "default": false
+      },
+      "syscall_auditing_enabled": {
+        "type": "boolean",
+        "title": "Syscall Auditing Enabled",
+        "description": "Indicates whether syscall-level auditing (e.g., auditd, seccomp audit mode) is active within or around the container runtime to capture system call activity for lateral movement detection.",
+        "default": false
+      },
+      "ebpf_runtime_monitoring_enabled": {
+        "type": "boolean",
+        "title": "eBPF-Based Runtime Monitoring Enabled",
+        "description": "Indicates whether an eBPF-based behavioral monitoring tool (e.g., Falco with eBPF probe, Tetragon, Cilium Hubble) is deployed and actively observing container runtime behavior including network connections, file access, and process execution.",
+        "default": false
+      },
+      "container_network_flow_logging_enabled": {
+        "type": "boolean",
+        "title": "Container Network Flow Logging Enabled",
+        "description": "Indicates whether network flow logging (e.g., CNI-level flow logs, NetworkPolicy audit logs, or Hubble flow logs) is enabled for inter-container and inter-zone traffic traversing the container boundary.",
+        "default": false
+      },
+      "cpu_limit_enforced": {
+        "type": "boolean",
+        "title": "CPU Limit Enforced",
+        "description": "Indicates whether a CPU limit (cgroup cpu.max or equivalent) is configured and enforced for the container, preventing unbounded CPU consumption that could degrade adjacent workloads or security controls.",
+        "default": false
+      },
+      "memory_limit_enforced": {
+        "type": "boolean",
+        "title": "Memory Limit Enforced",
+        "description": "Indicates whether a memory limit (cgroup memory.max or equivalent) is configured and enforced for the container, preventing memory exhaustion that could degrade adjacent workloads or security controls.",
+        "default": false
+      },
+      "pid_limit_enforced": {
+        "type": "boolean",
+        "title": "PID Limit Enforced",
+        "description": "Indicates whether a PID limit (cgroup pids.max) is configured for the container, preventing PID namespace exhaustion attacks (fork bombs) that could degrade host-level security enforcement.",
+        "default": false
+      }
+    },
+    "required": [
+      "privileged_mode_enabled",
+      "granted_capabilities",
+      "capability_drop_all_enforced",
+      "seccomp_profile_type",
+      "lsm_profile_assigned",
+      "lsm_profile_mode",
+      "read_only_root_filesystem",
+      "network_mode",
+      "host_network_enabled",
+      "network_policy_enforced",
+      "egress_network_policy_enforced",
+      "egress_policy_default_deny",
+      "cni_policy_enforcement_capable",
+      "mounted_secret_paths",
+      "secret_mount_scope",
+      "read_only_secret_mounts_enforced",
+      "automount_service_account_token",
+      "ipc_namespace_mode",
+      "cross_zone_workloads_share_ipc",
+      "seccomp_ipc_syscalls_restricted",
+      "syscall_auditing_enabled",
+      "ebpf_runtime_monitoring_enabled",
+      "container_network_flow_logging_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Kernel Isolation Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/capability_drop_all_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/cross_zone_workloads_share_ipc"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dangerous_syscall_capabilities_added"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/granted_capabilities"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/host_pid_or_ipc_shared"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ipc_namespace_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/privileged_mode_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/seccomp_profile_type"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/lsm_profile_assigned"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/lsm_profile_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/seccomp_ipc_syscalls_restricted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cni_policy_enforcement_capable"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_network_policy_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_policy_default_deny"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/host_network_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/network_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/network_policy_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mounted_secret_paths"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_mount_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/automount_service_account_token"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/read_only_secret_mounts_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/read_only_root_filesystem"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/workload_zone_classification"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/trust_zone_boundary_role"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ebpf_runtime_monitoring_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/syscall_auditing_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/container_network_flow_logging_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cpu_limit_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/memory_limit_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pid_limit_enforced"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

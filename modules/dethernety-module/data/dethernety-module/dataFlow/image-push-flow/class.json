@@ -1,0 +1,8 @@
+{
+  "name": "Image Push Flow",
+  "classType": "dataFlow",
+  "type": "Image Push Flow",
+  "description": "Data in transit from the CI/CD Pipeline Engine to the Container Registry, carrying image layers, manifests, and cryptographic signatures. High sensitivity as the final artifact handoff in the software supply chain before runtime deployment. This flow is the last opportunity to enforce signing and scanning gates.",
+  "category": "Container Infrastructure",
+  "status": "draft"
+}

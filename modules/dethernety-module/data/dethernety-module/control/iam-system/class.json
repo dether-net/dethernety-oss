@@ -1,0 +1,8 @@
+{
+  "name": "IAM System",
+  "classType": "control",
+  "type": "control",
+  "description": "Identity and Access Management (IAM) control that governs authentication, authorization, and policy enforcement across all users and services in multi-zone environments. When properly configured, it delivers centralized visibility, consistent policy application, and automated lifecycle management that collectively reduce unauthorized access pathways and improve auditability.",
+  "category": "Access Control",
+  "status": "reviewed"
+}

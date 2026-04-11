@@ -1,0 +1,84 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "pii_classification_confirmed": false,
+      "mandatory_controls_enforced": false,
+      "automated_expiry_mechanism": "none",
+      "pii_presence_confirmed": "confirmed_present",
+      "pii_anonymization_applied": false,
+      "data_classification_status": "unknown",
+      "access_control_policy_applied": false,
+      "secure_disposal_procedure_defined": false,
+      "server_jurisdiction": "EU",
+      "transfer_impact_assessment_completed": false,
+      "retention_boundary_defined": false,
+      "maximum_retention_period_defined": false,
+      "retention_period_defined": false,
+      "storage_retention_boundary_defined": true,
+      "disposal_method": "none"
+    },
+    "expectedExposures": [
+      "Missing Pii Anonymization Or Masking",
+      "Undefined Temporary Retention Boundary",
+      "Ambiguous Classification Enforcement",
+      "Insufficient Access Control For Unclassified Data",
+      "Cross Border Transfer Compliance Gap",
+      "Inadequate Disposal Procedure For Transient Data"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "mandatory_controls_enforced": true,
+      "retention_boundary_defined": true,
+      "maximum_retention_period_defined": true,
+      "automated_expiry_mechanism": "ttl_policy",
+      "pii_anonymization_applied": true,
+      "access_control_policy_applied": true,
+      "secure_disposal_procedure_defined": true,
+      "retention_period_defined": true,
+      "transfer_impact_assessment_completed": true,
+      "pii_classification_confirmed": "unclassified",
+      "pii_presence_confirmed": "unclassified",
+      "data_classification_status": "unknown",
+      "storage_retention_boundary_defined": true,
+      "disposal_method": "none",
+      "server_jurisdiction": "unknown"
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "pii_classification_confirmed": false,
+      "mandatory_controls_enforced": true,
+      "retention_boundary_defined": true,
+      "maximum_retention_period_defined": true,
+      "automated_expiry_mechanism": "none",
+      "pii_anonymization_applied": true,
+      "pii_presence_confirmed": "confirmed_present",
+      "retention_period_defined": true,
+      "data_classification_status": "unknown",
+      "access_control_policy_applied": true,
+      "storage_retention_boundary_defined": true,
+      "secure_disposal_procedure_defined": true,
+      "disposal_method": "none",
+      "server_jurisdiction": "EU",
+      "transfer_impact_assessment_completed": true
+    },
+    "expectedExposures": []
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Ambiguous Classification Enforcement",
+      "Inadequate Disposal Procedure For Transient Data"
+    ]
+  }
+]

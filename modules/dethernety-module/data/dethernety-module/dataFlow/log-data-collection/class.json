@@ -1,0 +1,8 @@
+{
+  "name": "Log Data Collection",
+  "classType": "dataFlow",
+  "type": "dataFlow",
+  "description": "System log flows from internal services to a monitoring service present multiple transit vulnerabilities. Logs often carry sensitive operational data, error messages, and credentials-in-clear that make them high-value interception targets. Key concerns include unencrypted transport, weak or absent mutual TLS, log injection via malformed messages, replay attacks on buffered log streams, and lack of integrity guarantees allowing silent log tampering or deletion in transit.",
+  "category": "Operational Traffic",
+  "status": "reviewed"
+}

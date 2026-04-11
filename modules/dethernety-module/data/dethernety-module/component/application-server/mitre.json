@@ -1,0 +1,173 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1190",
+      "name": "Exploit Public-Facing Application",
+      "relevance": "Unauthenticated management endpoints are directly exploitable public-facing attack surfaces."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1595",
+      "name": "Active Scanning",
+      "relevance": "Attackers actively scan for exposed management endpoints to identify unauthenticated access points."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1040",
+      "name": "Network Sniffing",
+      "relevance": "Without TLS enforcement, plaintext traffic on inbound connections is vulnerable to interception via network sniffing."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.010",
+      "name": "Downgrade Attack",
+      "relevance": "Weak or default TLS configurations enable downgrade attacks that force use of weaker cipher suites or protocol versions."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1600",
+      "name": "Weaken Encryption",
+      "relevance": "Default or misconfigured TLS settings directly weaken encryption strength, aligning with this technique."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1068",
+      "name": "Exploitation for Privilege Escalation",
+      "relevance": "Processes with excessive OS privileges provide an elevated foothold that attackers exploit to escalate privileges further."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.001",
+      "name": "Credentials In Files",
+      "relevance": "Secrets stored in plaintext on disk are directly targeted by credential harvesting from files."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552",
+      "name": "Unsecured Credentials",
+      "relevance": "Plaintext secrets in environment variables or disk represent unsecured credentials that adversaries search for."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.008",
+      "name": "Disable or Modify Cloud Logs",
+      "relevance": "Missing or incomplete logging is analogous to disabled/modified logs, preventing detection of malicious activity."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.006",
+      "name": "Indicator Blocking",
+      "relevance": "Incomplete logging results in blocking of indicators that would otherwise surface attacker activity."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1654",
+      "name": "Log Enumeration",
+      "relevance": "Attackers enumerate logs to harvest sensitive data that has leaked into log output."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1589.001",
+      "name": "Credentials",
+      "relevance": "Sensitive data leaked in logs often includes credentials that adversaries collect for reconnaissance or access."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1210",
+      "name": "Exploitation of Remote Services",
+      "relevance": "Known vulnerabilities in unpatched runtimes are exploited to compromise remote services."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1046",
+      "name": "Network Service Discovery",
+      "relevance": "Services bound to all interfaces are more easily discovered by adversaries scanning for network services."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1599",
+      "name": "Network Boundary Bridging",
+      "relevance": "Overly permissive network binding can bridge internal and external network boundaries, enabling lateral movement."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1499.003",
+      "name": "Application Exhaustion Flood",
+      "relevance": "Without rate limiting, applications are vulnerable to exhaustion floods that overwhelm application-layer resources."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1499.002",
+      "name": "Service Exhaustion Flood",
+      "relevance": "Missing throttling allows service exhaustion attacks that degrade or deny service availability."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1001.003",
+      "name": "Protocol or Service Impersonation",
+      "relevance": "Without mutual TLS, services cannot verify peer identity, enabling impersonation of legitimate services."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1572",
+      "name": "Protocol Tunneling",
+      "relevance": "Absence of mTLS allows attackers to intercept or tunnel through inter-service communication undetected."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1606",
+      "name": "Forge Web Credentials",
+      "relevance": "JWT validation misconfigurations allow attackers to forge or manipulate web tokens to gain unauthorized access."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1550",
+      "name": "Use Alternate Authentication Material",
+      "relevance": "Misconfigured token validation enables use of crafted or stolen tokens as alternate authentication material."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1008",
+      "name": "Fallback Channels",
+      "relevance": "Lack of circuit breaker configuration leaves no controlled fallback, mirroring the resilience gap exploited by fallback channel techniques."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1505",
+      "name": "Server Software Component",
+      "relevance": "Debug mode in production may expose server internals or enable persistent backdoor-like access through server components."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1622",
+      "name": "Debugger Evasion",
+      "relevance": "Debug endpoints in production can be leveraged by attackers who are aware of debugging interfaces to inspect or manipulate application state."
+    }
+  ],
+  "respondsWith": []
+}

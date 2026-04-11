@@ -16,6 +16,10 @@ enum ComponentType {
   SECURITY_BOUNDARY
   "A data flow connection between components"
   DATA_FLOW
+  "A data class"
+  DATA
+  "A control class"
+  CONTROL
 }
 
 """Class label identifying which node type to match against."""

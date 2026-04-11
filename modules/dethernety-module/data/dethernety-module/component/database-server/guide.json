@@ -1,0 +1,1053 @@
+[
+  {
+    "option_name": "default_credentials_present",
+    "option_description": "Controls whether any database account retains a known default username/password combination shipped with the database engine (e.g., MySQL root/'', MSSQL sa/sa, PostgreSQL postgres/postgres, MongoDB admin/admin). This is a binary indicator that at least one such account exists in an exploitable state.",
+    "security_impact": "The Rego policy fires the 'default_or_weak_database_credentials' exposure immediately when input.default_credentials_present == true. Because default credentials are publicly documented and included in automated attack toolkits and credential stuffing lists (MITRE T1110.001, T1110.004), any attacker who can reach the database port can authenticate without any brute-force effort. This is a high-criticality, score-8 finding.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Attempt authentication with known default credential pairs for the identified engine. For MySQL, try root with blank password and 'root'; for MSSQL try sa/sa; for PostgreSQL try postgres/postgres; for MongoDB try admin/admin.",
+        "command": "mysql -h <host> -u root --password='' -e 'SELECT 1;' 2>&1; mysql -h <host> -u root -proot -e 'SELECT 1;' 2>&1; psql -h <host> -U postgres -c '\\l' 2>&1; sqlcmd -S <host> -U sa -P sa -Q 'SELECT 1' 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful query result (e.g., '1 row in set') confirms default credentials are present; an 'Access denied' or authentication error confirms they are not."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the database user table directly (when authenticated via a privileged account) to list all accounts and flag any with default usernames.",
+        "command": "mysql -e \"SELECT user, host, authentication_string FROM mysql.user WHERE user IN ('root','admin','test','mysql') ORDER BY user;\"; psql -U postgres -c \"SELECT usename, passwd FROM pg_shadow WHERE usename IN ('postgres','admin','test');\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of entries for known default usernames in the result set. For MySQL, a blank or easily recognisable hash in authentication_string indicates a default or empty password."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review database initialisation or bootstrap scripts and infrastructure-as-code definitions (Terraform, Ansible, Helm values) for hardcoded default credentials passed at install time.",
+        "command": "grep -rn 'MYSQL_ROOT_PASSWORD\\|POSTGRES_PASSWORD\\|SA_PASSWORD\\|admin.*password' /etc/ansible/ /opt/terraform/ /helm/ ~/.kube/ 2>/dev/null",
+        "file_path": "/etc/mysql/mysql.conf.d/mysqld.cnf, /etc/postgresql/<ver>/main/pg_hba.conf, docker-compose.yml, .env",
+        "navigation": null,
+        "expected_output": "Presence of default password values such as empty strings, 'root', 'postgres', or 'sa' in environment variable or configuration stanzas."
+      },
+      {
+        "type": "gui",
+        "instruction": "For MSSQL, use SQL Server Management Studio (SSMS): connect with sa/sa or sa/<blank>, navigate to Security > Logins, right-click the 'sa' account and check if it is enabled and whether the password matches the default.",
+        "command": null,
+        "file_path": null,
+        "navigation": "SSMS > Connect > Server Name: <host> > Authentication: SQL Server Authentication > Login: sa > Password: sa > Connect; then expand Security > Logins > sa > Properties > Status",
+        "expected_output": "Successful connection to SSMS confirms the sa default credential is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (fresh/unhardenened install)",
+      "false (hardened deployment)"
+    ]
+  },
+  {
+    "option_name": "weak_credential_accounts",
+    "option_description": "An array listing the usernames of every database account found to authenticate with a trivially guessable password — including blank passwords, passwords identical to the username, or common dictionary values such as 'password', '123456', 'admin', 'changeme'. Each entry represents a distinct compromisable account.",
+    "security_impact": "The Rego policy fires 'default_or_weak_database_credentials' whenever count(input.weak_credential_accounts) > 0. Even a single weak-credential account enables immediate unauthorised access via password guessing (T1110.001) or credential stuffing (T1110.004). Application service accounts with weak credentials are especially damaging because they typically hold broad data-access privileges.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run a targeted credential audit against the database using a curated list of trivial passwords for every known account. The following iterates over MySQL users and tests blank and username-as-password patterns.",
+        "command": "mysql -h <host> -e \"SELECT user FROM mysql.user;\" -u root -p 2>/dev/null | tail -n +2 | while read u; do mysql -h <host> -u \"$u\" --password='' -e 'SELECT 1;' 2>/dev/null && echo \"WEAK: $u blank\"; mysql -h <host> -u \"$u\" -p\"$u\" -e 'SELECT 1;' 2>/dev/null && echo \"WEAK: $u=username\"; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines prefixed 'WEAK:' identify accounts with trivially guessable passwords. An empty output means no weak accounts were found with those patterns."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Medusa or Hydra with a small targeted password list (blank, username, 'password', '123456', 'admin', 'changeme') against the database port to identify weak-credential accounts across all engines.",
+        "command": "medusa -h <host> -U /tmp/db_users.txt -P /tmp/trivial_passwords.txt -M mysql -t 4 2>/dev/null; hydra -L /tmp/db_users.txt -P /tmp/trivial_passwords.txt <host> postgres 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Medusa/Hydra output lines showing '[SUCCESS]' with a username and password identify weak-credential accounts to be added to this array."
+      },
+      {
+        "type": "command",
+        "instruction": "For PostgreSQL, query pg_shadow to identify accounts with MD5 hashes matching known trivial passwords by checking the hash format against pre-computed values.",
+        "command": "psql -U postgres -c \"SELECT usename, passwd FROM pg_shadow WHERE passwd = 'md5' || md5(usename || usename) OR passwd = 'md5' || md5('' || usename) OR passwd IN ('md5' || md5('password' || usename), 'md5' || md5('admin' || usename), 'md5' || md5('changeme' || usename));\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rows returned identify account usernames that have weak or username-matching passwords; these usernames populate the weak_credential_accounts array."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the database administrator and application team to identify service accounts created during application deployment, and request the credential provisioning records or secrets-manager entries for each account to verify whether rotation and complexity requirements were applied.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A list of service account usernames confirmed by the team to have been provisioned without strong randomly generated passwords."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[] (no weak accounts — desired state)",
+      "['app_user', 'reporting'] (accounts with weak creds found)",
+      "['root', 'admin', 'test'] (multiple default-named accounts with weak passwords)"
+    ]
+  },
+  {
+    "option_name": "password_policy_enforced",
+    "option_description": "Indicates whether the database engine has a built-in password complexity and minimum-length enforcement mechanism enabled and actively applied to all accounts. Examples include MySQL's validate_password plugin/component, MSSQL's CHECK_POLICY=ON per login, and PostgreSQL's passwordcheck extension.",
+    "security_impact": "The Rego policy fires 'default_or_weak_database_credentials' when 'not input.password_policy_enforced', meaning an absent or null value triggers the high-criticality finding. Without a native policy, nothing prevents administrators or applications from setting trivially guessable passwords, leaving the door open for T1110.001 (Password Guessing) and T1110.002 (Password Cracking) attacks.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For MySQL/MariaDB, check whether the validate_password plugin or component is loaded and inspect its policy variables.",
+        "command": "mysql -u root -p -e \"SHOW PLUGINS LIKE 'validate_password%'; SHOW VARIABLES LIKE 'validate_password%';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Plugin status 'ACTIVE' and variables such as validate_password_policy=MEDIUM/STRONG with validate_password_length>=8 confirm the policy is enforced. An empty result or 'DISABLED' status means it is not."
+      },
+      {
+        "type": "command",
+        "instruction": "For PostgreSQL, verify the passwordcheck extension is loaded in shared_preload_libraries and that cracklib-based checking is active.",
+        "command": "psql -U postgres -c \"SHOW shared_preload_libraries;\" ; psql -U postgres -c \"SELECT * FROM pg_available_extensions WHERE name = 'passwordcheck';\"",
+        "file_path": "/etc/postgresql/<version>/main/postgresql.conf",
+        "navigation": null,
+        "expected_output": "shared_preload_libraries output containing 'passwordcheck' confirms the extension is loaded. The pg_available_extensions query shows if it is available but not necessarily loaded — the postgresql.conf check is authoritative."
+      },
+      {
+        "type": "command",
+        "instruction": "For MSSQL, query sys.sql_logins to determine whether CHECK_POLICY is enabled for all SQL authentication accounts.",
+        "command": "sqlcmd -S <host> -U sa -P <password> -Q \"SELECT name, is_policy_checked, is_expiration_checked FROM sys.sql_logins WHERE is_disabled = 0 ORDER BY name;\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All rows should show is_policy_checked=1 and is_expiration_checked=1. Any row with 0 values indicates that account bypasses the OS password policy."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the MySQL configuration file for validate_password settings and the PostgreSQL configuration file for the shared_preload_libraries entry.",
+        "command": "grep -E 'validate_password|plugin-load|shared_preload_libraries|passwordcheck' /etc/mysql/mysql.conf.d/mysqld.cnf /etc/mysql/conf.d/*.cnf /etc/postgresql/*/main/postgresql.conf 2>/dev/null",
+        "file_path": "/etc/mysql/mysql.conf.d/mysqld.cnf, /etc/postgresql/<version>/main/postgresql.conf",
+        "navigation": null,
+        "expected_output": "Lines such as 'plugin-load-add=validate_password.so' (MySQL) or 'shared_preload_libraries = passwordcheck' (PostgreSQL) confirm the policy mechanism is configured at engine startup."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (hardened/compliance environment)",
+      "false (default install, minimal configuration)",
+      "null (policy state unknown or not assessed)"
+    ]
+  },
+  {
+    "option_name": "database_engine",
+    "option_description": "Identifies the specific database software in use (e.g., mysql, postgresql, mssql, mongodb, redis). This contextual attribute determines which default credential pairs, authentication parameters, TLS configuration directives, and privileged-feature checks apply during assessment. It is referenced by multiple Rego rules as context for engine-specific checks.",
+    "security_impact": "This is a CONTEXTUAL_EVIDENCE attribute consumed by rules including 'default_or_weak_database_credentials', 'anonymous_or_unauthenticated_access_enabled', 'unnecessary_database_features_or_plugins_enabled', and 'os_level_database_process_running_as_privileged_user'. An incorrect or missing engine value causes the assessment to apply wrong default-credential pairs and miss engine-specific hardening checks, producing both false negatives and false positives.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the running database process and its version from the OS process table and service banners.",
+        "command": "ps aux | grep -E 'mysqld|postgres|sqlservr|mongod|redis-server|cassandra|elasticsearch' | grep -v grep; ss -tlnp | grep -E '3306|5432|1433|27017|6379|9042|9200'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Process names such as 'mysqld', 'postgres', 'sqlservr', 'mongod', 'redis-server' directly identify the engine. Port numbers provide secondary confirmation (3306=MySQL, 5432=PostgreSQL, 1433=MSSQL, 27017=MongoDB, 6379=Redis, 9042=Cassandra, 9200=Elasticsearch)."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the database version string via the appropriate client tool to confirm the engine and precise version number.",
+        "command": "mysql -h <host> -u root -p -e 'SELECT VERSION();' 2>/dev/null; psql -h <host> -U postgres -c 'SELECT version();' 2>/dev/null; sqlcmd -S <host> -Q 'SELECT @@VERSION' 2>/dev/null; mongosh <host>/admin --eval 'db.version()' 2>/dev/null; redis-cli -h <host> INFO server | grep redis_version 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version string output such as '8.0.36 MySQL Community Server', 'PostgreSQL 15.4', or 'Microsoft SQL Server 2019' unambiguously identifies the engine."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect package manager records or binary paths to identify installed database software, particularly useful when the service is not currently running.",
+        "command": "dpkg -l | grep -E 'mysql|postgresql|mssql|mongodb|redis|cassandra|elasticsearch' 2>/dev/null; rpm -qa | grep -E 'mysql|postgresql|mssql|mongodb|redis|cassandra|elasticsearch' 2>/dev/null; ls /opt/ | grep -E 'mysql|pgsql|mssql|mongo|redis|cassandra|elastic'",
+        "file_path": "/etc/mysql/, /etc/postgresql/, /var/opt/mssql/, /etc/mongod.conf, /etc/redis/, /etc/cassandra/, /etc/elasticsearch/",
+        "navigation": null,
+        "expected_output": "Package names and installation directories confirm which database engine is installed. Multiple entries may indicate co-installed engines, each requiring separate assessment."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap with service and version detection to fingerprint the database engine from network service banners.",
+        "command": "nmap -sV -p 3306,5432,1433,27017,6379,9042,9200,7000 --script=banner <host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "nmap output lines such as '3306/tcp open mysql MySQL 8.0.36' or '5432/tcp open postgresql PostgreSQL DB 15.4' identify the engine and version without requiring credentials."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "mysql",
+      "postgresql",
+      "mssql",
+      "mongodb",
+      "redis",
+      "other"
+    ]
+  },
+  {
+    "option_name": "tls_enabled",
+    "option_description": "Indicates whether the database listener has TLS/SSL support compiled in and activated, meaning the server is capable of accepting encrypted connections. This does not necessarily mean TLS is required — see tls_enforcement_mode — but confirms the cryptographic capability is present and configured.",
+    "security_impact": "The Rego policy fires 'unencrypted_client_connections' when 'not input.tls_enabled'. Without TLS, all credentials, query payloads, and result sets — including PII and financial records — traverse the network in cleartext, directly exploitable via passive network sniffing (MITRE T1040) on any shared or cloud network segment. This is a high-criticality, score-8 finding.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For MySQL, check the ssl_cipher and have_ssl runtime variables to confirm TLS is compiled in and active.",
+        "command": "mysql -h <host> -u root -p -e \"SHOW VARIABLES LIKE 'have_ssl'; SHOW VARIABLES LIKE 'ssl_cipher'; SHOW VARIABLES LIKE 'require_secure_transport';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "have_ssl=YES and a non-empty ssl_cipher value confirm TLS is enabled. have_ssl=DISABLED or EMPTY means TLS is not active."
+      },
+      {
+        "type": "command",
+        "instruction": "For PostgreSQL, check the ssl runtime parameter and verify the server is presenting a certificate.",
+        "command": "psql -h <host> -U postgres -c 'SHOW ssl;' ; psql -h <host> -U postgres -c 'SELECT ssl, version FROM pg_stat_ssl LIMIT 5;'",
+        "file_path": "/etc/postgresql/<version>/main/postgresql.conf",
+        "navigation": null,
+        "expected_output": "ssl=on from SHOW ssl confirms TLS is enabled. Rows in pg_stat_ssl with ssl=t for active connections confirm it is functioning."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a TLS handshake against the database port using openssl s_client to confirm the server presents a certificate and TLS is active.",
+        "command": "openssl s_client -connect <host>:5432 -starttls postgres 2>&1 | head -30; openssl s_client -connect <host>:3306 -starttls mysql 2>&1 | head -30; openssl s_client -connect <host>:27017 2>&1 | head -30",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'Certificate chain' section and 'SSL handshake has read' line in the output confirm TLS is enabled. 'SSL_connect:error' or connection refusal after STARTTLS indicates TLS is not enabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the database configuration file for TLS-related directives and verify certificate files exist on disk.",
+        "command": "grep -E 'ssl|tls|certificate|require_secure_transport|ForceEncryption' /etc/mysql/mysql.conf.d/mysqld.cnf /etc/postgresql/*/main/postgresql.conf /etc/mongod.conf 2>/dev/null; ls -la /etc/ssl/certs/db* /etc/postgresql/*/main/server.crt /etc/mysql/ssl/ 2>/dev/null",
+        "file_path": "/etc/mysql/mysql.conf.d/mysqld.cnf, /etc/postgresql/<version>/main/postgresql.conf, /etc/mongod.conf",
+        "navigation": null,
+        "expected_output": "Presence of 'ssl=on', 'require_secure_transport=ON', or 'tls.mode: requireTLS' alongside existing certificate files confirms TLS is configured and enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (cloud-managed databases, hardened on-prem)",
+      "false (legacy deployments, internal-only assumption, default Redis/MongoDB installs)"
+    ]
+  },
+  {
+    "option_name": "tls_enforcement_mode",
+    "option_description": "Describes how strictly TLS is enforced for incoming client connections: 'disabled' means no TLS support; 'optional' means TLS is available but plaintext connections are accepted as fallback; 'required' means every client must use TLS or the connection is rejected. This distinguishes between TLS being available versus mandated.",
+    "security_impact": "The Rego policy fires 'unencrypted_client_connections' when tls_enforcement_mode is 'disabled' OR 'optional'. An 'optional' mode is nearly as dangerous as 'disabled' because misconfigured clients, legacy applications, or an attacker performing a TLS downgrade can trivially establish cleartext sessions. Only 'required' fully protects credentials and data in transit from T1040 (Network Sniffing). This is a high-criticality, score-8 finding.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For PostgreSQL, inspect pg_hba.conf for 'hostssl' versus 'host' entries. 'host' lines allow non-SSL connections; only 'hostssl' entries enforce TLS per-connection.",
+        "command": "cat /etc/postgresql/*/main/pg_hba.conf | grep -v '^#' | grep -v '^$'; psql -U postgres -c 'SHOW ssl;' ; psql -U postgres -c \"SHOW ssl_cert_file;\"",
+        "file_path": "/etc/postgresql/<version>/main/pg_hba.conf, /etc/postgresql/<version>/main/postgresql.conf",
+        "navigation": null,
+        "expected_output": "If all non-local entries use 'hostssl', enforcement is 'required'. If any 'host' entry exists for a non-local address, enforcement is 'optional' at best."
+      },
+      {
+        "type": "command",
+        "instruction": "For MySQL, check the require_secure_transport variable; for MSSQL, check the ForceEncryption registry key or configuration manager setting.",
+        "command": "mysql -h <host> -u root -p -e \"SHOW VARIABLES LIKE 'require_secure_transport';\"; reg query 'HKLM\\SOFTWARE\\Microsoft\\Microsoft SQL Server\\MSSQL15.MSSQLSERVER\\MSSQLServer\\SuperSocketNetLib' /v ForceEncryption 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "require_secure_transport=ON maps to 'required'. ForceEncryption=1 in the registry maps to 'required'. OFF/0 values with TLS enabled map to 'optional'."
+      },
+      {
+        "type": "command",
+        "instruction": "For MongoDB, inspect the net.tls.mode setting in mongod.conf; for Redis, check the tls-port and tls-auth-clients directives.",
+        "command": "grep -E 'mode:|tls-auth-clients|requireTLS|allowTLS|preferTLS' /etc/mongod.conf /etc/redis/redis.conf 2>/dev/null",
+        "file_path": "/etc/mongod.conf, /etc/redis/redis.conf",
+        "navigation": null,
+        "expected_output": "MongoDB net.tls.mode: requireTLS maps to 'required'; allowTLS/preferTLS maps to 'optional'; disabled maps to 'disabled'. Redis tls-auth-clients yes with tls-port set and no plaintext port maps to 'required'."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a plaintext (non-TLS) connection to the database port while TLS is supposedly required; a successful plaintext connection confirms enforcement is 'optional' or 'disabled'.",
+        "command": "mysql -h <host> -u <user> -p --ssl-mode=DISABLED -e 'SELECT 1;' 2>&1; psql 'host=<host> user=postgres sslmode=disable' -c 'SELECT 1;' 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'1 row' returned on a plaintext connection confirms enforcement is 'optional'. An error such as 'SSL connection is required' or 'pg_hba.conf rejects connection' confirms 'required' mode."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "optional (most default installs where TLS is enabled but not mandatory)",
+      "required (hardened/PCI-DSS compliant environments)",
+      "disabled (legacy or internal-only deployments without TLS configured)"
+    ]
+  },
+  {
+    "option_name": "plaintext_port_open",
+    "option_description": "Indicates whether the database server is actively listening on a TCP port that accepts unencrypted (plaintext) client connections. This is distinct from TLS being disabled globally — some configurations run TLS on a separate port (e.g., Redis tls-port 6380) while leaving the standard plaintext port (6379) open simultaneously.",
+    "security_impact": "The Rego policy fires 'unencrypted_client_connections' when input.plaintext_port_open == true. An open plaintext port means any client — including attackers — can establish unencrypted sessions regardless of TLS configuration elsewhere. This directly enables credential and data interception via network sniffing (T1040). Combined with optional TLS enforcement, it guarantees at least some traffic will be unprotected.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Scan the database host for standard plaintext database ports and attempt a non-TLS client connection to confirm the port accepts plaintext traffic.",
+        "command": "nmap -sT -p 3306,5432,1433,27017,6379,9042,9200 <host> --open; nc -zv <host> 3306 2>&1; nc -zv <host> 5432 2>&1; nc -zv <host> 6379 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Nmap showing 'open' on a standard database port confirms the port is accepting TCP connections. Successful netcat connection shows the port is reachable and likely accepts plaintext."
+      },
+      {
+        "type": "command",
+        "instruction": "On the database host, list all listening sockets to identify which ports are open and which process owns them.",
+        "command": "ss -tlnp | grep -E '3306|5432|1433|27017|6379|9042|9200|1521'; netstat -tlnp 2>/dev/null | grep -E 'mysqld|postgres|sqlservr|mongod|redis'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'LISTEN' state on standard database ports confirms the plaintext listener is active. If only a TLS-specific port is shown (e.g., 5433 for PostgreSQL TLS-only), the plaintext port may be closed."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a client connection explicitly disabling TLS to confirm whether the server accepts plaintext on the standard port.",
+        "command": "mysql -h <host> -P 3306 -u <user> -p --ssl-mode=DISABLED -e 'SELECT 1;' 2>&1; psql 'host=<host> port=5432 user=postgres sslmode=disable dbname=postgres' -c 'SELECT 1;' 2>&1; redis-cli -h <host> -p 6379 PING 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful query response ('1 row', 'PONG') over a no-TLS connection confirms the plaintext port is open and accepting unencrypted traffic."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the database configuration to determine if the standard plaintext port is disabled or redirected to TLS-only, particularly for Redis and MongoDB which support dual-port configurations.",
+        "command": "grep -E '^port|^tls-port|^tls-auth-clients|bindIp|net.port|net.tls' /etc/redis/redis.conf /etc/mongod.conf 2>/dev/null; grep -E 'bind-address|port|socket' /etc/mysql/mysql.conf.d/mysqld.cnf 2>/dev/null",
+        "file_path": "/etc/redis/redis.conf, /etc/mongod.conf, /etc/mysql/mysql.conf.d/mysqld.cnf",
+        "navigation": null,
+        "expected_output": "Redis 'port 0' with only 'tls-port' defined confirms plaintext port is closed. MongoDB 'net.tls.mode: requireTLS' with a single port confirms TLS-only. Any non-zero value for the standard plaintext port confirms it is open."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (default configuration for all major database engines)",
+      "false (explicitly hardened TLS-only deployment or port disabled in config)"
+    ]
+  },
+  {
+    "option_name": "encryption_at_rest_enabled",
+    "option_description": "Indicates whether the database engine or its underlying storage layer has Transparent Data Encryption (TDE) or an equivalent mechanism enabled, encrypting database files, tablespaces, WAL/redo logs, and temporary files at the storage level. This protects data from direct filesystem access bypassing the database authentication layer.",
+    "security_impact": "The Rego policy fires 'unencrypted_data_at_rest' when both 'not input.encryption_at_rest_enabled' and 'input.storage_volume_encryption_type == none' are true. Without at-rest encryption, anyone with OS-level filesystem or storage access — including insiders, cloud provider staff, or attackers who have compromised the host but not the database — can read raw data pages containing PII and financial records (MITRE T1213.006, T1565.001). This is a high-criticality, score-8 finding with regulatory implications under GDPR and PCI-DSS.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For MySQL InnoDB, check whether tablespace encryption is enabled and verify that existing tables use encrypted tablespaces.",
+        "command": "mysql -u root -p -e \"SHOW VARIABLES LIKE 'innodb_encrypt%'; SELECT TABLE_SCHEMA, TABLE_NAME, CREATE_OPTIONS FROM information_schema.TABLES WHERE CREATE_OPTIONS LIKE '%ENCRYPTION%'; SELECT @@innodb_file_per_table;\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "innodb_encrypt_tables=ON and rows showing ENCRYPTION=Y in CREATE_OPTIONS confirm at-rest encryption is enabled. No ENCRYPTION entries or the variable set to OFF indicates unencrypted storage."
+      },
+      {
+        "type": "command",
+        "instruction": "For MSSQL, query sys.databases to determine which databases have TDE enabled.",
+        "command": "sqlcmd -S <host> -U sa -P <password> -Q \"SELECT name, is_encrypted FROM sys.databases; SELECT db_name(database_id), encryption_state, encryption_state_desc, percent_complete FROM sys.dm_database_encryption_keys;\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "is_encrypted=1 and encryption_state_desc='ENCRYPTION_ON' confirm TDE is active for each database. encryption_state=0 or missing rows in dm_database_encryption_keys indicate unencrypted databases."
+      },
+      {
+        "type": "command",
+        "instruction": "For PostgreSQL, check for pg_tde extension or filesystem-level encryption; for Oracle, query V$ENCRYPTION_WALLET and V$ENCRYPTED_TABLESPACES.",
+        "command": "psql -U postgres -c \"SELECT name, setting FROM pg_settings WHERE name LIKE '%encrypt%' OR name LIKE '%tde%'; SELECT * FROM pg_available_extensions WHERE name LIKE '%tde%' OR name LIKE '%crypt%';\"; sqlplus -S / as sysdba <<< 'SELECT * FROM V\\$ENCRYPTION_WALLET; SELECT TABLESPACE_NAME, ENCRYPTED FROM DBA_TABLESPACES;'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PostgreSQL native TDE (pg_tde extension) showing as installed and active, or Oracle V$ENCRYPTION_WALLET showing STATUS=OPEN with encrypted tablespaces, confirms at-rest encryption. Empty results indicate no TDE."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For MongoDB, inspect the mongod.conf for WiredTiger encryption-at-rest settings; for Elasticsearch, check the elasticsearch.yml for native encryption or verify the underlying volume encryption.",
+        "command": "grep -A5 'security:\\|encryptionAtRest\\|keyManagement' /etc/mongod.conf 2>/dev/null; grep -E 'xpack.security|encrypted' /etc/elasticsearch/elasticsearch.yml 2>/dev/null; lsblk -o NAME,FSTYPE,MOUNTPOINT,SIZE | grep crypt; dmsetup ls --target crypt 2>/dev/null",
+        "file_path": "/etc/mongod.conf, /etc/elasticsearch/elasticsearch.yml",
+        "navigation": null,
+        "expected_output": "MongoDB 'security.enableEncryption: true' with a keyManagement block confirms TDE is enabled. dmsetup output showing 'crypt' type devices confirms volume-level encryption is active, which can satisfy this control if it covers all database files."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default for self-managed MySQL, PostgreSQL, MongoDB installations)",
+      "true (MSSQL Enterprise with TDE configured, cloud-managed databases with storage encryption enabled, or explicitly hardened deployments)"
+    ]
+  },
+  {
+    "option_name": "least_privilege_review_performed",
+    "option_description": "Controls whether a formal, documented least-privilege access review has been conducted for application service accounts, confirming that granted database privileges are scoped exclusively to what the application requires.",
+    "security_impact": "The Rego policy flags overprivileged_database_accounts when DROP or global/database-scoped privileges exist and least_privilege_review_performed is false. Without a documented review, accounts accumulate excessive permissions over time; a compromised application credential then enables full data exfiltration, schema destruction, or privilege escalation (MITRE T1078, T1098).",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Request the access review artifact from the GRC or IAM team. Look for a dated document or ticket (Jira, ServiceNow) that maps each service account's database grants to a business justification, signed off by an application owner.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dated access review record listing the service account name, current privileges, application requirement justification, and approver signature within the last 12 months."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the database directly to enumerate service account privileges and compare against the expected minimal set documented in the review artifact.",
+        "command": "mysql -u root -p -e \"SHOW GRANTS FOR 'app_user'@'%';\" # MySQL/MariaDB\n# PostgreSQL equivalent:\npsql -U postgres -c \"\\dp\" && psql -U postgres -c \"SELECT grantee, privilege_type, table_schema, table_name FROM information_schema.role_table_grants WHERE grantee='app_user';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A privilege list that matches the documented minimal set (e.g., SELECT, INSERT on specific tables only); any GRANT ALL, DROP, or SUPERUSER indicator without documentation means the review has not been performed or is stale."
+      },
+      {
+        "type": "api",
+        "instruction": "For cloud-managed databases, query the IAM policy via cloud provider API to retrieve service account role bindings and compare against least-privilege baselines.",
+        "command": "# AWS RDS IAM role check:\naws iam list-attached-role-policies --role-name rds-app-service-role\naws iam get-policy-version --policy-arn <arn> --version-id v1\n# GCP Cloud SQL:\ngcloud projects get-iam-policy <project-id> --format=json | jq '.bindings[] | select(.members[] | contains(\"serviceAccount:app@\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IAM policy output showing only the minimum required permissions (e.g., cloudsql.instances.connect) without broad admin or owner roles."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "audit_logging_enabled",
+    "option_description": "Controls whether the database engine's native audit subsystem is active at the instance or cluster level, recording database events to a persistent audit trail for forensic and compliance purposes.",
+    "security_impact": "The Rego policy triggers audit_logging_disabled_or_incomplete immediately when audit_logging_enabled is false, regardless of other settings. Without audit logging, there is no forensic record of authentication attempts, privilege escalations, or data access events, undermining breach investigation and violating PCI-DSS, GDPR, and HIPAA requirements (MITRE T1562.008, T1562.012).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For PostgreSQL, check the pgaudit extension and logging GUC parameters at the server level.",
+        "command": "psql -U postgres -c \"SHOW pgaudit.log;\" && psql -U postgres -c \"SELECT name, setting FROM pg_settings WHERE name LIKE '%audit%' OR name LIKE '%log%';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "pgaudit.log should return a non-empty value (e.g., 'all' or 'ddl, role, read, write'); if pgaudit is not installed or pgaudit.log is empty, audit logging is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "For MySQL/MariaDB, verify the audit_log plugin is loaded and the audit policy is configured.",
+        "command": "mysql -u root -p -e \"SHOW PLUGINS LIKE 'audit%'; SHOW VARIABLES LIKE 'audit_log%';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Plugin status should be ACTIVE and audit_log_policy should not be NONE; audit_log_file should point to a non-null path."
+      },
+      {
+        "type": "command",
+        "instruction": "For SQL Server, enumerate configured server audits and their enabled state.",
+        "command": "sqlcmd -S localhost -Q \"SELECT name, is_state_enabled, audit_file_path FROM sys.server_audits; SELECT * FROM sys.server_audit_specifications;\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one audit object should exist with is_state_enabled = 1 and a valid audit_file_path."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For MongoDB, inspect the mongod.conf for the auditLog section to verify audit logging is configured.",
+        "command": null,
+        "file_path": "/etc/mongod.conf",
+        "navigation": null,
+        "expected_output": "The auditLog section should be present with a non-null destination (file or syslog) and a filter that captures relevant operations; absence of the auditLog block means auditing is disabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "audited_event_categories",
+    "option_description": "Defines the specific event categories captured by the audit log configuration. The policy requires at minimum: authentication, privilege_escalation, ddl, and sensitive_table_access to be present for an audit configuration to be considered complete.",
+    "security_impact": "The Rego policy individually checks for each of the four required categories (authentication, privilege_escalation, ddl, sensitive_table_access) even when audit_logging_enabled is true, firing a finding for each missing category. Gaps mean unauthorized logins, schema alterations, or targeted data access go unrecorded, directly impeding incident response and breaching PCI-DSS Req 10 and GDPR Art. 30 logging obligations (MITRE T1562.008).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For PostgreSQL with pgaudit, parse the pgaudit.log GUC to identify which event classes are captured and map them to canonical categories.",
+        "command": "psql -U postgres -c \"SHOW pgaudit.log;\" && psql -U postgres -c \"SHOW pgaudit.log_catalog;\" && psql -U postgres -c \"SHOW pgaudit.log_relation;\"\n# Mapping: role=privilege_escalation, read=sensitive_table_access, ddl=ddl, connection=authentication",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "pgaudit.log value should contain 'role, read, ddl, write' or 'all'; absence of any class maps to a missing canonical category."
+      },
+      {
+        "type": "command",
+        "instruction": "For MySQL Enterprise Audit, inspect the filter rules to enumerate logged event types.",
+        "command": "mysql -u root -p -e \"SELECT * FROM mysql.audit_log_filter; SELECT * FROM mysql.audit_log_user;\"\n# Also check: SHOW VARIABLES LIKE 'audit_log_events';",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "audit_log_events should include AUDIT, QUERY_DDL, QUERY_DML (sensitive tables), and CONNECT (authentication) event types."
+      },
+      {
+        "type": "command",
+        "instruction": "For SQL Server, enumerate audit action groups mapped to canonical categories.",
+        "command": "sqlcmd -S localhost -Q \"SELECT s.name AS audit_name, ag.audit_action_name, ag.is_group FROM sys.server_audit_specification_details ag JOIN sys.server_audits s ON ag.server_specification_id = s.audit_guid;\"\n# Required groups: FAILED_LOGIN_GROUP (authentication), SCHEMA_OBJECT_CHANGE_GROUP (ddl), DATABASE_ROLE_MEMBER_CHANGE_GROUP (privilege_escalation), SELECT on sensitive objects (sensitive_table_access)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least FAILED_LOGIN_GROUP, SUCCESSFUL_LOGIN_GROUP, DATABASE_ROLE_MEMBER_CHANGE_GROUP, and SCHEMA_OBJECT_CHANGE_GROUP should appear in the results."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For MongoDB, read the auditLog filter section in mongod.conf to identify which actions are captured.",
+        "command": null,
+        "file_path": "/etc/mongod.conf",
+        "navigation": null,
+        "expected_output": "The filter should include actions such as authenticate, createCollection, dropCollection, grantRolesToUser, find on sensitive collections; a wildcard filter ({}) captures all but should be explicitly verified."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[]",
+      "['authentication']",
+      "['authentication', 'ddl']",
+      "['authentication', 'privilege_escalation', 'ddl', 'sensitive_table_access', 'dml']"
+    ]
+  },
+  {
+    "option_name": "compliance_frameworks",
+    "option_description": "Records which regulatory and compliance frameworks govern this database based on the classification of data it stores, driving the completeness threshold for audit logging and other control requirements.",
+    "security_impact": "The Rego policy references compliance_frameworks as contextual evidence for audit_logging_disabled_or_incomplete findings. Databases subject to PCI-DSS, GDPR, HIPAA, or SOX have stricter logging mandates; misidentifying or leaving this field empty may result in controls being assessed at a lower bar than required, masking non-compliance that carries regulatory penalty and legal liability.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Consult the organization's data classification inventory or asset management platform (e.g., Collibra, OneTrust, ServiceNow CMDB) to identify which frameworks are tagged against this database asset based on the PII, financial, or health data it stores.",
+        "command": null,
+        "file_path": null,
+        "navigation": "ServiceNow CMDB → Configuration Items → Database Servers → [select instance] → Compliance Tags / Data Classification",
+        "expected_output": "A list of framework identifiers (e.g., PCI-DSS, GDPR, HIPAA) associated with the database's data classification label."
+      },
+      {
+        "type": "api",
+        "instruction": "Query a GRC or compliance management API to retrieve framework associations for this asset.",
+        "command": "# Example using a generic REST API for a GRC platform:\ncurl -s -H 'Authorization: Bearer <token>' 'https://grc.internal/api/v1/assets?name=db-prod-01&fields=compliance_frameworks' | jq '.assets[].compliance_frameworks'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON array such as [\"PCI-DSS\", \"GDPR\"] corresponding to the frameworks mapped to this database in the GRC system."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the data owner or privacy officer to determine which frameworks apply based on the types of data processed (e.g., cardholder data → PCI-DSS, EU personal data → GDPR, health records → HIPAA, financial reporting data → SOX).",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A confirmed list of applicable frameworks documented in meeting notes or a data processing record."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[]",
+      "['PCI-DSS']",
+      "['GDPR']",
+      "['PCI-DSS', 'GDPR']",
+      "['HIPAA']",
+      "['SOX', 'PCI-DSS']"
+    ]
+  },
+  {
+    "option_name": "version_has_known_cve",
+    "option_description": "Indicates whether the currently running database engine version has one or more publicly disclosed CVEs affecting the engine itself, such as authentication bypass, privilege escalation, or remote code execution vulnerabilities.",
+    "security_impact": "The Rego policy fires unpatched_database_engine when version_has_known_cve is true AND either the database is network_accessible or days_since_patch_available >= 30. A network-reachable database with a known CVE represents an immediately exploitable path for unauthenticated remote code execution or authentication bypass (MITRE T1190, T1210, T1068), making this the primary trigger for patch urgency assessment.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Determine the running database engine version, then query the NVD API for known CVEs affecting that version.",
+        "command": "# Get version:\nmysql --version  # MySQL/MariaDB\npsql --version   # PostgreSQL\nsqlcmd -Q 'SELECT @@VERSION'  # SQL Server\nmongod --version  # MongoDB\n\n# Query NVD for CVEs (example for MySQL 8.0.32):\ncurl -s 'https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=MySQL+8.0.32&cvssV3Severity=HIGH' | jq '.vulnerabilities[].cve.id'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If any CVE IDs are returned that have not been resolved in the running version, set to true. An empty result array indicates no known high-severity CVEs for that exact version string."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the vendor's security advisories page for the database engine and filter by the running version to identify unresolved CVEs.",
+        "command": null,
+        "file_path": null,
+        "navigation": "MySQL: https://www.oracle.com/security-alerts/ → MySQL CPUs | PostgreSQL: https://www.postgresql.org/support/security/ | SQL Server: https://msrc.microsoft.com/update-guide | MongoDB: https://www.mongodb.com/alerts → filter by version",
+        "expected_output": "A list of security bulletins showing whether the running version falls within the affected range of any unresolved advisory; presence of any such bulletin means the attribute is true."
+      },
+      {
+        "type": "command",
+        "instruction": "Use a vulnerability scanner (Trivy, Grype, or Tenable) to scan the database host or container image for engine-specific CVEs.",
+        "command": "# Trivy for container-based databases:\ntrivy image postgres:14.2 --severity HIGH,CRITICAL --format json | jq '.Results[].Vulnerabilities[] | select(.PkgName | test(\"postgresql|mysql|mongod\")) | {CVE: .VulnerabilityID, Pkg: .PkgName, Fixed: .FixedVersion}'\n\n# For host-based: run from the DB host\ngrype db:postgres --scope all-layers",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output listing CVE IDs with severity HIGH or CRITICAL affecting the database engine package; any entry with a null FixedVersion or a FixedVersion higher than the installed version confirms the attribute is true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "days_since_patch_available",
+    "option_description": "Measures the number of days elapsed between the vendor's release of a security patch addressing the known CVE(s) and the current date, providing a quantified measure of patch lag for prioritization and SLA tracking.",
+    "security_impact": "The Rego policy independently fires unpatched_database_engine when days_since_patch_available >= 30, even if the database is not network-accessible. This 30-day threshold reflects industry patch SLA norms; exceeding it signals a process failure in vulnerability management. Combined with network_accessible=true, any positive CVE count is immediately critical regardless of patch age (MITRE T1190, T1210).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the CVE fix date from the vendor advisory, then compute the difference from today's date.",
+        "command": "# Example: determine patch release date for a PostgreSQL CVE and compute days elapsed\nPATCH_DATE='2024-02-08'  # Date from PostgreSQL security advisory\nTODAY=$(date +%Y-%m-%d)\necho $(( ( $(date -d \"$TODAY\" +%s) - $(date -d \"$PATCH_DATE\" +%s) ) / 86400 )) days since patch available",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing the number of days; values >= 30 will trigger the Rego rule. Values > 90 indicate a severely overdue patch."
+      },
+      {
+        "type": "gui",
+        "instruction": "Look up the CVE fix date in the NVD or vendor advisory and calculate the elapsed days against today's date.",
+        "command": null,
+        "file_path": null,
+        "navigation": "NVD: https://nvd.nist.gov/vuln/detail/<CVE-ID> → check 'Published' and 'Last Modified' dates, and vendor advisory for patch release date | Oracle MySQL CPU: https://www.oracle.com/security-alerts/ → CPU release date corresponds to patch availability",
+        "expected_output": "A vendor advisory or NVD entry showing the date a patched version was released; subtract from today's date to produce the integer value."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the NVD API for the CVE record to extract the published date of the patching advisory programmatically.",
+        "command": "CVE_ID='CVE-2024-XXXXX'\ncurl -s \"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=${CVE_ID}\" | jq -r '.vulnerabilities[0].cve.published'\n# Then compute:\nPATCH_DATE=$(curl -s \"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=${CVE_ID}\" | jq -r '.vulnerabilities[0].cve.published' | cut -dT -f1)\necho $(( ( $(date +%s) - $(date -d \"$PATCH_DATE\" +%s) ) / 86400 ))",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer count of days; the NVD published date for the CVE is used as a proxy for patch availability (the actual fix date should be cross-referenced with the vendor patch release)."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "7",
+      "14",
+      "30",
+      "45",
+      "90",
+      "180",
+      "365"
+    ]
+  },
+  {
+    "option_name": "network_accessible",
+    "option_description": "Indicates whether the database engine's service port is reachable from any non-localhost network interface, meaning it is not exclusively bound to 127.0.0.1 or blocked by a host-based or network-level firewall.",
+    "security_impact": "The Rego policy uses network_accessible as a co-condition with version_has_known_cve to immediately trigger unpatched_database_engine without waiting for the 30-day patch lag threshold. A network-accessible database with any known CVE is immediately exploitable from adjacent or public networks, enabling unauthenticated remote code execution or privilege escalation (MITRE T1190, T1210, T1068). It also compounds other findings such as anonymous access.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the database service bind address on the host to determine if it listens on non-localhost interfaces.",
+        "command": "# Linux: check listening ports and bound addresses\nss -tlnp | grep -E '3306|5432|1433|27017|6379|5984'\n# Or using netstat:\nnetstat -tlnp | grep -E '3306|5432|1433|27017'\n# If the address column shows 0.0.0.0 or :: rather than 127.0.0.1, the port is network accessible",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the output shows '0.0.0.0:3306' or '*:5432', the database is network accessible (true). If it shows '127.0.0.1:3306' or '::1:5432', it is localhost-only (false)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the database engine's configuration file for the bind address directive.",
+        "command": null,
+        "file_path": "/etc/mysql/mysql.conf.d/mysqld.cnf",
+        "navigation": null,
+        "expected_output": "MySQL: bind-address = 127.0.0.1 means not network accessible; bind-address = 0.0.0.0 or absence of the directive means accessible. PostgreSQL: check listen_addresses in /etc/postgresql/<version>/main/postgresql.conf; 'localhost' means false, '*' or an IP means true. MongoDB: check net.bindIp in /etc/mongod.conf."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a port connectivity test from a separate host outside the database server to confirm whether the port is reachable through the network stack.",
+        "command": "# From a separate host on the same network segment:\nnc -zv <db-host-ip> 5432   # PostgreSQL\nnc -zv <db-host-ip> 3306   # MySQL\nnmap -sV -p 3306,5432,1433,27017 <db-host-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful connection (e.g., 'Connection to db-host 5432 port [tcp] succeeded') confirms network_accessible=true. A 'Connection refused' or timeout without firewall interaction suggests false; ensure firewall rules are also inspected separately."
+      },
+      {
+        "type": "command",
+        "instruction": "Review host-based firewall rules (iptables, nftables, firewalld) to determine if inbound database port traffic is restricted.",
+        "command": "# iptables:\niptables -L INPUT -n -v | grep -E '3306|5432|1433|27017'\n# nftables:\nnft list ruleset | grep -E '3306|5432|1433|27017'\n# firewalld:\nfirewall-cmd --list-all",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Absence of a DROP or REJECT rule for the database port combined with a non-localhost bind address confirms network_accessible=true. A specific ACCEPT rule limited to trusted source IPs may indicate controlled access rather than open exposure."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "authentication_required",
+    "option_description": "Controls whether the database engine mandates credential verification (username/password, certificate, or token) before granting any connection or data access. A value of false means anonymous or unauthenticated connections are permitted.",
+    "security_impact": "The Rego policy fires anonymous_or_unauthenticated_access_enabled when authentication_required is false (evaluated via 'not input.authentication_required'). This is the highest-severity finding pattern in the policy set (score 8), as any host reaching the database port gains immediate unrestricted data access without credential compromise—enabling direct data exfiltration of all PII and financial records (MITRE T1213.006, T1213). This is the primary control preventing zero-effort mass data theft.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For MySQL/MariaDB, check for anonymous user accounts in the user table, which bypass authentication requirements.",
+        "command": "mysql -u root -p -e \"SELECT user, host, authentication_string, plugin FROM mysql.user WHERE user='' OR authentication_string='' ORDER BY user;\"\n# Also check:\nmysql -u root -p -e \"SELECT user, host, plugin FROM mysql.user WHERE plugin='mysql_old_password' OR plugin='';\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any row with an empty user field indicates an anonymous account exists; authentication_required should be set to false. MySQL should return zero rows with empty user values when properly secured."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For MongoDB, inspect the security.authorization setting in mongod.conf; for Redis, check that requirepass is set in redis.conf.",
+        "command": null,
+        "file_path": "/etc/mongod.conf",
+        "navigation": null,
+        "expected_output": "MongoDB: 'security.authorization: enabled' means authentication is required (true). Absence of the security block or 'disabled' means false. Redis /etc/redis/redis.conf: 'requirepass <password>' present means true; absent or commented out means false (authentication_required=false)."
+      },
+      {
+        "type": "command",
+        "instruction": "Attempt an unauthenticated connection to the database to empirically verify whether authentication is enforced.",
+        "command": "# MySQL: attempt anonymous connection\nmysql -h <db-host> --user='' -e 'SHOW DATABASES;' 2>&1\n# PostgreSQL: attempt connection without password (relying on trust in pg_hba.conf)\npsql -h <db-host> -U postgres -c '\\l' 2>&1\n# MongoDB: attempt connection without credentials\nmongosh --host <db-host> --eval 'db.adminCommand({listDatabases: 1})' 2>&1\n# Redis: attempt without auth\nredis-cli -h <db-host> PING",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful command output (e.g., a list of databases or 'PONG' from Redis) without providing credentials confirms authentication_required=false. An 'Access denied' or 'Authentication failed' error confirms authentication_required=true."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For PostgreSQL, inspect pg_hba.conf for 'trust' authentication entries that bypass password checks.",
+        "command": null,
+        "file_path": "/etc/postgresql/15/main/pg_hba.conf",
+        "navigation": null,
+        "expected_output": "Any line with the auth-method 'trust' (especially for non-local connections) means authentication is not required for matching connection patterns and authentication_required should be false. All production entries should use 'md5', 'scram-sha-256', or 'cert' methods."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "anonymous_user_accounts_present",
+    "option_description": "Controls whether the database engine has one or more accounts with a blank username that permit unauthenticated connections. When present, any host that can reach the database port can connect and query data without supplying credentials.",
+    "security_impact": "Directly triggers the anonymous_or_unauthenticated_access_enabled Rego rule via the condition `input.anonymous_user_accounts_present == true`. Combined with a non-localhost network_exposure_scope, this becomes a critical exposure allowing immediate data exfiltration without brute-force effort, mapping to MITRE T1213.006 and T1213.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the MySQL/MariaDB user table for blank username entries",
+        "command": "mysql -u root -p -e \"SELECT user, host, authentication_string FROM mysql.user WHERE user='';\" 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty result set means no anonymous accounts; any row returned indicates anonymous_user_accounts_present = true"
+      },
+      {
+        "type": "command",
+        "instruction": "Use a non-privileged count query suitable for scripted assessment",
+        "command": "mysql -u root -p -e \"SELECT COUNT(*) AS anon_count FROM mysql.user WHERE user='';\" 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "anon_count = 0 is secure; any value > 0 sets this attribute to true"
+      },
+      {
+        "type": "command",
+        "instruction": "For MongoDB, check whether authentication is enabled (no anonymous equivalent but auth disabled yields same risk)",
+        "command": "mongosh --quiet --eval \"db.adminCommand({getCmdLineOpts:1}).parsed.security\" 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "{ authorization: 'enabled' } is secure; missing or 'disabled' indicates unauthenticated access"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Redis, confirm requirepass is set and protected-mode is on to rule out anonymous access equivalents",
+        "command": "grep -E '^(requirepass|protected-mode)' /etc/redis/redis.conf",
+        "file_path": "/etc/redis/redis.conf",
+        "navigation": null,
+        "expected_output": "requirepass <non-empty-value> and protected-mode yes; absence of requirepass means anonymous access is permitted"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "network_exposure_scope",
+    "option_description": "Describes the network reach of the primary database listener port — whether it is bound only to the loopback interface, an internal/private network, or a public-facing interface. Acts as an amplifying context attribute that increases the severity of authentication and encryption weaknesses.",
+    "security_impact": "Referenced by both anonymous_or_unauthenticated_access_enabled and unencrypted_client_connections Rego rules as contextual evidence. A value of 'public' combined with absent authentication or plaintext connections maps to MITRE T1046, T1040, and T1213.006, representing immediate mass-exfiltration risk from the internet. 'internal' reduces but does not eliminate risk from insider threats and lateral movement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check which IP address the database process is listening on using ss or netstat",
+        "command": "ss -tlnp | grep -E ':(3306|5432|1433|27017|6379|5984)\\s' 2>/dev/null || netstat -tlnp | grep -E ':(3306|5432|1433|27017|6379|5984)\\s'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "127.0.0.1 = localhost; 10.x/172.16.x/192.168.x = internal; 0.0.0.0 or public IP = public"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the bind address directive in the MySQL/MariaDB configuration file",
+        "command": "grep -E '^\\s*bind[-_]address' /etc/mysql/mysql.conf.d/mysqld.cnf /etc/mysql/my.cnf /etc/my.cnf 2>/dev/null",
+        "file_path": "/etc/mysql/mysql.conf.d/mysqld.cnf",
+        "navigation": null,
+        "expected_output": "bind-address = 127.0.0.1 is localhost; a private RFC1918 IP is internal; 0.0.0.0 or omission defaults to all interfaces (public risk)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For PostgreSQL inspect listen_addresses directive",
+        "command": "grep -E '^\\s*listen_addresses' /etc/postgresql/*/main/postgresql.conf 2>/dev/null",
+        "file_path": "/etc/postgresql/*/main/postgresql.conf",
+        "navigation": null,
+        "expected_output": "listen_addresses = 'localhost' is secure; '*' or a public IP indicates public or internal exposure"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a TCP connection to the database port from an external host to confirm internet reachability",
+        "command": "nc -zv <public-ip-of-host> 3306 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused or timeout = not public; 'open' or 'succeeded' = public scope confirmed"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "localhost",
+      "internal",
+      "public"
+    ]
+  },
+  {
+    "option_name": "backup_storage_permissions",
+    "option_description": "Describes the filesystem or object storage access control level applied to the directory, bucket, or share where database backup dumps and snapshots are written. Determines whether backup data containing full copies of PII and financial records is accessible beyond the authorized backup service account.",
+    "security_impact": "Directly consumed by the backup_files_stored_without_access_controls Rego rule. 'world_readable' unconditionally triggers the exposure. 'overly_permissive' triggers it when backup_encryption_enabled is false, mapping to MITRE T1530 and T1552.001. Backups bypass all database-layer authentication controls, making their storage permissions a critical compensating control.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check POSIX permissions on the local backup directory",
+        "command": "stat -c '%A %U %G %n' /var/backups/db /backup /mnt/dbbackup 2>/dev/null; ls -ld /var/backups/db 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "drwx------ owned by backup service user = restricted; drwxr-xr-x or world bits set = overly_permissive or world_readable"
+      },
+      {
+        "type": "command",
+        "instruction": "Find backup files directly and inspect their individual permissions",
+        "command": "find /var/backups /backup /tmp -name '*.sql' -o -name '*.dump' -o -name '*.bak' 2>/dev/null | xargs stat -c '%A %U %G %n' 2>/dev/null | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Files with permissions like -rw------- are restricted; -rw-r--r-- or -rw-rw-rw- indicate overly_permissive or world_readable"
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS S3 backup buckets, retrieve the bucket ACL and public access block configuration",
+        "command": "aws s3api get-bucket-acl --bucket <backup-bucket-name> && aws s3api get-public-access-block --bucket <backup-bucket-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "BlockPublicAcls/BlockPublicPolicy all true and no public grants = restricted; any AllUsers grants = world_readable"
+      },
+      {
+        "type": "gui",
+        "instruction": "For cloud object storage (AWS S3 / GCS / Azure Blob), review bucket permissions in the console",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > S3 > <backup-bucket> > Permissions tab > review Bucket ACL, Bucket Policy, and Block Public Access settings",
+        "expected_output": "All public access blocked and bucket policy limited to backup IAM role = restricted; public read enabled = world_readable"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "restricted",
+      "overly_permissive",
+      "world_readable"
+    ]
+  },
+  {
+    "option_name": "admin_interface_network_exposure",
+    "option_description": "Indicates the network reach of web-based or network-accessible database administration tools such as phpMyAdmin, pgAdmin, MySQL Workbench remote port, or equivalent management consoles. Determines whether these high-privilege interfaces are reachable from the internet, restricted trusted ranges, or only from loopback.",
+    "security_impact": "Core input to the database_admin_interface_exposed Rego rule. A value of 'public' with missing mfa_enforced or tls_enforced triggers the exposure (MITRE T1190, T1110.004, T1210). Even 'restricted' triggers the exposure if both MFA and TLS are absent simultaneously. The admin interface provides a concentrated attack surface against all database administrative functions.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify which ports admin tools are listening on and their bound addresses",
+        "command": "ss -tlnp | grep -E ':(80|443|8080|8443|4848|9090)\\s' 2>/dev/null; ss -tlnp | grep -E '(phpmyadmin|pgadmin|adminer)' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "127.0.0.1 binding = localhost_only; private IP binding = restricted; 0.0.0.0 = public"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Apache/Nginx hosting phpMyAdmin, check the VirtualHost or server block for IP allow/deny directives",
+        "command": "grep -rE '(Allow|Require|deny|allow|listen)' /etc/apache2/conf-enabled/phpmyadmin.conf /etc/nginx/conf.d/ /etc/httpd/conf.d/phpMyAdmin.conf 2>/dev/null",
+        "file_path": "/etc/apache2/conf-enabled/phpmyadmin.conf",
+        "navigation": null,
+        "expected_output": "Require ip 10. or 192.168. = restricted; Require all granted or no restriction = public; Require local = localhost_only"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt HTTP/HTTPS connection to admin interface port from an external IP to confirm internet reachability",
+        "command": "curl -sk --max-time 5 -o /dev/null -w '%{http_code}' http://<public-ip>/phpmyadmin/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused or timeout = not public; HTTP 200/302/401 response = public exposure confirmed"
+      },
+      {
+        "type": "command",
+        "instruction": "Review firewall or security group rules to determine source IP restrictions on admin ports",
+        "command": "iptables -L INPUT -n -v | grep -E ':(8080|8443|443|80)' 2>/dev/null; ufw status verbose 2>/dev/null | grep -E '(8080|8443|443|80)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACCEPT from specific IP range = restricted; ACCEPT from 0.0.0.0/0 or no rule = public"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "public",
+      "restricted",
+      "localhost_only"
+    ]
+  },
+  {
+    "option_name": "mfa_enforced",
+    "option_description": "Controls whether multi-factor authentication is mandatory for all user logins to the database administration interface. When false, admin access relies solely on a username and password, making accounts vulnerable to credential-based attacks.",
+    "security_impact": "Evaluated by the database_admin_interface_exposed Rego rule: when admin_interface_network_exposure is 'public' and mfa_enforced is false, the exposure triggers unconditionally; when exposure is 'restricted' and both mfa_enforced and tls_enforced are false, it also triggers. Maps to MITRE T1110.004 (credential stuffing) and T1190 (exploit public-facing application). MFA is the primary control preventing account takeover of admin interfaces.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For phpMyAdmin, check if a two-factor authentication plugin is configured in config.inc.php",
+        "command": "grep -E '(TwoFactor|2fa|mfa|AuthType|auth_type)' /etc/phpmyadmin/config.inc.php /var/www/html/phpmyadmin/config.inc.php 2>/dev/null",
+        "file_path": "/etc/phpmyadmin/config.inc.php",
+        "navigation": null,
+        "expected_output": "cfg['Servers'][$i]['auth_type'] = 'cookie' with TwoFactor plugin configured = MFA enforced; signon or http without MFA = false"
+      },
+      {
+        "type": "gui",
+        "instruction": "For pgAdmin, verify MFA enforcement via the server configuration or identity provider settings",
+        "command": null,
+        "file_path": null,
+        "navigation": "pgAdmin web UI > User Management > select user > check MFA Enabled; or server config at /pgadmin4/config_local.py for MFA_ENABLED = True",
+        "expected_output": "MFA_ENABLED = True and all user accounts show MFA configured = true; any user without MFA or global setting false = false"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check if a reverse proxy enforcing MFA (e.g., Authelia, Keycloak, Nginx auth_request) is fronting the admin interface",
+        "command": "grep -rE '(auth_request|oauth2_proxy|authelia|keycloak)' /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ /etc/apache2/sites-enabled/ 2>/dev/null",
+        "file_path": "/etc/nginx/sites-enabled/",
+        "navigation": null,
+        "expected_output": "auth_request directive pointing to MFA provider = MFA enforced (true); no such directive = MFA not enforced (false)"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the database administrator or review change management documentation for MFA policy on admin tools",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review runbook, admin interface configuration documentation, or identity provider policy to confirm MFA is both configured and non-bypassable",
+        "expected_output": "Written policy confirming MFA required with no IP-based bypass = true; absence of policy or documented exceptions = false"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "tls_enforced",
+    "option_description": "Controls whether the database administration interface rejects all plaintext HTTP connections and exclusively accepts TLS-encrypted HTTPS connections with a valid certificate. When false, admin credentials and session tokens traverse the network in cleartext.",
+    "security_impact": "Evaluated by the database_admin_interface_exposed Rego rule: 'public' exposure with tls_enforced false triggers the exposure directly, and 'restricted' exposure with both tls_enforced and mfa_enforced false also triggers it. Maps to MITRE T1040 (network sniffing). Plaintext admin sessions expose database credentials and full administrative capabilities to passive interception on any shared network segment.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify whether the admin interface responds to HTTPS and rejects plaintext HTTP",
+        "command": "curl -sk --max-time 5 -o /dev/null -w '%{http_code}\\n' http://localhost/phpmyadmin/ 2>/dev/null; curl -sk --max-time 5 -o /dev/null -w '%{http_code}\\n' https://localhost/phpmyadmin/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP returns 301/302 redirect to HTTPS and HTTPS returns 200 = TLS enforced (true); HTTP returns 200 = TLS not enforced (false)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the web server configuration for HTTPS-only enforcement and HTTP redirect rules",
+        "command": "grep -rE '(ssl_certificate|SSLCertificateFile|ssl on|return 301|rewrite.*https|HTTPS)' /etc/nginx/sites-enabled/ /etc/apache2/sites-enabled/ /etc/httpd/conf.d/ 2>/dev/null | head -20",
+        "file_path": "/etc/nginx/sites-enabled/",
+        "navigation": null,
+        "expected_output": "ssl_certificate configured with return 301 https redirect on port 80 = true; port 80 serving content directly without redirect = false"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For pgAdmin standalone server, check TLS configuration in config_local.py",
+        "command": "grep -E '(DEFAULT_SERVER_PORT|HTTPS|SSL_CERT|ssl)' /etc/pgadmin/config_local.py /usr/lib/pgadmin4/web/config_local.py 2>/dev/null",
+        "file_path": "/etc/pgadmin/config_local.py",
+        "navigation": null,
+        "expected_output": "DEFAULT_SERVER_PORT = 443 with SSL_CERT and SSL_KEY configured = true; port 80 without SSL config = false"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl to verify TLS certificate presence and confirm no plaintext port is open",
+        "command": "openssl s_client -connect localhost:443 -brief 2>/dev/null | grep -E '(Verification|Protocol|Cipher)'; nc -zv localhost 80 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS handshake succeeds on 443 and port 80 connection refused = true; port 80 open and accepting HTTP = false"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "database_process_os_user",
+    "option_description": "Records the operating system username under which the database daemon process is executing. This determines the OS-level privilege context that would be inherited by any attacker who achieves code execution via a database vulnerability.",
+    "security_impact": "Directly consumed by the os_level_database_process_running_as_privileged_user Rego rule: if this value equals 'root' the exposure triggers unconditionally. Combined with process_uid checks (0 or 1-99), this maps to MITRE T1068 (privilege escalation) and T1190. A database process running as root means exploitation of any database vulnerability immediately yields full host compromise with no privilege escalation step required.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the OS user owning the running database process using ps",
+        "command": "ps -o user,pid,comm,args -p $(pgrep -d',' -x 'mysqld|postgres|mongod|redis-server|sqlservr') 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "User column showing 'mysql', 'postgres', 'mongod', or another dedicated low-privilege account is expected; 'root' is a critical finding"
+      },
+      {
+        "type": "command",
+        "instruction": "Use a broader process search to catch any database engine variant",
+        "command": "ps aux | grep -E '(mysqld|postgres|mongod|redis-server|sqlservr|mariadbd|oracle)' | grep -v grep | awk '{print $1, $2, $11}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "First column (USER) should show a dedicated service account name, not root or a human user account"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the systemd service unit file for the User= directive defining which account the daemon runs as",
+        "command": "systemctl show -p User,UID $(systemctl list-units --type=service --plain --no-legend | grep -E '(mysql|postgres|mongo|redis)' | awk '{print $1}') 2>/dev/null",
+        "file_path": "/etc/systemd/system/",
+        "navigation": null,
+        "expected_output": "User=mysql or User=postgres with a UID > 999 = acceptable; User=root or empty (defaults to root) = privileged finding"
+      },
+      {
+        "type": "command",
+        "instruction": "Resolve the numeric UID of the database process and cross-reference /etc/passwd",
+        "command": "cat /proc/$(pgrep -x mysqld postgres mongod redis-server 2>/dev/null | head -1)/status 2>/dev/null | grep -E '^(Name|Uid|Gid):'; grep $(ps -o user= -p $(pgrep -x mysqld 2>/dev/null | head -1) 2>/dev/null) /etc/passwd 2>/dev/null",
+        "file_path": "/etc/passwd",
+        "navigation": null,
+        "expected_output": "Uid line showing a value > 999 with a matching /etc/passwd entry with /sbin/nologin shell = secure; Uid: 0 = running as root"
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "mysql",
+      "postgres",
+      "mongod",
+      "redis",
+      "mssql",
+      "root",
+      "www-data"
+    ]
+  },
+  {
+    "option_name": "runs_as_dedicated_service_account",
+    "option_description": "Indicates whether the database daemon executes under a purpose-created, low-privilege OS service account that has no interactive login shell, belongs to no privileged groups, and has a UID above 999. Distinguishes proper service isolation from shared or privileged account usage.",
+    "security_impact": "Evaluated by the os_level_database_process_running_as_privileged_user Rego rule via `not input.runs_as_dedicated_service_account` — this condition alone is sufficient to trigger the exposure even if the username is not 'root'. Maps to MITRE T1068 and T1190. Without a dedicated account, database exploitation can pivot to other services sharing the same OS user, and the absence of /sbin/nologin allows interactive shell access if credentials are obtained.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify the database process user has a non-interactive shell and UID above 999",
+        "command": "DB_USER=$(ps -o user= -p $(pgrep -x 'mysqld|postgres|mongod|redis-server' 2>/dev/null | head -1) 2>/dev/null); grep \"^${DB_USER}:\" /etc/passwd",
+        "file_path": "/etc/passwd",
+        "navigation": null,
+        "expected_output": "Entry like mysql:x:999:999::/nonexistent:/bin/false or /sbin/nologin = dedicated service account (true); /bin/bash shell or UID <= 999 (except well-known accounts) = false"
+      },
+      {
+        "type": "command",
+        "instruction": "Check that the database process user is not a member of privileged groups such as sudo, wheel, or admin",
+        "command": "DB_USER=$(ps -o user= -p $(pgrep -x 'mysqld|postgres|mongod|redis-server' 2>/dev/null | head -1) 2>/dev/null); groups ${DB_USER} 2>/dev/null; grep -E '^(sudo|wheel|admin|root):' /etc/group | grep ${DB_USER}",
+        "file_path": "/etc/group",
+        "navigation": null,
+        "expected_output": "No output from privileged group grep = account is not in privileged groups (good); any match = runs_as_dedicated_service_account is false"
+      },
+      {
+        "type": "command",
+        "instruction": "Confirm the account was purpose-created (not a shared system or human account) by checking UID range and account comment",
+        "command": "DB_USER=$(ps -o user= -p $(pgrep -x 'mysqld|postgres|mongod|redis-server' 2>/dev/null | head -1) 2>/dev/null); awk -F: -v u=\"${DB_USER}\" '$1==u {print \"User:\"$1\" UID:\"$3\" Shell:\"$7\" Comment:\"$5}' /etc/passwd",
+        "file_path": "/etc/passwd",
+        "navigation": null,
+        "expected_output": "UID > 999, shell = /bin/false or /sbin/nologin, and comment referencing the service = true; shared account, human account, or UID <= 99 = false"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the service installation documentation or configuration management (Ansible/Chef/Puppet) to confirm the service account was explicitly provisioned as a dedicated low-privilege account",
+        "command": "grep -rE '(useradd|adduser|User=|service_account)' /etc/ansible/ /var/chef/ /etc/puppet/ 2>/dev/null | grep -E '(mysql|postgres|mongo|redis)' | head -10",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IaC code showing useradd --system --no-create-home --shell /bin/false for the database user = deliberately provisioned dedicated account (true); no such provisioning found = false"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "name": "Email Content",
+  "classType": "data",
+  "type": "PROCESS",
+  "description": "Email server data containing PII presents significant data lifecycle risks across classification, retention, access control, encryption, and disposal dimensions. Without enforced sensitivity labeling, PII embedded in email bodies, attachments, and metadata may be retained indefinitely, inadequately protected, and improperly disposed of, creating regulatory exposure under GDPR, HIPAA, and similar frameworks.",
+  "category": "Communication Services",
+  "status": "reviewed"
+}

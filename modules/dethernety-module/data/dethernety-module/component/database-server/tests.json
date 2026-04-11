@@ -1,0 +1,196 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "default_credentials_present": true,
+      "tls_enforcement_mode": "disabled",
+      "encryption_at_rest_enabled": false,
+      "storage_volume_encryption_type": "none",
+      "network_interface_binding": "public",
+      "inbound_source_restriction_configured": false,
+      "has_superuser_or_dba_role": true,
+      "audit_logging_enabled": true,
+      "audited_event_categories": [],
+      "version_has_known_cve": true,
+      "network_accessible": true,
+      "anonymous_user_accounts_present": true,
+      "backup_storage_permissions": "world_readable",
+      "admin_interface_network_exposure": "public",
+      "mfa_enforced": false,
+      "process_uid": 0,
+      "plaintext_credentials_present": true,
+      "config_file_permission_mode": "__outside__",
+      "global_max_connections": 10001,
+      "enabled_privileged_features": [
+        "item_0"
+      ],
+      "feature_justified_by_business_requirement": false,
+      "weak_credential_accounts": [],
+      "password_policy_enforced": true,
+      "database_engine": "mysql",
+      "tls_enabled": false,
+      "plaintext_port_open": false,
+      "backup_encryption_enabled": false,
+      "data_classification": "internal",
+      "granted_privileges": [
+        "default"
+      ],
+      "privilege_scope": "table",
+      "least_privilege_review_performed": false,
+      "compliance_frameworks": [],
+      "days_since_patch_available": 0,
+      "authentication_required": true,
+      "network_exposure_scope": "public",
+      "tls_enforced": false,
+      "database_process_os_user": "present",
+      "runs_as_dedicated_service_account": false,
+      "secrets_manager_integration_enabled": false,
+      "per_account_connection_limit_enforced": false
+    },
+    "expectedExposures": [
+      "Unencrypted Data At Rest",
+      "Unnecessary Database Features Or Plugins Enabled",
+      "Audit Logging Disabled Or Incomplete",
+      "Backup Files Stored Without Access Controls",
+      "Secrets Stored In Database Configuration Files In Plaintext",
+      "Os Level Database Process Running As Privileged User",
+      "Overprivileged Database Accounts",
+      "Anonymous Or Unauthenticated Access Enabled",
+      "Default Or Weak Database Credentials",
+      "Unencrypted Client Connections",
+      "Database Network Port Publicly Exposed",
+      "No Connection Rate Limiting Or Max Connections Enforcement",
+      "Unpatched Database Engine",
+      "Database Admin Interface Exposed"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "default_credentials_present": false,
+      "weak_credential_accounts": [],
+      "password_policy_enforced": true,
+      "tls_enabled": true,
+      "tls_enforcement_mode": "required",
+      "plaintext_port_open": false,
+      "encryption_at_rest_enabled": true,
+      "storage_volume_encryption_type": "platform_managed",
+      "inbound_source_restriction_configured": true,
+      "has_superuser_or_dba_role": false,
+      "least_privilege_review_performed": true,
+      "granted_privileges": [],
+      "audit_logging_enabled": true,
+      "audited_event_categories": [
+        "authentication",
+        "privilege_escalation",
+        "ddl",
+        "sensitive_table_access"
+      ],
+      "version_has_known_cve": false,
+      "authentication_required": true,
+      "anonymous_user_accounts_present": false,
+      "backup_storage_permissions": "restricted",
+      "mfa_enforced": true,
+      "tls_enforced": true,
+      "process_uid": 1000,
+      "database_process_os_user": "root_other",
+      "runs_as_dedicated_service_account": true,
+      "plaintext_credentials_present": false,
+      "global_max_connections": 10000,
+      "per_account_connection_limit_enforced": true,
+      "feature_justified_by_business_requirement": true,
+      "database_engine": "mysql",
+      "backup_encryption_enabled": false,
+      "data_classification": "internal",
+      "network_interface_binding": "public",
+      "privilege_scope": "table",
+      "compliance_frameworks": [],
+      "days_since_patch_available": 0,
+      "network_accessible": false,
+      "network_exposure_scope": "public",
+      "admin_interface_network_exposure": "public",
+      "config_file_permission_mode": "present",
+      "secrets_manager_integration_enabled": false,
+      "enabled_privileged_features": []
+    }
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "default_credentials_present": false,
+      "weak_credential_accounts": [
+        "partial"
+      ],
+      "password_policy_enforced": true,
+      "database_engine": "mysql",
+      "tls_enabled": true,
+      "tls_enforcement_mode": "disabled",
+      "plaintext_port_open": false,
+      "encryption_at_rest_enabled": true,
+      "backup_encryption_enabled": false,
+      "storage_volume_encryption_type": "none",
+      "data_classification": "internal",
+      "network_interface_binding": "public",
+      "inbound_source_restriction_configured": true,
+      "granted_privileges": [
+        "partial"
+      ],
+      "has_superuser_or_dba_role": false,
+      "privilege_scope": "table",
+      "least_privilege_review_performed": true,
+      "audit_logging_enabled": true,
+      "audited_event_categories": [
+        "partial"
+      ],
+      "compliance_frameworks": [
+        "partial"
+      ],
+      "version_has_known_cve": false,
+      "days_since_patch_available": 0,
+      "network_accessible": false,
+      "authentication_required": true,
+      "anonymous_user_accounts_present": false,
+      "network_exposure_scope": "public",
+      "backup_storage_permissions": "world_readable",
+      "admin_interface_network_exposure": "public",
+      "mfa_enforced": true,
+      "tls_enforced": true,
+      "database_process_os_user": "root_other",
+      "runs_as_dedicated_service_account": true,
+      "process_uid": 0,
+      "plaintext_credentials_present": false,
+      "config_file_permission_mode": "present",
+      "secrets_manager_integration_enabled": false,
+      "global_max_connections": 0,
+      "per_account_connection_limit_enforced": true,
+      "enabled_privileged_features": [
+        "partial"
+      ],
+      "feature_justified_by_business_requirement": true
+    },
+    "expectedExposures": [
+      "Unencrypted Data At Rest",
+      "Audit Logging Disabled Or Incomplete",
+      "Backup Files Stored Without Access Controls",
+      "Os Level Database Process Running As Privileged User",
+      "Default Or Weak Database Credentials",
+      "Unencrypted Client Connections"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Audit Logging Disabled Or Incomplete",
+      "Os Level Database Process Running As Privileged User",
+      "Anonymous Or Unauthenticated Access Enabled",
+      "Default Or Weak Database Credentials",
+      "Unencrypted Client Connections",
+      "No Connection Rate Limiting Or Max Connections Enforcement"
+    ]
+  }
+]

@@ -1,0 +1,1803 @@
+[
+  {
+    "option_name": "management_endpoints_require_authentication",
+    "option_description": "Controls whether administrative and diagnostic endpoints such as /actuator, /metrics, /health, /debug, and /admin routes enforce authentication before returning data or allowing operations. When false, any client that can reach the endpoint receives full access to management functions.",
+    "security_impact": "The Rego policy fires the unauthenticated_management_endpoint_exposure finding when this attribute is false AND management_interface_network_exposure is either 'public' or 'internal_network'. An unauthenticated management surface allows adversaries to enumerate environment variables, trigger heap dumps, invoke shutdown operations, or read configuration values without any credential challenge, directly enabling T1190 (Exploit Public-Facing Application) and T1595 (Active Scanning).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Spring Boot application.properties or application.yml for Actuator security settings. Look for management.security.enabled (Spring Boot 1.x) or Spring Security configurations that map to /actuator/** endpoints.",
+        "command": null,
+        "file_path": "src/main/resources/application.properties",
+        "navigation": null,
+        "expected_output": "management.security.enabled=true or a Spring Security WebSecurityConfigurerAdapter that requires authentication for /actuator/**"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt unauthenticated HTTP GET requests to common management paths from a non-trusted network segment (e.g., external IP or a separate VLAN) to confirm whether a 401/403 is returned or data is exposed.",
+        "command": "curl -sv http://<host>:<port>/actuator && curl -sv http://<host>:<port>/actuator/env && curl -sv http://<host>:<port>/metrics && curl -sv http://<host>:<port>/health",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 401 Unauthorized or HTTP 403 Forbidden for all requests from an unauthenticated source; no JSON body data returned."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Prometheus exporters or standalone metrics servers, check the exporter startup flags or configuration file for an auth proxy or basic-auth configuration block.",
+        "command": "grep -rE '(basicAuth|auth|htpasswd|web.config)' /etc/prometheus/ /opt/prometheus/",
+        "file_path": "/etc/prometheus/web.yml",
+        "navigation": null,
+        "expected_output": "A basic_auth_users block or reference to an htpasswd file present in the web configuration."
+      },
+      {
+        "type": "command",
+        "instruction": "Review the running process arguments for admin or management listeners to determine if any authentication flags are present or absent.",
+        "command": "ps aux | grep -E '(java|node|python|gunicorn|uvicorn)' | grep -E '(actuator|admin|debug|metrics)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Process arguments should include flags enabling authentication middleware; absence of such flags indicates unauthenticated exposure."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "management_interface_network_exposure",
+    "option_description": "Defines the network scope on which management and diagnostic endpoints are bound and reachable. 'localhost_only' restricts access to the host itself, 'internal_network' allows access from internal subnets, and 'public' means the endpoints are reachable from any network including the internet.",
+    "security_impact": "The Rego policy combines this attribute with management_endpoints_require_authentication to trigger unauthenticated_management_endpoint_exposure. Exposure set to 'public' or 'internal_network' without authentication is flagged as a high-criticality finding. Even 'internal_network' is considered unsafe without auth because lateral movement from any compromised internal host would reach the management surface, enabling T1190 and T1595.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all active TCP listeners and their bind addresses to identify which interface management ports are bound to.",
+        "command": "ss -tlnp | grep -E ':(8080|8443|9090|9000|4040|8778|5005)' ; netstat -tlnp 2>/dev/null | grep -E ':(8080|8443|9090|9000|4040|8778|5005)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows bind address: 127.0.0.1 (localhost_only), a specific private IP like 10.x.x.x or 192.168.x.x (internal_network), or 0.0.0.0/:: (public)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Spring Boot's management.server.address property to determine the bind address for Actuator endpoints.",
+        "command": "grep -E 'management\\.server\\.(address|port)' /opt/app/application.properties /etc/app/application.yml 2>/dev/null",
+        "file_path": "/opt/app/application.properties",
+        "navigation": null,
+        "expected_output": "management.server.address=127.0.0.1 is safe; 0.0.0.0 or absence of the property defaults to all interfaces."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Prometheus Node Exporter or custom metrics endpoints, check the --web.listen-address startup parameter or config file for the bind address.",
+        "command": "systemctl cat node_exporter 2>/dev/null | grep 'listen-address' ; cat /etc/default/prometheus-node-exporter 2>/dev/null",
+        "file_path": "/etc/default/prometheus-node-exporter",
+        "navigation": null,
+        "expected_output": "--web.listen-address=127.0.0.1:9100 indicates localhost-only binding; --web.listen-address=:9100 or 0.0.0.0:9100 indicates public binding."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe management ports from an external IP or a separate network segment to confirm whether the endpoint is reachable from outside the host.",
+        "command": "nmap -Pn -p 8080,9090,8443,4040,9000 <target-host-ip> --open",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ports should show 'filtered' or 'closed' from external/untrusted networks if exposure is localhost_only or properly firewalled."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "localhost_only",
+      "internal_network",
+      "public"
+    ]
+  },
+  {
+    "option_name": "http_plaintext_port_enabled",
+    "option_description": "Controls whether the application server opens and actively listens on a plaintext HTTP port (typically TCP 80 or 8080) for inbound API or application traffic, separate from any HTTPS listener. When enabled, clients can establish unencrypted connections that transmit credentials, tokens, and payload data in cleartext.",
+    "security_impact": "The Rego policy triggers tls_not_enforced_on_inbound_connections when http_plaintext_port_enabled is true AND https_redirect_enforced is false. This combination means the server will process API requests over cleartext HTTP without redirecting clients to HTTPS, leaving all transmitted data—including Authorization headers, cookies, and request bodies—visible to network-position adversaries (T1040 Network Sniffing). A high-criticality score of 8 is applied.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all active TCP listeners to identify HTTP (non-TLS) ports that the application process is bound to.",
+        "command": "ss -tlnp | grep -E '\\b(80|8080|8000|3000)\\b' ; netstat -tlnp 2>/dev/null | grep -E ':(80|8080|8000|3000) '",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If any plaintext HTTP port appears as LISTEN with the application process name, http_plaintext_port_enabled is true."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check nginx or Apache virtual host configuration for plaintext HTTP server blocks without a redirect directive.",
+        "command": "grep -n 'listen' /etc/nginx/nginx.conf /etc/nginx/sites-enabled/* /etc/httpd/conf/httpd.conf 2>/dev/null | grep -v 'ssl' | grep -v '#'",
+        "file_path": "/etc/nginx/sites-enabled/default",
+        "navigation": null,
+        "expected_output": "A 'listen 80;' line without an accompanying 'return 301 https://' indicates a plaintext HTTP listener is active."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt an HTTP connection to the application host on common plaintext ports to confirm the server accepts and responds to HTTP.",
+        "command": "curl -sv --max-time 5 http://<host>:80/ http://<host>:8080/ 2>&1 | grep -E '(Connected|HTTP/|< HTTP)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A connection refused or no response indicates the port is not listening. A 200 or 301 response confirms HTTP is active."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Java application servers, check the server.xml (Tomcat) or application.properties for connector port definitions.",
+        "command": "grep -E '(server\\.port|Connector port|listen)' /opt/tomcat/conf/server.xml /opt/app/application.properties 2>/dev/null",
+        "file_path": "/opt/tomcat/conf/server.xml",
+        "navigation": null,
+        "expected_output": "A Connector element with port 8080 and no SSLEnabled attribute, or server.port=8080 without a corresponding redirect config, confirms plaintext is enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "https_redirect_enforced",
+    "option_description": "Determines whether any plaintext HTTP request received by the server is immediately and unconditionally redirected to the HTTPS equivalent URL (typically via HTTP 301 or 308 redirect), ensuring that no API data, credentials, or tokens are processed over an unencrypted connection even if a client initiates an HTTP request.",
+    "security_impact": "In the Rego policy, the tls_not_enforced_on_inbound_connections rule fires when http_plaintext_port_enabled is true AND this attribute is false. Even when a plaintext port is open, a mandatory redirect to HTTPS prevents actual data from transiting unencrypted because the redirect response itself contains no sensitive data. Without this redirect, a MITM attacker can harvest API credentials by simply observing the network (T1040), which is why the rule requires both conditions to be met before flagging.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the nginx server block for HTTP (port 80) to confirm a return 301 redirect directive is present and unconditional.",
+        "command": "grep -A 10 'listen 80' /etc/nginx/sites-enabled/* /etc/nginx/nginx.conf 2>/dev/null | grep -E '(return|rewrite|redirect)'",
+        "file_path": "/etc/nginx/sites-enabled/default",
+        "navigation": null,
+        "expected_output": "return 301 https://$host$request_uri; present in the port 80 server block indicates redirect is enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Apache HTTP Server, check for a RewriteRule or Redirect directive that forces HTTPS on the VirtualHost listening on port 80.",
+        "command": "grep -E '(RewriteRule|Redirect|Header always)' /etc/httpd/conf/httpd.conf /etc/apache2/sites-enabled/*.conf 2>/dev/null | grep -iE '(https|301|permanent)'",
+        "file_path": "/etc/apache2/sites-enabled/000-default.conf",
+        "navigation": null,
+        "expected_output": "RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301] or Redirect permanent / https://hostname/ confirms the redirect is active."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send an HTTP GET request to the application's plaintext port and verify that the response is a 301/308 redirect to an https:// URL, not a 200 OK with body data.",
+        "command": "curl -sv --max-time 10 -o /dev/null http://<host>/ 2>&1 | grep -E '(Location:|< HTTP|HTTP/1)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP/1.1 301 Moved Permanently with Location: https://<host>/ confirms redirect is enforced. A 200 response means redirect is absent."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Spring Boot, check if the server is configured with an HTTP connector that redirects to HTTPS via EmbeddedServletContainerCustomizer or security configuration.",
+        "command": "grep -rE '(requiresSecure|requiresChannel|http-to-https|redirectHttp|server\\.http\\.port)' /opt/app/src/ /opt/app/application.properties 2>/dev/null",
+        "file_path": "/opt/app/application.properties",
+        "navigation": null,
+        "expected_output": "Presence of requiresChannel().anyRequest().requiresSecure() in Spring Security config or server.http.port with redirect config confirms enforcement."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "minimum_tls_version",
+    "option_description": "Specifies the lowest TLS protocol version the server will accept during the TLS handshake negotiation. Values range from the deprecated SSL3.0 through TLS1.0, TLS1.1, TLS1.2, and the current recommended TLS1.3. Any client offering only an older protocol version will be allowed to connect if it is at or above this minimum.",
+    "security_impact": "The Rego policy triggers weak_or_default_tls_configuration when this value is in ['SSL3.0', 'TLS1.0', 'TLS1.1'], assigning a medium-criticality score of 5. TLS 1.0 is vulnerable to POODLE and BEAST; TLS 1.1 lacks modern AEAD ciphers. Accepting these versions enables downgrade attacks (T1562.010) where an active adversary forces negotiation to a weaker protocol version, then exploits known cryptographic weaknesses to decrypt or manipulate traffic. The default safe minimum is TLS1.2.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the nginx TLS configuration for the ssl_protocols directive to identify the minimum version accepted.",
+        "command": "grep -rn 'ssl_protocols' /etc/nginx/nginx.conf /etc/nginx/conf.d/ /etc/nginx/sites-enabled/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "ssl_protocols TLSv1.2 TLSv1.3; is the secure configuration. Presence of TLSv1 or TLSv1.1 or SSLv3 in the list indicates a weak minimum."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Apache HTTP Server, check the SSLProtocol directive in httpd.conf or ssl.conf.",
+        "command": "grep -rn 'SSLProtocol' /etc/httpd/conf.d/ /etc/apache2/mods-enabled/ /etc/apache2/sites-enabled/ 2>/dev/null",
+        "file_path": "/etc/apache2/mods-enabled/ssl.conf",
+        "navigation": null,
+        "expected_output": "SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1 is secure. 'SSLProtocol all' without exclusions or including TLSv1 indicates weak minimum."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use testssl.sh or nmap to enumerate the minimum TLS version accepted by the server.",
+        "command": "testssl.sh --protocols <host>:443 2>/dev/null | grep -E '(SSL|TLS)' ; nmap --script ssl-enum-ciphers -p 443 <host> 2>/dev/null | grep -E '(TLSv|SSLv)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "testssl.sh output should show SSL 2, SSL 3, TLS 1, TLS 1.1 all as 'not offered'. Any 'offered' or 'offered (deprecated)' indicates a weak minimum."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Java-based servers (Tomcat, Jetty, Spring Boot embedded), check server.xml or application properties for the sslEnabledProtocols or includeProtocols setting.",
+        "command": "grep -rE '(sslEnabledProtocols|SSLProtocol|includeProtocols|excludeProtocols|jdk\\.tls\\.disabledAlgorithms)' /opt/tomcat/conf/ /opt/app/ /etc/java/ 2>/dev/null",
+        "file_path": "/opt/tomcat/conf/server.xml",
+        "navigation": null,
+        "expected_output": "sslEnabledProtocols='TLSv1.2,TLSv1.3' is secure. Presence of TLSv1 or TLSv1.1 in the enabled list, or absence of explicit exclusions, indicates the minimum may be too low."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLS1.2",
+      "TLS1.3",
+      "TLS1.1",
+      "TLS1.0"
+    ]
+  },
+  {
+    "option_name": "weak_cipher_suites_enabled",
+    "option_description": "Indicates whether the server's TLS cipher suite configuration includes any deprecated, broken, or cryptographically weak ciphers such as RC4, DES, 3DES (SWEET32), NULL encryption ciphers, EXPORT-grade ciphers, MD5-based MACs, or anonymous Diffie-Hellman (aNULL/ADH) cipher suites that provide no authentication.",
+    "security_impact": "The Rego policy triggers weak_or_default_tls_configuration independently when this attribute is true, regardless of the minimum TLS version configured. Weak ciphers can be exploited even over TLS 1.2 connections: RC4 has statistical biases exploitable for plaintext recovery, 3DES is vulnerable to SWEET32 birthday attacks, NULL ciphers provide no confidentiality, and aNULL suites allow MITM impersonation. This directly enables T1562.010 (Downgrade Attack) and T1600 (Weaken Encryption).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Run testssl.sh against the HTTPS endpoint with a focus on cipher suite enumeration and known weak cipher detection.",
+        "command": "testssl.sh --cipher-per-proto --warnings off <host>:443 2>/dev/null | grep -iE '(RC4|DES|3DES|EXPORT|NULL|ADH|aNULL|MD5|WEAK|LOW|MEDIUM)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output means no weak ciphers are offered. Any line showing a cipher name from the grep pattern as 'offered' confirms weak_cipher_suites_enabled is true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap's ssl-enum-ciphers script to enumerate all accepted cipher suites and identify any graded below 'A'.",
+        "command": "nmap --script ssl-enum-ciphers -p 443,8443 <host> 2>/dev/null | grep -E '(C -|D -|NULL|EXPORT|RC4|DES|MD5|warning)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Cipher suites graded C or D, or any warning about weak ciphers, indicate weak_cipher_suites_enabled is true. All 'A' grades with no warnings is the secure state."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the nginx ssl_ciphers directive for presence of weak cipher strings.",
+        "command": "grep -n 'ssl_ciphers' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/* 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "A cipher string containing !RC4:!DES:!3DES:!EXPORT:!NULL:!MD5:!aNULL exclusions is safe. A cipher string using 'ALL' or 'DEFAULT' without exclusions, or explicitly including any of these, indicates weak ciphers may be enabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Apache HTTP Server, inspect SSLCipherSuite in the TLS configuration to check for weak cipher inclusions.",
+        "command": "grep -rn 'SSLCipherSuite' /etc/httpd/conf.d/ /etc/apache2/mods-enabled/ /etc/apache2/sites-enabled/ 2>/dev/null",
+        "file_path": "/etc/apache2/mods-enabled/ssl.conf",
+        "navigation": null,
+        "expected_output": "SSLCipherSuite ECDHE+AESGCM:DHE+AESGCM:!RC4:!3DES:!DES:!NULL:!EXPORT is secure. SSLCipherSuite DEFAULT or HIGH:MEDIUM:LOW indicates potential weak cipher exposure."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "process_run_account",
+    "option_description": "Identifies the OS username under which the application server process is actively running. This is the account that inherits all file system permissions, network capabilities, and system call rights exercised by the process during its operation.",
+    "security_impact": "Directly evaluated by the process_running_with_excessive_os_privilege rule. The Rego policy triggers a high-criticality exposure (score 8) when process_run_account equals 'root', because exploitation of any vulnerability within the process then grants the attacker full host control rather than a contained sandbox. This maps to T1068 (Exploitation for Privilege Escalation). The account name is used in conjunction with process_uid and dedicated_service_account_configured to determine privilege posture.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the running process list and extract the username from the USER column for the application server process.",
+        "command": "ps aux | grep -E '(java|node|python|ruby|gunicorn|uvicorn|tomcat|nginx|httpd)' | grep -v grep | awk '{print $1, $2, $11}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows username (e.g., 'appuser', 'www-data', 'root') alongside the PID and command. A value of 'root' is a critical finding."
+      },
+      {
+        "type": "command",
+        "instruction": "Read the process credentials directly from the kernel proc filesystem for precision, checking both real and effective UIDs.",
+        "command": "cat /proc/$(pgrep -f <app_process_name>)/status | grep -E '^(Name|Uid|Gid):' && id $(ps -o user= -p $(pgrep -f <app_process_name>))",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Status file shows Name, Uid, and Gid lines. The id command outputs uid, gid, and group memberships for the running user."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect systemd unit files or init scripts to identify the statically configured run-as user for the service.",
+        "command": "systemctl show <service-name> --property=User,Group && cat /etc/systemd/system/<service-name>.service | grep -E '^(User|Group)='",
+        "file_path": "/etc/systemd/system/<service-name>.service, /lib/systemd/system/<service-name>.service",
+        "navigation": null,
+        "expected_output": "User= and Group= directives show the configured account. An absent User= directive means the service runs as root by default."
+      },
+      {
+        "type": "command",
+        "instruction": "For containerized deployments, inspect the container runtime to determine the effective user.",
+        "command": "docker inspect <container_id> --format '{{.Config.User}}' && kubectl get pod <pod-name> -o jsonpath='{.spec.securityContext.runAsUser}{.spec.containers[*].securityContext.runAsUser}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Docker returns the configured user string. kubectl returns the numeric UID. An empty Docker result or UID 0 in Kubernetes indicates root execution."
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "root",
+      "www-data",
+      "nginx",
+      "appservice",
+      "tomcat",
+      "nobody",
+      "app",
+      "node",
+      "python"
+    ]
+  },
+  {
+    "option_name": "process_uid",
+    "option_description": "The numeric Linux/Unix user identifier (UID) of the account running the application server process. UID 0 is universally reserved for root and grants unrestricted kernel-level privileges. UIDs below 1000 typically indicate system accounts, while UIDs 1000 and above are usually regular user or service accounts.",
+    "security_impact": "Evaluated directly by the process_running_with_excessive_os_privilege Rego rule, which triggers a high-criticality exposure when process_uid equals 0. A UID of 0 means the process has CAP_SYS_ADMIN and all other Linux capabilities by default, so any RCE vulnerability immediately yields full host compromise. The policy maps this to T1068. Even non-zero low UIDs (1-999) may represent privileged system accounts and warrant scrutiny alongside the account name.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Extract the numeric UID directly from the process status in the kernel proc filesystem.",
+        "command": "cat /proc/$(pgrep -f <app_process_name> | head -1)/status | grep '^Uid:' | awk '{print \"Real:\", $2, \"Effective:\", $3, \"Saved:\", $4}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Uid line shows four values: real, effective, saved-set, and filesystem UID. All should be non-zero (ideally >=1000) for a properly configured service."
+      },
+      {
+        "type": "command",
+        "instruction": "Use ps with format specifiers to display both the username and numeric UID for all relevant processes.",
+        "command": "ps -eo user,uid,pid,comm --sort=uid | grep -E '(java|node|python|ruby|gunicorn|tomcat|nginx|httpd|app)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Columns show username, UID, PID, and command. UID column value of 0 is a critical finding requiring immediate remediation."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes pods, retrieve the configured runAsUser from the pod security context.",
+        "command": "kubectl get pod <pod-name> -n <namespace> -o json | jq '.spec.securityContext.runAsUser, .spec.containers[].securityContext.runAsUser'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns numeric UID values. 'null' indicates no runAsUser is set, meaning the container image's default USER applies (often root if not explicitly set in Dockerfile)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the container image Dockerfile or base image configuration for the USER instruction to determine the default UID.",
+        "command": "docker inspect <image_name> --format '{{.Config.User}}' && docker run --rm --entrypoint id <image_name>",
+        "file_path": "Dockerfile",
+        "navigation": null,
+        "expected_output": "USER instruction shows the configured user. The id command output reveals the numeric UID. A blank USER or USER root indicates UID 0."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "33",
+      "48",
+      "65534",
+      "999",
+      "1000",
+      "1001"
+    ]
+  },
+  {
+    "option_name": "dedicated_service_account_configured",
+    "option_description": "Indicates whether the application server is explicitly configured to run under a purpose-created, single-function service account that has no interactive login shell, no sudo privileges, and belongs to no unnecessary groups. This is distinct from running as a generic system account (e.g., nobody, daemon) or a shared account used by multiple services.",
+    "security_impact": "One of three conditions evaluated by the process_running_with_excessive_os_privilege Rego rule, which fires when dedicated_service_account_configured is false or absent. A dedicated account enforces the principle of least privilege at the OS level: if the application is compromised, the blast radius is limited to what that specific account can access. Without this control, lateral movement to other services sharing the same account becomes trivial. The policy scores this high (8) and maps it to T1068.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Verify the service account exists as a dedicated user with no login shell and confirm it is used exclusively by this service.",
+        "command": "getent passwd <service_user> && grep <service_user> /etc/passwd | awk -F: '{print \"Shell:\", $7, \"Home:\", $6}' && grep -r <service_user> /etc/systemd/system/ /etc/init.d/ 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/passwd, /etc/systemd/system/",
+        "navigation": null,
+        "expected_output": "User exists with shell set to /usr/sbin/nologin or /bin/false. Should appear in only one service unit file. Home directory should be restricted (e.g., /var/lib/appservice or /nonexistent)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the systemd service unit file for an explicit User= directive pointing to a dedicated account, and check the account's group memberships.",
+        "command": "grep -E '^(User|Group)=' /etc/systemd/system/<service-name>.service && groups <service_user> && id <service_user>",
+        "file_path": "/etc/systemd/system/<service-name>.service",
+        "navigation": null,
+        "expected_output": "User= set to a service-specific account name (e.g., appservice, myapp). id output should show minimal group memberships—only the service's own group and no administrative groups like sudo, wheel, or docker."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Kubernetes deployments, verify the pod security context defines a non-root runAsUser and that a corresponding service account with minimal RBAC is configured.",
+        "command": "kubectl get pod <pod-name> -o jsonpath='{.spec.securityContext}' && kubectl get serviceaccount -n <namespace> && kubectl auth can-i --list --as=system:serviceaccount:<namespace>:<serviceaccount-name>",
+        "file_path": "kubernetes deployment manifest (deployment.yaml)",
+        "navigation": null,
+        "expected_output": "securityContext shows runAsNonRoot: true and a specific runAsUser. The service account should have minimal RBAC permissions as shown by the can-i output."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the deployment or infrastructure team to confirm whether a dedicated service account was created as part of the server provisioning process, and review the provisioning runbook or IaC code.",
+        "command": "grep -r 'useradd\\|adduser\\|user:\\|runAsUser' /path/to/ansible/ /path/to/terraform/ /path/to/helm/ 2>/dev/null | grep -v '#'",
+        "file_path": "Ansible playbooks, Terraform modules, Helm chart values.yaml",
+        "navigation": null,
+        "expected_output": "IaC code explicitly creates or references a dedicated low-privilege user for the application service. Provisioning scripts should show useradd -r -s /usr/sbin/nologin -M <service_user> or equivalent."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "plaintext_secrets_on_filesystem",
+    "option_description": "Indicates whether the application server's host filesystem contains configuration files, dotfiles, or properties files that store API keys, database passwords, service tokens, or other credentials in plaintext or base64-encoded (not encrypted) form. This includes .env files, application.properties, config.yaml, settings.py, database.yml, and similar files containing raw credential values.",
+    "security_impact": "Directly triggers the secrets_stored_in_plaintext_on_disk_or_environment Rego rule, which fires when this attribute is true regardless of secrets manager integration status. The policy assigns high criticality (score 8) and maps to T1552.001 (Credentials In Files) and T1552 (Unsecured Credentials). Any user or process with read access to the file—including other applications, backup agents, or log shippers—can harvest these credentials. File-based secrets also tend to persist in backup snapshots, container images, and version control history.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Scan the application directory and common configuration locations for files containing credential patterns using grep.",
+        "command": "grep -rEil '(password|passwd|pwd|api_key|apikey|secret|token|credentials|db_pass|database_url|connection_string)\\s*[=:]\\s*[^$\\{]' /opt/app/ /etc/app/ /var/app/ ~/.env /home/ 2>/dev/null | head -50",
+        "file_path": "/opt/app/, /etc/app/, ~/.env, /var/app/",
+        "navigation": null,
+        "expected_output": "No files should be returned. Any file path in the output represents a plaintext secret location requiring immediate remediation."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Directly inspect high-risk configuration files commonly used by application frameworks for embedded credentials.",
+        "command": "for f in .env .env.production application.properties application.yml config.yml database.yml settings.py secrets.py config.json; do find / -name \"$f\" 2>/dev/null -not -path '*/proc/*' | xargs grep -lE '(password|secret|token|key)\\s*=' 2>/dev/null; done",
+        "file_path": ".env, application.properties, application.yml, config.yml, database.yml, settings.py, config.json",
+        "navigation": null,
+        "expected_output": "Files found should contain only references to environment variable substitutions (e.g., ${DB_PASSWORD}) or vault paths, not literal credential values."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for hardcoded credentials in Docker image layers or container filesystems using image scanning tools.",
+        "command": "trivy image --security-checks secret <image_name>:latest 2>/dev/null || docker run --rm -v /var/run/docker.sock:/var/run/docker.sock trufflesecurity/trufflehog:latest docker --image <image_name>:latest",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Zero secret findings. Any HIGH or CRITICAL findings indicate hardcoded credentials baked into the container image layers."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify file permissions on configuration files to assess whether secrets would be broadly readable even if present.",
+        "command": "find /opt/app /etc/app /var/app 2>/dev/null -name '*.env' -o -name '*.properties' -o -name '*.yml' -o -name '*.yaml' -o -name '*.conf' | xargs ls -la 2>/dev/null | awk '{print $1, $3, $4, $9}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Configuration files containing any sensitive data should be owned by the service account with permissions 600 or 640, not world-readable (no 'r' in the other permissions field)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "plaintext_secrets_in_environment_variables",
+    "option_description": "Indicates whether the application server process has API keys, database credentials, tokens, or other sensitive values injected as plaintext OS environment variables. While environment variables are a common 12-factor app pattern, they are accessible via /proc/PID/environ to any process with sufficient permissions, exposed by container inspection commands, and often captured in crash dumps, debug output, and logging frameworks.",
+    "security_impact": "Triggers the secrets_stored_in_plaintext_on_disk_or_environment Rego rule independently when true, regardless of other controls. The policy scores this high (8) and maps to T1552 (Unsecured Credentials). Environment variables are particularly dangerous in containerized environments where docker inspect or kubectl describe pod can be run by anyone with access to container management APIs, exposing all environment variables including secrets. They also appear in /proc/PID/environ accessible to co-resident processes.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Read the environment of the running application process directly from the proc filesystem and scan for credential patterns.",
+        "command": "cat /proc/$(pgrep -f <app_process_name> | head -1)/environ | tr '\\0' '\\n' | grep -Ei '(password|passwd|secret|api_key|token|credentials|db_pass|database_url|aws_secret|private_key)' | sed 's/=.*/=REDACTED/'",
+        "file_path": "/proc/<pid>/environ",
+        "navigation": null,
+        "expected_output": "No lines with credential-pattern variable names containing actual values. References to a secrets manager ARN/path rather than raw values are acceptable."
+      },
+      {
+        "type": "command",
+        "instruction": "For Docker containers, use docker inspect to enumerate all environment variables set in the container.",
+        "command": "docker inspect <container_id> --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -Ei '(password|secret|api_key|token|key|credentials)' | sed 's/=.*/=REDACTED/'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No sensitive variable names should hold literal credential values. Variables like DB_PASSWORD=vault:secret/myapp/db or DB_PASSWORD= (empty, injected at runtime) are acceptable patterns."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes, inspect pod environment variables through the API server to check for secrets passed as env vars rather than mounted volumes.",
+        "command": "kubectl get pod <pod-name> -n <namespace> -o json | jq '.spec.containers[].env[] | select(.value != null) | {name: .name, hasLiteralValue: (.value | length > 0)}' | grep -A1 '\"hasLiteralValue\": true'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Env vars with literal values should not include credential-pattern names. Secrets should appear as valueFrom.secretKeyRef references, not direct value fields."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review deployment configuration files (docker-compose, Kubernetes manifests, systemd unit files) for environment variable definitions containing inline credential values.",
+        "command": "grep -Eri '(PASSWORD|SECRET|API_KEY|TOKEN|CREDENTIALS)\\s*[:=]\\s*[^$\\{<]' /path/to/docker-compose.yml /path/to/kubernetes/ /etc/systemd/system/<service>.service 2>/dev/null",
+        "file_path": "docker-compose.yml, kubernetes/deployment.yaml, /etc/systemd/system/<service>.service",
+        "navigation": null,
+        "expected_output": "All credential-pattern variables should reference secret stores (secretKeyRef, external secrets) or use variable substitution (${VAR}), not contain literal values."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "secrets_manager_integrated",
+    "option_description": "Indicates whether the application server retrieves secrets dynamically at runtime from a dedicated secrets management solution such as HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, or GCP Secret Manager, rather than reading them from static files or environment variables loaded at startup. True integration means secrets are fetched on demand, rotated automatically, and never written to disk or exposed in environment listings.",
+    "security_impact": "Evaluated by the secrets_stored_in_plaintext_on_disk_or_environment Rego rule, where the absence of secrets manager integration combined with plaintext secrets on the filesystem creates a compounding risk condition. Without a secrets manager, credentials are static and long-lived, creating persistent exposure through T1552.001 and T1552. A secrets manager enables secret rotation, access auditing, and just-in-time credential retrieval, all of which limit the window of exposure if credentials are observed by an attacker.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check running processes and loaded libraries for secrets manager SDK activity, and inspect outbound connections to secrets manager endpoints.",
+        "command": "lsof -p $(pgrep -f <app_process_name>) 2>/dev/null | grep -Ei '(vault|aws-sdk|boto|azure-keyvault|google-cloud-secret)' && ss -tp | grep $(pgrep -f <app_process_name>) | grep -E '(8200|443)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Loaded libraries include secrets manager SDK. Active TCP connections to port 8200 (Vault) or 443 (cloud provider secret APIs) from the application process PID."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect application dependency manifests and configuration files for secrets manager SDK dependencies and configuration.",
+        "command": "cat /opt/app/package.json /opt/app/requirements.txt /opt/app/pom.xml /opt/app/build.gradle 2>/dev/null | grep -Ei '(vault|aws-sdk|boto3|secretsmanager|keyvault|google-cloud-secret)' && grep -ri 'vault\\|secretsmanager\\|keyvault\\|secret_manager' /opt/app/config/ 2>/dev/null",
+        "file_path": "package.json, requirements.txt, pom.xml, build.gradle, /opt/app/config/",
+        "navigation": null,
+        "expected_output": "Dependency file includes secrets manager client library. Configuration file contains vault address, AWS region, or equivalent endpoint configuration pointing to the secrets management service."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Kubernetes deployments, check for Vault Agent sidecar injection annotations or External Secrets Operator resources that indicate automated secret retrieval.",
+        "command": "kubectl get pod <pod-name> -n <namespace> -o jsonpath='{.metadata.annotations}' | python3 -m json.tool | grep -Ei '(vault|external-secrets|secrets-store)' && kubectl get secretproviderclass,externalsecret -n <namespace> 2>/dev/null",
+        "file_path": "kubernetes/deployment.yaml",
+        "navigation": null,
+        "expected_output": "Vault Agent annotations present (vault.hashicorp.com/agent-inject: 'true') or ExternalSecret/SecretProviderClass resources exist, confirming automated secret injection rather than static environment variables."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review application startup logs and authentication audit logs from the secrets manager to confirm the application is actively authenticating and retrieving secrets.",
+        "command": "journalctl -u <service-name> --since '1 hour ago' | grep -Ei '(vault|secretsmanager|keyvault|fetching secret|secret retrieved|auth token)' && aws secretsmanager list-secrets --query 'SecretList[?contains(Name, `<app-name>`)]' 2>/dev/null",
+        "file_path": null,
+        "navigation": "AWS Console → Secrets Manager → Secrets → select secret → Secret value (check rotation status and last retrieved); HashiCorp Vault UI → Access → Auth Methods → verify application auth method",
+        "expected_output": "Application logs show successful secret retrieval at startup or periodic rotation. Secrets Manager console shows recent LastAccessedDate for application secrets."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "auth_event_logging_enabled",
+    "option_description": "Controls whether the application server is configured to emit log records for authentication events—both successful logins and failed authentication attempts—to a persistent, durable logging destination. This includes login events, token validation results, API key authentication outcomes, OAuth flows, and session creation or termination events.",
+    "security_impact": "Directly evaluated by the missing_or_incomplete_request_and_error_logging Rego rule, which triggers a medium-criticality exposure when auth_event_logging_enabled is false. Without authentication event logs, brute-force attacks, credential stuffing, token replay, and unauthorized access attempts go undetected, eliminating the forensic audit trail needed for incident response. The policy maps this gap to T1562.008 (Disable or Modify Cloud Logs) and T1562.006 (Indicator Blocking), as missing logs functionally prevent detection regardless of the cause.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect logging framework configuration files for authentication-specific log handlers, appenders, or filters that capture auth events.",
+        "command": "find /opt/app /etc/app /var/app 2>/dev/null -name 'log4j*.xml' -o -name 'logback.xml' -o -name 'logging.properties' -o -name 'log4j2.yml' | xargs grep -li 'auth\\|security\\|login\\|authentication' 2>/dev/null && grep -Eri '(authentication|auth.event|login.event|security.audit)' /opt/app/src/main/resources/ /opt/app/config/ 2>/dev/null",
+        "file_path": "logback.xml, log4j2.xml, logging.properties, /opt/app/config/logging.yml",
+        "navigation": null,
+        "expected_output": "Logging configuration contains logger entries specifically targeting authentication packages/namespaces (e.g., org.springframework.security, passport, django.security.auth) with an INFO or DEBUG level directing to a file or remote appender."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search existing log files or the log aggregation system for recent authentication event records to confirm they are being captured.",
+        "command": "journalctl -u <service-name> --since '24 hours ago' | grep -Ei '(login|logout|authentication|auth failed|invalid credentials|token valid|unauthorized|403|401)' | tail -20 && grep -Ei '(login|auth|authentication|token)' /var/log/app/<service>.log 2>/dev/null | tail -20",
+        "file_path": "/var/log/app/<service>.log, /var/log/auth.log",
+        "navigation": null,
+        "expected_output": "Log entries present showing authentication successes (user X authenticated, token validated) and failures (invalid password, token expired, authentication failed) with timestamps, source IPs, and user identifiers."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Spring Boot applications, check application.properties or application.yml for Spring Security logging configuration and actuator audit event settings.",
+        "command": "grep -E '(logging.level.*security|management.auditevents|spring.security.debug|AuditEventRepository)' /opt/app/application.properties /opt/app/application.yml /opt/app/src/main/resources/application.* 2>/dev/null",
+        "file_path": "application.properties, application.yml",
+        "navigation": null,
+        "expected_output": "logging.level.org.springframework.security=INFO or DEBUG present. management.auditevents.enabled=true for Spring Boot Actuator. AuditEventRepository bean configured for persistent audit storage."
+      },
+      {
+        "type": "gui",
+        "instruction": "For applications deployed on cloud platforms with managed authentication (AWS Cognito, Azure AD, Auth0), verify that authentication event logging is enabled in the identity provider console.",
+        "command": "aws cognito-idp describe-user-pool --user-pool-id <pool-id> --query 'UserPool.LambdaConfig' && aws cloudtrail get-trail-status --name <trail-name> --query '{IsLogging: IsLogging, LatestDeliveryTime: LatestDeliveryTime}'",
+        "file_path": null,
+        "navigation": "Auth0 Dashboard → Monitoring → Logs (verify login success/failure events present); AWS Cognito Console → User Pools → select pool → User activity logging; Azure Portal → Azure AD → Sign-in logs → verify auth event capture",
+        "expected_output": "Identity provider shows recent authentication events in logs with event types for login success, login failure, and token issuance. CloudTrail shows IsLogging: true with recent delivery time."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "authorization_failure_logging_enabled",
+    "option_description": "Controls whether access-denied and permission-violation events (HTTP 401/403 responses, failed role checks, policy violations) are captured in application logs rather than silently discarded.",
+    "security_impact": "The Rego policy fires the 'Missing Or Incomplete Request And Error Logging' exposure when `input.authorization_failure_logging_enabled` is falsy. Without this logging, brute-force authorization attacks, privilege escalation attempts, and lateral movement through API endpoints leave no forensic trace, eliminating the ability to detect and investigate breaches.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect middleware or framework logging configuration for 401/403 event hooks. In Spring Boot, check application.properties or application.yml for logging.level settings and any SecurityEventListener beans. In Express.js, look for middleware that logs response status codes.",
+        "command": null,
+        "file_path": "src/main/resources/application.properties, config/application.yml, src/middleware/logging.js",
+        "navigation": null,
+        "expected_output": "Presence of a logging directive or event hook that captures 401/403 status codes, e.g., `logging.level.org.springframework.security=INFO` or a middleware with `if (res.statusCode === 403) logger.warn(...)`"
+      },
+      {
+        "type": "command",
+        "instruction": "Generate a deliberate 403 against a protected endpoint and check whether an entry appears in the application log output.",
+        "command": "curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer invalidtoken' https://localhost:8080/api/admin && tail -n 50 /var/log/app/application.log | grep -E '403|FORBIDDEN|access.denied'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A log line containing the 403 status, endpoint path, and timestamp within seconds of the request."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query the centralized log sink (e.g., CloudWatch Logs, Splunk, ELK) for 403 or 401 events in the past 24 hours. Absence of any such events on an active API is a strong indicator that authorization failure logging is disabled.",
+        "command": "aws logs filter-log-events --log-group-name /app/production --filter-pattern '\"403\" OR \"401\" OR \"FORBIDDEN\" OR \"ACCESS_DENIED\"' --start-time $(date -d '24 hours ago' +%s)000",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array of log events; empty results on a busy API indicate disabled logging."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the development team or review the API gateway configuration (AWS API Gateway, Kong, Nginx) for access log format strings that include HTTP status codes and verify that 4xx events are explicitly included.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → API Gateway → Stages → Logs/Tracing → Access Log Format field",
+        "expected_output": "Log format string includes $context.status or equivalent, and CloudWatch log group is configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "centralized_log_destination_configured",
+    "option_description": "Determines whether application logs are forwarded to an external, tamper-evident log aggregation or SIEM system (e.g., Splunk, ELK Stack, AWS CloudWatch, Datadog) in addition to or instead of local file storage.",
+    "security_impact": "The Rego policy includes `not input.centralized_log_destination_configured` as a standalone trigger for the 'Missing Or Incomplete Request And Error Logging' exposure. Logs stored only on the application host can be deleted or tampered with by an attacker who has compromised the server, completely eliminating the audit trail needed for incident response and regulatory compliance.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for a running log forwarder agent process such as Fluentd, Filebeat, Fluent Bit, or the CloudWatch agent on the host.",
+        "command": "ps aux | grep -E 'fluentd|filebeat|fluent-bit|amazon-cloudwatch-agent|td-agent' && systemctl list-units --type=service --state=running | grep -E 'filebeat|fluentd|cloudwatch'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An active process entry or systemd service for the log forwarder agent."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the log forwarder configuration file for an output destination pointing to an external host. For Filebeat, review the output.elasticsearch or output.logstash stanza; for Fluentd, look for <match> blocks with remote destinations.",
+        "command": null,
+        "file_path": "/etc/filebeat/filebeat.yml, /etc/fluentd/fluent.conf, /etc/td-agent/td-agent.conf, /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json",
+        "navigation": null,
+        "expected_output": "An output stanza with a non-localhost hostname or AWS/GCP/Azure endpoint, e.g., `hosts: ['https://splunk.internal:9200']` or `log_group_name: /app/production`."
+      },
+      {
+        "type": "command",
+        "instruction": "Check active network connections from the host to verify outbound log shipping is occurring.",
+        "command": "ss -tnp | grep -E ':5044|:9200|:514|:443' | grep ESTAB",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ESTABLISHED connection to the expected log aggregator port (5044 for Logstash, 9200 for Elasticsearch, 514 for syslog)."
+      },
+      {
+        "type": "gui",
+        "instruction": "Verify in the cloud provider console that the application's log group or log stream has recent entries. In AWS, check CloudWatch Log Groups; in GCP, check Cloud Logging; in Azure, check Log Analytics workspace.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → CloudWatch → Log Groups → select /app/<service-name> → verify Last Event Time is within last 5 minutes",
+        "expected_output": "Log group exists with a Last Event timestamp within the current operational window."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "api_error_logging_enabled",
+    "option_description": "Controls whether server-side API errors including 5xx HTTP responses, unhandled exceptions, and input validation failures are captured in logs with sufficient context (endpoint path, timestamp, status code, stack trace) for forensic analysis.",
+    "security_impact": "The Rego policy triggers 'Missing Or Incomplete Request And Error Logging' when `not input.api_error_logging_enabled`. Unlogged 500-series errors and exceptions may indicate active exploitation attempts (e.g., injection attacks causing application crashes, fuzzing producing unexpected states). Without this data, defenders cannot distinguish transient bugs from active attacks or reconstruct attack timelines.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the application's error handling middleware or global exception handler to confirm errors are passed to a logger. In Spring Boot, check @ControllerAdvice classes; in Express.js, look for the four-argument error middleware `(err, req, res, next)` that calls `logger.error()`.",
+        "command": null,
+        "file_path": "src/main/java/**/GlobalExceptionHandler.java, src/middleware/errorHandler.js, app/exceptions/handler.py",
+        "navigation": null,
+        "expected_output": "A global exception handler that invokes a logger at ERROR or WARN level with request context before returning the HTTP response."
+      },
+      {
+        "type": "command",
+        "instruction": "Trigger a deliberate 500 error against the application and verify an error entry appears in the application log with request context.",
+        "command": "curl -s -X POST https://localhost:8080/api/data -H 'Content-Type: application/json' -d '{\"invalid\": true}' && sleep 2 && tail -n 20 /var/log/app/application.log | grep -E '500|ERROR|Exception'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A log entry at ERROR level containing the HTTP status 500, the endpoint path, and optionally a stack trace."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the logging framework configuration for an error-level appender that is not filtered out. In Logback (logback.xml), verify a root logger or specific logger at ERROR level writes to an appender. In log4j2.xml, inspect <Root level> and appender-refs.",
+        "command": null,
+        "file_path": "src/main/resources/logback.xml, src/main/resources/log4j2.xml, config/logging.yml",
+        "navigation": null,
+        "expected_output": "`<root level='INFO'>` or higher with an appender-ref pointing to a file or remote appender; no threshold filter blocking ERROR events."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search the application log or centralized log system for 5xx error entries over the past 7 days. A system with zero 5xx log entries on an active API almost certainly has error logging disabled or misconfigured.",
+        "command": "grep -E 'HTTP/[0-9.]+ 5[0-9]{2}|\"status\":5[0-9]{2}|ERROR|EXCEPTION' /var/log/app/application.log | wc -l",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-zero count; zero results on an active service indicate disabled error logging."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "log_request_body_enabled",
+    "option_description": "Controls whether the logging configuration captures and persists complete HTTP request body payloads. When enabled, POST/PUT/PATCH body content—which frequently contains passwords, API keys, PII, and session tokens—is written verbatim to log files and forwarded to log aggregators.",
+    "security_impact": "The Rego policy triggers 'Sensitive Data Leakage In Log Output' when `input.log_request_body_enabled == true` and `not input.log_sensitive_field_redaction_enabled`. Full request body logging without redaction guarantees that credentials submitted to login endpoints, SSNs in form submissions, and payment card data are persisted in log storage accessible to anyone with log read access, violating PCI-DSS, HIPAA, and GDPR requirements.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect HTTP access logging middleware configuration for body capture directives. In Morgan (Node.js), check the format string for `body` tokens. In Spring Boot, look for ContentCachingRequestWrapper usage or a CommonsRequestLoggingFilter bean with setIncludePayload(true). In Django, check LOGGING configuration for request body capture.",
+        "command": null,
+        "file_path": "src/middleware/requestLogger.js, src/main/java/**/RequestLoggingConfig.java, settings/logging.py, config/web.config",
+        "navigation": null,
+        "expected_output": "Absence of `setIncludePayload(true)`, `body` in format strings, or request body serialization calls in the logging middleware."
+      },
+      {
+        "type": "command",
+        "instruction": "Send a POST request with a distinguishable payload and grep the application log for the payload content.",
+        "command": "curl -s -X POST https://localhost:8080/api/login -H 'Content-Type: application/json' -d '{\"username\":\"testuser\",\"password\":\"SENTINEL_VALUE_12345\"}' && sleep 2 && grep 'SENTINEL_VALUE_12345' /var/log/app/application.log",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output (sentinel value absent from logs) indicates body logging is disabled or redacted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For NGINX acting as a reverse proxy, inspect the nginx.conf for `$request_body` in the log_format directive.",
+        "command": null,
+        "file_path": "/etc/nginx/nginx.conf, /etc/nginx/conf.d/*.conf",
+        "navigation": null,
+        "expected_output": "`log_format` directive that does NOT include `$request_body` variable."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Sample recent log entries and look for JSON payloads or form-encoded data embedded in log lines, particularly for authentication endpoints.",
+        "command": "grep -i 'POST /api' /var/log/app/application.log | head -20 | grep -E '\\{.*\\}|password=|username='",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Log lines showing only request metadata (method, path, status, duration) without embedded request body content."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "log_sensitive_headers_enabled",
+    "option_description": "Controls whether HTTP headers including Authorization (Bearer tokens, Basic auth credentials), Cookie, Set-Cookie, and X-API-Key are captured verbatim in log output without redaction or omission.",
+    "security_impact": "The Rego policy triggers 'Sensitive Data Leakage In Log Output' when `input.log_sensitive_headers_enabled == true` and `not input.log_sensitive_field_redaction_enabled`. Bearer tokens and session cookies logged in plaintext can be extracted from log files or log aggregation systems by any operator with log access, enabling session hijacking and account takeover independent of any application-layer vulnerability. This is a common vector in insider threat scenarios.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review the HTTP server or API gateway log format configuration for header capture. In NGINX, check the log_format for `$http_authorization` or `$http_cookie`. In Apache, check LogFormat for `%{Authorization}i` or `%{Cookie}i`. In Kong Gateway, inspect the request-transformer or file-log plugin configuration.",
+        "command": null,
+        "file_path": "/etc/nginx/nginx.conf, /etc/apache2/apache2.conf, /etc/kong/kong.conf, /usr/local/kong/declarative/kong.yaml",
+        "navigation": null,
+        "expected_output": "Log format strings that do NOT include `$http_authorization`, `$http_cookie`, `Authorization`, or `Cookie` header references."
+      },
+      {
+        "type": "command",
+        "instruction": "Send a request with a recognizable Authorization header value and check whether it appears in the access log.",
+        "command": "curl -s -H 'Authorization: Bearer SENTINEL_TOKEN_ABCDEF' https://localhost:8080/api/health && sleep 2 && grep 'SENTINEL_TOKEN_ABCDEF' /var/log/app/access.log /var/log/nginx/access.log 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No grep matches; if the sentinel token appears in logs, header logging is enabled without redaction."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For application frameworks, inspect the request logging middleware for explicit header inclusion. In Spring Boot, check CommonsRequestLoggingFilter for setIncludeHeaders(true). In Express.js morgan configuration, check if custom token functions capture req.headers.authorization.",
+        "command": null,
+        "file_path": "src/main/java/**/RequestLoggingConfig.java, src/middleware/logger.js, config/application.yml",
+        "navigation": null,
+        "expected_output": "`setIncludeHeaders(false)` or absence of Authorization/Cookie header tokens in the logging middleware configuration."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Scan recent access logs for patterns matching Bearer tokens, Basic auth strings, or cookie session identifiers.",
+        "command": "grep -E 'Bearer [A-Za-z0-9._-]{20,}|Basic [A-Za-z0-9+/=]{10,}|sessionid=[A-Za-z0-9]+' /var/log/app/access.log /var/log/nginx/access.log 2>/dev/null | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches; presence of token patterns in logs confirms sensitive header logging is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "log_level",
+    "option_description": "Specifies the verbosity threshold for the application logging framework. Valid values from most to least verbose are TRACE, DEBUG, INFO, WARN, ERROR, and OFF. DEBUG and TRACE levels cause frameworks to emit internal variable states, SQL queries, HTTP client request/response details, and stack traces that frequently contain secrets.",
+    "security_impact": "The Rego policy triggers 'Sensitive Data Leakage In Log Output' when `input.log_level in [\"DEBUG\", \"TRACE\"]` and `not input.log_sensitive_field_redaction_enabled`. At DEBUG/TRACE verbosity, ORM frameworks log full SQL queries including parameterized values, HTTP client libraries log complete request and response headers and bodies, and dependency injection frameworks log bean initialization values—all of which commonly include database passwords, API keys, and tokens injected from configuration.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the primary logging configuration file for the active log level setting. In Spring Boot, inspect application.properties or application.yml. In Python/Django, check settings.py LOGGING dict. In Node.js, check the Winston or Pino configuration object.",
+        "command": null,
+        "file_path": "src/main/resources/application.properties, src/main/resources/application.yml, src/main/resources/logback.xml, settings/base.py, config/logger.js",
+        "navigation": null,
+        "expected_output": "`logging.level.root=INFO` or `<root level='WARN'>` or equivalent; DEBUG or TRACE values indicate a security risk."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for environment variable overrides of the log level, which may supersede file-based configuration.",
+        "command": "printenv | grep -iE 'LOG_LEVEL|LOGGING_LEVEL|LOG4J_LEVEL|SPRING_LOGGING_LEVEL|DEBUG' && cat /proc/$(pgrep -f 'java\\|node\\|python\\|gunicorn' | head -1)/environ 2>/dev/null | tr '\\0' '\\n' | grep -iE 'LOG_LEVEL|DEBUG'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "LOG_LEVEL=INFO or WARN; DEBUG or TRACE values require immediate remediation."
+      },
+      {
+        "type": "api",
+        "instruction": "For Spring Boot Actuator deployments, query the loggers endpoint to retrieve the effective log level at runtime, which may differ from static configuration.",
+        "command": "curl -s http://localhost:8080/actuator/loggers | python3 -m json.tool | grep -A2 '\"ROOT\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response showing `\"effectiveLevel\": \"INFO\"` or `\"WARN\"` for the ROOT logger."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect running process arguments and JVM system properties for debug flags that may elevate logging verbosity.",
+        "command": "ps aux | grep -E 'java|node|python|gunicorn' | grep -v grep | grep -iE 'debug|trace|verbose|-D.*log'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No `-Dlogging.level.root=DEBUG` or `--log-level=trace` flags in the process arguments."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "INFO",
+      "WARN",
+      "ERROR",
+      "DEBUG",
+      "TRACE"
+    ]
+  },
+  {
+    "option_name": "log_sensitive_field_redaction_enabled",
+    "option_description": "Indicates whether a structured log sanitization mechanism is in place that intercepts log records before writing and masks or removes known sensitive field names such as 'password', 'token', 'authorization', 'ssn', 'credit_card', and 'secret' from all log output.",
+    "security_impact": "The Rego policy uses `not input.log_sensitive_field_redaction_enabled` as a required co-condition for all three 'Sensitive Data Leakage In Log Output' triggers: full request body logging, sensitive header logging, and DEBUG/TRACE log level. This attribute acts as a compensating control—even if risky logging is enabled, active redaction can prevent actual sensitive data from reaching log storage. Without it, credentials and PII are guaranteed to appear in logs whenever higher verbosity or body/header capture is active.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the logging framework configuration for masking patterns or custom converters. In Logback, look for custom PatternLayout converters or MaskingMessageConverter implementations. In Log4j2, check for RewriteAppender with RewritePolicy. In Python, look for custom logging.Filter subclasses in the LOGGING config.",
+        "command": null,
+        "file_path": "src/main/resources/logback.xml, src/main/resources/log4j2.xml, src/logging/filters.py, src/utils/logger.js",
+        "navigation": null,
+        "expected_output": "A configured masking filter, custom converter, or RewritePolicy referencing sensitive field names like 'password', 'token', 'ssn'."
+      },
+      {
+        "type": "command",
+        "instruction": "Send a request containing a password field and check whether the literal value or a redaction placeholder appears in the log output.",
+        "command": "curl -s -X POST https://localhost:8080/api/login -H 'Content-Type: application/json' -d '{\"username\":\"auditor\",\"password\":\"PLAINTEXT_CHECK_9999\"}' && sleep 2 && grep -E 'PLAINTEXT_CHECK_9999|\\*\\*\\*\\*|REDACTED|\\[MASKED\\]' /var/log/app/application.log | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Either no match for the plaintext sentinel (field not logged) or a match for a redaction placeholder like `****` or `[REDACTED]`."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review application code and third-party library usage for log sanitization libraries. Common implementations include Logstash's anonymize filter, logback-masking, or custom Jackson serializers that replace sensitive fields. Confirm with developers that the mechanism covers all log output paths including third-party library logs.",
+        "command": "grep -rn 'mask\\|redact\\|sanitize\\|MaskingConverter\\|SensitiveField\\|anonymize' src/ --include='*.java' --include='*.js' --include='*.py' | grep -iv test | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Code references to a masking/redaction implementation in non-test source files."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search existing logs for known sensitive field names in their raw form to verify whether redaction is functioning in production.",
+        "command": "grep -iE '\"password\"\\s*:\\s*\"[^\"]+\"|password=[^&\\s]+|\"token\"\\s*:\\s*\"[A-Za-z0-9._-]{20,}\"' /var/log/app/application.log | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches or only redaction placeholder values (e.g., `\"password\": \"****\"`); any plaintext values confirm redaction is not working."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "runtime_version_has_known_cve",
+    "option_description": "Indicates whether the specific version of the application runtime or interpreter currently deployed (e.g., JDK 11.0.15, Node.js 18.12.0, Python 3.9.7) has one or more publicly disclosed CVEs with a CVSS score of 7.0 or higher that have not been remediated through a patch or version upgrade.",
+    "security_impact": "The Rego policy directly fires 'Unpatched Runtime Or Framework' when `input.runtime_version_has_known_cve == true`. Known CVEs in application runtimes are actively weaponized; examples include Log4Shell (CVE-2021-44228 in Log4j), Spring4Shell (CVE-2022-22965), and Node.js HTTP request smuggling vulnerabilities. A confirmed CVE in a production runtime means a public exploit path exists that any network-accessible attacker can attempt, bypassing all application-layer controls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the exact runtime version and cross-reference it against the NVD database using the OSV scanner or Trivy.",
+        "command": "java -version 2>&1 || node --version || python3 --version || ruby --version; trivy fs --scanners vuln --severity HIGH,CRITICAL / 2>/dev/null | grep -E 'CVE|Runtime|JDK|Node|Python'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Runtime version string (e.g., `openjdk 17.0.6`) followed by Trivy output listing CVEs or confirming no vulnerabilities found."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the OSV (Open Source Vulnerabilities) API to query CVEs for the specific runtime version in an automated, scriptable way.",
+        "command": "RUNTIME_VER=$(java -version 2>&1 | awk -F'\"' '{print $2}') && curl -s -X POST https://api.osv.dev/v1/query -H 'Content-Type: application/json' -d '{\"version\":\"'\"$RUNTIME_VER\"'\",\"package\":{\"name\":\"jdk\",\"ecosystem\":\"Maven\"}}' | python3 -m json.tool | grep -c '\"id\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Count of 0 indicates no known CVEs; any positive number requires review of each CVE's CVSS score."
+      },
+      {
+        "type": "api",
+        "instruction": "Query AWS Inspector, Azure Defender for Cloud, or GCP Security Command Center API to retrieve vulnerability findings for the EC2 instance or container that include runtime CVE findings.",
+        "command": "aws inspector2 list-findings --filter-criteria '{\"resourceType\":[{\"comparison\":\"EQUALS\",\"value\":\"AWS_EC2_INSTANCE\"}],\"severity\":[{\"comparison\":\"EQUALS\",\"value\":\"HIGH\"},{\"comparison\":\"EQUALS\",\"value\":\"CRITICAL\"}]}' --query 'findings[?contains(packageVulnerabilityDetails.vulnerablePackages[].name, `jdk`) || contains(packageVulnerabilityDetails.vulnerablePackages[].name, `nodejs`)].[title,packageVulnerabilityDetails.cvss[0].baseScore]' --output table",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Table of CVE findings against the runtime packages; empty output indicates no HIGH/CRITICAL CVEs detected by the cloud scanner."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the National Vulnerability Database (NVD) CPE search to look up CVEs for the specific runtime version identified on the host.",
+        "command": null,
+        "file_path": null,
+        "navigation": "https://nvd.nist.gov/products/cpe/search → Enter vendor and product (e.g., 'oracle java' or 'nodejs node.js') → filter by version → review CVEs with CVSS >= 7.0 and 'Patch' status of 'Affected'",
+        "expected_output": "No CVEs with CVSS >= 7.0 in 'Affected' status for the exact runtime version string; any such CVEs confirm the attribute value is true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "framework_version_has_known_cve",
+    "option_description": "Indicates whether the deployed server framework (e.g., Spring Boot, Express.js, Django, Rails) has one or more publicly disclosed CVEs that remain unpatched in the current deployment.",
+    "security_impact": "The Rego policy fires the 'unpatched_runtime_or_framework' exposure when this attribute is true. A framework with known CVEs provides attackers a documented exploit path via T1190 (Exploit Public-Facing Application) and T1210 (Exploitation of Remote Services). Even a single unpatched HIGH or CRITICAL CVE can enable remote code execution or authentication bypass without requiring discovery of novel vulnerabilities.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Java/Maven projects, extract the framework version from pom.xml and query the NVD API for known CVEs against it.",
+        "command": "grep -E '<(spring-boot|version)>' pom.xml | head -20 && curl -s 'https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=spring-boot+3.1.0&cvssV3Severity=HIGH' | python3 -m json.tool | grep -E 'id|descriptions'",
+        "file_path": "pom.xml",
+        "navigation": null,
+        "expected_output": "Framework version string (e.g., 3.1.0) followed by any matching NVD CVE entries. No results or zero totalResults indicates no known HIGH/CRITICAL CVEs."
+      },
+      {
+        "type": "command",
+        "instruction": "For Node.js projects, use npm audit to identify CVEs in the framework dependencies listed in package.json.",
+        "command": "cd /path/to/app && npm audit --json | python3 -m json.tool | grep -E 'severity|module_name|cves|url' | grep -B2 -A2 '\"high\"\\|\"critical\"'",
+        "file_path": "package.json",
+        "navigation": null,
+        "expected_output": "JSON output listing vulnerable packages with severity HIGH or CRITICAL. Clean output with 0 vulnerabilities is the desired state."
+      },
+      {
+        "type": "command",
+        "instruction": "For Python projects, use pip-audit to scan requirements.txt or installed packages against known vulnerability databases.",
+        "command": "pip-audit -r requirements.txt --format json 2>/dev/null | python3 -m json.tool | grep -E 'name|version|vulns|aliases'",
+        "file_path": "requirements.txt",
+        "navigation": null,
+        "expected_output": "List of packages with associated CVE identifiers and severity. An empty 'vulns' array per package indicates no known vulnerabilities."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the GitHub Security Advisories GraphQL API for CVEs affecting the specific framework package and version.",
+        "command": "curl -H 'Authorization: bearer YOUR_GITHUB_TOKEN' -X POST https://api.github.com/graphql -d '{\"query\":\"{ securityVulnerabilities(ecosystem: NPM, package: \\\"express\\\", first: 10, severities: [HIGH, CRITICAL]) { nodes { advisory { identifiers { value } severity } vulnerableVersionRange } } }\"}' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response listing advisories with severity and affected version ranges. Confirm whether the deployed version falls within any vulnerable range."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "days_since_last_patch_applied",
+    "option_description": "The number of calendar days elapsed since the most recent security patch or version update was applied to the runtime or framework, measured from the current date against deployment or update records.",
+    "security_impact": "The Rego policy triggers 'unpatched_runtime_or_framework' when this value exceeds 90 days. A stale patch cadence indicates that newly disclosed CVEs accumulate without remediation. The 90-day threshold aligns with standard patch SLAs; beyond it, the window of exploitation (T1190, T1210) grows substantially as exploit code matures and becomes more accessible.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the deployment timestamp from CI/CD pipeline artifacts or container image labels to determine when the last update was applied.",
+        "command": "docker inspect $(docker ps -q --filter name=app-server) --format '{{.Config.Labels}}' | grep -E 'build.date|created|updated' && docker history $(docker ps -q --filter name=app-server) | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Container label with an ISO 8601 date string (e.g., build.date=2024-01-15). Compute difference from today: python3 -c \"from datetime import date; print((date.today() - date(2024,1,15)).days)\""
+      },
+      {
+        "type": "command",
+        "instruction": "For systemd-managed services, check the modification timestamp of installed framework packages using the package manager.",
+        "command": "rpm -q --queryformat '%{INSTALLTIME:date} %{NAME}-%{VERSION}\n' $(rpm -qa | grep -E 'java|nodejs|python3|ruby') | sort -r | head -10 || dpkg-query -W -f='${Status} ${Package} ${Version} ${db:Last-Modified}\n' | grep -E 'java|node|python|ruby' | sort -k4 -r | head -10",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Package names with installation dates. Calculate days elapsed: today's date minus the most recent installation date."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the CI/CD pipeline execution log or change management system to identify the date of the last deployment containing a framework update.",
+        "command": "cat /etc/app-server/DEPLOYMENT_MANIFEST 2>/dev/null || cat /opt/app/deployment.properties 2>/dev/null | grep -E 'deploy.date|patch.date|framework.version.updated'",
+        "file_path": "/etc/app-server/DEPLOYMENT_MANIFEST",
+        "navigation": null,
+        "expected_output": "A key-value entry such as 'deploy.date=2024-02-10' or 'patch.date=2024-02-10'. Absence suggests no formal tracking; check git log or container registry for timestamps."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the CI/CD platform API (e.g., GitHub Actions, GitLab CI, Jenkins) to retrieve the last successful pipeline run that touched framework dependencies.",
+        "command": "curl -H 'Authorization: token YOUR_TOKEN' 'https://api.github.com/repos/ORG/REPO/actions/runs?status=success&per_page=10' | python3 -m json.tool | grep -E 'created_at|updated_at|head_commit' | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Pipeline run timestamps in ISO 8601 format. Filter runs that modified package lock files to identify the last framework patch date."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "15",
+      "45",
+      "90",
+      "180",
+      "365"
+    ]
+  },
+  {
+    "option_name": "bound_addresses",
+    "option_description": "The list of IP addresses or network interface addresses the application server process is actively listening on, controlling which network interfaces receive inbound connection attempts.",
+    "security_impact": "The Rego policy triggers 'overly_permissive_network_binding' when '0.0.0.0' or '::' appears in this array and no compensating network policy is in place. Binding to all interfaces exposes the server on management, internal, and external interfaces simultaneously, enabling T1046 (Network Service Discovery) by attackers scanning from any reachable network segment and facilitating T1599 (Network Boundary Bridging) for lateral movement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use ss or netstat to enumerate all TCP listening sockets and their bound addresses on the host running the application server.",
+        "command": "ss -tlnp | grep -E 'LISTEN' | awk '{print $4, $6}' || netstat -tlnp | grep -E 'LISTEN' | awk '{print $4, $7}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing Local Address:Port and process name, e.g., '0.0.0.0:8080 users:(\"java\",pid=1234,fd=23)'. Desired output shows specific IPs (e.g., 127.0.0.1:8080) rather than 0.0.0.0."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the server's primary configuration file for listen or bind directives that specify bound addresses.",
+        "command": "grep -E '^(listen|bind|address|server.address|host)' /etc/nginx/nginx.conf /etc/apache2/ports.conf /opt/app/application.properties /opt/app/application.yml 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Directives such as 'listen 0.0.0.0:443' or 'server.address=0.0.0.0'. Desired: specific interface IP or 127.0.0.1 for internal-only services."
+      },
+      {
+        "type": "command",
+        "instruction": "For containerized deployments, inspect the container's published port bindings and host interface mappings.",
+        "command": "docker inspect $(docker ps -q --filter name=app-server) --format '{{json .HostConfig.PortBindings}}' | python3 -m json.tool && docker port $(docker ps -q --filter name=app-server)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON showing HostIp per bound port, e.g., '{\"8080/tcp\": [{\"HostIp\": \"0.0.0.0\", \"HostPort\": \"8080\"}]}'. Desired HostIp is a specific IP or '127.0.0.1'."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes deployments, check the Service object's externalIPs and clusterIP to determine effective binding scope.",
+        "command": "kubectl get service -n NAMESPACE APP_SERVICE_NAME -o jsonpath='{.spec.clusterIP} {.spec.externalIPs} {.spec.type}' && kubectl get pods -n NAMESPACE -o jsonpath='{.items[*].spec.containers[*].ports[*].hostIP}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ClusterIP address, any externalIPs, and service type (ClusterIP/NodePort/LoadBalancer). NodePort or LoadBalancer without restriction implies wide binding."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"0.0.0.0\"]",
+      "[\"::\"]",
+      "[\"127.0.0.1\"]",
+      "[\"10.0.0.1\"]",
+      "[\"0.0.0.0\", \"::\"]",
+      "[\"192.168.1.10\"]"
+    ]
+  },
+  {
+    "option_name": "network_policy_restricts_inbound",
+    "option_description": "Whether a network-layer control such as a firewall rule, cloud security group, or Kubernetes NetworkPolicy is in place to restrict inbound traffic to the server's bound port(s) from untrusted network segments.",
+    "security_impact": "The Rego policy evaluates this as a compensating control for 'overly_permissive_network_binding'. When the server binds to 0.0.0.0 or :: AND this is false, the exposure is confirmed. A network policy is the primary defense when wide binding cannot be avoided, preventing T1046 (Network Service Discovery) and limiting blast radius if the application is compromised. Its absence means any host that can route to the server can attempt connections.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On Linux hosts, enumerate iptables or nftables rules to confirm inbound port restrictions are in effect for the application port.",
+        "command": "iptables -L INPUT -n -v --line-numbers | grep -E 'ACCEPT|DROP|REJECT' | grep -E '8080|8443|443|80' && nft list ruleset 2>/dev/null | grep -A5 -E 'input|forward'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules showing ACCEPT from specific source CIDRs with DROP or REJECT for others on the application port. No rules for the port indicates no host-level restriction."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes environments, inspect NetworkPolicy objects in the namespace to verify ingress rules restrict source pods or namespaces.",
+        "command": "kubectl get networkpolicy -n NAMESPACE -o yaml && kubectl get networkpolicy -n NAMESPACE -o jsonpath='{range .items[*]}{.metadata.name}: podSelector={.spec.podSelector} ingress={.spec.ingress}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "NetworkPolicy with ingress rules specifying podSelector or namespaceSelector. An empty ingress array or missing NetworkPolicy means no restriction."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS deployments, query the EC2 Security Groups attached to the instance to verify inbound rules restrict the source CIDR for the application port.",
+        "command": "aws ec2 describe-security-groups --group-ids $(aws ec2 describe-instances --instance-ids INSTANCE_ID --query 'Reservations[].Instances[].SecurityGroups[].GroupId' --output text) --query 'SecurityGroups[].IpPermissions[?FromPort==`8080`]' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON listing IpRanges with CidrIp. A rule allowing '0.0.0.0/0' or '::/0' indicates no effective restriction. Desired: specific trusted CIDR blocks only."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the AWS Console, navigate to EC2 > Security Groups and inspect inbound rules for the security group(s) associated with the application server instance.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > EC2 > Instances > [Instance] > Security tab > Security Groups > [Group ID] > Inbound rules",
+        "expected_output": "Inbound rules showing specific source IP ranges (e.g., 10.0.0.0/8) for the application port. Rules with Source '0.0.0.0/0' indicate unrestricted access."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "connection_limit_configured",
+    "option_description": "Whether the server enforces a maximum count of simultaneous inbound connections at the host or process level, preventing resource exhaustion from connection floods or runaway clients.",
+    "security_impact": "The Rego policy triggers 'missing_rate_limiting_and_resource_throttling' when this is false AND either request_timeout_seconds is 0 or request_queue_depth_limit is 0. Without a connection limit, an attacker can exhaust file descriptors, thread pools, or socket buffers via T1499.003 (Application Exhaustion Flood) and T1499.002 (Service Exhaustion Flood), rendering the server unresponsive without needing to exploit any application logic.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check Apache httpd configuration for MaxRequestWorkers or LimitRequestBody directives that cap simultaneous connections.",
+        "command": "grep -rE 'MaxRequestWorkers|MaxClients|LimitRequestBody|MaxKeepAliveRequests|ListenBacklog' /etc/apache2/ /etc/httpd/ 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/apache2/apache2.conf",
+        "navigation": null,
+        "expected_output": "Directives like 'MaxRequestWorkers 150' or 'MaxClients 256'. Absence or value of 0 indicates no effective limit."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For nginx, inspect worker_connections and worker_processes to compute the maximum simultaneous connection cap.",
+        "command": "grep -E 'worker_connections|worker_processes|limit_conn|limit_req' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Entries such as 'worker_connections 1024' and optionally 'limit_conn addr 100'. Missing limit_conn or limit_req in server/location blocks means no per-source limit."
+      },
+      {
+        "type": "command",
+        "instruction": "Check OS-level socket backlog and connection limits via sysctl settings that bound the maximum queued connections.",
+        "command": "sysctl net.core.somaxconn net.ipv4.tcp_max_syn_backlog net.core.netdev_max_backlog 2>/dev/null && ulimit -n",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Values such as 'net.core.somaxconn = 128'. These reflect OS defaults; application-level overrides in config files take precedence. High somaxconn without app-level limits indicates reliance on OS defaults only."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Java application servers (Tomcat, Jetty), inspect connector maxConnections and acceptCount settings in the server configuration.",
+        "command": "grep -rE 'maxConnections|acceptCount|maxThreads|connectionTimeout' /opt/tomcat/conf/server.xml /opt/jetty/etc/jetty.xml 2>/dev/null | grep -v '<!--'",
+        "file_path": "/opt/tomcat/conf/server.xml",
+        "navigation": null,
+        "expected_output": "Attributes like 'maxConnections=\"8192\" acceptCount=\"100\" maxThreads=\"200\"'. Missing attributes mean Tomcat defaults apply (10000 maxConnections), which may be acceptable or excessive depending on host capacity."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "request_timeout_seconds",
+    "option_description": "The configured timeout in seconds for inbound requests at the host or server level, after which the server terminates slow or stalled connections. A value of 0 indicates no timeout is enforced.",
+    "security_impact": "The Rego policy triggers 'missing_rate_limiting_and_resource_throttling' when this equals 0 combined with either no connection limit or no queue depth limit. Without a request timeout, slow-loris style attacks (T1499.002, T1499.003) can hold connections open indefinitely, exhausting worker threads or connection pools without ever completing a request. A reasonable timeout (typically 30–120 seconds) forces stalled connections to release resources.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the nginx configuration for client timeout directives controlling how long the server waits for client request data.",
+        "command": "grep -E 'client_header_timeout|client_body_timeout|keepalive_timeout|send_timeout|proxy_read_timeout' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/*.conf 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Directives like 'client_header_timeout 10s' and 'client_body_timeout 10s'. Missing entries or comment-only presence means nginx defaults (60s for client_header_timeout) are in effect."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Apache httpd, check the Timeout directive and KeepAliveTimeout in the main or virtual host configuration.",
+        "command": "grep -rE '^Timeout|^KeepAliveTimeout|^RequestReadTimeout' /etc/apache2/ /etc/httpd/ 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/apache2/apache2.conf",
+        "navigation": null,
+        "expected_output": "Lines such as 'Timeout 300' or 'RequestReadTimeout header=20-40,MinRate=500 body=20'. Default Apache Timeout is 300 seconds if not overridden."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Node.js applications using Express or built-in http module, locate server.timeout or explicit timeout middleware configuration.",
+        "command": "grep -rE 'setTimeout|server\\.timeout|request.*timeout|timeout.*middleware|express-timeout' /opt/app/src/ /opt/app/index.js /opt/app/app.js 2>/dev/null | grep -v 'node_modules'",
+        "file_path": "/opt/app/app.js",
+        "navigation": null,
+        "expected_output": "Entries like 'server.timeout = 30000' (milliseconds) or 'app.use(timeout(\"30s\"))'. Absence or '0' value means no timeout enforcement."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Spring Boot applications, check application.properties or application.yml for server.connection-timeout or spring.mvc.async.request-timeout.",
+        "command": "grep -rE 'connection-timeout|request-timeout|read-timeout|server\\.tomcat' /opt/app/src/main/resources/application.properties /opt/app/src/main/resources/application.yml 2>/dev/null",
+        "file_path": "/opt/app/src/main/resources/application.properties",
+        "navigation": null,
+        "expected_output": "Properties like 'server.connection-timeout=20000' (milliseconds). Missing entries indicate framework defaults are used (typically no enforced timeout at application level)."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "30",
+      "60",
+      "120",
+      "300"
+    ]
+  },
+  {
+    "option_name": "request_queue_depth_limit",
+    "option_description": "The maximum number of requests permitted to queue waiting for a worker thread or handler before the server begins rejecting new connections. A value of 0 means no explicit queue cap is enforced.",
+    "security_impact": "The Rego policy fires 'missing_rate_limiting_and_resource_throttling' when this is 0 alongside either no connection limit or no request timeout. An unbounded queue allows an attacker to accumulate thousands of pending requests (T1499.003 Application Exhaustion Flood), consuming memory and preventing legitimate requests from being processed. A finite queue depth causes the server to fail fast under overload rather than degrading indefinitely.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For Tomcat, inspect the acceptCount attribute on Connector elements in server.xml, which defines the accept queue depth.",
+        "command": "grep -E 'acceptCount|backlog' /opt/tomcat/conf/server.xml 2>/dev/null | grep -v '<!--'",
+        "file_path": "/opt/tomcat/conf/server.xml",
+        "navigation": null,
+        "expected_output": "Connector attribute 'acceptCount=\"100\"'. If absent, Tomcat defaults to 100. Value of 0 or absence in custom configs warrants verification."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For nginx, check the backlog parameter of listen directives and the worker_connections setting which together define effective queue capacity.",
+        "command": "grep -E 'listen.*backlog|worker_connections|multi_accept' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf 2>/dev/null | grep -v '#'",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Entries like 'listen 80 backlog=512' or 'worker_connections 1024'. Without an explicit backlog parameter, nginx uses net.core.somaxconn as the queue limit."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect OS-level listen backlog settings which serve as the ceiling for application-level queue depth configurations.",
+        "command": "sysctl net.core.somaxconn net.ipv4.tcp_max_syn_backlog && cat /proc/net/sockstat | grep -E 'TCP|sockets'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Values such as 'net.core.somaxconn = 128'. This is the OS maximum; application backlog values exceeding this are silently capped. Both layers must be reviewed."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Go or Python (gunicorn/uvicorn) application servers, locate the backlog or worker queue configuration parameters.",
+        "command": "grep -rE 'backlog|worker_class|workers|threads|queue' /etc/systemd/system/*.service /opt/app/gunicorn.conf.py /opt/app/uvicorn.conf 2>/dev/null | grep -v '#' && ps aux | grep -E 'gunicorn|uvicorn' | grep -E 'workers|backlog'",
+        "file_path": "/opt/app/gunicorn.conf.py",
+        "navigation": null,
+        "expected_output": "Configuration like 'backlog = 2048' in gunicorn.conf.py or '--backlog 512' in process arguments. Default gunicorn backlog is 2048; missing configuration indicates the default is in use."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "100",
+      "512",
+      "1024",
+      "2048",
+      "10000"
+    ]
+  },
+  {
+    "option_name": "mutual_tls_enforced",
+    "option_description": "Whether the application server requires mutual TLS authentication (presenting and validating client certificates) on all outbound connections to downstream services including databases, internal APIs, and message queues.",
+    "security_impact": "The Rego policy triggers 'inter_service_mutual_tls_not_configured' when this is false and downstream_ca_validation_enforced is also absent. Without mTLS, a compromised internal host can impersonate any downstream service (T1001.003 Protocol or Service Impersonation), and inter-service traffic is susceptible to interception or tunneling (T1572). mTLS ensures both sides of every service connection cryptographically prove their identity before data is exchanged.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect application configuration files for TLS client certificate settings in database and service connection strings.",
+        "command": "grep -rE 'ssl_mode|sslcert|sslkey|sslrootcert|clientCertificate|client-cert|tls.cert|mtls|require_client_cert' /opt/app/src/main/resources/ /opt/app/config/ /etc/app/ 2>/dev/null | grep -v -E '#|password'",
+        "file_path": "/opt/app/config/application.yml",
+        "navigation": null,
+        "expected_output": "Entries like 'ssl_mode=verify-full sslcert=/certs/client.crt sslkey=/certs/client.key' for database connections. Missing cert/key parameters indicate one-way TLS or no TLS."
+      },
+      {
+        "type": "command",
+        "instruction": "For Istio service mesh environments, check PeerAuthentication policies to confirm STRICT mTLS mode is enforced in the namespace.",
+        "command": "kubectl get peerauthentication -n NAMESPACE -o yaml && kubectl get destinationrule -n NAMESPACE -o jsonpath='{range .items[*]}{.metadata.name}: mode={.spec.trafficPolicy.tls.mode}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "PeerAuthentication with 'mode: STRICT' and DestinationRule with 'mode: ISTIO_MUTUAL'. Missing PeerAuthentication or mode: PERMISSIVE indicates mTLS is not enforced."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use openssl s_client to test whether the downstream service requires a client certificate by attempting a connection without one and observing the handshake result.",
+        "command": "openssl s_client -connect downstream-service.internal:5432 -verify 5 -CAfile /certs/ca.crt 2>&1 | grep -E 'Verify|Certificate Request|alert|error' && openssl s_client -connect downstream-service.internal:5432 -cert /certs/client.crt -key /certs/client.key -CAfile /certs/ca.crt 2>&1 | grep -E 'Verify|SSL handshake|Cipher'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Without client cert: 'SSL alert: certificate required' or handshake failure. With client cert: 'Verify return code: 0 (ok)' confirms mTLS is enforced by the downstream service."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review service mesh or API gateway configuration files for outbound TLS policy settings that specify whether client certificates are presented.",
+        "command": "find /etc/envoy /etc/istio /opt/app/config -name '*.yaml' -o -name '*.json' 2>/dev/null | xargs grep -l 'tls_context\\|clientCertificate\\|mutual_tls\\|client_certificate' 2>/dev/null | head -5 | xargs grep -A10 -E 'tls_context|mutual_tls|client_certificate'",
+        "file_path": "/etc/envoy/envoy.yaml",
+        "navigation": null,
+        "expected_output": "Envoy tls_context with 'common_tls_context.tls_certificates' populated, or Istio DestinationRule with 'clientCertificate' and 'privateKey' fields. Empty or absent tls_certificates block confirms mTLS is not configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "downstream_connection_tls_mode",
+    "option_description": "Controls the TLS mode used for outbound connections from the application server to downstream services such as databases, internal APIs, and message queues. Accepted values are 'none' (plaintext), 'one_way' (server certificate only), or 'mutual' (both client and server certificates required).",
+    "security_impact": "The Rego policy fires the 'inter_service_mutual_tls_not_configured' exposure when this value is 'none' or 'one_way', scoring a medium criticality finding. Without mutual TLS, a compromised internal host can impersonate a trusted downstream service (MITRE T1001.003 - Protocol or Service Impersonation). Only a value of 'mutual' satisfies the policy requirement for bidirectional identity verification between services.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the application's HTTP client or database driver configuration files for TLS settings. Look for keys such as 'ssl_mode', 'tls_mode', 'verify-mode', or 'sslmode' in files like application.yml, database.ini, or .env files.",
+        "command": "grep -rE '(ssl_mode|tls_mode|sslmode|verify.ssl|TLS_MODE)' /etc/app/ /opt/app/config/ ~/.config/app/ 2>/dev/null",
+        "file_path": "/etc/app/config.yml",
+        "navigation": null,
+        "expected_output": "Lines showing 'sslmode=verify-full', 'tls_mode: mutual', or equivalent; absence indicates likely plaintext or default (insecure) settings."
+      },
+      {
+        "type": "command",
+        "instruction": "In a Kubernetes/Istio service mesh, inspect DestinationRule resources for the application namespace to check the trafficPolicy.tls.mode value for downstream service connections.",
+        "command": "kubectl get destinationrule -n <namespace> -o jsonpath='{range .items[*]}{.metadata.name}{\"\\t\"}{.spec.trafficPolicy.tls.mode}{\"\\n\"}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output listing DestinationRule names alongside their TLS mode; expected secure value is 'ISTIO_MUTUAL' or 'MUTUAL'."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Capture outbound traffic from the application to a downstream service and verify whether the connection uses TLS handshake or transmits plaintext. Use tcpdump or Wireshark on the application host or a network tap.",
+        "command": "tcpdump -i any -n 'host <downstream_service_ip> and port <downstream_port>' -w /tmp/downstream_capture.pcap && tshark -r /tmp/downstream_capture.pcap -Y 'ssl.handshake' | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS ClientHello and ServerHello frames visible for encrypted connections; plaintext HTTP/DB protocol data visible if TLS is absent."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Istio control plane API or an Envoy admin interface for active cluster TLS configuration applied to downstream connections.",
+        "command": "kubectl exec -n <namespace> <pod-name> -c istio-proxy -- curl -s http://localhost:15000/clusters | grep -A5 'ssl_context'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output containing ssl_context blocks with certificate paths indicates TLS is active; absence indicates plaintext connections."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (common in internal microservice deployments without a service mesh)",
+      "one_way (common when services enforce HTTPS but skip client cert issuance)",
+      "mutual (expected in zero-trust or service mesh environments with mTLS enforcement)"
+    ]
+  },
+  {
+    "option_name": "downstream_ca_validation_enforced",
+    "option_description": "Determines whether the application server validates the Certificate Authority (CA) chain of certificates presented by downstream services during TLS handshake. When false, self-signed or unauthorized certificates are accepted, removing the ability to detect impersonation attacks.",
+    "security_impact": "The Rego policy includes this attribute in the 'inter_service_mutual_tls_not_configured' rule: when both 'mutual_tls_enforced' and 'downstream_ca_validation_enforced' are false, the exposure fires. Without CA validation, an attacker performing a man-in-the-middle attack (MITRE T1572 - Protocol Tunneling) can present any certificate and have it accepted, completely undermining TLS's identity assurance even when encryption is in use.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search application configuration and dependency configuration files for CA bundle settings or flags that disable certificate validation. Look for 'verify_ssl', 'ssl_ca_cert', 'ca_bundle', 'REQUESTS_CA_BUNDLE', or 'NODE_TLS_REJECT_UNAUTHORIZED' set to 0 or false.",
+        "command": "grep -rE '(verify.ssl|ssl_ca_cert|ca_bundle|NODE_TLS_REJECT_UNAUTHORIZED|InsecureSkipVerify|CURL_CA_BUNDLE|REQUESTS_CA_BUNDLE)' /etc/app/ /opt/app/ /home/ 2>/dev/null",
+        "file_path": "/etc/app/application.properties",
+        "navigation": null,
+        "expected_output": "'verify_ssl: true' or a non-empty 'ssl_ca_cert' path indicates validation is enforced; 'verify_ssl: false' or 'NODE_TLS_REJECT_UNAUTHORIZED=0' indicates it is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Check environment variables on the running application process for settings that disable CA validation, particularly for Node.js (NODE_TLS_REJECT_UNAUTHORIZED), Python (PYTHONHTTPSVERIFY), or curl-based clients.",
+        "command": "cat /proc/$(pgrep -f 'app\\|server\\|node\\|python\\|java' | head -1)/environ | tr '\\0' '\\n' | grep -E '(TLS|SSL|VERIFY|CA_BUNDLE|CERT)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Environment shows 'NODE_TLS_REJECT_UNAUTHORIZED=1' or absence of override variables; '=0' or 'VERIFY=false' indicates CA validation is disabled."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a test by presenting a self-signed certificate on a mock downstream service endpoint and observe whether the application server accepts or rejects the connection. Log the TLS handshake result.",
+        "command": "openssl s_client -connect <downstream_host>:<port> -CAfile /etc/ssl/certs/ca-certificates.crt -verify_return_error 2>&1 | grep -E '(Verify return|verify error|depth)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Verify return code: 0 (ok)' indicates the CA chain is valid; errors such as 'self signed certificate' accepted without failure indicate CA validation is not enforced by the client."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review source code or middleware initialization for HTTP clients, database drivers, and gRPC stubs. Confirm that each client is constructed with CA certificate bundles and that 'InsecureSkipVerify' (Go), 'verify=False' (Python requests), or equivalent flags are not used in production builds.",
+        "command": "grep -rn 'InsecureSkipVerify\\|verify=False\\|checkServerIdentity\\|rejectUnauthorized.*false' /opt/app/src/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches for insecure patterns; any matches indicate CA validation may be bypassed for the affected clients."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common default, particularly in internal microservice stacks and development environments promoted to production)",
+      "true (expected in hardened environments and when a service mesh enforces certificate validation automatically)"
+    ]
+  },
+  {
+    "option_name": "allowed_jwt_algorithms",
+    "option_description": "Specifies the list of cryptographic signing algorithms that the application server's JWT validation middleware will accept when verifying incoming tokens. Controls whether weak, symmetric, or the unsafe 'none' algorithm are permissible.",
+    "security_impact": "The Rego policy fires the 'jwt_or_token_validation_misconfiguration' exposure (high criticality, score 8) when the string 'none' is present in this list. Accepting the 'none' algorithm allows an attacker to craft an unsigned token that the server accepts as valid (MITRE T1606 - Forge Web Credentials). Additionally, accepting symmetric algorithms like HS256 on public APIs shares the signing secret across parties, enabling token forgery if the secret is leaked.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect JWT middleware or authentication library configuration files for algorithm allow-lists. For Spring Security, check SecurityConfig.java; for Node.js (jsonwebtoken/express-jwt), look for the 'algorithms' array; for Python (PyJWT), check decode() call arguments.",
+        "command": "grep -rn 'algorithm\\|ALGORITHMS\\|allowed_alg\\|jwt.decode\\|JwtBuilder\\|JWTOptions' /opt/app/src/ /etc/app/ 2>/dev/null | grep -v '.pyc'",
+        "file_path": "/opt/app/src/auth/jwt_config.py",
+        "navigation": null,
+        "expected_output": "Lines showing 'algorithms=[\"RS256\"]' or 'allowed_algorithms: [RS256, ES256]'; presence of '\"none\"' or empty/wildcard list indicates a misconfiguration."
+      },
+      {
+        "type": "command",
+        "instruction": "For running Java applications, inspect the decoded JVM arguments or Spring Boot actuator endpoints for JWT configuration properties.",
+        "command": "curl -s http://localhost:8080/actuator/env | python3 -m json.tool | grep -i 'jwt\\|algorithm\\|token'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output showing JWT-related properties including algorithm settings; 'none' in allowed algorithms is a critical finding."
+      },
+      {
+        "type": "api",
+        "instruction": "Send a JWT with the 'none' algorithm (unsigned token) to the application's authentication endpoint and observe whether it is accepted or rejected. This confirms whether the 'none' algorithm bypass is effective.",
+        "command": "TOKEN=$(echo -n '{\"alg\":\"none\",\"typ\":\"JWT\"}' | base64 -w0).$(echo -n '{\"sub\":\"test\",\"exp\":9999999999}' | base64 -w0). && curl -sI -H \"Authorization: Bearer $TOKEN\" https://<app_host>/api/protected | grep 'HTTP/'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 401 Unauthorized indicates 'none' algorithm is rejected; HTTP 200 or non-401 response confirms the critical vulnerability is present."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review application authentication logs for entries showing algorithm values extracted from incoming JWT headers. Identify whether tokens using weak algorithms ('HS256' on public APIs, 'none') appear in successful authentication events.",
+        "command": "grep -E '(alg|algorithm|jwt)' /var/log/app/auth.log | grep -v '401\\|rejected\\|invalid' | tail -50",
+        "file_path": "/var/log/app/auth.log",
+        "navigation": null,
+        "expected_output": "Log entries showing only RS256 or ES256 in authenticated requests; presence of 'none' or 'HS256' in successful authentication logs indicates misconfiguration."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['RS256'] (recommended for public-key based verification)",
+      "['RS256', 'ES256'] (modern secure deployments supporting multiple asymmetric algorithms)",
+      "['HS256'] (symmetric, acceptable only for internal services where secret distribution is controlled)",
+      "['none', 'HS256', 'RS256'] (dangerously permissive, seen in misconfigured development environments)"
+    ]
+  },
+  {
+    "option_name": "signature_verification_enforced",
+    "option_description": "Controls whether the application server's JWT processing pipeline cryptographically verifies the signature on every incoming token before accepting it. When false, the server may process tokens without confirming their authenticity or integrity.",
+    "security_impact": "The Rego policy fires the 'jwt_or_token_validation_misconfiguration' exposure (high criticality, score 8) directly when 'signature_verification_enforced' is false. Disabling signature verification means any party can craft arbitrary JWT claims and present them without a valid signature, enabling complete authentication bypass (MITRE T1606 - Forge Web Credentials and T1550 - Use Alternate Authentication Material). This is one of the most severe JWT misconfigurations possible.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search JWT library initialization code for flags that disable verification. In Python (PyJWT), look for 'options={\"verify_signature\": False}'; in Node.js (jsonwebtoken), look for '{algorithms: [\"none\"]}' or custom ignoreExpiration settings; in Go (golang-jwt), look for 'ParseUnverified'.",
+        "command": "grep -rn 'verify.signature.*[Ff]alse\\|verify=False\\|ParseUnverified\\|ignoreExpiration\\|verify_exp.*false\\|skipVerification' /opt/app/src/ 2>/dev/null",
+        "file_path": "/opt/app/src/middleware/auth.py",
+        "navigation": null,
+        "expected_output": "No matches is the expected secure result; any match indicates signature verification may be disabled for those code paths."
+      },
+      {
+        "type": "command",
+        "instruction": "Check CI/CD pipeline environment variables and deployment manifests (Kubernetes Secrets, ConfigMaps, Helm values) for runtime flags that disable JWT verification in non-development environments.",
+        "command": "kubectl get configmap,secret -n <namespace> -o yaml | grep -iE '(JWT_VERIFY|SKIP_AUTH|DISABLE_TOKEN|verify.signature)' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No JWT verification override flags present in production namespace config; presence of 'JWT_VERIFY=false' or equivalent is a critical finding."
+      },
+      {
+        "type": "api",
+        "instruction": "Submit a JWT with a deliberately invalid signature (tamper the last few characters of the signature segment) to a protected API endpoint and observe whether the server accepts or rejects it.",
+        "command": "VALID_TOKEN='<paste_valid_jwt_here>' && TAMPERED=$(echo $VALID_TOKEN | sed 's/.$//;s/$/X/') && curl -sI -H \"Authorization: Bearer $TAMPERED\" https://<app_host>/api/protected | grep 'HTTP/'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 401 indicates signature verification is enforced; any 2xx or non-401 response confirms signature verification is not being performed."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the application security architecture documentation and conduct a developer interview to confirm that all token validation paths—including service accounts, internal API calls, and test clients—enforce signature verification. Check for conditional bypass logic based on environment variables.",
+        "command": "grep -rn 'os.getenv\\|environ.get\\|process.env' /opt/app/src/ 2>/dev/null | grep -i 'jwt\\|auth\\|verify\\|token'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No environment-variable-driven bypass of JWT verification logic; code should not alter verification behavior based on runtime environment variables in production."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (required for production; asymmetric verification with RS256/ES256 is recommended)",
+      "false (sometimes set in development/test environments but catastrophic if promoted to production)"
+    ]
+  },
+  {
+    "option_name": "token_expiry_max_seconds",
+    "option_description": "Defines the maximum lifetime in seconds that the application server allows for issued or accepted JWT tokens. This ceiling determines the window during which a stolen or replayed token remains valid before requiring re-authentication.",
+    "security_impact": "The Rego policy fires the 'jwt_or_token_validation_misconfiguration' exposure when 'token_expiry_max_seconds' exceeds 86400 (24 hours). Excessively long token lifetimes increase the viability of replay attacks (MITRE T1550 - Use Alternate Authentication Material) because a stolen token remains usable for an extended period. The policy reflects industry guidance that access tokens should typically expire within 900–3600 seconds to minimize the blast radius of token compromise.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect auth server or JWT issuance configuration files for token lifetime settings. In Spring Security/OAuth2, check 'access-token-validity' or 'accessTokenValiditySeconds'; in Keycloak, check realm settings files; in custom implementations, look for 'TOKEN_EXPIRY', 'jwt_expiry', or 'exp_delta' variables.",
+        "command": "grep -rn 'expir\\|exp_delta\\|token.lifetime\\|ACCESS_TOKEN_VALIDITY\\|TOKEN_TTL\\|jwt_expiry\\|max_age' /etc/app/ /opt/app/config/ /opt/app/src/ 2>/dev/null",
+        "file_path": "/opt/app/config/auth.yaml",
+        "navigation": null,
+        "expected_output": "Configuration entries showing expiry values; values expressed as seconds should be ≤3600 for access tokens, ≤86400 to meet minimum policy, and ≤900 for highest-assurance environments."
+      },
+      {
+        "type": "command",
+        "instruction": "Obtain a live JWT token from the application's token issuance endpoint and decode the 'exp' and 'iat' claims to calculate the actual configured token lifetime.",
+        "command": "curl -s -X POST https://<app_host>/oauth/token -d 'grant_type=client_credentials&client_id=<id>&client_secret=<secret>' | python3 -c \"import sys,json,base64; t=json.load(sys.stdin)['access_token']; p=t.split('.')[1]; p+='='*(-len(p)%4); c=json.loads(base64.b64decode(p)); print('exp:', c.get('exp'), 'iat:', c.get('iat'), 'lifetime_seconds:', c.get('exp',0)-c.get('iat',0))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'lifetime_seconds: 3600' or similar; values above 86400 trigger the policy finding and should be treated as high priority remediation."
+      },
+      {
+        "type": "gui",
+        "instruction": "For identity providers with web consoles (Keycloak, Okta, Auth0, Azure AD), navigate to the token lifetime settings for the applicable application/client registration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Keycloak: Realm Settings > Tokens > Access Token Lifespan | Auth0: Applications > <App> > Advanced Settings > OAuth > Token Expiration | Okta: Security > API > Authorization Servers > <Server> > Access Policies",
+        "expected_output": "Token lifetime displayed in seconds or minutes; values above 1440 minutes (24 hours/86400 seconds) are policy violations."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the authorization server's well-known OpenID Connect configuration endpoint to inspect default token lifetimes and then retrieve and decode an actual token to verify the 'exp' claim matches the configured maximum.",
+        "command": "curl -s https://<auth_host>/.well-known/openid-configuration | python3 -m json.tool | grep -i 'expir\\|lifetime\\|ttl'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Metadata fields showing token lifetime policies; cross-reference with decoded JWT 'exp' - 'iat' values to confirm effective lifetime."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "900 (15 minutes, recommended for high-assurance APIs)",
+      "3600 (1 hour, common industry default for access tokens)",
+      "86400 (24 hours, policy threshold; borderline acceptable for long-running batch job tokens)",
+      "604800 (7 days, frequently seen in misconfigured single-page application setups)",
+      "2592000 (30 days, common anti-pattern in legacy API key emulation scenarios)"
+    ]
+  },
+  {
+    "option_name": "connection_draining_enabled",
+    "option_description": "Indicates whether the application server or its upstream load balancer is configured to drain in-flight connections gracefully before a shutdown or deployment event completes, allowing active requests to finish processing rather than being abruptly terminated.",
+    "security_impact": "The Rego policy fires the 'absence_of_graceful_shutdown_and_circuit_breaker_configuration' exposure (low criticality) when 'connection_draining_enabled' is false. While classified as a low-criticality security finding, an adversary can exploit abrupt shutdowns through denial-of-service techniques (MITRE T1499.002 - Service Exhaustion Flood): by triggering repeated restarts or deployments on a server without connection draining, an attacker can maximize request failure rates and amplify service disruption. Graceful draining also prevents data corruption during in-flight write operations.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check process manager and web server configuration files for drain timeout or graceful shutdown directives. For nginx, look for 'worker_shutdown_timeout'; for gunicorn, check '--graceful-timeout'; for systemd, check 'TimeoutStopSec' and 'KillMode'; for Kubernetes, inspect 'terminationGracePeriodSeconds' and preStop hooks.",
+        "command": "grep -rn 'graceful\\|drain\\|shutdown.timeout\\|SIGTERM\\|preStop\\|terminationGracePeriod\\|worker_shutdown_timeout' /etc/nginx/ /etc/supervisor/ /etc/systemd/system/ /opt/app/ ~/.kube/ 2>/dev/null",
+        "file_path": "/etc/systemd/system/app.service",
+        "navigation": null,
+        "expected_output": "'terminationGracePeriodSeconds: 30' in a Kubernetes Pod spec, 'graceful-timeout=30' in gunicorn config, or 'KillMode=mixed' with 'TimeoutStopSec=30' in systemd indicates graceful shutdown is configured."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the Kubernetes Deployment or Pod spec for the application to verify 'terminationGracePeriodSeconds' is set to a non-zero value and that a preStop hook with a sleep/drain command is present.",
+        "command": "kubectl get deployment <deployment-name> -n <namespace> -o jsonpath='{.spec.template.spec.terminationGracePeriodSeconds}' && kubectl get deployment <deployment-name> -n <namespace> -o jsonpath='{.spec.template.spec.containers[*].lifecycle.preStop}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-zero 'terminationGracePeriodSeconds' value (e.g., 30 or 60) and a preStop hook like '{\"exec\":{\"command\":[\"/bin/sleep\",\"15\"]}}' indicate connection draining is configured."
+      },
+      {
+        "type": "gui",
+        "instruction": "For cloud load balancers, verify connection draining settings in the provider console. For AWS ALB/NLB, check target group deregistration delay; for GCP, check backend service connection draining timeout; for Azure, check load balancer backend pool drain settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console: EC2 > Load Balancers > Target Groups > <Group> > Attributes > Deregistration delay | GCP Console: Network Services > Load Balancing > Backend Services > <Service> > Connection Draining Timeout | Azure Portal: Load Balancers > <LB> > Backend Pools > Drain Settings",
+        "expected_output": "Deregistration delay or drain timeout set to 30–300 seconds indicates connection draining is enabled at the load balancer layer."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the cloud provider API to retrieve load balancer target group or backend service attributes and confirm connection draining configuration.",
+        "command": "aws elbv2 describe-target-group-attributes --target-group-arn <arn> | python3 -m json.tool | grep -A2 'deregistration'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'deregistration_delay.timeout_seconds' with a value of '30' or greater indicates connection draining is configured on the AWS target group."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common default in self-managed deployments and older systemd service configurations)",
+      "true (standard in Kubernetes deployments with properly configured terminationGracePeriodSeconds and in cloud load balancer target groups)"
+    ]
+  },
+  {
+    "option_name": "downstream_timeout_configured",
+    "option_description": "Indicates whether the application server has explicit timeout values configured for all outbound HTTP, RPC, or database calls to downstream services. Without timeouts, a slow or unresponsive downstream service causes worker threads or goroutines to block indefinitely, eventually exhausting the server's capacity to handle new requests.",
+    "security_impact": "The Rego policy fires the 'absence_of_graceful_shutdown_and_circuit_breaker_configuration' exposure when 'downstream_timeout_configured' is false. An attacker can exploit this by deliberately slowing or blocking a downstream dependency (MITRE T1499.002 - Service Exhaustion Flood), causing thread pool exhaustion in the application server and cascading the denial of service upstream. Without timeout enforcement, a partial outage of one downstream service can render the entire application unresponsive.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect HTTP client, database driver, and RPC stub configuration for timeout parameters. Look for 'connect_timeout', 'read_timeout', 'write_timeout', 'idle_timeout', 'deadline', or 'socket_timeout' in application config files and library initialization code.",
+        "command": "grep -rn 'timeout\\|Timeout\\|TIMEOUT\\|deadline\\|socket_timeout\\|connect_timeout\\|read_timeout' /opt/app/src/ /etc/app/ 2>/dev/null | grep -v '.pyc\\|#'",
+        "file_path": "/opt/app/config/http_client.yaml",
+        "navigation": null,
+        "expected_output": "Configuration entries showing non-zero timeout values such as 'read_timeout: 30', 'connectTimeout: 5000'; a value of 0 or missing entries indicate no timeout is configured."
+      },
+      {
+        "type": "command",
+        "instruction": "For service mesh deployments using Istio, retrieve VirtualService configurations that define timeout values for HTTP routes to downstream services.",
+        "command": "kubectl get virtualservice -n <namespace> -o jsonpath='{range .items[*]}{.metadata.name}{\"\\n\"}{range .spec.http[*]}{\"  timeout: \"}{.timeout}{\"\\n\"}{end}{end}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each VirtualService route should show a timeout value such as '30s'; empty or missing timeout fields indicate no timeout is set at the mesh level."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect Envoy proxy cluster configuration (used by Istio sidecar) for per-cluster connect and per-request timeouts applied to downstream service calls.",
+        "command": "kubectl exec -n <namespace> <pod-name> -c istio-proxy -- curl -s http://localhost:15000/clusters | python3 -m json.tool 2>/dev/null | grep -A3 'timeout'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'connect_timeout: 0.25s' and 'per_request_timeout: 30s' or similar indicate timeouts are configured; absence of timeout fields indicates they are not set."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review application logs for evidence of hung connections or extremely long request durations to downstream services, which are a symptom of missing timeouts. Look for requests exceeding 60+ seconds in duration.",
+        "command": "grep -E 'downstream|upstream|outbound|client' /var/log/app/app.log | awk -F'duration=' '{if ($2+0 > 60000) print}' | tail -20",
+        "file_path": "/var/log/app/app.log",
+        "navigation": null,
+        "expected_output": "No requests exceeding configured timeout thresholds; presence of multi-minute downstream calls indicates timeout is not enforced and the application is blocking indefinitely."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in applications using default HTTP client settings or ORMs without explicit timeout configuration)",
+      "true (expected in production-hardened applications with explicit client-level and service-mesh-level timeout policies)"
+    ]
+  },
+  {
+    "option_name": "circuit_breaker_configured",
+    "option_description": "Indicates whether the application server implements a circuit breaker pattern for downstream service calls, defining failure rate thresholds, open/half-open/closed state transitions, and reset timeouts. A circuit breaker stops forwarding requests to a failing downstream service after a threshold is crossed, preventing cascading failures across the system.",
+    "security_impact": "The Rego policy fires the 'absence_of_graceful_shutdown_and_circuit_breaker_configuration' exposure when 'circuit_breaker_configured' is false. Without circuit breakers, an attacker who degrades or disables a single downstream dependency can cause cascading failures that take down the entire application (MITRE T1499.002 - Service Exhaustion Flood). The absence of controlled fallback behavior also removes a key resilience mechanism that limits blast radius during infrastructure attacks. The policy maps this to MITRE T1008 (Fallback Channels), noting that without circuit breakers there is no controlled fallback path.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect application configuration and dependency declarations for circuit breaker library settings. Look for Resilience4j (Java), Hystrix (Java/legacy), Polly (.NET), or Opossum (Node.js) configurations including failure rate thresholds, wait duration in open state, and permitted calls in half-open state.",
+        "command": "grep -rn 'circuitbreaker\\|circuit.breaker\\|CircuitBreaker\\|hystrix\\|resilience4j\\|failureRateThreshold\\|slowCallRateThreshold\\|waitDurationInOpenState' /opt/app/src/ /etc/app/ 2>/dev/null",
+        "file_path": "/opt/app/config/resilience4j.yaml",
+        "navigation": null,
+        "expected_output": "Configuration blocks defining circuit breaker instances with thresholds such as 'failureRateThreshold: 50' and 'waitDurationInOpenState: 30s'; absence indicates no circuit breaker is configured in the application layer."
+      },
+      {
+        "type": "command",
+        "instruction": "For Istio service mesh, inspect DestinationRule resources for outlier detection settings, which implement Istio's circuit breaker mechanism based on consecutive errors and ejection policies.",
+        "command": "kubectl get destinationrule -n <namespace> -o yaml | grep -A20 'outlierDetection'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DestinationRule spec containing 'outlierDetection' block with 'consecutive5xxErrors', 'interval', 'baseEjectionTime', and 'maxEjectionPercent' fields; absence means no circuit breaking at the mesh level."
+      },
+      {
+        "type": "api",
+        "instruction": "For applications using Resilience4j with Spring Boot Actuator, query the circuit breaker health and metrics endpoints to confirm circuit breakers are registered and actively tracking failure rates.",
+        "command": "curl -s http://localhost:8080/actuator/circuitbreakers | python3 -m json.tool && curl -s 'http://localhost:8080/actuator/metrics/resilience4j.circuitbreaker.state' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response listing registered circuit breaker instances with their current state (CLOSED/OPEN/HALF_OPEN) and failure counts; HTTP 404 on the endpoint or empty instances list indicates circuit breakers are not configured."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the application development team and review architecture documentation to confirm whether circuit breakers are implemented at the application layer, service mesh layer, or API gateway layer. Verify that all critical downstream dependencies are covered.",
+        "command": "kubectl get destinationrule,virtualservice -n <namespace> -o name && kubectl get configmap -n <namespace> -o yaml | grep -i 'circuit\\|outlier\\|resilience'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DestinationRules and VirtualServices present for all critical downstream services with outlier detection configured; ConfigMaps containing resilience configuration confirm application-level circuit breakers are in use."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (very common; circuit breakers are frequently omitted in monolithic-to-microservice migrations and simple REST API servers)",
+      "true (expected in mature microservice architectures using Istio, Linkerd, Resilience4j, or equivalent resilience libraries with documented failure thresholds)"
+    ]
+  },
+  {
+    "option_name": "debug_mode_enabled",
+    "option_description": "Controls whether the application server runs in debug or development mode, activating verbose logging, live code reloading, interactive error pages, and diagnostic endpoints that are unsafe for production use.",
+    "security_impact": "The Rego policy fires debug_mode_enabled_in_production when debug_mode_enabled is true AND environment_classification is production or unknown. Debug mode exposes internal stack traces, source file paths, and framework internals to unauthenticated clients, directly enabling information gathering for further exploitation (MITRE T1505, T1622). Even without a confirmed production classification, unknown environments trigger the finding.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the running process environment for debug flags by reading the process environ file directly on Linux.",
+        "command": "cat /proc/$(pgrep -f 'node\\|python\\|ruby\\|java\\|gunicorn\\|uvicorn\\|puma\\|rails' | head -1)/environ | tr '\\0' '\\n' | grep -iE 'DEBUG|NODE_ENV|RAILS_ENV|FLASK_DEBUG|DJANGO_DEBUG|APP_ENV'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines such as DEBUG=True, NODE_ENV=development, FLASK_DEBUG=1, or DJANGO_DEBUG=True indicate debug mode is active."
+      },
+      {
+        "type": "command",
+        "instruction": "For containerized workloads, inspect all environment variables set on the running container.",
+        "command": "docker inspect $(docker ps -q) --format '{{.Name}}: {{range .Config.Env}}{{println .}}{{end}}' | grep -iE 'DEBUG|NODE_ENV|RAILS_ENV|FLASK_DEBUG|DJANGO_DEBUG'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any entry showing DEBUG=true, NODE_ENV=development, or RAILS_ENV=development confirms debug mode is enabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review framework-specific configuration files for debug flags in the application deployment directory.",
+        "command": "grep -rn -iE '(DEBUG|debug_mode|development)\\s*[=:]\\s*(true|1|yes|on)' /app /srv /opt/app /etc/app --include='*.py' --include='*.rb' --include='*.js' --include='*.env' --include='*.yml' --include='*.yaml' --include='*.conf' 2>/dev/null",
+        "file_path": "/app/.env, /app/config/application.rb, /app/settings.py, /app/config.js",
+        "navigation": null,
+        "expected_output": "Matches indicate a framework configuration file explicitly enables debug mode."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send a deliberately malformed request to the application and inspect the response for debug-mode indicators such as interactive error consoles or full tracebacks.",
+        "command": "curl -sk -o - -w '\\nHTTP_STATUS:%{http_code}' 'https://<host>/nonexistent_route_12345' | grep -iE 'traceback|stacktrace|werkzeug|debugger|rails|activerecord|django'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A Werkzeug interactive debugger, Rails error page with full stack trace, or Django debug page in the response body confirms debug mode is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (expected in production)",
+      "true (common in development and staging; risk if present in production)"
+    ]
+  },
+  {
+    "option_name": "environment_classification",
+    "option_description": "Identifies the declared operational tier of the application server instance, used to apply environment-appropriate security controls and to evaluate whether permissive settings that are acceptable in development are present in production.",
+    "security_impact": "The Rego policy uses environment_classification as a gate condition in all debug_mode_enabled_in_production rules. Both production and unknown classifications cause the rule to fire when debug_mode_enabled or debug_port_exposed is true. A value of unknown is treated as equivalently risky to production because miscategorised instances may carry production data while retaining development-grade security posture.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check well-known environment classification variables from the running process environment.",
+        "command": "cat /proc/$(pgrep -f 'node\\|python\\|ruby\\|java\\|gunicorn\\|uvicorn\\|puma' | head -1)/environ | tr '\\0' '\\n' | grep -iE '^(NODE_ENV|RAILS_ENV|APP_ENV|ENVIRONMENT|DEPLOY_ENV|FLASK_ENV|DJANGO_SETTINGS_MODULE)='",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A line such as NODE_ENV=production, RAILS_ENV=staging, or APP_ENV=development identifies the declared environment."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes deployments, inspect pod labels and namespace to determine the intended environment classification.",
+        "command": "kubectl get pod -o jsonpath='{range .items[*]}{.metadata.name}{\" env=\"}{.metadata.labels.env}{\" namespace=\"}{.metadata.namespace}{\"\\n\"}{end}' --all-namespaces 2>/dev/null || kubectl describe pod <pod-name> | grep -iE 'environment|env:|namespace'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Pod labels such as env=production or namespace names like prod, staging, or dev indicate environment classification."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review deployment manifests, docker-compose files, or Helm values for environment declarations.",
+        "command": "grep -rn -iE '(NODE_ENV|RAILS_ENV|APP_ENV|ENVIRONMENT|DEPLOY_ENV)\\s*[=:]\\s*[a-z]+' /app /deploy /helm /k8s /manifests --include='*.yaml' --include='*.yml' --include='*.env' --include='*.json' 2>/dev/null | head -30",
+        "file_path": "/app/.env, /deploy/docker-compose.yml, /helm/values.yaml, /k8s/deployment.yaml",
+        "navigation": null,
+        "expected_output": "Key-value pairs such as ENVIRONMENT: production or NODE_ENV=staging confirm the intended deployment tier."
+      },
+      {
+        "type": "api",
+        "instruction": "Query cloud provider instance metadata or tags to determine environment classification applied at the infrastructure level.",
+        "command": "curl -sf http://169.254.169.254/latest/meta-data/tags/instance/environment 2>/dev/null || curl -sf -H 'Metadata:true' 'http://169.254.169.254/metadata/instance/compute/tags?api-version=2021-02-01&format=text' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A tag value of production, staging, development, or test returned from the metadata endpoint provides infrastructure-level classification."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "production",
+      "staging",
+      "development",
+      "test",
+      "unknown (default when no classification is discoverable)"
+    ]
+  },
+  {
+    "option_name": "debug_port_exposed",
+    "option_description": "Indicates whether a remote debugging protocol listener is bound and network-reachable, including Node.js Inspector on port 9229, Java JDWP on port 5005, Python debugpy on port 5678, Ruby debug on port 1234, or similar language-runtime debug interfaces.",
+    "security_impact": "The Rego policy fires debug_mode_enabled_in_production when debug_port_exposed is true and environment_classification is production or unknown. An exposed debug port grants an attacker the ability to attach a remote debugger, inspect heap memory, set breakpoints, evaluate arbitrary code, and exfiltrate secrets at runtime without any application authentication. This is among the most critical single-attribute exposures as it provides direct code execution capability (MITRE T1505, T1622).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all TCP listening ports on the host and filter for well-known debug port numbers.",
+        "command": "ss -tlnp | grep -E ':(9229|9230|5005|5678|4444|1234|8000|38000|64000)\\s' || netstat -tlnp 2>/dev/null | grep -E ':(9229|9230|5005|5678|4444|1234)\\s'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A line showing LISTEN on 0.0.0.0:9229 or *:5005 with a process name confirms a debug port is bound."
+      },
+      {
+        "type": "command",
+        "instruction": "For containers, inspect published port mappings and check if debug ports are exposed to the host or network.",
+        "command": "docker inspect $(docker ps -q) --format '{{.Name}}: {{json .HostConfig.PortBindings}}' | python3 -m json.tool | grep -E '9229|9230|5005|5678|4444|1234'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any mapping of debug ports to host interfaces, especially 0.0.0.0, confirms the port is externally reachable."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a TCP connection or use nmap to confirm reachability of common debug ports from outside the application network boundary.",
+        "command": "nmap -sV -p 9229,9230,5005,5678,4444,1234 <target_host> 2>/dev/null || nc -zv <target_host> 9229 5005 5678 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An open port with service fingerprint such as Node.js inspector, JDWP, or debugpy confirms the debug port is reachable from the network."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect application startup scripts and process command-line arguments for debug listener flags.",
+        "command": "ps aux | grep -iE '(--inspect|--inspect-brk|agentlib:jdwp|debugpy|--debug-port|rdebug|dlv)' | grep -v grep",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Process arguments such as --inspect=0.0.0.0:9229 or -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005 confirm a debug listener is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (expected in all production and staging environments)",
+      "true (common in local development; critical finding if observed in production or staging)"
+    ]
+  }
+]

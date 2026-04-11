@@ -1,0 +1,124 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1590.003",
+      "name": "Network Trust Dependencies",
+      "relevance": "Directly relates to implicit trust relationships between network segments that attackers can exploit to move laterally."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1599",
+      "name": "Network Boundary Bridging",
+      "relevance": "Covers techniques for bridging network boundaries by exploiting implicit trust between segments."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1048",
+      "name": "Exfiltration Over Alternative Protocol",
+      "relevance": "Insufficient egress filtering enables attackers to exfiltrate data using alternative protocols that bypass controls."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1048.003",
+      "name": "Exfiltration Over Unencrypted Non-C2 Protocol",
+      "relevance": "Lack of egress filtering allows unencrypted exfiltration over non-standard protocols to go undetected."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.013",
+      "name": "Disable or Modify Network Device Firewall",
+      "relevance": "Overpermissive ingress ACLs represent a misconfiguration of network device firewall rules that attackers can exploit."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.006",
+      "name": "Indicator Blocking",
+      "relevance": "Attackers exploit monitoring blind spots to block or avoid generating indicators at the network boundary."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1040",
+      "name": "Network Sniffing",
+      "relevance": "Blind spots in boundary monitoring can enable undetected network sniffing at segment boundaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1078",
+      "name": "Valid Accounts",
+      "relevance": "Shared credentials across zones allow attackers to use valid accounts to authenticate and move between segments."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1110.004",
+      "name": "Credential Stuffing",
+      "relevance": "Shared credentials increase the risk of credential stuffing attacks succeeding across multiple zones."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1557",
+      "name": "Adversary-in-the-Middle",
+      "relevance": "Attackers can intercept management plane communications to propagate trust and manipulate traffic between zones."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1572",
+      "name": "Protocol Tunneling",
+      "relevance": "Routing protocol leakage can be used to create tunnels that bypass boundary controls between network segments."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1599.001",
+      "name": "Network Address Translation Traversal",
+      "relevance": "NAT traversal techniques can complement VLAN hopping to cross segment boundaries undetected."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1133",
+      "name": "External Remote Services",
+      "relevance": "Split tunnel VPNs are a form of external remote service that can be exploited to bypass segment boundaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.004",
+      "name": "Disable or Modify System Firewall",
+      "relevance": "Firewall rule shadowing involves manipulating firewall rules so that overly permissive rules override restrictive ones."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.007",
+      "name": "Disable or Modify Cloud Firewall",
+      "relevance": "Rule shadowing in cloud environments involves modifying cloud firewall policies to create unintended permissive paths."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1095",
+      "name": "Non-Application Layer Protocol",
+      "relevance": "Using non-application layer protocols for tunneling between zones can evade application-layer inspection controls."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1484",
+      "name": "Domain or Tenant Policy Modification",
+      "relevance": "Stale boundary policies can result from unauthorized or untracked policy modifications that degrade zone separation over time."
+    }
+  ],
+  "respondsWith": []
+}

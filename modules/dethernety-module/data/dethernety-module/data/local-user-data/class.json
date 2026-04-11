@@ -1,0 +1,8 @@
+{
+  "name": "Local User Data",
+  "classType": "data",
+  "type": "Local User Data",
+  "description": "Local workstation data represents a high-risk data lifecycle exposure point due to inconsistent classification enforcement, absence of mandatory encryption for sensitive files, and ad-hoc retention and disposal practices. Data generated locally often bypasses centralized data governance controls, creating shadow data stores that may contain PII, confidential business data, or regulated information outside of policy visibility.",
+  "category": "User Data",
+  "status": "reviewed"
+}

@@ -1,0 +1,664 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "default_credentials_present": {
+        "type": "boolean",
+        "title": "Default Credentials Present",
+        "description": "Indicates whether any database account is configured with a known default username/password combination (e.g., root/root, sa/sa, admin/admin, postgres/postgres).",
+        "default": false
+      },
+      "weak_credential_accounts": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Accounts With Weak Credentials",
+        "description": "List of database account usernames found to have trivially guessable passwords (e.g., password equals username, blank, or common dictionary words).",
+        "default": []
+      },
+      "password_policy_enforced": {
+        "type": "boolean",
+        "title": "Password Policy Enforced",
+        "description": "Whether the database engine has a native password complexity and minimum-length policy enabled and actively enforced for all accounts."
+      },
+      "database_engine": {
+        "type": "string",
+        "enum": [
+          "mysql",
+          "mssql",
+          "postgresql",
+          "oracle",
+          "mongodb",
+          "redis",
+          "cassandra",
+          "elasticsearch",
+          "other"
+        ],
+        "title": "Database Engine",
+        "description": "The specific database engine in use, which determines which default credentials, authentication mechanisms, and configuration parameters apply."
+      },
+      "tls_enabled": {
+        "type": "boolean",
+        "title": "TLS Enabled for Client Connections",
+        "description": "Whether the database listener has TLS/SSL enabled for encrypting client connections.",
+        "default": false
+      },
+      "tls_enforcement_mode": {
+        "type": "string",
+        "enum": [
+          "disabled",
+          "optional",
+          "required"
+        ],
+        "title": "TLS Enforcement Mode",
+        "description": "How strictly TLS is enforced for incoming client connections - whether plaintext fallback is permitted."
+      },
+      "plaintext_port_open": {
+        "type": "boolean",
+        "title": "Plaintext Listener Port Open",
+        "description": "Whether the database is actively listening on a port that accepts plaintext (unencrypted) connections.",
+        "default": false
+      },
+      "encryption_at_rest_enabled": {
+        "type": "boolean",
+        "title": "Encryption at Rest Enabled",
+        "description": "Whether the database engine or storage layer has transparent data encryption (TDE) or equivalent at-rest encryption enabled for data files, tablespaces, and WAL/redo logs.",
+        "default": false
+      },
+      "backup_encryption_enabled": {
+        "type": "boolean",
+        "title": "Backup Archive Encryption Enabled",
+        "description": "Whether database backup archives (full, incremental, and WAL/binlog archives) are encrypted before or during writing to disk or object storage.",
+        "default": false
+      },
+      "storage_volume_encryption_type": {
+        "type": "string",
+        "enum": [
+          "none",
+          "platform_managed",
+          "customer_managed_key",
+          "filesystem_level"
+        ],
+        "title": "Storage Volume Encryption Type",
+        "description": "The type of encryption applied at the storage/filesystem layer beneath the database engine (e.g., LUKS, dm-crypt, cloud provider CMK, none).",
+        "default": "none"
+      },
+      "data_classification": {
+        "type": "string",
+        "enum": [
+          "public",
+          "internal",
+          "confidential",
+          "restricted"
+        ],
+        "title": "Data Classification Level",
+        "description": "The sensitivity classification of data stored in this database, reflecting regulatory and business risk if exposed.",
+        "default": "internal"
+      },
+      "network_interface_binding": {
+        "type": "string",
+        "enum": [
+          "public",
+          "private",
+          "loopback"
+        ],
+        "title": "Network Interface Binding",
+        "description": "The network interface the database service port is bound to - public-facing, all interfaces, or restricted/loopback only."
+      },
+      "inbound_source_restriction_configured": {
+        "type": "boolean",
+        "title": "Inbound Source Restriction Configured",
+        "description": "Whether a host-based firewall rule or cloud security group restricts inbound connections to the database port from a defined set of trusted source addresses (not 0.0.0.0/0 or ::/0).",
+        "default": false
+      },
+      "granted_privileges": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Granted Database Privileges",
+        "description": "List of database privileges or roles granted to the application service account (e.g., SELECT, INSERT, UPDATE, DELETE, DROP, CREATE, SUPERUSER, DBA, GRANT ALL)."
+      },
+      "has_superuser_or_dba_role": {
+        "type": "boolean",
+        "title": "Superuser or DBA Role Assigned",
+        "description": "Whether the application service account has been granted a superuser, DBA, or equivalent administrative role that confers unrestricted database access.",
+        "default": false
+      },
+      "privilege_scope": {
+        "type": "string",
+        "enum": [
+          "global",
+          "database",
+          "schema",
+          "table",
+          "column"
+        ],
+        "title": "Privilege Scope",
+        "description": "The broadest scope at which privileges are granted to the application service account.",
+        "default": "table"
+      },
+      "least_privilege_review_performed": {
+        "type": "boolean",
+        "title": "Least Privilege Review Performed",
+        "description": "Whether a formal least-privilege access review has been conducted and documented for this application service account, confirming granted privileges match only what the application requires.",
+        "default": false
+      },
+      "audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Audit Logging Enabled",
+        "description": "Whether database audit logging is enabled at the instance or cluster level.",
+        "default": false
+      },
+      "audited_event_categories": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Audited Event Categories",
+        "description": "List of event categories currently captured by the audit log configuration (e.g., 'authentication', 'privilege_escalation', 'ddl', 'sensitive_table_access', 'dml').",
+        "default": []
+      },
+      "compliance_frameworks": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Applicable Compliance Frameworks",
+        "description": "Regulatory or compliance frameworks that apply to this database (e.g., PCI-DSS, GDPR, HIPAA, SOX).",
+        "default": []
+      },
+      "version_has_known_cve": {
+        "type": "boolean",
+        "title": "Database Engine Version Has Known CVEs",
+        "description": "Indicates whether the currently running database engine version has one or more publicly disclosed CVEs affecting the engine itself (e.g., authentication bypass, privilege escalation, remote code execution).",
+        "default": false
+      },
+      "days_since_patch_available": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Days Since Security Patch Was Available",
+        "description": "Number of days elapsed since the vendor released a security patch addressing the known CVE(s) for this database engine version."
+      },
+      "network_accessible": {
+        "type": "boolean",
+        "title": "Database Engine Network Accessible",
+        "description": "Indicates whether the database engine's service port is reachable from outside the host (i.e., not bound exclusively to localhost or protected by a network-level firewall rule).",
+        "default": false
+      },
+      "authentication_required": {
+        "type": "boolean",
+        "title": "Authentication Required",
+        "description": "Whether the database enforces credentials (username/password or equivalent) before granting any connection or data access. False means anonymous or unauthenticated connections are permitted.",
+        "default": true
+      },
+      "anonymous_user_accounts_present": {
+        "type": "boolean",
+        "title": "Anonymous User Accounts Present",
+        "description": "Whether one or more anonymous (blank username) user accounts exist in the database engine that allow connections without credentials.",
+        "default": false
+      },
+      "network_exposure_scope": {
+        "type": "string",
+        "enum": [
+          "public",
+          "internal",
+          "localhost"
+        ],
+        "title": "Network Exposure Scope",
+        "description": "The network reach of the database port - whether it is bound to localhost only, an internal network, or externally reachable. Amplifies severity when authentication is absent."
+      },
+      "backup_storage_permissions": {
+        "type": "string",
+        "enum": [
+          "restricted",
+          "overly_permissive",
+          "world_readable"
+        ],
+        "title": "Backup Storage Permissions",
+        "description": "The access control level applied to the backup file location. Indicates whether backups are restricted to authorized users/services or broadly accessible."
+      },
+      "admin_interface_network_exposure": {
+        "type": "string",
+        "enum": [
+          "public",
+          "restricted",
+          "localhost_only"
+        ],
+        "title": "Admin Interface Network Exposure",
+        "description": "Indicates whether the database administration interface is accessible from untrusted networks, restricted to trusted IP ranges, or localhost-only."
+      },
+      "mfa_enforced": {
+        "type": "boolean",
+        "title": "MFA Enforced for Admin Interface",
+        "description": "Whether multi-factor authentication is required for all logins to the database administration interface.",
+        "default": false
+      },
+      "tls_enforced": {
+        "type": "boolean",
+        "title": "TLS Enforced on Admin Interface",
+        "description": "Whether TLS/HTTPS is enforced for all connections to the database administration interface (plaintext connections rejected).",
+        "default": false
+      },
+      "database_process_os_user": {
+        "type": "string",
+        "title": "Database Process OS User",
+        "description": "The operating system user account under which the database daemon process runs."
+      },
+      "runs_as_dedicated_service_account": {
+        "type": "boolean",
+        "title": "Runs as Dedicated Low-Privilege Service Account",
+        "description": "Whether the database daemon runs under a dedicated, purpose-created low-privilege OS service account rather than a shared or privileged account.",
+        "default": false
+      },
+      "process_uid": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 65535,
+        "title": "Database Process UID",
+        "description": "The numeric Unix user ID (UID) of the OS user running the database daemon process."
+      },
+      "plaintext_credentials_present": {
+        "type": "boolean",
+        "title": "Plaintext Credentials Present in Config Files",
+        "description": "Whether database configuration files contain plaintext passwords, connection strings, or key material (not referencing a secrets manager or vault).",
+        "default": false
+      },
+      "config_file_permission_mode": {
+        "type": "string",
+        "title": "Configuration File Permission Mode",
+        "description": "The filesystem permission mode (octal string) of the database configuration file(s) containing credentials."
+      },
+      "secrets_manager_integration_enabled": {
+        "type": "boolean",
+        "title": "Secrets Manager Integration Enabled",
+        "description": "Whether the database or application is configured to retrieve credentials from a dedicated secrets manager (e.g., HashiCorp Vault, AWS Secrets Manager, Azure Key Vault) rather than storing them in config files.",
+        "default": false
+      },
+      "global_max_connections": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000,
+        "title": "Global Max Connections Setting",
+        "description": "The database-wide maximum number of simultaneous client connections allowed. A value of 0 or excessively high values indicate no effective cap."
+      },
+      "per_account_connection_limit_enforced": {
+        "type": "boolean",
+        "title": "Per-Account Connection Limit Enforced",
+        "description": "Whether individual database accounts have explicit per-user/per-role maximum connection limits configured, preventing a single account from exhausting the connection pool.",
+        "default": false
+      },
+      "enabled_privileged_features": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Enabled Privileged Database Features",
+        "description": "List of privileged or high-risk database features/plugins currently enabled (e.g., FILE, xp_cmdshell, dblink, http_endpoint, utl_file, openrowset).",
+        "default": []
+      },
+      "feature_justified_by_business_requirement": {
+        "type": "boolean",
+        "title": "Privileged Features Justified by Business Requirement",
+        "description": "Indicates whether each enabled privileged feature has a documented and approved business justification. True means all enabled features are justified; false means one or more lack justification."
+      }
+    },
+    "required": [
+      "default_credentials_present",
+      "weak_credential_accounts",
+      "password_policy_enforced",
+      "tls_enabled",
+      "tls_enforcement_mode",
+      "plaintext_port_open",
+      "encryption_at_rest_enabled",
+      "backup_encryption_enabled",
+      "storage_volume_encryption_type",
+      "data_classification",
+      "network_interface_binding",
+      "inbound_source_restriction_configured",
+      "granted_privileges",
+      "has_superuser_or_dba_role",
+      "privilege_scope",
+      "least_privilege_review_performed",
+      "audit_logging_enabled",
+      "audited_event_categories",
+      "compliance_frameworks",
+      "version_has_known_cve",
+      "days_since_patch_available",
+      "network_accessible",
+      "authentication_required",
+      "anonymous_user_accounts_present",
+      "network_exposure_scope",
+      "backup_storage_permissions",
+      "admin_interface_network_exposure",
+      "mfa_enforced",
+      "tls_enforced",
+      "database_process_os_user",
+      "runs_as_dedicated_service_account",
+      "process_uid",
+      "plaintext_credentials_present",
+      "config_file_permission_mode",
+      "secrets_manager_integration_enabled",
+      "enabled_privileged_features",
+      "feature_justified_by_business_requirement"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/anonymous_user_accounts_present"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/authentication_required"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_credentials_present"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/granted_privileges"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/has_superuser_or_dba_role"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/privilege_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_credential_accounts"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/least_privilege_review_performed"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/password_policy_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/database_engine"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_encryption_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/data_classification"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_at_rest_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/plaintext_port_open"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/storage_volume_encryption_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_enforcement_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_interface_network_exposure"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/inbound_source_restriction_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/network_accessible"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/network_exposure_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/network_interface_binding"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_logging_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/audited_event_categories"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/compliance_frameworks"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/config_file_permission_mode"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/database_process_os_user"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/enabled_privileged_features"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/plaintext_credentials_present"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/process_uid"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/runs_as_dedicated_service_account"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_manager_integration_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/version_has_known_cve"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/days_since_patch_available"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/feature_justified_by_business_requirement"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_storage_permissions"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/global_max_connections"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/per_account_connection_limit_enforced"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

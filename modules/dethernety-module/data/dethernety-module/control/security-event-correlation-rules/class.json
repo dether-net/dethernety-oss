@@ -1,0 +1,8 @@
+{
+  "name": "Security Event Correlation Rules",
+  "classType": "control",
+  "type": "Security Event Correlation Rules",
+  "description": "SIEM correlation rules and detection logic provide structured pattern-matching capabilities that transform raw log data into actionable security events, enabling threat identification, alerting, and response orchestration across the enterprise environment.",
+  "category": "Security",
+  "status": "reviewed"
+}

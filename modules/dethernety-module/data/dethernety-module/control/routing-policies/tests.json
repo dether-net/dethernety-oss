@@ -1,0 +1,135 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "acl_applied_to_interfaces": false,
+      "acl_filter_coverage": "full",
+      "acl_inter_segment_rules_configured": false,
+      "prefix_lists_configured": false,
+      "acl_logging_enabled": false,
+      "default_deny_policy": false,
+      "acl_direction_coverage": "inbound_only",
+      "mgmt_acl_applied": false,
+      "qos_policy_configured": false,
+      "blackhole_routing_enabled": false,
+      "acl_rules_have_comments": false,
+      "acl_last_review_days": 0,
+      "default_inter_segment_policy": "allow",
+      "unauthorized_cross_segment_paths_count": 0,
+      "route_maps_applied": false,
+      "default_route_advertisement_control": "uncontrolled",
+      "inbound_filter_direction_coverage": "none",
+      "unauthorized_prefix_count": 0,
+      "log_destination_configured": "none",
+      "logged_acl_entry_coverage": "none",
+      "interfaces_without_bidirectional_acl": [
+        "default"
+      ],
+      "permitted_source_scope": "any",
+      "allowed_mgmt_protocols": [
+        "default"
+      ],
+      "traffic_classes_defined": 0,
+      "blackhole_trigger_mechanism": "none",
+      "blackhole_scope": "none",
+      "stale_rule_review_age_days": 0,
+      "change_tracking_mechanism": "none"
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "acl_applied_to_interfaces": true,
+      "acl_filter_coverage": "full",
+      "default_deny_policy": true,
+      "acl_inter_segment_rules_configured": true,
+      "default_inter_segment_policy": "deny",
+      "prefix_lists_configured": true,
+      "route_maps_applied": true,
+      "inbound_filter_direction_coverage": "all_peers",
+      "acl_logging_enabled": true,
+      "log_destination_configured": "remote_syslog",
+      "logged_acl_entry_coverage": "deny_only",
+      "acl_direction_coverage": "both",
+      "mgmt_acl_applied": true,
+      "permitted_source_scope": "specific_subnet",
+      "allowed_mgmt_protocols": [],
+      "qos_policy_configured": true,
+      "traffic_classes_defined": 2,
+      "blackhole_routing_enabled": true,
+      "blackhole_trigger_mechanism": "rtbh_bgp",
+      "blackhole_scope": "internal_edge",
+      "acl_rules_have_comments": true,
+      "stale_rule_review_age_days": 180,
+      "change_tracking_mechanism": "version_control",
+      "acl_last_review_days": 0,
+      "unauthorized_cross_segment_paths_count": 0,
+      "default_route_advertisement_control": "uncontrolled",
+      "unauthorized_prefix_count": 0,
+      "interfaces_without_bidirectional_acl": [
+        "default"
+      ]
+    },
+    "expectedCountermeasures": [
+      "Acl Rule Maintainability And Audit",
+      "Management Plane Access Restriction",
+      "Network Segmentation Enforcement",
+      "Packet Filtering Coverage",
+      "Route Advertisement Integrity",
+      "Traffic Prioritization And Qos Control",
+      "Null Route And Blackhole Response",
+      "Traffic Logging And Visibility",
+      "Ingress Egress Policy Consistency"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "acl_applied_to_interfaces": true,
+      "acl_filter_coverage": "full",
+      "default_deny_policy": true,
+      "acl_last_review_days": 0,
+      "default_inter_segment_policy": "allow",
+      "acl_inter_segment_rules_configured": true,
+      "unauthorized_cross_segment_paths_count": 0,
+      "prefix_lists_configured": true,
+      "route_maps_applied": true,
+      "default_route_advertisement_control": "uncontrolled",
+      "inbound_filter_direction_coverage": "none",
+      "unauthorized_prefix_count": 0,
+      "acl_logging_enabled": true,
+      "log_destination_configured": "none",
+      "logged_acl_entry_coverage": "none",
+      "acl_direction_coverage": "inbound_only",
+      "interfaces_without_bidirectional_acl": [
+        "partial"
+      ],
+      "mgmt_acl_applied": true,
+      "permitted_source_scope": "any",
+      "allowed_mgmt_protocols": [
+        "partial"
+      ],
+      "qos_policy_configured": true,
+      "traffic_classes_defined": 0,
+      "blackhole_routing_enabled": true,
+      "blackhole_trigger_mechanism": "none",
+      "blackhole_scope": "none",
+      "acl_rules_have_comments": true,
+      "stale_rule_review_age_days": 0,
+      "change_tracking_mechanism": "none"
+    },
+    "expectedCountermeasures": [
+      "Packet Filtering Coverage"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

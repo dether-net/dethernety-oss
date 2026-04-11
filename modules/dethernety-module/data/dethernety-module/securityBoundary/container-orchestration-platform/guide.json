@@ -1,0 +1,1647 @@
+[
+  {
+    "option_name": "anonymous_auth_enabled",
+    "option_description": "Controls whether the kube-apiserver accepts unauthenticated requests, processing them under the system:anonymous identity. When true (or flag absent), any network-reachable client can interact with the API server without presenting credentials.",
+    "security_impact": "Two Rego conditions fire when this is true: (1) anonymous_auth_enabled=true AND no network_policy_restricts_api_server_egress triggers api_server_unauthenticated_ingress_exposure; (2) anonymous_auth_enabled=true AND no api_server_firewall_ingress_restricted also triggers the same exposure. Essentially, anonymous auth creates an unauthenticated ingress surface that bypasses the first authentication layer of the control plane boundary, allowing attackers to enumerate API endpoints, probe RBAC gaps, and exploit any publicly exposed cluster endpoint without credentials.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the kube-apiserver static pod manifest on the control plane node for the --anonymous-auth flag value.",
+        "command": "grep -i 'anonymous-auth' /etc/kubernetes/manifests/kube-apiserver.yaml",
+        "file_path": "/etc/kubernetes/manifests/kube-apiserver.yaml",
+        "navigation": null,
+        "expected_output": "Should show '- --anonymous-auth=false'. If the flag is absent or shows '=true', anonymous auth is enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the running kube-apiserver process arguments directly on the control plane node to confirm the active flag, independent of the manifest.",
+        "command": "ps aux | grep kube-apiserver | grep -o 'anonymous-auth=[^ ]*'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns 'anonymous-auth=false' if properly disabled. No output or 'anonymous-auth=true' indicates anonymous auth is enabled."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the API server from a node or pod to verify whether anonymous requests are accepted by attempting an unauthenticated health or API version endpoint call.",
+        "command": "curl -sk https://<API_SERVER_IP>:6443/api --max-time 5 | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 403 Forbidden response with message 'forbidden: User \"system:anonymous\"' confirms anonymous auth is enabled but RBAC blocks it. A 401 Unauthorized confirms anonymous auth is disabled. A successful API listing indicates anonymous auth with permissive RBAC."
+      },
+      {
+        "type": "command",
+        "instruction": "For kubeadm-managed clusters, check the kubeadm ConfigMap for the apiserver extra arguments that may set anonymous-auth.",
+        "command": "kubectl get configmap kubeadm-config -n kube-system -o jsonpath='{.data.ClusterConfiguration}' | grep anonymous",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Should show 'anonymous-auth: false' under apiServer extraArgs. Absence means the default (true) applies."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (default, insecure)",
+      "false (hardened)"
+    ]
+  },
+  {
+    "option_name": "api_server_firewall_ingress_restricted",
+    "option_description": "Indicates whether a host-level firewall, cloud security group, or network ACL enforces that only authorized CIDR ranges can reach the API server port (6443 or 443). False means the control plane port is reachable from workload subnets, the public internet, or any other network without perimeter filtering.",
+    "security_impact": "The Rego policy fires api_server_unauthenticated_ingress_exposure when api_server_firewall_ingress_restricted is false AND anonymous_auth_enabled is true, and also when both api_server_firewall_ingress_restricted and network_policy_restricts_api_server_egress are false regardless of anonymous auth. Absence of firewall restriction removes the network perimeter layer from the control plane trust boundary, meaning all authentication burden falls solely on application-layer controls which may themselves be misconfigured.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On control plane nodes running iptables, list rules filtering inbound traffic to the API server port to verify source IP restrictions.",
+        "command": "iptables -L INPUT -n -v | grep -E '6443|443'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules should show ACCEPT for specific source CIDRs (admin ranges) and DROP/REJECT for 0.0.0.0/0. No rules or a broad ACCEPT rule indicates unrestricted access."
+      },
+      {
+        "type": "api",
+        "instruction": "For AWS EKS or EC2-hosted control planes, query the security group rules associated with the control plane nodes or EKS cluster endpoint to verify ingress restrictions.",
+        "command": "aws ec2 describe-security-groups --filters 'Name=group-name,Values=*master*,*control-plane*,*apiserver*' --query 'SecurityGroups[*].{ID:GroupId,Rules:IpPermissions}' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Ingress rules for port 6443/443 should list specific CIDRs (e.g., corporate VPN range) in IpRanges, not 0.0.0.0/0 or ::/0."
+      },
+      {
+        "type": "gui",
+        "instruction": "For GKE, navigate to the GKE cluster's Security section in Google Cloud Console and review 'Control plane authorized networks' to confirm CIDR restrictions are configured.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Google Cloud Console > Kubernetes Engine > Clusters > [cluster name] > Details tab > Security > Control plane authorized networks",
+        "expected_output": "Authorized networks should list one or more specific CIDR ranges. 'Not configured' or '0.0.0.0/0' indicates unrestricted access."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a workload pod or an unauthorized IP, attempt a TCP connection to the API server port to verify whether the firewall blocks the connection at the network layer.",
+        "command": "kubectl run net-test --rm -it --image=busybox --restart=Never -- sh -c 'nc -zvw3 <API_SERVER_IP> 6443; echo exit:$?'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection should time out or be refused if firewall restrictions are in place. A successful connection ('open') indicates the firewall is not restricting pod-to-API-server traffic."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in many self-managed clusters)",
+      "true (managed services like GKE/EKS with authorized networks enabled)"
+    ]
+  },
+  {
+    "option_name": "network_policy_restricts_api_server_egress",
+    "option_description": "Indicates whether Kubernetes NetworkPolicy resources in workload namespaces explicitly deny or restrict pod-initiated egress connections to the API server port (6443/443). When false, all pods can freely initiate connections to the control plane regardless of their workload purpose.",
+    "security_impact": "The Rego policy triggers api_server_unauthenticated_ingress_exposure in two conditions where this is false: (1) when false AND anonymous_auth_enabled is true; and (2) when both this and api_server_firewall_ingress_restricted are false. Without egress NetworkPolicy, every pod in every namespace has a direct network path to the control plane, meaning a compromised workload can immediately attempt API server interactions, token replay attacks, or anonymous probing without crossing any network enforcement layer.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all NetworkPolicy resources across namespaces and filter for those referencing the API server port or implementing default-deny egress to identify coverage.",
+        "command": "kubectl get networkpolicy --all-namespaces -o yaml | grep -A 20 'egress' | grep -E 'port|6443|443|to:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should show NetworkPolicy egress rules with port 6443 or 443 explicitly denied or restricted. No output indicates no egress NetworkPolicy targeting the API server exists."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for default-deny egress policies in each workload namespace, which would block API server traffic unless explicitly permitted.",
+        "command": "kubectl get networkpolicy --all-namespaces -o json | python3 -c \"import json,sys; nps=json.load(sys.stdin)['items']; [print(np['metadata']['namespace'], np['metadata']['name']) for np in nps if np['spec'].get('policyTypes') and 'Egress' in np['spec']['policyTypes'] and not np['spec'].get('egress')]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lists namespaces with default-deny egress policies. Empty output means no default-deny egress policies exist and pods have unrestricted egress to the API server."
+      },
+      {
+        "type": "command",
+        "instruction": "Identify workload namespaces that have no NetworkPolicy at all, confirming they have fully open pod egress including to the API server.",
+        "command": "for ns in $(kubectl get ns -o jsonpath='{.items[*].metadata.name}'); do count=$(kubectl get networkpolicy -n $ns --no-headers 2>/dev/null | wc -l); [ \"$count\" -eq 0 ] && echo \"No NetworkPolicy: $ns\"; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any namespace listed has no NetworkPolicy enforcement. Namespaces like 'default', 'production', or application namespaces appearing here indicate uncontrolled API server egress paths."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From within a workload pod, test whether a TCP connection to the API server port succeeds to confirm NetworkPolicy is not blocking egress.",
+        "command": "kubectl run egress-test --rm -it --image=busybox -n default --restart=Never -- sh -c 'nc -zvw3 kubernetes.default.svc.cluster.local 443; echo result:$?'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful connection ('open', exit code 0) confirms NetworkPolicy is NOT restricting pod-to-API-server egress. A timeout or connection refused confirms restriction is in place."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default; most clusters have no egress NetworkPolicy to control plane)",
+      "true (hardened environments with explicit egress deny policies)"
+    ]
+  },
+  {
+    "option_name": "binding_scope",
+    "option_description": "Identifies whether a Kubernetes role binding is cluster-scoped (ClusterRoleBinding, granting permissions across all namespaces) or namespace-scoped (RoleBinding, restricting permissions to a single namespace). This determines the blast radius of the permissions granted by the binding.",
+    "security_impact": "The Rego policy for overpermissive_rbac_role_binding_propagation fires on BOTH cluster and namespace scope values when combined with bound_role_has_wildcard_or_admin=true, subject_type=ServiceAccount, and service_account_automounts_token=true. Cluster-scoped bindings are inherently higher risk as they grant cross-namespace authority, enabling a compromised pod to interact with any namespace's resources. Namespace-scoped bindings with wildcard permissions still represent a full trust boundary breach within that namespace, which may be sufficient for lateral movement to the control plane.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate all ClusterRoleBindings to identify cluster-scoped bindings, which grant permissions across all namespaces.",
+        "command": "kubectl get clusterrolebindings -o custom-columns='NAME:.metadata.name,ROLE:.roleRef.name,SUBJECTS:.subjects[*].kind' --no-headers",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each line represents a cluster-scoped binding. Pay attention to bindings where ROLE shows 'cluster-admin' or custom roles, and SUBJECTS shows 'ServiceAccount'."
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate all namespace-scoped RoleBindings across all namespaces to identify namespace-scoped bindings.",
+        "command": "kubectl get rolebindings --all-namespaces -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,ROLE:.roleRef.name,SUBJECTS:.subjects[*].kind' --no-headers",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each line represents a namespace-scoped binding. Note the namespace column to understand the scope of permissions granted."
+      },
+      {
+        "type": "command",
+        "instruction": "Specifically identify the resource kind of a named binding to definitively determine its scope (ClusterRoleBinding vs RoleBinding).",
+        "command": "kubectl get clusterrolebinding,rolebinding --all-namespaces -o json | python3 -c \"import json,sys; items=json.load(sys.stdin)['items']; [print(i['kind'], i['metadata'].get('namespace','cluster-wide'), i['metadata']['name']) for i in items]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ClusterRoleBinding entries show 'cluster-wide' for namespace. RoleBinding entries show their specific namespace. The 'kind' field definitively identifies scope."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "cluster (ClusterRoleBinding - higher risk, cross-namespace)",
+      "namespace (RoleBinding - limited to single namespace)"
+    ]
+  },
+  {
+    "option_name": "bound_role_has_wildcard_or_admin",
+    "option_description": "Indicates whether the role referenced by a binding grants wildcard verbs (verbs: ['*']), wildcard resources (resources: ['*']), or is the built-in cluster-admin ClusterRole. Such permissions represent effectively unrestricted API access within the binding's scope.",
+    "security_impact": "This is a required true condition in both Rego trigger paths for overpermissive_rbac_role_binding_propagation. Combined with ServiceAccount subject type and token auto-mounting, wildcard or admin roles attached to any service account create a direct trust propagation path from the workload zone to the control plane. A pod inheriting cluster-admin effectively becomes a control plane administrator, capable of reading all secrets, modifying RBAC, scheduling privileged pods, or deleting cluster resources without exploiting any vulnerability.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify all ClusterRoleBindings referencing the built-in cluster-admin role, which represents the highest privilege level.",
+        "command": "kubectl get clusterrolebindings -o json | python3 -c \"import json,sys; items=json.load(sys.stdin)['items']; [print(i['metadata']['name'], [s.get('name') for s in i.get('subjects',[])]) for i in items if i['roleRef']['name']=='cluster-admin']\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lists all bindings to cluster-admin. Any binding referencing a service account or non-admin user is a critical finding. Only system components should appear here."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect ClusterRole and Role definitions for wildcard verbs or resources that grant effectively unrestricted permissions.",
+        "command": "kubectl get clusterroles,roles --all-namespaces -o json | python3 -c \"import json,sys; items=json.load(sys.stdin)['items']; [print(i['kind'], i['metadata']['name'], r) for i in items for r in i.get('rules',[]) if '*' in r.get('verbs',[]) or '*' in r.get('resources',[])]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lists roles with wildcard rules. System roles like 'cluster-admin' are expected. Custom roles (e.g., 'app-operator') appearing here are high-risk findings requiring review."
+      },
+      {
+        "type": "command",
+        "instruction": "For a specific role binding, extract the referenced role name and inspect its rules to determine if wildcards or admin permissions are present.",
+        "command": "ROLE=$(kubectl get clusterrolebinding <BINDING_NAME> -o jsonpath='{.roleRef.name}'); kubectl get clusterrole $ROLE -o jsonpath='{.rules}' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules output showing 'verbs: [\"*\"]' or 'resources: [\"*\"]' confirms wildcard permissions. Clean rules with specific verbs (get, list, watch) and specific resources indicate least-privilege design."
+      },
+      {
+        "type": "command",
+        "instruction": "Use kubectl auth reconcile dry-run or the rakkess/kubectl-who-can plugin to enumerate effective permissions for a specific service account across the cluster.",
+        "command": "kubectl-who-can get secrets --all-namespaces 2>/dev/null || kubectl auth can-i --list --as=system:serviceaccount:<NAMESPACE>:<SA_NAME>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A long list of allowed resources, especially 'secrets' get/list across all namespaces, or '*' permissions, confirms wildcard or admin-equivalent role binding."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (expected for application service accounts with least-privilege roles)",
+      "true (misconfigured; commonly found in CI/CD service accounts, operators, and legacy deployments)"
+    ]
+  },
+  {
+    "option_name": "subject_type",
+    "option_description": "Identifies the kind of principal referenced as the subject in a role binding: ServiceAccount (a Kubernetes-managed identity used by pods), User (a human or external identity), or Group (a collection of users or system groups). ServiceAccount subjects are particularly significant because they create automatic credential delivery into running pods.",
+    "security_impact": "The Rego policy for overpermissive_rbac_role_binding_propagation specifically requires subject_type=ServiceAccount to fire. This is because ServiceAccounts uniquely create an automatic workload-to-control-plane privilege propagation path: the token is auto-mounted into pods, meaning any container compromise immediately grants the bound RBAC permissions. User and Group subjects require explicit credential theft from a human operator, while ServiceAccount compromise is inherent to pod compromise, making it a direct trust zone boundary crossing mechanism.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all ClusterRoleBindings with their subject types to identify ServiceAccount subjects bound to cluster-scoped roles.",
+        "command": "kubectl get clusterrolebindings -o json | python3 -c \"import json,sys; items=json.load(sys.stdin)['items']; [print(i['metadata']['name'], i['roleRef']['name'], s['kind'], s.get('namespace',''), s.get('name','')) for i in items for s in i.get('subjects',[])]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each line shows binding name, role name, subject kind (ServiceAccount/User/Group), namespace, and subject name. ServiceAccount entries with powerful roles are immediate findings."
+      },
+      {
+        "type": "command",
+        "instruction": "Filter all role bindings across all namespaces to show only those with ServiceAccount subjects, which represent workload-to-control-plane privilege paths.",
+        "command": "kubectl get clusterrolebindings,rolebindings --all-namespaces -o json | python3 -c \"import json,sys; items=json.load(sys.stdin)['items']; [print(i['kind'], i['metadata'].get('namespace',''), i['metadata']['name'], s['name']) for i in items for s in i.get('subjects',[]) if s['kind']=='ServiceAccount']\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lists all ServiceAccount-subject bindings. Cross-reference with bound role permissions to identify over-privileged service accounts."
+      },
+      {
+        "type": "command",
+        "instruction": "For a specific binding, extract and display the subjects array to identify kind, name, and namespace of all principals.",
+        "command": "kubectl get clusterrolebinding <BINDING_NAME> -o jsonpath='{.subjects}' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output showing subject entries with 'kind' field. 'ServiceAccount' kind with a 'namespace' field confirms a workload identity. 'User' or 'Group' kind indicates human or external identity."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "ServiceAccount (most common in automation, operators, CI/CD pipelines)",
+      "User (human operators, CI/CD external identities)",
+      "Group (system:masters, system:authenticated groups)"
+    ]
+  },
+  {
+    "option_name": "service_account_automounts_token",
+    "option_description": "Controls whether the Kubernetes API token for a service account is automatically projected into pods as a volume mount at /var/run/secrets/kubernetes.io/serviceaccount/token. When true (the default), every pod using the service account receives a valid API credential without any explicit configuration, enabling it to authenticate to the API server.",
+    "security_impact": "This attribute appears in two Rego rules. For overpermissive_rbac_role_binding_propagation, it is a required condition alongside ServiceAccount subject type and wildcard/admin role: without the token being mounted, the RBAC permissions cannot be exercised from within the pod. For service_account_token_cross_zone_exfiltration, the absence of this control (combined with no egress NetworkPolicy) triggers the exposure, because auto-mounted tokens provide the credential that enables cross-zone API authentication from a compromised pod. Disabling auto-mounting eliminates the automatic credential delivery mechanism that turns pod compromise into control plane access.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the automountServiceAccountToken field on ServiceAccount objects to identify accounts with auto-mounting explicitly disabled or relying on the insecure default.",
+        "command": "kubectl get serviceaccounts --all-namespaces -o json | python3 -c \"import json,sys; items=json.load(sys.stdin)['items']; [print(i['metadata']['namespace'], i['metadata']['name'], i.get('automountServiceAccountToken', 'NOT_SET(default=true)')) for i in items]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each line shows namespace, SA name, and automount setting. 'NOT_SET' or 'true' means tokens are auto-mounted. Only 'false' explicitly disables auto-mounting."
+      },
+      {
+        "type": "command",
+        "instruction": "Check individual pod specs for the automountServiceAccountToken override, as pod-level settings override the ServiceAccount-level setting.",
+        "command": "kubectl get pods --all-namespaces -o json | python3 -c \"import json,sys; items=json.load(sys.stdin)['items']; [print(i['metadata']['namespace'], i['metadata']['name'], i['spec'].get('automountServiceAccountToken', 'NOT_SET(inherits_SA)')) for i in items]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Pod-level 'false' overrides a ServiceAccount-level 'true'. 'NOT_SET' means the pod inherits the ServiceAccount setting. Focus on pods where both SA and pod spec show true or NOT_SET."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify token mount status in a running pod by checking the mounted volume at the default service account token path.",
+        "command": "kubectl exec -n <NAMESPACE> <POD_NAME> -- ls -la /var/run/secrets/kubernetes.io/serviceaccount/ 2>/dev/null && echo 'TOKEN MOUNTED' || echo 'NO TOKEN MOUNTED'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'TOKEN MOUNTED' with files (token, ca.crt, namespace) confirms auto-mounting is active. 'NO TOKEN MOUNTED' or a directory not found error confirms token auto-mounting is disabled for this pod."
+      },
+      {
+        "type": "command",
+        "instruction": "Identify the default service account in each namespace, which is used by pods that do not explicitly specify a service account and typically has auto-mounting enabled by default.",
+        "command": "kubectl get serviceaccount default --all-namespaces -o json | python3 -c \"import json,sys; items=json.load(sys.stdin)['items']; [print(i['metadata']['namespace'], i.get('automountServiceAccountToken','NOT_SET(default=true)')) for i in items]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Shows automount setting for the default SA in each namespace. 'NOT_SET' across most namespaces indicates a systemic risk where all pods without explicit SA assignment auto-mount tokens."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (Kubernetes default; most clusters have not disabled this)",
+      "false (hardened deployments; explicitly set on SA and/or pod spec)"
+    ]
+  },
+  {
+    "option_name": "etcd_network_access_restricted_to_api_server",
+    "option_description": "Controls whether network-level segmentation (firewall rules, cloud security groups, or Kubernetes NetworkPolicy) enforces that only the API server IP(s) can reach etcd client ports 2379 and 2380. When false, etcd is reachable from nodes, pods, or other cluster-internal actors beyond the API server.",
+    "security_impact": "The Rego rule etcd_direct_access_bypass_of_api_server_boundary fires when this is false and either etcd_client_cert_auth_enabled is also false or etcd_listen_address_scope is all_interfaces. Direct etcd access bypasses all API server authn/authz and admission controls, allowing any actor with network reach to read or write all cluster state including Secrets. This collapses the control plane trust boundary to the etcd network perimeter alone.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "From a worker node or test pod, attempt a TCP connection to the etcd client port to determine reachability from outside the API server.",
+        "command": "nc -zv <etcd-node-ip> 2379 2>/dev/null && echo 'REACHABLE' || echo 'BLOCKED'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "BLOCKED indicates network controls are in place; REACHABLE indicates etcd is accessible from this network segment."
+      },
+      {
+        "type": "command",
+        "instruction": "On a cloud-hosted cluster, inspect security group rules associated with the control plane nodes to verify inbound rules on ports 2379/2380 are scoped to the API server IP only.",
+        "command": "aws ec2 describe-security-groups --filters Name=group-name,Values='*control-plane*' --query 'SecurityGroups[].IpPermissions[?FromPort==`2379` || FromPort==`2380`]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules should list only the API server private IP CIDR as the source; any broader CIDR (e.g., 0.0.0.0/0 or cluster VPC range) indicates over-permissive access."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect Kubernetes NetworkPolicy resources in the kube-system namespace to verify egress toward etcd ports is restricted to the API server.",
+        "command": "kubectl get networkpolicy -n kube-system -o yaml | grep -A 20 'etcd\\|2379\\|2380'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A NetworkPolicy selecting etcd pods should show an ingress rule permitting only the API server pod or IP on ports 2379 and 2380."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Deploy a debug pod in a non-system namespace and attempt a curl or openssl connection to etcd to confirm cross-namespace network isolation.",
+        "command": "kubectl run etcd-reachability-test --rm -it --image=busybox --restart=Never -- sh -c 'nc -zv <etcd-ip> 2379; echo exit_code=$?'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-zero exit code or connection refused/timeout confirms etcd is not reachable from workload namespaces."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (hardened clusters with firewall/SG rules or NetworkPolicy)",
+      "false (default kubeadm clusters without additional network controls)"
+    ]
+  },
+  {
+    "option_name": "etcd_client_cert_auth_enabled",
+    "option_description": "Controls whether etcd enforces mutual TLS client certificate authentication for all incoming client connections via the --client-cert-auth=true startup flag. When disabled, any client that can reach the etcd port can interact with the datastore without presenting a valid certificate.",
+    "security_impact": "The Rego rule etcd_direct_access_bypass_of_api_server_boundary fires when this is false alongside etcd_network_access_restricted_to_api_server being false, or when etcd_listen_address_scope is all_interfaces with this also false. Without client certificate authentication, an attacker who reaches etcd over the network can read all cluster state including Secrets, ConfigMaps, and RBAC policies, and can write arbitrary state to manipulate scheduling or inject malicious workloads — all without any API server-enforced policy layer.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the etcd static pod manifest on the control plane node to check the --client-cert-auth flag value.",
+        "command": "cat /etc/kubernetes/manifests/etcd.yaml | grep -E 'client-cert-auth|listen-client'",
+        "file_path": "/etc/kubernetes/manifests/etcd.yaml",
+        "navigation": null,
+        "expected_output": "Should contain '--client-cert-auth=true'; absence of this flag or 'false' value indicates authentication is not enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the running etcd process arguments directly from the node to confirm the live configuration matches the manifest.",
+        "command": "ps aux | grep etcd | grep -o -- '--client-cert-auth[^ ]*'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'--client-cert-auth=true' should appear in the process arguments; missing flag means the default (which varies by version) or false is active."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the etcd pod specification via the Kubernetes API to retrieve the actual container command arguments.",
+        "command": "kubectl get pod -n kube-system -l component=etcd -o jsonpath='{.items[0].spec.containers[0].command}' | tr ',' '\n' | grep client-cert-auth",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should be '--client-cert-auth=true'; empty output or false value indicates the flag is absent or disabled."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt an unauthenticated connection to the etcd endpoint to verify whether client certificate is required.",
+        "command": "curl -k https://<etcd-ip>:2379/v3/auth/status --max-time 5 2>&1 | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A TLS handshake error requiring client certificate (e.g., 'tls: certificate required') confirms auth is enforced; a successful JSON response without a certificate indicates auth is disabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (kubeadm-provisioned clusters, managed Kubernetes services)",
+      "false (manually configured or legacy clusters without hardening)"
+    ]
+  },
+  {
+    "option_name": "etcd_listen_address_scope",
+    "option_description": "Describes the network interface binding scope for etcd client port connections as determined by the --listen-client-urls configuration. loopback_only restricts to 127.0.0.1 (same host only); node_local binds to the node's primary network interface IP; all_interfaces binds to 0.0.0.0, making etcd reachable from any network interface including cluster and pod networks.",
+    "security_impact": "Two Rego rule conditions in etcd_direct_access_bypass_of_api_server_boundary reference this attribute: when all_interfaces is set without network access restriction, and when all_interfaces is set without client cert auth. Binding to 0.0.0.0 maximally expands the etcd attack surface by making it reachable from pod networks, node networks, and potentially external networks, meaning any compromise of network segmentation directly exposes the authoritative cluster state store.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the etcd static pod manifest and extract the --listen-client-urls value to determine the binding address.",
+        "command": "grep 'listen-client-urls' /etc/kubernetes/manifests/etcd.yaml",
+        "file_path": "/etc/kubernetes/manifests/etcd.yaml",
+        "navigation": null,
+        "expected_output": "'https://127.0.0.1:2379' indicates loopback_only; a specific node IP (e.g., https://10.0.0.5:2379) indicates node_local; 'https://0.0.0.0:2379' indicates all_interfaces."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the live etcd process arguments for the listen-client-urls parameter to confirm the runtime binding.",
+        "command": "ps aux | grep '[e]tcd' | grep -o -- '--listen-client-urls=[^ ]*'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The URL scheme and address indicate scope: 127.0.0.1 = loopback_only, a routable IP = node_local, 0.0.0.0 = all_interfaces."
+      },
+      {
+        "type": "command",
+        "instruction": "Use ss or netstat on the control plane node to verify which addresses the etcd process is actually listening on at runtime.",
+        "command": "ss -tlnp | grep 2379",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Local address column showing '127.0.0.1:2379' = loopback_only; specific node IP = node_local; '0.0.0.0:2379' or '*:2379' = all_interfaces."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "loopback_only (kubeadm single-node or stacked etcd topology)",
+      "node_local (stacked etcd with node IP binding, common in kubeadm HA)",
+      "all_interfaces (misconfigured or legacy deployments)"
+    ]
+  },
+  {
+    "option_name": "webhook_covered_operations",
+    "option_description": "Represents the union of all HTTP operation types (CREATE, UPDATE, DELETE, CONNECT) explicitly listed in rules[].operations fields across all registered MutatingWebhookConfiguration and ValidatingWebhookConfiguration objects. Operations absent from this list are not intercepted by any webhook, creating policy enforcement blind spots.",
+    "security_impact": "The Rego rule admission_webhook_bypass_via_scope_gap fires when UPDATE is not present in this array. UPDATE operations on existing pods or workloads are a primary vector for privilege escalation and policy bypass — an attacker can CREATE a compliant workload, then UPDATE it to add privileged containers or security context overrides after the creation-time webhook check. Gaps in DELETE or CONNECT coverage may allow unauthorized resource removal or API tunneling without policy inspection.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Extract all distinct operations values from every registered webhook configuration and aggregate them into a deduplicated list.",
+        "command": "kubectl get mutatingwebhookconfigurations,validatingwebhookconfigurations -o json | jq -r '[.items[].webhooks[].rules[].operations[]] | unique | .[]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Should list CREATE, UPDATE, DELETE, and optionally CONNECT; absence of UPDATE is a critical gap indicating policy bypass is possible on modifications."
+      },
+      {
+        "type": "command",
+        "instruction": "List each webhook by name alongside its covered operations to identify which specific webhooks lack UPDATE or other operations coverage.",
+        "command": "kubectl get mutatingwebhookconfigurations -o json | jq -r '.items[] | .metadata.name as $name | .webhooks[] | [$name, .name, (.rules[].operations | join(\",\"))] | join(\" | \")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A table of webhook names and their operations; rows showing only CREATE without UPDATE identify the source of coverage gaps."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Kubernetes REST API to retrieve webhook configurations and parse operations fields programmatically for automated assessment.",
+        "command": "curl -s -k -H 'Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)' https://kubernetes.default.svc/apis/admissionregistration.k8s.io/v1/mutatingwebhookconfigurations | python3 -c \"import sys,json; data=json.load(sys.stdin); ops=set(); [ops.update(r.get('operations',[])) for item in data['items'] for wh in item.get('webhooks',[]) for r in wh.get('rules',[])]; print(sorted(ops))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A Python list such as ['CREATE', 'UPDATE'] — missing operations compared to ['CONNECT', 'CREATE', 'DELETE', 'UPDATE'] indicate gaps."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['CREATE'] (minimal webhook configurations covering only resource creation)",
+      "['CREATE', 'UPDATE'] (moderate coverage, missing DELETE and CONNECT)",
+      "['CREATE', 'UPDATE', 'DELETE', 'CONNECT'] (comprehensive coverage, security-hardened deployments)"
+    ]
+  },
+  {
+    "option_name": "webhook_covered_subresources",
+    "option_description": "Represents the list of Kubernetes subresources explicitly included in admission webhook rules across all registered webhook configurations, identified by slash-containing entries in rules[].resources[] (e.g., pods/exec, pods/ephemeralcontainers, pods/attach). Subresources absent from this list are not subject to webhook policy inspection.",
+    "security_impact": "The Rego rule admission_webhook_bypass_via_scope_gap fires independently when pods/exec is missing from this array and when pods/ephemeralcontainers is missing. These subresources are high-value attack vectors: pods/exec allows arbitrary command execution in running containers without creating a new workload, bypassing admission checks on pods; pods/ephemeralcontainers enables injection of debugging containers with elevated capabilities into existing pods. An attacker who can CREATE a compliant pod can later exec into it or inject an ephemeral container to achieve privilege escalation, entirely bypassing webhook enforcement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Extract all subresource entries (those containing a slash) from webhook rules across all webhook configurations.",
+        "command": "kubectl get mutatingwebhookconfigurations,validatingwebhookconfigurations -o json | jq -r '[.items[].webhooks[].rules[].resources[] | select(contains(\"/\"))] | unique | .[]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Should include pods/exec, pods/ephemeralcontainers, and pods/attach at minimum; empty output or missing high-risk subresources indicates enforcement gaps."
+      },
+      {
+        "type": "command",
+        "instruction": "Check specifically whether pods/exec and pods/ephemeralcontainers are covered by any webhook, as these are the Rego-referenced critical subresources.",
+        "command": "kubectl get mutatingwebhookconfigurations,validatingwebhookconfigurations -o json | jq '[.items[].webhooks[].rules[].resources[]] | unique' | grep -E 'pods/exec|pods/ephemeralcontainers|pods/attach'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines matching 'pods/exec' and 'pods/ephemeralcontainers' confirm coverage; absence of either is a critical gap."
+      },
+      {
+        "type": "command",
+        "instruction": "List each webhook name alongside its resource entries to identify which webhooks, if any, cover subresources and which cover only top-level resources.",
+        "command": "kubectl get validatingwebhookconfigurations -o json | jq -r '.items[] | .metadata.name as $n | .webhooks[] | .name as $w | .rules[] | .resources[] | select(contains(\"/\")) | [$n, $w, .] | join(\" > \")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each line shows a webhook covering a specific subresource; no output indicates zero subresource coverage across all validating webhooks."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[] (most default deployments — subresources are not covered by OPA/Gatekeeper or Kyverno unless explicitly configured)",
+      "['pods/exec', 'pods/attach'] (partial coverage by security-focused webhook policies)",
+      "['pods/exec', 'pods/ephemeralcontainers', 'pods/attach', 'pods/portforward'] (hardened policy suites)"
+    ]
+  },
+  {
+    "option_name": "webhook_namespace_selector_present",
+    "option_description": "Indicates whether any registered admission webhook defines a namespaceSelector field that restricts which namespaces the webhook applies to, potentially excluding one or more non-system tenant namespaces from policy inspection. Used dually: to detect bypass gaps (any webhook excluding tenant namespaces) and to assess multi-tenant enforcement (all webhooks having scoped selectors).",
+    "security_impact": "The Rego rule admission_webhook_bypass_via_scope_gap fires when this is true, because a namespaceSelector that excludes namespaces means at least some tenant namespaces bypass webhook inspection entirely — requests in excluded namespaces traverse the control plane boundary without policy enforcement. Conversely, the Rego rule namespace_boundary_non_enforcement_in_multi_tenant_control_plane fires when this is false, because absent namespace selectors means webhooks either apply to all namespaces (including system namespaces, risking interference) or are not scoped for per-tenant enforcement. Both conditions represent enforcement configuration risks at the admission boundary.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve all webhook configurations and display their namespaceSelector fields to determine scope restrictions.",
+        "command": "kubectl get mutatingwebhookconfigurations,validatingwebhookconfigurations -o yaml | grep -A 10 'namespaceSelector'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of namespaceSelector with matchLabels or matchExpressions that exclude tenant namespaces (e.g., not matching 'env: production') indicates a bypass gap; complete absence may indicate either global coverage or missing multi-tenant scoping."
+      },
+      {
+        "type": "command",
+        "instruction": "Enumerate which specific namespaces are excluded by any webhook namespaceSelector by checking namespace labels against selector criteria.",
+        "command": "kubectl get mutatingwebhookconfigurations -o json | jq -r '.items[] | .metadata.name as $n | .webhooks[] | select(.namespaceSelector != null) | [$n, .name, (.namespaceSelector | tostring)] | join(\" | \")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON representation of each namespaceSelector showing matchLabels/matchExpressions; compare against actual namespace labels to identify excluded namespaces."
+      },
+      {
+        "type": "command",
+        "instruction": "List all namespaces and their labels, then manually cross-reference against webhook namespaceSelectors to identify which namespaces fall outside webhook coverage.",
+        "command": "kubectl get namespaces --show-labels | grep -v 'control-plane\\|kube-system\\|kube-public'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Namespaces whose labels do not match any webhook's namespaceSelector matchLabels are excluded from webhook enforcement — these represent policy bypass surfaces."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most default deployments where webhooks apply cluster-wide without namespace filtering)",
+      "true (clusters using OPA/Gatekeeper or Kyverno with namespace exemptions for system or monitoring namespaces)"
+    ]
+  },
+  {
+    "option_name": "high_risk_api_groups_covered",
+    "option_description": "Indicates whether the aggregate admission webhook rule set includes coverage for high-risk Kubernetes API groups: the core group ('') for pods and secrets, apps for deployments and daemonsets, and batch for jobs and cronjobs. False means one or more of these API groups lack webhook coverage, leaving privileged workload creation paths uninspected by policy enforcement.",
+    "security_impact": "The Rego rule admission_webhook_bypass_via_scope_gap fires when this is false. The core API group ('') covers Pods and Secrets — the most direct surfaces for workload privilege escalation and secret exfiltration. The apps group covers Deployments and DaemonSets, which can persistently schedule privileged containers across the cluster. The batch group covers Jobs and CronJobs, which can execute privileged or exfiltrating workloads on a schedule. Missing coverage in any of these groups means an attacker can create or modify workloads of those types without any admission policy inspection, directly bypassing the control plane policy enforcement boundary.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Extract all distinct apiGroups values across all webhook rules and verify that the core group (''), 'apps', and 'batch' are all present.",
+        "command": "kubectl get mutatingwebhookconfigurations,validatingwebhookconfigurations -o json | jq -r '[.items[].webhooks[].rules[].apiGroups[]] | unique | .[]' | sort",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should include an empty string (core group ''), 'apps', and 'batch'; missing entries indicate uncovered API groups."
+      },
+      {
+        "type": "command",
+        "instruction": "Check specifically for core group coverage (represented as empty string or '*') across all webhook rules.",
+        "command": "kubectl get mutatingwebhookconfigurations,validatingwebhookconfigurations -o json | jq '[.items[].webhooks[].rules[].apiGroups[]] | map(select(. == \"\" or . == \"*\")) | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A count greater than 0 confirms core group coverage; 0 means pods, secrets, services, and other core resources are uninspected by any webhook."
+      },
+      {
+        "type": "command",
+        "instruction": "For each high-risk API group, verify which specific resource types are covered by webhook rules to confirm meaningful coverage beyond just the group name.",
+        "command": "kubectl get mutatingwebhookconfigurations,validatingwebhookconfigurations -o json | jq -r '.items[].webhooks[].rules[] | select(.apiGroups[] | . == \"\" or . == \"apps\" or . == \"batch\") | [.apiGroups[], (.resources | join(\",\"))] | join(\" -> \")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines mapping API groups to their covered resources; should include '' -> pods,secrets and apps -> deployments,daemonsets and batch -> jobs,cronjobs."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Kubernetes API to programmatically validate that the three critical API groups are all covered and output a compliance summary.",
+        "command": "kubectl get mutatingwebhookconfigurations,validatingwebhookconfigurations -o json | python3 -c \"import sys,json; d=json.load(sys.stdin); grps=set(); [grps.update(r.get('apiGroups',[])) for i in d['items'] for w in i.get('webhooks',[]) for r in w.get('rules',[])]; required={'','apps','batch'}; print('COVERED:', required.issubset(grps), '| Missing:', required-grps)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'COVERED: True | Missing: set()' confirms full coverage; any missing groups are listed explicitly."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (minimal webhook deployments covering only specific custom resources or a single namespace)",
+      "true (OPA/Gatekeeper or Kyverno installations with comprehensive base constraint library covering standard Kubernetes resource types)"
+    ]
+  },
+  {
+    "option_name": "webhook_failure_policy",
+    "option_description": "Describes the failurePolicy setting for registered admission webhooks, which governs behavior when a webhook server is unreachable, times out, or returns an error. 'Fail' causes the API request to be rejected when the webhook cannot be consulted. 'Ignore' causes the API server to allow the request through as if the webhook approved it, regardless of the error condition.",
+    "security_impact": "The Rego rule admission_webhook_bypass_via_scope_gap references this attribute in the context of scope gaps — Ignore compounds coverage gaps because even attempted webhook calls that error out result in unconditional approval. The Rego rule admission_webhook_server_trust_inversion fires when webhook_server_zone is workload_zone and this is Ignore: a workload-zone webhook server that is compromised, overloaded, or deliberately taken down will cause all requests to be approved without enforcement, allowing an attacker to bypass policy by simply making the webhook unavailable. This means Ignore effectively creates an availability-dependent security control, which is an architectural weakness at the admission enforcement boundary.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Extract the failurePolicy value for every webhook across all MutatingWebhookConfiguration and ValidatingWebhookConfiguration objects.",
+        "command": "kubectl get mutatingwebhookconfigurations,validatingwebhookconfigurations -o json | jq -r '.items[] | .metadata.name as $cfg | .webhooks[] | [$cfg, .name, .failurePolicy] | join(\" | \")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A table of config name, webhook name, and policy value; any row showing 'Ignore' for a security-critical webhook indicates a risk."
+      },
+      {
+        "type": "command",
+        "instruction": "Count the number of webhooks using Ignore vs Fail to understand the overall posture and identify which webhook configurations contain Ignore-policy webhooks.",
+        "command": "kubectl get mutatingwebhookconfigurations,validatingwebhookconfigurations -o json | jq '{Fail: [.items[].webhooks[] | select(.failurePolicy==\"Fail\")] | length, Ignore: [.items[].webhooks[] | select(.failurePolicy==\"Ignore\")] | length}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON with counts for each policy; any Ignore count greater than 0 for security-enforcing (not just observability) webhooks warrants review."
+      },
+      {
+        "type": "command",
+        "instruction": "List only webhooks explicitly configured with Ignore policy to produce a targeted remediation list.",
+        "command": "kubectl get mutatingwebhookconfigurations,validatingwebhookconfigurations -o json | jq -r '.items[] | .metadata.name as $n | .webhooks[] | select(.failurePolicy==\"Ignore\") | [$n, .name] | @csv'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CSV rows identifying each webhook configuration and webhook name using Ignore; empty output confirms all webhooks use Fail policy."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review webhook deployment procedures with platform operators to determine whether Ignore is intentionally set for availability reasons and whether compensating controls (webhook HA, PodDisruptionBudget, separate webhook namespace) are in place.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Interview the platform team and review Helm chart values or Kustomize overlays used to deploy OPA/Gatekeeper, Kyverno, or custom webhooks — look for failurePolicy overrides in values.yaml or webhook manifest patches.",
+        "expected_output": "Documentation confirming Fail is set for all security-enforcing webhooks, or explicit risk acceptance with compensating controls documented for any Ignore policy webhooks."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "Ignore (default for many webhook operator installations to prevent availability impact during initial deployment)",
+      "Fail (hardened configurations and production security-critical webhook policies)",
+      "Mixed (common in real clusters — observability or mutation webhooks use Ignore, validation webhooks use Fail)"
+    ]
+  },
+  {
+    "option_name": "webhook_server_zone",
+    "option_description": "Identifies the network zone where the admission webhook server is deployed — either control_plane_zone (dedicated, hardened), shared_zone (shared infrastructure), or workload_zone (operator-controlled tenant space). This zone classification determines the trust boundary relationship between the API server and its policy enforcement delegates.",
+    "security_impact": "The Rego rule admission_webhook_server_trust_inversion fires when webhook_server_zone equals workload_zone and either the CA bundle is absent or the failure policy is Ignore. A webhook in the workload zone is controlled by workload operators who may be compromised, allowing them to return fraudulent admission decisions. When combined with unrestricted RBAC on the webhook operator, even a shared_zone placement triggers the finding, because the webhook operator can directly manipulate cluster state as well as subvert policy enforcement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all ValidatingWebhookConfigurations and MutatingWebhookConfigurations, then extract the clientConfig service namespace or URL to determine the deployment zone of each webhook server.",
+        "command": "kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o json | jq -r '.items[] | .metadata.name as $name | .webhooks[]? | [$name, .name, (.clientConfig.service.namespace // .clientConfig.url // \"no-service\")] | @tsv'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Tab-separated rows showing webhook config name, webhook name, and the service namespace or URL. Namespaces like kube-system or cert-manager suggest control_plane_zone or shared_zone; tenant or application namespaces indicate workload_zone."
+      },
+      {
+        "type": "command",
+        "instruction": "Cross-reference the identified webhook server namespace against your network zone topology by checking which node pool or subnet the webhook server pod runs on.",
+        "command": "kubectl get pod -n <webhook-namespace> -o wide -l <webhook-selector> --show-labels",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Pod listing showing node name and IP. Match the node or IP range against your documented zone CIDR map to classify as control_plane_zone, shared_zone, or workload_zone."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Kubernetes API directly to retrieve webhook configurations in JSON for programmatic zone classification.",
+        "command": "curl -sk -H \"Authorization: Bearer $(kubectl create token default)\" https://<apiserver>:6443/apis/admissionregistration.k8s.io/v1/validatingwebhookconfigurations | jq '.items[].webhooks[].clientConfig'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON objects containing either a service block with namespace and name, or a url field. Map namespace values to zones using your topology documentation."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview platform or cluster administrators to confirm the intended zone classification of each webhook server and verify it matches network zone topology documentation.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written confirmation mapping each webhook server service or URL to its network zone classification, consistent with the kubectl output."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "workload_zone (common in operator-deployed policy engines like OPA/Gatekeeper in tenant namespaces)",
+      "shared_zone (common for shared admission controllers in dedicated add-on namespaces)",
+      "control_plane_zone (least common, seen in managed Kubernetes offerings)"
+    ]
+  },
+  {
+    "option_name": "webhook_ca_bundle_configured",
+    "option_description": "Indicates whether a Base64-encoded CA certificate bundle is explicitly set in the caBundle field of each webhook's clientConfig, enabling the API server to perform TLS verification of the webhook server's certificate. When absent, the API server either uses the cluster CA or skips verification entirely, making the webhook endpoint susceptible to interception.",
+    "security_impact": "The Rego rule admission_webhook_server_trust_inversion triggers when webhook_server_zone is workload_zone and webhook_ca_bundle_configured is false, or when the zone is workload_zone or shared_zone and both the CA bundle is absent and webhook_operator_rbac_unrestricted is true. Without a configured CA bundle, the API server cannot cryptographically verify it is communicating with the legitimate webhook server, allowing a man-in-the-middle or a rogue service at the same DNS name to return arbitrary admission decisions, completely subverting policy enforcement at the control plane boundary.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Extract the caBundle value from all webhook configurations. A non-empty, non-null value indicates the bundle is configured.",
+        "command": "kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o json | jq '.items[] | .metadata.name as $cfg | .webhooks[]? | {config: $cfg, webhook: .name, caBundle_set: (.clientConfig.caBundle != null and .clientConfig.caBundle != \"\")}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON objects with caBundle_set: true for each webhook indicate the field is populated. Any false value means the CA bundle is not configured for that webhook."
+      },
+      {
+        "type": "command",
+        "instruction": "Decode and inspect the actual CA certificate content to verify it is valid and matches the webhook server's TLS certificate issuer.",
+        "command": "kubectl get validatingwebhookconfiguration <name> -o jsonpath='{.webhooks[0].clientConfig.caBundle}' | base64 -d | openssl x509 -noout -subject -issuer -dates",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Certificate subject, issuer, and validity dates. Compare issuer against the webhook server's TLS certificate to confirm the bundle pins the correct CA."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve webhook configuration via the Kubernetes REST API and filter for the caBundle field presence.",
+        "command": "kubectl get mutatingwebhookconfigurations -o json | jq '[.items[] | {name: .metadata.name, webhooks: [.webhooks[]? | {name: .name, has_ca_bundle: (.clientConfig.caBundle | length > 0)}]}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Array showing each webhook configuration and per-webhook boolean for CA bundle presence. All entries should show has_ca_bundle: true for a passing state."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in development clusters or self-managed operators that rely on cert-manager injection but have not yet rotated the bundle)",
+      "true (expected in production; cert-manager and similar tools inject caBundle via MutatingWebhookConfiguration annotation)"
+    ]
+  },
+  {
+    "option_name": "webhook_operator_rbac_unrestricted",
+    "option_description": "Indicates whether the service account bound to the webhook server pod holds cluster-admin or equivalent permissions (wildcard verbs on all resources cluster-wide). When true, a compromised webhook server process has both the ability to return fraudulent admission decisions and to directly issue privileged API server requests, compounding the trust inversion risk.",
+    "security_impact": "The Rego rule admission_webhook_server_trust_inversion includes a condition where webhook_server_zone is workload_zone or shared_zone, webhook_ca_bundle_configured is false, and webhook_operator_rbac_unrestricted is true. This combination represents the highest-severity trust inversion scenario: the webhook operator is not cryptographically verified, resides in a less-trusted zone, and its service account can directly alter cluster state. An attacker compromising this webhook gains both policy bypass and direct control plane write access in a single step.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Identify the service account used by the webhook server pod, then test its effective permissions cluster-wide.",
+        "command": "SA=$(kubectl get pod -n <webhook-namespace> <webhook-pod> -o jsonpath='{.spec.serviceAccountName}'); kubectl auth can-i '*' '*' --as=system:serviceaccount:<webhook-namespace>:$SA --all-namespaces",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output of 'yes' confirms unrestricted cluster-admin equivalent access (true). Output of 'no' indicates restricted permissions (false)."
+      },
+      {
+        "type": "command",
+        "instruction": "List all ClusterRoleBindings and RoleBindings that reference the webhook server's service account to identify which roles are granted.",
+        "command": "kubectl get clusterrolebindings,rolebindings -A -o json | jq --arg sa '<sa-name>' --arg ns '<webhook-namespace>' '.items[] | select(.subjects[]? | select(.kind==\"ServiceAccount\" and .name==$sa and .namespace==$ns)) | {kind: .kind, name: .metadata.name, role: .roleRef.name}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of role bindings. Presence of cluster-admin, admin, or roles with wildcard verbs (verbs: [\"*\"]) on wildcard resources indicates webhook_operator_rbac_unrestricted should be set to true."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the specific ClusterRole or Role definition to confirm wildcard verb or resource coverage.",
+        "command": "kubectl get clusterrole <role-name> -o json | jq '.rules[] | select(.verbs[] == \"*\" or .resources[] == \"*\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-empty output confirms wildcard permissions exist in the role, indicating unrestricted access. Empty output suggests the role is appropriately scoped."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common with OPA/Gatekeeper default installations that request cluster-admin for ease of deployment)",
+      "false (hardened deployments where webhook operators are granted only the specific get/list/watch permissions they require)"
+    ]
+  },
+  {
+    "option_name": "egress_network_policy_controls_control_plane_ports",
+    "option_description": "Indicates whether Kubernetes NetworkPolicy objects exist in workload namespaces with explicit egress deny or allow rules that restrict outbound TCP traffic on ports 443 and 6443 toward control plane IP ranges. This control limits the ability of compromised pods to directly contact the API server using mounted service account tokens.",
+    "security_impact": "The Rego rule service_account_token_cross_zone_exfiltration fires when service_account_automounts_token is not disabled and egress_network_policy_controls_control_plane_ports is false. Without egress restriction, a compromised pod can use its auto-mounted token to make authenticated API server requests or exfiltrate the token for use from external locations. The absence of this control removes the network enforcement layer that would otherwise contain a token-bearing compromised workload within the workload zone.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all NetworkPolicy objects across all namespaces and filter for egress rules targeting control plane ports 443 and 6443.",
+        "command": "kubectl get networkpolicy -A -o json | jq '.items[] | select(.spec.egress != null) | {namespace: .metadata.namespace, name: .metadata.name, egress_ports: [.spec.egress[].ports[]? | select(.port == 443 or .port == 6443)]}' | jq 'select(.egress_ports | length > 0)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON objects listing namespaces with NetworkPolicies containing egress rules for ports 443 or 6443. Empty output across workload namespaces indicates no such controls exist (false)."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for default-deny egress policies in workload namespaces, which would implicitly block traffic to control plane ports.",
+        "command": "kubectl get networkpolicy -A -o json | jq '.items[] | select(.spec.podSelector == {} or .spec.podSelector == null) | select(.spec.egress == [] or .spec.egress == null) | {namespace: .metadata.namespace, name: .metadata.name, policy_types: .spec.policyTypes}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policies with policyTypes containing Egress and empty egress rules represent default-deny egress policies. These should appear in workload namespaces."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From a test pod in a workload namespace, attempt a TCP connection to the API server on port 6443 to verify whether egress network policy enforcement is active.",
+        "command": "kubectl run nettest --image=busybox --restart=Never -n <workload-namespace> -- sh -c 'nc -zv <api-server-ip> 6443; echo exit:$?'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the connection is refused or times out, egress policy is enforced (true). If it succeeds, no effective egress restriction is in place (false). Clean up with: kubectl delete pod nettest -n <workload-namespace>"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in most clusters; NetworkPolicy for control plane egress is rarely implemented)",
+      "true (found in PCI-DSS or high-security environments with explicit egress allow-listing)"
+    ]
+  },
+  {
+    "option_name": "token_bound_to_audience",
+    "option_description": "Indicates whether pods use projected service account tokens with explicit audience and expiration claims (via ServiceAccountToken projected volumes) rather than long-lived legacy tokens stored as Secrets. Bound tokens include an aud claim that restricts valid usage to the intended API server audience and expire automatically, limiting their utility if exfiltrated to external locations.",
+    "security_impact": "The Rego rule service_account_token_cross_zone_exfiltration includes a condition where service_account_automounts_token is not disabled, egress_network_policy_controls_control_plane_ports is false, and token_bound_to_audience is also false. When all three controls are absent, exfiltrated tokens are long-lived and usable from any location against any API server accepting that audience, representing maximum cross-zone token reuse risk. Audience-bound tokens mitigate this by making tokens invalid outside their intended context.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect pod volume definitions across all namespaces for projected service account token volumes with explicit audience and expiration settings.",
+        "command": "kubectl get pods -A -o json | jq '.items[] | select(.spec.volumes != null) | {namespace: .metadata.namespace, pod: .metadata.name, projected_tokens: [.spec.volumes[]? | select(.projected != null) | .projected.sources[]? | select(.serviceAccountToken != null) | .serviceAccountToken]}' | jq 'select(.projected_tokens | length > 0)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Objects showing projected token sources with audience and expirationSeconds fields. Pods lacking this structure and using legacy secret-based tokens indicate token_bound_to_audience is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the API server is configured with the required flags for bound service account tokens.",
+        "command": "kubectl get pod kube-apiserver-$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') -n kube-system -o json | jq '.spec.containers[0].command[] | select(startswith(\"--service-account-issuer\") or startswith(\"--api-audiences\") or startswith(\"--service-account-signing-key-file\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing --service-account-issuer and --api-audiences flags confirm the API server supports bound tokens. Absence of these flags means legacy tokens are in use (false)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For kubeadm-provisioned clusters, inspect the API server static pod manifest for bound service account token configuration flags.",
+        "command": "grep -E 'service-account-issuer|api-audiences|service-account-signing-key' /etc/kubernetes/manifests/kube-apiserver.yaml",
+        "file_path": "/etc/kubernetes/manifests/kube-apiserver.yaml",
+        "navigation": null,
+        "expected_output": "Matching lines confirm projected token support is configured. No matches indicate the cluster may be using legacy token infrastructure."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (default in Kubernetes 1.21+ clusters; projected tokens are the default token delivery mechanism)",
+      "false (older clusters or those with legacy admission configurations that still mount secret-based tokens)"
+    ]
+  },
+  {
+    "option_name": "control_plane_namespace_egress_networkpolicy_configured",
+    "option_description": "Indicates whether Kubernetes NetworkPolicy resources with explicit egress stanzas exist in the namespace(s) hosting control plane components (typically kube-system), restricting outbound connections from API server, controller-manager, and scheduler pods. Without this, control plane components can initiate unrestricted outbound connections to any endpoint in the cluster network.",
+    "security_impact": "The Rego rule network_policy_enforcement_gap_at_control_plane_egress fires in multiple conditions involving this attribute: when control_plane_namespace_egress_networkpolicy_configured is false and the CNI enforces policy, when neither policy nor CNI enforcement exists, and when control plane components run as static pods and no egress policy is configured. Unrestricted egress from control plane components enables exploitation of SSRF or callback vulnerabilities in API server or controller-manager code to reach workload-zone endpoints, blurring the directional trust boundary in ways that workload-level controls cannot compensate for.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all NetworkPolicy objects in kube-system and check for the presence of egress stanzas.",
+        "command": "kubectl get networkpolicy -n kube-system -o json | jq '.items[] | {name: .metadata.name, has_egress_rules: (.spec.egress != null and (.spec.egress | length) > 0), policy_types: .spec.policyTypes}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON objects for each policy. Policies with has_egress_rules: true and policyTypes containing Egress indicate egress control is configured (true). Empty items array or all false values indicates no egress NetworkPolicy exists (false)."
+      },
+      {
+        "type": "command",
+        "instruction": "Check all namespaces that may host control plane components across managed or non-standard deployments.",
+        "command": "for ns in kube-system kube-public; do echo \"=== $ns ===\"; kubectl get networkpolicy -n $ns -o custom-columns='NAME:.metadata.name,POLICY-TYPES:.spec.policyTypes' 2>/dev/null || echo 'none'; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each namespace section lists its NetworkPolicies and their policy types. Absence of Egress in policyTypes or no policies at all indicates false for this attribute."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify whether any default-deny egress policy exists in kube-system to ensure completeness of coverage.",
+        "command": "kubectl get networkpolicy -n kube-system -o json | jq '.items[] | select((.spec.podSelector == {}) or (.spec.podSelector.matchLabels == null)) | select(.spec.policyTypes[]? == \"Egress\")'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A matching policy indicates a default-deny or broad egress policy exists for control plane pods (true). No output means no such baseline restriction is applied."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (near-universal default; kube-system NetworkPolicy for egress is almost never configured even in enterprise clusters)",
+      "true (rare; seen only in highly regulated environments with explicit control plane hardening runbooks)"
+    ]
+  },
+  {
+    "option_name": "cni_plugin_enforces_networkpolicy_in_control_plane_namespace",
+    "option_description": "Indicates whether the installed Container Network Interface plugin is both capable of enforcing Kubernetes NetworkPolicy and actively enforcing it for pods running in the control plane namespace. CNI plugins such as Calico, Cilium, Antrea, and Weave Net support NetworkPolicy enforcement, while flannel and others do not. Even capable plugins may have enforcement disabled or misconfigured.",
+    "security_impact": "The Rego rule network_policy_enforcement_gap_at_control_plane_egress fires when cni_plugin_enforces_networkpolicy_in_control_plane_namespace is false regardless of whether NetworkPolicy objects exist, because without CNI enforcement, defined policies have no effect. It also fires when both this attribute and control_plane_namespace_egress_networkpolicy_configured are false, representing a complete absence of egress control. Deploying NetworkPolicy objects without a capable CNI creates a false sense of security where administrators believe egress is restricted but no enforcement actually occurs.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the CNI configuration directory on a node to identify the CNI plugin in use.",
+        "command": "cat /etc/cni/net.d/*.conf 2>/dev/null || cat /etc/cni/net.d/*.conflist 2>/dev/null | python3 -m json.tool | grep -i 'type\\|name'",
+        "file_path": "/etc/cni/net.d/",
+        "navigation": null,
+        "expected_output": "Plugin type field showing calico, cilium, antrea, weave, or flannel. Calico, Cilium, and Antrea confirm NetworkPolicy enforcement capability. Flannel alone indicates no NetworkPolicy support."
+      },
+      {
+        "type": "command",
+        "instruction": "Identify the CNI plugin from the cluster's DaemonSet or deployment resources in kube-system.",
+        "command": "kubectl get daemonsets,deployments -n kube-system -o json | jq '.items[] | select(.metadata.name | test(\"calico|cilium|antrea|weave|flannel|canal\"; \"i\")) | {name: .metadata.name, kind: .kind}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Resource names matching known CNI plugins. Calico (calico-node), Cilium (cilium), or Antrea (antrea-agent) confirm capable plugins. Flannel alone (kube-flannel-ds) indicates enforcement is unavailable."
+      },
+      {
+        "type": "command",
+        "instruction": "For Calico, verify NetworkPolicy enforcement is not disabled by checking the Calico configuration.",
+        "command": "kubectl get felixconfiguration default -o json 2>/dev/null | jq '{policy_enforcement: .spec.policySyncPathPrefix, dataplane: .spec.dataplaneDriver}' || kubectl get configmap calico-config -n kube-system -o json | jq '.data'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Calico configuration showing enforcement is active. For Cilium, run: kubectl -n kube-system exec ds/cilium -- cilium status | grep -i policy"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with the platform team whether the CNI plugin is configured to enforce NetworkPolicy for static pods or host-network pods in the control plane namespace, as some CNIs exempt these.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written documentation confirming the CNI enforcement scope includes or explicitly excludes control plane namespace pods, and the rationale for any exemptions."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (clusters using flannel as the sole CNI, or cloud-managed clusters where the CNI does not enforce policy in kube-system)",
+      "true (clusters using Calico, Cilium, or Antrea with default enforcement enabled)"
+    ]
+  },
+  {
+    "option_name": "control_plane_components_run_as_static_pods_outside_cni",
+    "option_description": "Indicates whether Kubernetes control plane components (API server, controller-manager, scheduler, etcd) are deployed as static pods defined by manifest files in the kubelet's staticPodPath directory. Static pods are started directly by the kubelet and may use the host network namespace or otherwise bypass CNI plugin NetworkPolicy enforcement, making any configured NetworkPolicy for the control plane namespace ineffective.",
+    "security_impact": "The Rego rule network_policy_enforcement_gap_at_control_plane_egress includes a specific condition where control_plane_components_run_as_static_pods_outside_cni is true and control_plane_namespace_egress_networkpolicy_configured is false. This condition reflects that even when a capable CNI is installed and NetworkPolicy objects are defined, static pods with hostNetwork: true operate in the host network namespace rather than a CNI-managed pod network namespace, so CNI eBPF or iptables rules applied to pod interfaces do not intercept their traffic. This renders the control plane egress enforcement gap non-remediable through standard NetworkPolicy mechanisms.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the kubelet's staticPodPath directory for control plane component manifests on a control plane node.",
+        "command": "ls -la /etc/kubernetes/manifests/ 2>/dev/null && cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep -E 'hostNetwork|name:' | head -10",
+        "file_path": "/etc/kubernetes/manifests/",
+        "navigation": null,
+        "expected_output": "Manifest files named kube-apiserver.yaml, kube-controller-manager.yaml, kube-scheduler.yaml, and etcd.yaml indicate static pod deployment. The hostNetwork: true field confirms host network namespace usage."
+      },
+      {
+        "type": "command",
+        "instruction": "Identify control plane pods and check whether they are annotated as static pods by the kubelet.",
+        "command": "kubectl get pods -n kube-system -o json | jq '.items[] | select(.metadata.name | test(\"kube-apiserver|kube-controller|kube-scheduler|etcd\")) | {name: .metadata.name, owner_refs: .metadata.ownerReferences, host_network: .spec.hostNetwork, node_name: .spec.nodeName}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Pods with no ownerReferences or ownerReferences of kind Node and hostNetwork: true are static pods running outside normal CNI scope. This confirms control_plane_components_run_as_static_pods_outside_cni is true."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the kubelet configuration to confirm the staticPodPath setting points to a directory containing control plane manifests.",
+        "command": "systemctl cat kubelet | grep -i static-pod-path || cat /var/lib/kubelet/config.yaml | grep -i staticPodPath",
+        "file_path": "/var/lib/kubelet/config.yaml",
+        "navigation": null,
+        "expected_output": "A staticPodPath value pointing to /etc/kubernetes/manifests or equivalent confirms static pod deployment of control plane components (true). Absence of this setting or an empty directory indicates managed pod deployment."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Confirm with platform engineers whether the CNI plugin vendor documentation explicitly states NetworkPolicy enforcement behavior for static pods and host-network pods, to determine effective enforcement scope.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Vendor documentation or engineer confirmation stating whether the specific CNI plugin enforces NetworkPolicy for host-network or static pods, clarifying whether the enforcement gap applies."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (standard in kubeadm-provisioned clusters, on-premise deployments, and most self-managed Kubernetes installations)",
+      "false (managed Kubernetes services like GKE, EKS, AKS where control plane runs outside the customer cluster node network)"
+    ]
+  },
+  {
+    "option_name": "kubeconfig_privilege_level",
+    "option_description": "Tracks the highest privilege level granted by credentials embedded in kubeconfig files — ranging from cluster-admin (full control over all cluster resources) through elevated broad RBAC roles, namespace-scoped permissions, to read-only access. This classification determines whether a leaked kubeconfig grants an attacker control-plane-level authority.",
+    "security_impact": "The Rego rule kubeconfig_credential_isolation_failure fires when kubeconfig_privilege_level is 'cluster_admin' or 'elevated' AND workload_accessible_storage is true. A cluster_admin kubeconfig accessible from the workload zone bypasses all RBAC boundaries entirely — an attacker obtaining it gains unrestricted API server access without exploiting any vulnerability. Even 'elevated' credentials combined with workload-accessible storage and absent credential rotation trigger the exposure, enabling cross-zone trust boundary violation through credential reuse.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Extract the user and cluster from the kubeconfig, then look up the ClusterRoleBinding or RoleBinding bound to that credential to identify the highest granted role.",
+        "command": "kubectl config view --raw -o jsonpath='{.users[*].name}' && kubectl get clusterrolebindings -o json | jq '.items[] | select(.subjects[]?.name == \"<username>\") | {name: .metadata.name, role: .roleRef.name}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ClusterRoleBinding entries mapping the credential to roles; presence of 'cluster-admin' indicates cluster_admin level."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the kubeconfig file directly to identify whether it embeds a service account token or certificate, then cross-reference bound roles.",
+        "command": "kubectl config view --raw -o json | jq '.users[].user | keys' && kubectl auth can-i '*' '*' --all-namespaces --as=<extracted-username>",
+        "file_path": "~/.kube/config",
+        "navigation": null,
+        "expected_output": "'yes' response to wildcard can-i confirms cluster-admin or elevated; 'no' indicates namespace_scoped or read_only."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Open the kubeconfig file and identify the credential type (token, client-certificate). For service account tokens, decode the JWT payload to extract the bound service account, then check its role bindings.",
+        "command": "cat ~/.kube/config | grep 'token:' | awk '{print $2}' | base64 -d 2>/dev/null | python3 -c \"import sys,json; parts=sys.stdin.read().split('.'); import base64; print(json.loads(base64.urlsafe_b64decode(parts[1]+'==')))\"",
+        "file_path": "~/.kube/config",
+        "navigation": null,
+        "expected_output": "JWT payload shows 'kubernetes.io/serviceaccount' claims; cross-reference service account name against role bindings to determine privilege level."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the API server's SelfSubjectAccessReview to programmatically evaluate what the credential can do against critical resources.",
+        "command": "kubectl auth can-i --list --all-namespaces 2>/dev/null | grep -E '(\\*|secrets|pods|nodes)' | head -30",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Wildcard verbs on '*' resources at cluster scope confirms cluster_admin; broad verb lists confirm elevated; limited namespace-specific entries indicate namespace_scoped."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "cluster_admin",
+      "elevated",
+      "namespace_scoped"
+    ]
+  },
+  {
+    "option_name": "short_lived_credential_rotation_enabled",
+    "option_description": "Indicates whether the kubeconfig credentials rely on automatically rotated short-lived tokens — such as OIDC tokens with sub-one-hour TTL, exec-plugin-generated tokens (e.g., aws eks get-token), or Kubernetes projected service account tokens — rather than static long-lived bearer tokens or service account secrets that persist indefinitely until explicitly revoked.",
+    "security_impact": "The Rego rule kubeconfig_credential_isolation_failure fires when kubeconfig_privilege_level is 'cluster_admin' or 'elevated', workload_accessible_storage is true, AND short_lived_credential_rotation_enabled is false. Long-lived static credentials represent a persistent attack surface: once leaked to the workload zone, they remain valid indefinitely and can be used from any network location to authenticate against the API server, crossing the workload-to-control-plane trust boundary without detection. Short-lived credentials limit the exploitation window to the token's TTL.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the kubeconfig file for the auth-provider or exec section, which indicates short-lived credential plugins are in use.",
+        "command": "kubectl config view --raw -o json | jq '.users[].user | {has_exec: (has(\"exec\")), has_auth_provider: (has(\"auth-provider\")), has_token: (has(\"token\")), has_client_cert: (has(\"client-certificate-data\"))}'",
+        "file_path": "~/.kube/config",
+        "navigation": null,
+        "expected_output": "has_exec: true or has_auth_provider: true indicates short-lived token plugin; has_token: true with no exec indicates static token (set false)."
+      },
+      {
+        "type": "command",
+        "instruction": "For OIDC credentials, decode the token from the kubeconfig and check the expiry claim to verify TTL is under one hour.",
+        "command": "TOKEN=$(kubectl config view --raw -o jsonpath='{.users[0].user.token}'); echo $TOKEN | cut -d'.' -f2 | base64 -d 2>/dev/null | python3 -m json.tool | grep -E '(exp|iat|iss)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "exp minus iat less than 3600 seconds confirms short-lived OIDC token; absence of exp or large delta indicates static or long-lived credential."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for projected service account tokens by examining the volume mounts in pods or the exec plugin command in kubeconfig for managed cluster CLIs.",
+        "command": "kubectl config view --raw -o jsonpath='{.users[*].user.exec.command}' && kubectl config view --raw -o jsonpath='{.users[*].user.exec.args}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Commands like 'aws', 'gke-gcloud-auth-plugin', or 'kubelogin' with token exchange args confirm exec-based rotation is enabled."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review CI/CD pipeline configuration and credential provisioning procedures to determine whether short-lived credential generation is enforced in the pipeline's kubeconfig bootstrapping step.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review CI/CD pipeline YAML (e.g., .github/workflows/, .gitlab-ci.yml, Jenkinsfile) for kubeconfig setup steps; look for aws eks update-kubeconfig, gcloud container clusters get-credentials, or equivalent commands that produce exec-plugin kubeconfigs vs. direct token injection.",
+        "expected_output": "Pipelines using cloud CLI kubeconfig commands produce exec-plugin short-lived tokens; pipelines using kubectl config set-credentials with explicit tokens use static credentials."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (CI/CD pipelines using long-lived service account tokens)",
+      "true (managed clusters with OIDC or exec plugin)"
+    ]
+  },
+  {
+    "option_name": "workload_accessible_storage",
+    "option_description": "Indicates whether kubeconfig files containing elevated credentials are stored in locations reachable by workload-zone actors — including Kubernetes Secrets in non-restricted namespaces (mountable by pods), CI/CD environment variables available to untrusted pipeline steps, shared NFS or network filesystem mounts, or developer workstations with network connectivity to cluster workloads.",
+    "security_impact": "The Rego rule kubeconfig_credential_isolation_failure fires when this is true combined with elevated privilege level — in two distinct branches: (1) elevated/cluster_admin credentials + workload_accessible_storage + absent rotation, and (2) cluster_admin + workload_accessible_storage + any storage locations present. Workload-accessible storage means a compromised pod or malicious CI/CD job step can read the kubeconfig and use it to directly authenticate to the API server, crossing the workload-to-control-plane boundary via credential theft rather than vulnerability exploitation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search all Kubernetes Secrets across namespaces for kubeconfig content, identifying any stored in namespaces that lack strict RBAC isolation preventing pod mounting.",
+        "command": "kubectl get secrets --all-namespaces -o json | jq '.items[] | select(.data | to_entries[] | .value | @base64d | test(\"apiVersion: v1\") and test(\"kind: Config\")) | {namespace: .metadata.namespace, name: .metadata.name}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any results indicate kubeconfig stored as a Kubernetes Secret; evaluate the namespace's RBAC to determine workload mount accessibility."
+      },
+      {
+        "type": "command",
+        "instruction": "Check CI/CD system environment variables and pipeline secrets for kubeconfig data by examining pipeline configurations and secret references.",
+        "command": "find . -name '*.yml' -o -name '*.yaml' -o -name 'Jenkinsfile' 2>/dev/null | xargs grep -l -i 'kubeconfig\\|KUBE_CONFIG\\|kube_config' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Files referencing kubeconfig in CI/CD pipeline definitions indicate potential workload-accessible storage if pipeline jobs are not strictly isolated."
+      },
+      {
+        "type": "command",
+        "instruction": "Check if the kubeconfig is mounted into any running pods via Kubernetes Secret volume mounts.",
+        "command": "kubectl get pods --all-namespaces -o json | jq '.items[] | select(.spec.volumes[]? | .secret? | .secretName? | test(\"kube|config|admin\"; \"i\")) | {namespace: .metadata.namespace, pod: .metadata.name, volume: [.spec.volumes[] | select(.secret?) | .secret.secretName]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any pods with kubeconfig-named secrets mounted indicate workload_accessible_storage = true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview DevOps and platform engineering teams to identify shared filesystem paths (NFS, SMB, EFS) or shared developer machines where kubeconfig files with elevated credentials are placed and whether workload processes or untrusted CI jobs have read access to those paths.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review IAM policies, filesystem ACLs, and CI/CD job isolation boundaries; check whether pipeline jobs run in containers with access to secrets intended only for deployment steps.",
+        "expected_output": "Shared paths or insufficiently isolated CI/CD secret scopes confirm workload_accessible_storage = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (CI/CD pipelines with broad secret access)",
+      "false (dedicated operator workstations with strict access controls)"
+    ]
+  },
+  {
+    "option_name": "kubeconfig_storage_locations",
+    "option_description": "An enumerated list of all locations where kubeconfig files containing elevated credentials are stored across the environment — including CI/CD platform secret stores (GitHub Actions, GitLab CI, Jenkins), Kubernetes Secrets in various namespaces, developer workstations, shared network drives, version control repositories, and cloud secret managers. This inventory enables assessment of credential sprawl across trust zones.",
+    "security_impact": "The Rego rule kubeconfig_credential_isolation_failure fires specifically when kubeconfig_privilege_level is 'cluster_admin', workload_accessible_storage is true, AND count(kubeconfig_storage_locations) > 0. A non-empty storage locations list combined with cluster_admin privilege and workload accessibility confirms that high-privilege credentials have spread to multiple locations, each representing an independent attack vector for crossing the workload-to-control-plane trust boundary. More storage locations exponentially increase the credential exposure surface.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search developer workstations and build agent paths for kubeconfig files, recording all discovered locations.",
+        "command": "find / -name 'kubeconfig' -o -name 'config' -path '*/.kube/*' 2>/dev/null | xargs grep -l 'kind: Config' 2>/dev/null; find /home /root /var/lib/jenkins /var/lib/gitlab-runner /opt -name '*.yaml' -o -name '*.yml' 2>/dev/null | xargs grep -l 'current-context' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of filesystem paths where kubeconfig files exist; each path is a storage location entry."
+      },
+      {
+        "type": "command",
+        "instruction": "Query all Kubernetes Secrets across namespaces to find those containing kubeconfig data and record their namespace/name as storage locations.",
+        "command": "kubectl get secrets --all-namespaces -o go-template='{{range .items}}{{.metadata.namespace}}/{{.metadata.name}} {{range $k,$v := .data}}{{$k}} {{end}}{{\"\\n\"}}{{end}}' | grep -i 'kube\\|config\\|admin'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "namespace/secret-name entries represent Kubernetes Secret storage locations for kubeconfig data."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review CI/CD platform secret stores for kubeconfig entries stored as pipeline secrets or environment variables.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub Actions: Settings > Secrets and variables > Actions; GitLab: Settings > CI/CD > Variables; Jenkins: Manage Jenkins > Credentials > System; Azure DevOps: Pipelines > Library > Variable Groups — search for entries named KUBECONFIG, KUBE_CONFIG, or containing base64 kubeconfig data.",
+        "expected_output": "Each CI/CD secret store containing kubeconfig data is recorded as a storage location (e.g., 'github_actions_secrets:KUBECONFIG')."
+      },
+      {
+        "type": "api",
+        "instruction": "Query cloud secret managers (AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault) via API for secrets with kubeconfig-related naming conventions.",
+        "command": "aws secretsmanager list-secrets --query 'SecretList[?contains(Name, `kube`) || contains(Name, `k8s`) || contains(Name, `cluster`)].{Name:Name,ARN:ARN}' --output table 2>/dev/null; vault kv list secret/ 2>/dev/null | grep -i 'kube\\|k8s\\|cluster'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secret names matching kubeconfig patterns in cloud secret managers are additional storage locations to record."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"~/.kube/config\", \"github_actions_secret:KUBECONFIG\"]",
+      "[\"kubernetes_secret:ci-namespace/kubeconfig\", \"jenkins_credential:kube-admin\"]",
+      "[]"
+    ]
+  },
+  {
+    "option_name": "audit_policy_configured",
+    "option_description": "Indicates whether the Kubernetes API server has been started with a valid audit policy file referenced by the --audit-policy-file flag. Without this flag pointing to a non-empty policy file, all API server audit logging is disabled regardless of backend configuration, creating a complete blind spot for all control plane activity including secret access, privilege escalation, and lateral movement operations.",
+    "security_impact": "The Rego rule control_plane_audit_log_blind_spot_in_lateral_movement_detection fires immediately when audit_policy_configured is false — this is the first and most fundamental check in the rule chain. Without any audit policy, there is no logging of any API server activity, meaning attackers can perform secret enumeration, exec into pods, bind elevated roles, or escalate privileges across the control plane boundary with zero audit trail. This makes detection of trust boundary crossings via legitimate-looking API calls impossible.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the kube-apiserver process arguments directly on the control plane node to verify the --audit-policy-file flag is set.",
+        "command": "ps aux | grep kube-apiserver | grep -o '\\-\\-audit-policy-file=[^ ]*' || kubectl -n kube-system get pod -l component=kube-apiserver -o jsonpath='{.items[0].spec.containers[0].command}' | tr ',' '\\n' | grep audit-policy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "--audit-policy-file=/etc/kubernetes/audit-policy.yaml (or similar path) confirms the flag is set; absence confirms audit_policy_configured = false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Examine the kube-apiserver static pod manifest on the control plane node for the audit policy flag and verify the referenced file exists and is non-empty.",
+        "command": "cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep -A2 'audit-policy' && cat $(cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep 'audit-policy-file' | awk -F'=' '{print $2}') 2>/dev/null | wc -l",
+        "file_path": "/etc/kubernetes/manifests/kube-apiserver.yaml",
+        "navigation": null,
+        "expected_output": "Flag present in manifest and referenced file contains more than 0 lines confirms audit_policy_configured = true."
+      },
+      {
+        "type": "api",
+        "instruction": "For managed Kubernetes clusters, query the cloud provider API or cluster configuration endpoint to determine if audit logging is enabled at the platform level.",
+        "command": "aws eks describe-cluster --name <cluster-name> --query 'cluster.logging.clusterLogging[?enabled==`true`].types' 2>/dev/null; gcloud container clusters describe <cluster-name> --format='json' | jq '.loggingConfig' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Enabled log types including 'api' or 'audit' on managed clusters confirm audit policy is active at the platform level."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for audit log output files on the control plane node as indirect evidence that an audit policy is configured and active.",
+        "command": "ls -la $(cat /etc/kubernetes/manifests/kube-apiserver.yaml 2>/dev/null | grep 'audit-log-path' | awk -F'=' '{print $2}' | xargs dirname 2>/dev/null) 2>/dev/null || find /var/log -name '*audit*' -newer /etc/kubernetes/manifests/kube-apiserver.yaml 2>/dev/null | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of recently modified audit log files confirms an active audit policy; empty results suggest audit_policy_configured = false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (self-managed clusters with default installation)",
+      "true (CIS-hardened clusters, managed EKS/GKE/AKS with audit enabled)"
+    ]
+  },
+  {
+    "option_name": "audit_policy_sensitive_verb_coverage",
+    "option_description": "Classifies whether the API server audit policy includes RequestResponse-level logging for the specific sensitive verb combinations most critical for detecting lateral movement across control plane boundaries: get/list/watch on secrets, create on pods/exec and pods/attach subresources, and bind/escalate verbs on RBAC resources. 'full' means all categories are covered, 'partial' means some are covered, 'none' means none are configured at RequestResponse level.",
+    "security_impact": "The Rego rule control_plane_audit_log_blind_spot_in_lateral_movement_detection fires when audit_policy_configured and audit_log_backend_enabled are both true but audit_policy_sensitive_verb_coverage is 'partial' or 'none'. This is the most nuanced condition — a cluster may have audit logging technically enabled but configured with an incomplete policy that omits exactly the verbs attackers use to cross trust boundaries: reading secrets to obtain credentials, exec-ing into pods for lateral movement, and binding elevated roles for privilege escalation. Partial coverage creates false confidence in detection capability.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the audit policy file and check for rules targeting secrets with get/list verbs, pods/exec and pods/attach subresources, and bind/escalate verbs on RBAC resources, all at RequestResponse level.",
+        "command": "POLICY=$(cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep 'audit-policy-file' | awk -F'=' '{print $2}'); cat $POLICY | python3 -c \"import sys,yaml; p=yaml.safe_load(sys.stdin); [print(r) for r in p.get('rules',[])]\"",
+        "file_path": "/etc/kubernetes/audit-policy.yaml",
+        "navigation": null,
+        "expected_output": "Rules with level: RequestResponse covering resources: secrets (verbs: get,list), subresources: pods/exec (verbs: create), and RBAC resources with verbs: bind,escalate confirm full coverage."
+      },
+      {
+        "type": "command",
+        "instruction": "Parse the audit policy YAML to specifically check for the three critical coverage areas using jq or python, producing a structured gap analysis.",
+        "command": "python3 -c \"\nimport yaml, sys\nwith open('/etc/kubernetes/audit-policy.yaml') as f:\n    p = yaml.safe_load(f)\nrules = p.get('rules', [])\nrr_rules = [r for r in rules if r.get('level') == 'RequestResponse']\nprint('Secrets coverage:', any('secrets' in str(r.get('resources','')) for r in rr_rules))\nprint('Exec coverage:', any('pods/exec' in str(r.get('subresources','')) or 'pods/exec' in str(r.get('resources','')) for r in rr_rules))\nprint('RBAC escalate:', any('escalate' in str(r.get('verbs','')) or 'bind' in str(r.get('verbs','')) for r in rr_rules))\n\"",
+        "file_path": "/etc/kubernetes/audit-policy.yaml",
+        "navigation": null,
+        "expected_output": "All three print statements showing True indicates full; one or two True indicates partial; all False indicates none."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Query existing audit logs to empirically verify whether sensitive verb events are being captured with request/response bodies, confirming effective coverage.",
+        "command": "grep -h '' /var/log/kubernetes/audit/*.log 2>/dev/null | python3 -c \"import sys,json; [print(json.loads(l).get('verb'), json.loads(l).get('objectRef',{}).get('resource'), json.loads(l).get('level')) for l in sys.stdin if any(v in l for v in ['secrets','exec','escalate','bind'])]\" | sort | uniq -c | sort -rn | head -20",
+        "file_path": "/var/log/kubernetes/audit/",
+        "navigation": null,
+        "expected_output": "Audit events for secrets/exec/bind/escalate at 'RequestResponse' level confirm coverage; events at 'Metadata' or 'Request' level only indicate incomplete coverage."
+      },
+      {
+        "type": "api",
+        "instruction": "For managed clusters, check the platform audit policy settings through the cloud provider console or API to understand what verb coverage the managed policy provides.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GKE: Console > Kubernetes Engine > Clusters > Logging & monitoring; EKS: Console > EKS > Clusters > Logging tab; check which log types are enabled and consult vendor documentation for which verbs are captured at RequestResponse level in the managed policy.",
+        "expected_output": "Vendor documentation or API response confirms which sensitive verbs are captured; many managed policies default to Metadata level for most events, yielding partial coverage."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (default minimal audit policies)",
+      "partial (CIS benchmark policies missing exec/escalate coverage)",
+      "full (purpose-built security-focused audit policies)"
+    ]
+  },
+  {
+    "option_name": "audit_log_backend_enabled",
+    "option_description": "Indicates whether the API server has at least one functional audit log sink configured — either a file backend (--audit-log-path flag writing to a local file) or a webhook backend (--audit-webhook-config-file pointing to an external log aggregation endpoint). Without an active backend, audit events generated by the policy are silently discarded even if a policy file is configured.",
+    "security_impact": "The Rego rule control_plane_audit_log_blind_spot_in_lateral_movement_detection fires in its second branch when audit_policy_configured is true but audit_log_backend_enabled is false. This represents a subtle but complete audit failure: the policy exists but events go nowhere, creating the illusion of audit coverage while producing no actual log records. Attackers crossing the control plane boundary through secret reads, exec sessions, or RBAC manipulation leave no trace, making the lateral movement detection gap functionally equivalent to having no audit policy at all.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the kube-apiserver manifest or process arguments for either --audit-log-path (file backend) or --audit-webhook-config-file (webhook backend) flags.",
+        "command": "cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep -E '(audit-log-path|audit-webhook-config-file)' && ps aux | grep kube-apiserver | grep -oE '\\-\\-(audit-log-path|audit-webhook-config-file)=[^ ]*'",
+        "file_path": "/etc/kubernetes/manifests/kube-apiserver.yaml",
+        "navigation": null,
+        "expected_output": "Either --audit-log-path=/var/log/kubernetes/audit/audit.log or --audit-webhook-config-file=/etc/kubernetes/audit-webhook.yaml present confirms audit_log_backend_enabled = true; neither flag present means false."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify the audit log file backend is actively writing by checking the file exists, is non-empty, and has been recently modified.",
+        "command": "LOGPATH=$(cat /etc/kubernetes/manifests/kube-apiserver.yaml 2>/dev/null | grep 'audit-log-path' | awk -F'=' '{print $2}'); [ -f \"$LOGPATH\" ] && stat $LOGPATH && tail -1 $LOGPATH | python3 -m json.tool | grep -E '(stageTimestamp|requestURI)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "File exists with recent modification time and valid JSON audit event in last line confirms file backend is active and writing."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If a webhook backend is configured, verify the webhook config file exists and references a reachable endpoint.",
+        "command": "WEBHOOK=$(cat /etc/kubernetes/manifests/kube-apiserver.yaml 2>/dev/null | grep 'audit-webhook-config-file' | awk -F'=' '{print $2}'); [ -f \"$WEBHOOK\" ] && cat $WEBHOOK | grep 'server:'",
+        "file_path": "/etc/kubernetes/audit-webhook.yaml",
+        "navigation": null,
+        "expected_output": "Webhook config file present with a server URL confirms webhook backend is configured; test connectivity with curl to the endpoint URL."
+      },
+      {
+        "type": "api",
+        "instruction": "For managed Kubernetes services, check the platform's audit log delivery configuration to confirm logs are being shipped to a storage backend.",
+        "command": "aws logs describe-log-groups --log-group-name-prefix '/aws/eks' --query 'logGroups[*].logGroupName' 2>/dev/null; gcloud logging sinks list --filter='destination:*k8s*' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active log groups or sinks with recent write activity confirm the managed audit log backend is enabled and delivering events."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (newly provisioned clusters before hardening)",
+      "true (production clusters with file backend or SIEM webhook integration)"
+    ]
+  },
+  {
+    "option_name": "kubelet_credential_host_path_mount_present",
+    "option_description": "Indicates whether any pod running on a node has a hostPath volume mount referencing directories that contain kubelet PKI credentials or Kubernetes control plane certificates — specifically /var/lib/kubelet/pki, /var/lib/kubelet, /etc/kubernetes/pki, or /etc/kubernetes. Such mounts give container processes direct read access to the node's TLS client certificates used by the kubelet to authenticate to the API server.",
+    "security_impact": "The Rego rule node_to_control_plane_impersonation_via_kubelet_credential_reuse fires unconditionally when kubelet_credential_host_path_mount_present is true — there is no qualifying condition that makes this acceptable. The second Rego branch also fires when this is true without node_restriction_admission_plugin_enabled. A pod with access to /var/lib/kubelet/pki can read the kubelet's client certificate and private key, then present those credentials to the API server to impersonate the node identity (system:node:<nodename>), which has permissions to read all secrets on that node's pods and modify node status — crossing the workload-to-control-plane boundary using the node's trusted identity.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query all pod specs across all namespaces for hostPath volumes that reference kubelet or Kubernetes PKI directories.",
+        "command": "kubectl get pods --all-namespaces -o json | jq -r '.items[] | . as $pod | .spec.volumes[]? | select(.hostPath.path? | test(\"/var/lib/kubelet|/etc/kubernetes\")) | [$pod.metadata.namespace, $pod.metadata.name, .name, .hostPath.path] | @tsv'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any output lines with kubelet or kubernetes pki paths confirm kubelet_credential_host_path_mount_present = true; no output confirms false."
+      },
+      {
+        "type": "command",
+        "instruction": "Run a broader search including partial path matches and symlinked mounts that could indirectly expose PKI directories.",
+        "command": "kubectl get pods --all-namespaces -o json | jq '.items[] | select(.spec.volumes[]? | .hostPath? | .path? | (startswith(\"/var/lib/kubelet\") or startswith(\"/etc/kubernetes\") or startswith(\"/var/lib/minikube\") or startswith(\"/run/secrets/kubernetes.io\"))) | {namespace: .metadata.namespace, name: .metadata.name, volumes: [.spec.volumes[] | select(.hostPath?) | {name: .name, path: .hostPath.path}]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON objects listing pods with matching hostPath volumes; empty array confirms no such mounts exist."
+      },
+      {
+        "type": "command",
+        "instruction": "Check DaemonSets and privileged workloads specifically, as security tools, monitoring agents, and log collectors are the most common sources of this pattern.",
+        "command": "kubectl get daemonsets --all-namespaces -o json | jq -r '.items[] | . as $ds | .spec.template.spec.volumes[]? | select(.hostPath.path? | test(\"/var/lib/kubelet|/etc/kubernetes\")) | [$ds.metadata.namespace, $ds.metadata.name, .hostPath.path] | @tsv'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "DaemonSet names and namespaces with matching paths; common findings include node-exporter, Falco, or custom log forwarders that may legitimately or mistakenly mount PKI paths."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Kubernetes API server directly with field selectors to efficiently scan pod specs without kubectl JSON parsing overhead in large clusters.",
+        "command": "curl -sk -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://kubernetes.default.svc/api/v1/pods?limit=500 | python3 -c \"import sys,json; data=json.load(sys.stdin); [print(p['metadata']['namespace'], p['metadata']['name'], v['hostPath']['path']) for p in data['items'] for v in p.get('spec',{}).get('volumes',[]) if 'hostPath' in v and any(s in v['hostPath']['path'] for s in ['/var/lib/kubelet','/etc/kubernetes'])]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines with namespace, pod name, and path for any matching mounts; no output confirms kubelet_credential_host_path_mount_present = false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (standard application workloads)",
+      "true (node monitoring DaemonSets, Falco, node-problem-detector, or misconfigured security tooling)"
+    ]
+  },
+  {
+    "option_name": "node_certificate_file_permissions_world_readable",
+    "option_description": "Controls whether kubelet client certificate and private key files stored at /var/lib/kubelet/pki/ are readable by non-root users. Specifically governs filesystem permission bits on kubelet-client-current.pem and related PEM files that contain node identity credentials used to authenticate to the API server.",
+    "security_impact": "The Rego policy fires on node_to_control_plane_impersonation_via_kubelet_credential_reuse unconditionally when node_certificate_file_permissions_world_readable is true, and with increased severity when node_restriction_admission_plugin_enabled is also false. World-readable node certificates allow any process achieving execution on the node — including unprivileged container breakouts — to read the kubelet's private key and client certificate, then impersonate the node identity against the API server. Since the API server trusts node certificates as valid cluster principals, this crosses the workload-to-control-plane trust boundary using a legitimate credential without requiring any API server exploit.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check permission bits on all kubelet client certificate files across the PKI directory using stat. Look for mode 0644 or wider (world-readable) vs. the required 0600.",
+        "command": "stat /var/lib/kubelet/pki/kubelet-client*.pem",
+        "file_path": "/var/lib/kubelet/pki/",
+        "navigation": null,
+        "expected_output": "Secure output shows 'Access: (0600/-rw-------)'. Any mode showing read bits for group or other (e.g., 0644) indicates true — world readable."
+      },
+      {
+        "type": "command",
+        "instruction": "Use find to enumerate any kubelet PKI files with permissions wider than 0600 across all nodes. Run this on each node or via a daemonset/SSH loop.",
+        "command": "find /var/lib/kubelet/pki/ -name '*.pem' -o -name '*.key' | xargs stat --format='%a %n' | awk '$1 > 600'",
+        "file_path": "/var/lib/kubelet/pki/",
+        "navigation": null,
+        "expected_output": "No output means all files are 0600 or more restrictive (false). Any file listed indicates overly permissive permissions (true)."
+      },
+      {
+        "type": "command",
+        "instruction": "Use ls -la to visually inspect permission flags on the entire PKI directory for both certificate and key files.",
+        "command": "ls -la /var/lib/kubelet/pki/",
+        "file_path": "/var/lib/kubelet/pki/",
+        "navigation": null,
+        "expected_output": "Files should show '-rw-------' (0600). If any show '-rw-r--r--' (0644) or wider, the attribute is true."
+      },
+      {
+        "type": "api",
+        "instruction": "Run a privileged DaemonSet across all nodes to audit certificate permissions cluster-wide and collect results via kubectl logs.",
+        "command": "kubectl apply -f - <<EOF\napiVersion: apps/v1\nkind: DaemonSet\nmetadata:\n  name: cert-perm-audit\n  namespace: kube-system\nspec:\n  selector:\n    matchLabels:\n      app: cert-perm-audit\n  template:\n    metadata:\n      labels:\n        app: cert-perm-audit\n    spec:\n      hostPID: true\n      containers:\n      - name: audit\n        image: busybox\n        command: [\"sh\",\"-c\",\"stat /host/var/lib/kubelet/pki/kubelet-client*.pem && sleep 3600\"]\n        volumeMounts:\n        - name: pki\n          mountPath: /host/var/lib/kubelet/pki\n          readOnly: true\n      volumes:\n      - name: pki\n        hostPath:\n          path: /var/lib/kubelet/pki\nEOF",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each node's pod logs will show stat output. Permissions of 0644 or wider on any node set the attribute to true for that node."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (hardened clusters with kubeadm defaults)",
+      "true (manually bootstrapped clusters or nodes where certificate rotation scripts reset permissions)"
+    ]
+  },
+  {
+    "option_name": "node_restriction_admission_plugin_enabled",
+    "option_description": "Controls whether the NodeRestriction admission controller plugin is active on the Kubernetes API server. When enabled, this plugin limits node identities (authenticated via node certificates) to only modifying their own Node object and only accessing Pod or Secret objects that are scheduled to that specific node, preventing nodes from reading arbitrary secrets or modifying other nodes.",
+    "security_impact": "The Rego policy references node_restriction_admission_plugin_enabled as a mitigating control in node_to_control_plane_impersonation_via_kubelet_credential_reuse. Without NodeRestriction, a compromised node credential can read any Secret, modify any Node object, or access pod specs across the cluster — meaning stolen kubelet certificates from world-readable files yield full node-level API access cluster-wide. The policy fires with higher confidence when this is false alongside world-readable certificates, as the blast radius of credential reuse expands from node-scoped to cluster-scoped API access.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the kube-apiserver static pod manifest on control plane nodes for the --enable-admission-plugins flag. This is the authoritative source for kubeadm-deployed clusters.",
+        "command": "grep -i 'NodeRestriction' /etc/kubernetes/manifests/kube-apiserver.yaml",
+        "file_path": "/etc/kubernetes/manifests/kube-apiserver.yaml",
+        "navigation": null,
+        "expected_output": "Output should contain 'NodeRestriction' within the --enable-admission-plugins value. Empty output means the plugin is absent (false)."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the running kube-apiserver process arguments directly on the control plane node to confirm active configuration regardless of manifest.",
+        "command": "ps aux | grep kube-apiserver | grep -o 'enable-admission-plugins=[^ ]*'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output like 'enable-admission-plugins=NodeRestriction,PodSecurity,...' confirms enabled (true). Missing NodeRestriction in the list means false."
+      },
+      {
+        "type": "api",
+        "instruction": "Use kubectl to retrieve the kube-apiserver pod spec from within the cluster and inspect admission plugin configuration.",
+        "command": "kubectl get pod kube-apiserver-$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}') -n kube-system -o jsonpath='{.spec.containers[0].command}' | tr ',' '\n' | grep admission",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Line containing '--enable-admission-plugins' should include 'NodeRestriction'. If absent, the attribute is false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For non-kubeadm clusters using systemd service files, check the kubelet or apiserver service drop-in configuration for the admission plugin flags.",
+        "command": "grep -r 'NodeRestriction' /etc/systemd/system/kube-apiserver* /etc/kubernetes/ 2>/dev/null",
+        "file_path": "/etc/systemd/system/kube-apiserver.service",
+        "navigation": null,
+        "expected_output": "Any match containing 'NodeRestriction' confirms the plugin is enabled (true). No output indicates it is not configured (false)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (kubeadm default since Kubernetes 1.14)",
+      "false (manually configured clusters, older deployments, or clusters using custom admission chains that omitted it)"
+    ]
+  },
+  {
+    "option_name": "ingress_controller_cluster_scoped_secret_access",
+    "option_description": "Controls whether the ingress controller's service account is bound to a ClusterRole or ClusterRoleBinding that grants read access (get, list, watch) to Secret resources across all namespaces in the cluster. This is distinct from namespace-scoped access where the ingress controller can only read secrets within its own namespace.",
+    "security_impact": "The Rego policy fires ingress_controller_privilege_escalation_to_control_plane when ingress_controller_cluster_scoped_secret_access is true alongside external traffic exposure and service account token automounting. This combination means an attacker who compromises the ingress controller (via a vulnerability in ingress processing, external request manipulation, or dependency exploitation) gains a service account token that can read every Secret in every namespace — including control plane certificates, database credentials, and API tokens stored as Secrets. The ingress controller's external exposure position makes this a high-value cross-zone escalation path from the internet to the control plane trust zone.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Find all ClusterRoleBindings whose subjects include the ingress controller service account name and examine the bound role for secrets access.",
+        "command": "kubectl get clusterrolebindings -o json | jq '.items[] | select(.subjects[]? | (.kind==\"ServiceAccount\" and (.name | test(\"ingress\"; \"i\")))) | {binding: .metadata.name, role: .roleRef.name}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any ClusterRoleBinding output confirms cluster-scoped binding exists. Then inspect the referenced ClusterRole for secrets verbs."
+      },
+      {
+        "type": "command",
+        "instruction": "After identifying the ClusterRole bound to the ingress service account, inspect it for secrets read permissions explicitly.",
+        "command": "kubectl get clusterrole <ingress-clusterrole-name> -o jsonpath='{.rules[*]}' | python3 -c \"import sys,json; rules=json.loads(sys.stdin.read() or '[]'); [print(r) for r in (rules if isinstance(rules,list) else [rules]) if 'secrets' in r.get('resources',[]) or '*' in r.get('resources',[])]\" ",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rules output containing 'secrets' with verbs get/list/watch or '*' confirms true. Empty output means secrets are not in scope at cluster level."
+      },
+      {
+        "type": "command",
+        "instruction": "Use kubectl auth can-i to directly test whether the ingress service account can read secrets cluster-wide, which confirms effective permissions including inherited rules.",
+        "command": "kubectl auth can-i get secrets --all-namespaces --as=system:serviceaccount:<ingress-namespace>:<ingress-sa-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'yes' means cluster-scoped secret access exists (true). 'no' means it does not (false)."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Kubernetes API directly to list all ClusterRoleBindings and filter for the ingress controller service account subject.",
+        "command": "kubectl get clusterrolebindings -o json | jq '.items[] | select(.subjects[]? | (.kind==\"ServiceAccount\" and (.name | test(\"ingress|nginx|traefik|contour|haproxy\"; \"i\"))))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-empty JSON output with ClusterRoleBinding objects indicates cluster-scoped bindings are present. Review roleRef to confirm secrets are covered."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (NGINX ingress controller default Helm chart installs a ClusterRole with secrets access)",
+      "false (hardened installations using namespace-scoped roles only)",
+      "true (Traefik and Contour default configurations with cluster-wide IngressClass management)"
+    ]
+  },
+  {
+    "option_name": "ingress_controller_namespace_isolation_enforced",
+    "option_description": "Controls whether the ingress controller's RBAC permissions are exclusively delivered through RoleBindings scoped to its own namespace, with no ClusterRoleBindings granting cross-namespace or cluster-wide access. When enforced, the service account can only interact with Kubernetes API resources within its designated namespace.",
+    "security_impact": "The Rego policy fires ingress_controller_privilege_escalation_to_control_plane when ingress_controller_namespace_isolation_enforced is false (not enforced) and the ingress controller is externally exposed with token automounting active. Namespace isolation being unenforced is the structural gap that allows the ingress controller's compromised service account to traverse from its deployment namespace into other tenant namespaces and cluster-level resources. This is the mirror condition to cluster_scoped_secret_access — absence of isolation enforcement means cluster-wide permissions are present by default in most ingress controller deployments.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check for the presence of any ClusterRoleBindings referencing the ingress controller service account. Any match means namespace isolation is NOT enforced.",
+        "command": "kubectl get clusterrolebindings -o json | jq '.items[] | select(.subjects[]? | (.kind==\"ServiceAccount\" and (.namespace | test(\"ingress\"; \"i\")))) | .metadata.name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty output (no ClusterRoleBindings found) suggests isolation may be enforced (true). Any binding name output means false."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify that all RoleBindings for the ingress service account are confined to its own namespace only, with no cross-namespace references.",
+        "command": "kubectl get rolebindings --all-namespaces -o json | jq '.items[] | select(.subjects[]? | (.kind==\"ServiceAccount\" and (.name | test(\"ingress\"; \"i\")))) | {namespace: .metadata.namespace, binding: .metadata.name, subject_namespace: .subjects[].namespace}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All subject_namespace values should match the ingress controller's own namespace. Cross-namespace RoleBindings indicate false."
+      },
+      {
+        "type": "command",
+        "instruction": "Run a comprehensive RBAC summary for the ingress service account using kubectl-who-can or rbac-lookup tool to enumerate all permissions across namespaces.",
+        "command": "kubectl-who-can get secrets --all-namespaces 2>/dev/null | grep -i ingress || kubectl get clusterrolebindings,rolebindings --all-namespaces -o yaml | grep -A5 -B5 'ingress'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No cluster-wide secret access for ingress service accounts indicates true. Any cross-namespace access confirms false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the ingress controller Helm chart values or deployment manifests to confirm rbac.create is set and examine what role scope is configured in the chart templates.",
+        "command": "helm get values <ingress-release-name> -n <ingress-namespace> | grep -i rbac; helm get manifest <ingress-release-name> -n <ingress-namespace> | grep -A20 'kind: ClusterRole'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Absence of ClusterRole or ClusterRoleBinding in the manifest output confirms namespace isolation is enforced (true). Presence of ClusterRoleBinding means false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (majority of default ingress controller installations use ClusterRoles)",
+      "true (custom hardened installations, GitOps-managed clusters with explicit RBAC scoping)",
+      "false (Helm chart defaults for nginx-ingress, ingress-nginx, and traefik)"
+    ]
+  },
+  {
+    "option_name": "ingress_controller_exposed_to_external_traffic",
+    "option_description": "Controls whether the Kubernetes Service fronting the ingress controller uses a type that accepts traffic from outside the cluster boundary, specifically LoadBalancer (which provisions an external cloud load balancer) or NodePort (which binds a port on every cluster node's external interface). ClusterIP services are not externally reachable without explicit port-forwarding.",
+    "security_impact": "The Rego policy requires ingress_controller_exposed_to_external_traffic to be true as a necessary condition in both ingress_controller_privilege_escalation_to_control_plane firing conditions. External exposure places the ingress controller at the intersection of the external attack surface and the internal cluster trust zone. When combined with cluster-scoped RBAC and token automounting, external exposure means an internet-originating attacker who exploits any vulnerability in ingress request processing (SSRF, request smuggling, CVEs in the controller binary) immediately gains a service account with cross-namespace API server access, collapsing the layered trust boundary in a single exploit chain.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the Service type for all services in the ingress controller namespace to identify LoadBalancer or NodePort types.",
+        "command": "kubectl get svc -n <ingress-namespace> -o custom-columns='NAME:.metadata.name,TYPE:.spec.type,EXTERNAL-IP:.status.loadBalancer.ingress[0].ip,PORT:.spec.ports[*].nodePort'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TYPE column showing 'LoadBalancer' or 'NodePort' means true. 'ClusterIP' means not directly externally exposed (false)."
+      },
+      {
+        "type": "command",
+        "instruction": "Use jsonpath to extract only the service type field for the ingress controller service to get a clean true/false determination.",
+        "command": "kubectl get svc -n <ingress-namespace> -o jsonpath='{.items[*].spec.type}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'LoadBalancer' or 'NodePort' in the output confirms external exposure (true). 'ClusterIP' only means false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a TCP connection to the LoadBalancer external IP or any node IP on the NodePort from outside the cluster to confirm reachability.",
+        "command": "curl -v --max-time 5 http://<external-ip-or-node-ip>:<port>/ -H 'Host: test.example.com'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any HTTP response (including 404 or 503) confirms the ingress is reachable externally (true). Connection refused or timeout suggests no external exposure (false)."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Kubernetes API server for all services matching ingress-related labels across all namespaces to catch multi-namespace ingress deployments.",
+        "command": "kubectl get svc --all-namespaces -l 'app.kubernetes.io/name in (ingress-nginx,traefik,contour,haproxy-ingress)' -o json | jq '.items[] | {name: .metadata.name, ns: .metadata.namespace, type: .spec.type}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any item with 'type': 'LoadBalancer' or 'NodePort' confirms external exposure (true)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (production clusters where ingress is the intended internet entry point)",
+      "true (LoadBalancer type on cloud-managed Kubernetes: EKS, GKE, AKS)",
+      "false (development clusters using port-forwarding or internal ClusterIP only)"
+    ]
+  },
+  {
+    "option_name": "ingress_controller_automount_service_account_token",
+    "option_description": "Controls whether Kubernetes automatically mounts a service account token into the ingress controller pod at the standard path /var/run/secrets/kubernetes.io/serviceaccount/token. When automounting is active (default Kubernetes behavior), the JWT token is present in the pod filesystem and accessible to any process running inside the container with filesystem read access.",
+    "security_impact": "The Rego policy includes ingress_controller_automount_service_account_token as a required true condition in both ingress_controller_privilege_escalation_to_control_plane firing rules. The token is the authentication credential that activates the RBAC permissions bound to the ingress controller's service account. Even if cluster-scoped RBAC exists, without the token being mounted in the pod the attacker cannot present it to the API server. When automounting is enabled, any code execution inside the ingress controller pod (via RCE in the controller, vulnerable backend, or supply chain attack) immediately yields a usable API server credential without requiring any additional privilege escalation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the automountServiceAccountToken field on the ingress controller Deployment spec. Absence of the field means it defaults to true.",
+        "command": "kubectl get deployment <ingress-deployment-name> -n <ingress-namespace> -o jsonpath='{.spec.template.spec.automountServiceAccountToken}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'true' or empty output (field absent, defaults to true) means automounting is active (attribute is true). 'false' means it is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the ServiceAccount object itself for automountServiceAccountToken, as this setting can be overridden at the ServiceAccount level and applies to all pods using that account.",
+        "command": "kubectl get serviceaccount <ingress-sa-name> -n <ingress-namespace> -o jsonpath='{.automountServiceAccountToken}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'false' on the ServiceAccount disables automounting for all pods using it. Empty or 'true' means the default applies — check pod spec for override."
+      },
+      {
+        "type": "command",
+        "instruction": "Verify whether the token file is actually present inside a running ingress controller pod, which is the ground truth for whether automounting is active.",
+        "command": "kubectl exec -n <ingress-namespace> <ingress-pod-name> -- ls -la /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null && echo 'TOKEN_PRESENT' || echo 'TOKEN_ABSENT'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'TOKEN_PRESENT' confirms automounting is active (true). 'TOKEN_ABSENT' or exec error confirms the token is not mounted (false)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the ingress controller Helm chart values or deployment manifests in source control to check whether automountServiceAccountToken: false is explicitly set.",
+        "command": "helm get manifest <ingress-release-name> -n <ingress-namespace> | grep -A2 -B2 'automountServiceAccountToken'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'automountServiceAccountToken: false' in the manifest means automounting is disabled (false). Absent field or 'true' confirms it is active (true)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (Kubernetes default — most ingress controller deployments do not override this)",
+      "false (CIS Benchmark-compliant hardened deployments where ingress controllers use projected volumes or external auth instead)",
+      "true (all major ingress controller Helm chart defaults including nginx-ingress and traefik)"
+    ]
+  },
+  {
+    "option_name": "default_network_policy_present",
+    "option_description": "Controls whether every tenant namespace in the cluster contains a default-deny NetworkPolicy covering both ingress and egress traffic. A default-deny policy ensures that all inter-pod and cross-namespace communication is denied unless explicitly permitted by additional NetworkPolicy rules, establishing a zero-trust baseline for namespace-level network segmentation.",
+    "security_impact": "The Rego policy fires namespace_boundary_non_enforcement_in_multi_tenant_control_plane when default_network_policy_present is false. Without default-deny policies, any pod in any namespace can initiate connections to pods in other namespaces, including the kube-system namespace containing control plane components, admission webhook services, and monitoring infrastructure. In multi-tenant clusters, absence of default-deny allows a compromised tenant workload to reach API server endpoints, shared webhook services, and cross-tenant application pods, enabling trust zone traversal at the network layer even when RBAC restrictions are correct. The attribute must be true across ALL tenant namespaces to be considered enforced.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all NetworkPolicies across all namespaces and identify which namespaces have a default-deny policy covering both ingress and egress directions.",
+        "command": "kubectl get networkpolicy --all-namespaces -o json | jq '.items[] | select(.spec.podSelector == {} and (.spec.policyTypes // [] | contains([\"Ingress\",\"Egress\"]))) | {namespace: .metadata.namespace, name: .metadata.name}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Every tenant namespace should appear in the output with a default-deny policy. Missing namespaces indicate the attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Get all non-system namespaces and cross-reference against namespaces that have any NetworkPolicy, identifying gaps where no policy exists at all.",
+        "command": "comm -23 <(kubectl get namespaces -o jsonpath='{.items[*].metadata.name}' | tr ' ' '\n' | grep -v 'kube-system\\|kube-public\\|kube-node-lease' | sort) <(kubectl get networkpolicy --all-namespaces -o jsonpath='{.items[*].metadata.namespace}' | tr ' ' '\n' | sort -u)",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Empty output means all non-system namespaces have at least one NetworkPolicy. Any namespace listed is unprotected — attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Check a specific namespace for the presence of a correctly configured default-deny policy using kubectl describe to see policy details.",
+        "command": "kubectl get networkpolicy -n <tenant-namespace> -o yaml | grep -A10 'podSelector:\\|policyTypes:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A default-deny policy has empty podSelector ({}) and policyTypes including both Ingress and Egress with no ingress/egress rules. Absence of such a policy means false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the API server to count namespaces versus namespaces with default-deny policies to determine coverage ratio.",
+        "command": "kubectl get networkpolicies --all-namespaces -o json | jq '[.items[] | select(.spec.podSelector == {} and (.spec.policyTypes | contains([\"Ingress\",\"Egress\"])))] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The count should equal the number of tenant namespaces. If count is less than the namespace count (minus system namespaces), the attribute is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (Kubernetes default — no NetworkPolicies are created automatically in new namespaces)",
+      "false (most managed Kubernetes services do not enforce default NetworkPolicies)",
+      "true (GitOps-managed clusters with namespace provisioning pipelines that apply default-deny templates)",
+      "true (clusters enforcing OPA/Gatekeeper policies requiring NetworkPolicy in every namespace)"
+    ]
+  },
+  {
+    "option_name": "cross_namespace_rbac_bindings_present",
+    "option_description": "Controls whether any ClusterRoleBindings or RoleBindings exist that grant service accounts originating in one tenant namespace access to resources in other tenant namespaces or cluster-wide control plane resources. This includes both explicit cross-namespace subject references in RoleBindings and ClusterRoleBindings that effectively elevate namespace-scoped service accounts to cluster scope.",
+    "security_impact": "The Rego policy fires namespace_boundary_non_enforcement_in_multi_tenant_control_plane directly when cross_namespace_rbac_bindings_present is true. Cross-namespace RBAC bindings represent a logical trust boundary failure independent of network controls — even if NetworkPolicy prevents direct pod-to-pod communication, a service account with cross-namespace bindings can still traverse tenant boundaries via authenticated API server calls. A compromised pod in Tenant A namespace that inherits a ClusterRoleBinding to read Tenant B's secrets or modify cluster-level resources has bypassed multi-tenancy isolation entirely through legitimate API primitives, making this a high-fidelity indicator of control plane trust boundary weakness.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Enumerate all ClusterRoleBindings where subjects are service accounts from tenant namespaces (non-system namespaces), which represent cluster-wide privilege grants.",
+        "command": "kubectl get clusterrolebindings -o json | jq '.items[] | select(.subjects[]? | (.kind==\"ServiceAccount\" and (.namespace // \"\" | test(\"kube-system|kube-public|kube-node-lease\") | not))) | {binding: .metadata.name, role: .roleRef.name, subjects: [.subjects[] | {sa: .name, ns: .namespace}]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any non-empty output indicates ClusterRoleBindings for tenant service accounts exist (true). Empty output means no cross-namespace cluster bindings are present."
+      },
+      {
+        "type": "command",
+        "instruction": "Find RoleBindings in one namespace that reference service accounts from a different namespace, indicating cross-namespace role assignment.",
+        "command": "kubectl get rolebindings --all-namespaces -o json | jq '.items[] | select(.subjects[]? | (.kind==\"ServiceAccount\" and .namespace != null and (.namespace != \"\"))) | select(.metadata.namespace != .subjects[0].namespace) | {binding_namespace: .metadata.namespace, binding: .metadata.name, subject_namespace: .subjects[0].namespace, sa: .subjects[0].name}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any result shows a RoleBinding in one namespace granting access to a service account from another namespace (true)."
+      },
+      {
+        "type": "command",
+        "instruction": "Use kubectl auth can-i impersonation to test whether service accounts from one tenant namespace can perform sensitive actions in another namespace.",
+        "command": "kubectl auth can-i get secrets -n <other-tenant-namespace> --as=system:serviceaccount:<tenant-namespace>:<service-account-name>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'yes' confirms cross-namespace access exists for that service account (attribute is true). 'no' means the specific account lacks cross-namespace access."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the cluster's RBAC configuration using rbac-lookup or rakkess tools to generate a complete permission matrix for all service accounts and identify cross-namespace grants.",
+        "command": "kubectl-who-can get secrets --all-namespaces 2>/dev/null | grep 'system:serviceaccount' | awk '{print $2}' | sort -u || rbac-lookup --kind ServiceAccount --output wide 2>/dev/null | grep -v 'kube-system\\|kube-public'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service accounts appearing with access to namespaces other than their own, or with cluster-scope access, confirms true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (well-governed clusters with automated RBAC review processes)",
+      "true (clusters that granted ingress or monitoring service accounts ClusterRoles for convenience)",
+      "true (multi-tenant clusters that use shared CI/CD service accounts with broad permissions)",
+      "false (clusters using hierarchical namespace controllers like HNC with strict RBAC isolation)"
+    ]
+  }
+]

@@ -1,0 +1,110 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1040",
+      "name": "Network Sniffing",
+      "relevance": "An unencrypted update channel allows attackers to intercept and read update traffic through network sniffing."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1048.003",
+      "name": "Exfiltration Over Unencrypted Non-C2 Protocol",
+      "relevance": "Unencrypted update channels can be leveraged to exfiltrate data over plaintext protocols without detection."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1649",
+      "name": "Steal or Forge Authentication Certificates",
+      "relevance": "Without mutual TLS, attackers can impersonate clients or servers by forging or stealing certificates used for authentication."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1556.001",
+      "name": "Domain Controller Authentication",
+      "relevance": "Missing mutual TLS authentication enables adversaries to bypass or manipulate authentication mechanisms on managed components."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1600",
+      "name": "Weaken Encryption",
+      "relevance": "Weak or deprecated TLS ciphers directly weaken the encryption protecting communications, enabling adversaries to decrypt traffic."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1600.001",
+      "name": "Reduce Key Space",
+      "relevance": "Deprecated ciphers with reduced key space make brute-force or cryptanalytic attacks feasible against TLS-protected channels."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1573",
+      "name": "Encrypted Channel",
+      "relevance": "Replay attacks target the integrity and freshness of encrypted channel messages used for configuration updates."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.010",
+      "name": "Downgrade Attack",
+      "relevance": "Without payload integrity verification, attackers can tamper with or downgrade update payloads without detection."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1557.003",
+      "name": "DHCP Spoofing",
+      "relevance": "Unauthenticated source routing enables man-in-the-middle attacks via network spoofing techniques like DHCP spoofing."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1584.008",
+      "name": "Network Devices",
+      "relevance": "Attackers can compromise network devices to manipulate unauthenticated update source routing paths."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1599",
+      "name": "Network Boundary Bridging",
+      "relevance": "Unauthenticated routing allows adversaries to bridge network boundaries and redirect update traffic."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1499.002",
+      "name": "Service Exhaustion Flood",
+      "relevance": "Without rate limiting, the update channel is vulnerable to service exhaustion floods that degrade availability."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1498",
+      "name": "Network Denial of Service",
+      "relevance": "Absence of rate limiting enables network-level denial of service attacks against the update channel."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1553.004",
+      "name": "Install Root Certificate",
+      "relevance": "Bypassing certificate validation can be achieved by installing rogue root certificates on managed components."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1608.003",
+      "name": "Install Digital Certificate",
+      "relevance": "Attackers can install malicious digital certificates to facilitate certificate validation bypass on managed components."
+    }
+  ],
+  "respondsWith": []
+}

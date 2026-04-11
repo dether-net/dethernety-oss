@@ -1,0 +1,517 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "ingress_rule_type": {
+        "type": "string",
+        "enum": [
+          "strict_allowlist",
+          "broad_cidr",
+          "service_tag",
+          "any"
+        ],
+        "title": "Ingress Rule Specification Type",
+        "description": "Indicates whether ingress rules are defined using strict IP allowlists, broad CIDR ranges, or cloud-native service tags that may include untrusted sources. Also captures whether any rule permits internet-sourced traffic (0.0.0.0/0 or ::/0)."
+      },
+      "permits_internet_sourced_traffic": {
+        "type": "boolean",
+        "title": "Permits Internet-Sourced Ingress Traffic",
+        "description": "Whether any ingress rule allows traffic originating from the public internet (0.0.0.0/0 or ::/0) to reach cloud-hosted services in the zone.",
+        "default": false
+      },
+      "allowlisted_source_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10000,
+        "title": "Number of Explicitly Allowlisted Source Networks",
+        "description": "Count of explicitly defined, specific source IP ranges or prefixes permitted in ingress rules, excluding any wildcard or service tag entries.",
+        "default": 0
+      },
+      "egress_allowlist_enforcement": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "none"
+        ],
+        "title": "Egress Allowlist Enforcement Level",
+        "description": "The level at which outbound traffic destinations are explicitly permitted. 'full' means all egress is restricted to an approved FQDN/IP allowlist with deny-all default. 'partial' means some rules exist but not all workloads are covered. 'none' means no destination-based egress allowlist is enforced.",
+        "default": "none"
+      },
+      "deep_packet_inspection_enabled": {
+        "type": "boolean",
+        "title": "Deep Packet Inspection Enabled",
+        "description": "Whether egress traffic passes through a DPI-capable firewall or NGFW that inspects payload content for C2 patterns, data exfiltration, and protocol anomalies before leaving the trust zone.",
+        "default": false
+      },
+      "dns_layer_filtering_enabled": {
+        "type": "boolean",
+        "title": "DNS-Layer Filtering Enabled",
+        "description": "Whether outbound DNS queries from workloads are inspected and filtered via a DNS security gateway capable of blocking C2 domains and detecting DNS tunneling.",
+        "default": false
+      },
+      "workload_types_in_shared_segment": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Workload Types in Shared Network Segment",
+        "description": "List of workload trust classifications present in the same VPC/subnet (e.g., 'internal', 'external', 'dmz'). When both internal and external classifications coexist without micro-segmentation, a trust boundary collapse is indicated."
+      },
+      "subnet_security_group_enforcement": {
+        "type": "boolean",
+        "title": "Subnet-Level Security Group Enforcement Enabled",
+        "description": "Indicates whether distinct security groups or network ACLs are applied at the subnet level to enforce inter-zone traffic restrictions between internal and external workload subnets.",
+        "default": false
+      },
+      "inter_zone_routing_policy": {
+        "type": "string",
+        "enum": [
+          "none",
+          "permissive",
+          "restrictive",
+          "micro_segmented"
+        ],
+        "title": "Inter-Zone Routing Policy",
+        "description": "Describes the routing policy applied between trust zones within the shared network segment. 'none' means no routing restrictions exist, 'permissive' means routes exist with minimal filtering, 'restrictive' means explicit allow-list routes with inspection, 'micro_segmented' means workload-level isolation enforced.",
+        "default": "none"
+      },
+      "distinct_subnets_per_trust_tier": {
+        "type": "boolean",
+        "title": "Distinct Subnets Provisioned Per Trust Tier",
+        "description": "Indicates whether separate subnets are provisioned for each trust tier (internal vs external workloads). True means each trust tier has its own dedicated subnet(s); false means workloads of different trust tiers share the same subnet(s).",
+        "default": false
+      },
+      "mutual_tls_enforced": {
+        "type": "boolean",
+        "title": "Mutual TLS Enforced for East-West Traffic",
+        "description": "Whether mutual TLS (mTLS) is enforced for all inter-service communication within the service mesh, requiring both client and server to present and validate certificates at each hop.",
+        "default": false
+      },
+      "per_hop_authorization_policy": {
+        "type": "boolean",
+        "title": "Per-Hop Authorization Policy Configured",
+        "description": "Whether explicit authorization policies exist that require re-verification of service identity at each zone boundary crossing, rather than relying on transitive network adjacency trust.",
+        "default": false
+      },
+      "service_identity_validation_mode": {
+        "type": "string",
+        "enum": [
+          "cryptographic",
+          "network_identity",
+          "none"
+        ],
+        "title": "Service Identity Validation Mode",
+        "description": "The mode used to validate service identities in east-west traffic — whether identity is cryptographically verified per request, validated via network identity (IP/namespace), or not validated.",
+        "default": "network_identity"
+      },
+      "federation_role_mapping_scope": {
+        "type": "string",
+        "enum": [
+          "wildcard",
+          "broad_group",
+          "specific_group",
+          "individual_subject"
+        ],
+        "title": "Federation Role Mapping Scope",
+        "description": "Indicates whether external identity provider role mappings are broad (wildcard/any-group) or restricted to specific groups/claims."
+      },
+      "audience_restriction_enforced": {
+        "type": "boolean",
+        "title": "Audience Restriction Enforced",
+        "description": "Whether the federation trust policy enforces a specific audience (aud) claim on tokens issued by the external identity provider, preventing token reuse across services.",
+        "default": false
+      },
+      "assumed_role_privilege_level": {
+        "type": "string",
+        "enum": [
+          "admin",
+          "elevated",
+          "read_only",
+          "none"
+        ],
+        "title": "Assumed Role Privilege Level",
+        "description": "The privilege level of the IAM role(s) that external federated identities can assume."
+      },
+      "peering_route_filter_enforced": {
+        "type": "boolean",
+        "title": "Peering Route Filter Enforced",
+        "description": "Whether route-level access controls (prefix filters, route tables, or NACLs) are explicitly configured to restrict traffic over VPC peering connections, private endpoints, or cloud interconnects to only intended destinations.",
+        "default": false
+      },
+      "third_party_networks_in_peering": {
+        "type": "boolean",
+        "title": "Third-Party or Partner Networks Present in Peering",
+        "description": "Whether any peered network belongs to a third-party, partner, or external organization rather than being fully owned and controlled by the same trust zone owner.",
+        "default": false
+      },
+      "private_endpoint_network_policy_enabled": {
+        "type": "boolean",
+        "title": "Private Endpoint Network Policy Enabled",
+        "description": "Whether network policies are enabled and applied to private endpoint subnets to restrict which sources can reach the private endpoint.",
+        "default": false
+      },
+      "management_plane_network_isolated": {
+        "type": "boolean",
+        "title": "Management Plane Network Isolation Enforced",
+        "description": "Indicates whether management/control plane interfaces are on a dedicated, separate network segment not reachable from data-plane workload segments.",
+        "default": false
+      },
+      "management_api_access_control_scope": {
+        "type": "string",
+        "enum": [
+          "dedicated_management_network_only",
+          "ip_allowlist_restricted",
+          "workload_segments_accessible",
+          "unrestricted"
+        ],
+        "title": "Management API Access Control Scope",
+        "description": "Describes the network-level access control applied to management and administration interfaces — whether access is restricted to a dedicated management network, specific IP ranges, or open to any workload segment."
+      },
+      "data_plane_to_control_plane_routes_exist": {
+        "type": "boolean",
+        "title": "Routable Paths from Data-Plane to Control Plane Exist",
+        "description": "Indicates whether network routes exist that allow data-plane workload segments to directly reach management/control plane endpoints without traversing an explicit security boundary.",
+        "default": false
+      },
+      "management_access_requires_dedicated_bastion_or_vpn": {
+        "type": "boolean",
+        "title": "Management Access Requires Dedicated Bastion or VPN",
+        "description": "Indicates whether all administrative access to management plane interfaces is mandated to go through a dedicated bastion host or management VPN separate from data-plane traffic paths."
+      },
+      "inter_zone_flow_logging_enabled": {
+        "type": "boolean",
+        "title": "Inter-Zone Flow Logging Enabled",
+        "description": "Whether network flow logs are enabled and capturing traffic crossing the boundary between internal and external user data segments.",
+        "default": false
+      },
+      "inter_zone_anomaly_detection_enabled": {
+        "type": "boolean",
+        "title": "Inter-Zone Anomaly Detection Enabled",
+        "description": "Whether automated anomaly detection or alerting rules are configured specifically for traffic crossing the boundary between internal and external user data zones.",
+        "default": false
+      },
+      "principal_scope": {
+        "type": "string",
+        "enum": [
+          "any_user",
+          "any_authenticated_user",
+          "specific_accounts",
+          "none"
+        ],
+        "title": "Bucket Policy Principal Scope",
+        "description": "The broadest principal specifier present in the bucket's IAM/resource policy, indicating how widely access is granted."
+      },
+      "cross_zone_workload_access_permitted": {
+        "type": "boolean",
+        "title": "Cross-Zone Workload Access Permitted by Policy",
+        "description": "Whether the bucket policy explicitly permits or fails to restrict access from workloads in adjacent or external trust zones.",
+        "default": false
+      },
+      "network_boundary_control_enforced": {
+        "type": "boolean",
+        "title": "Network Boundary Control Enforced",
+        "description": "Whether a cloud-native network boundary control (VPC Service Controls perimeter, Private Endpoint policy, or equivalent) wraps the storage bucket to prevent access from outside the defined trust zone regardless of IAM policy.",
+        "default": false
+      },
+      "distinct_trust_tiers_sharing_nat_gateway": {
+        "type": "boolean",
+        "title": "Distinct Trust Tiers Sharing NAT Gateway",
+        "description": "Indicates whether workloads classified at different trust levels share a single NAT gateway or common internet egress point, eliminating network-observable separation at egress.",
+        "default": false
+      },
+      "egress_traffic_attribution_mechanism": {
+        "type": "string",
+        "enum": [
+          "dedicated_per_zone_egress",
+          "flow_log_tagging_only",
+          "none"
+        ],
+        "title": "Egress Traffic Attribution Mechanism",
+        "description": "The method used to distinguish and attribute egress traffic by originating trust zone — from no mechanism, to flow-log tagging only, to dedicated per-zone egress paths.",
+        "default": "none"
+      },
+      "zone_egress_firewall_policy_enforced": {
+        "type": "boolean",
+        "title": "Zone-Specific Egress Firewall Policy Enforced",
+        "description": "Indicates whether distinct egress firewall or security group policies are applied per trust zone to restrict and differentiate outbound traffic flows before they reach the shared egress point."
+      }
+    },
+    "required": [
+      "ingress_rule_type",
+      "permits_internet_sourced_traffic",
+      "allowlisted_source_count",
+      "egress_allowlist_enforcement",
+      "deep_packet_inspection_enabled",
+      "dns_layer_filtering_enabled",
+      "workload_types_in_shared_segment",
+      "subnet_security_group_enforcement",
+      "inter_zone_routing_policy",
+      "distinct_subnets_per_trust_tier",
+      "mutual_tls_enforced",
+      "per_hop_authorization_policy",
+      "service_identity_validation_mode",
+      "federation_role_mapping_scope",
+      "audience_restriction_enforced",
+      "assumed_role_privilege_level",
+      "peering_route_filter_enforced",
+      "third_party_networks_in_peering",
+      "private_endpoint_network_policy_enabled",
+      "management_plane_network_isolated",
+      "management_api_access_control_scope",
+      "data_plane_to_control_plane_routes_exist",
+      "management_access_requires_dedicated_bastion_or_vpn",
+      "inter_zone_flow_logging_enabled",
+      "inter_zone_anomaly_detection_enabled",
+      "principal_scope",
+      "cross_zone_workload_access_permitted",
+      "network_boundary_control_enforced",
+      "distinct_trust_tiers_sharing_nat_gateway",
+      "egress_traffic_attribution_mechanism",
+      "zone_egress_firewall_policy_enforced"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cross_zone_workload_access_permitted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/data_plane_to_control_plane_routes_exist"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/deep_packet_inspection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/distinct_subnets_per_trust_tier"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/distinct_trust_tiers_sharing_nat_gateway"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/dns_layer_filtering_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_allowlist_enforcement"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/egress_traffic_attribution_mechanism"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/ingress_rule_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/inter_zone_routing_policy"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_plane_network_isolated"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/network_boundary_control_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/peering_route_filter_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/permits_internet_sourced_traffic"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/private_endpoint_network_policy_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/subnet_security_group_enforcement"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/third_party_networks_in_peering"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/workload_types_in_shared_segment"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/allowlisted_source_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/zone_egress_firewall_policy_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/assumed_role_privilege_level"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/audience_restriction_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/federation_role_mapping_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/management_api_access_control_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mutual_tls_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/per_hop_authorization_policy"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/principal_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/service_identity_validation_mode"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/management_access_requires_dedicated_bastion_or_vpn"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/inter_zone_anomaly_detection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/inter_zone_flow_logging_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/data_classification"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

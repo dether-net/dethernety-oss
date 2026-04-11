@@ -1,0 +1,117 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1048.003",
+      "name": "Exfiltration Over Unencrypted Non-C2 Protocol",
+      "relevance": "Directly describes data transmission over unencrypted protocols, matching the risk of unencrypted transport channels."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1040",
+      "name": "Network Sniffing",
+      "relevance": "Unencrypted transport exposes data to network sniffing attacks where adversaries can capture plaintext traffic."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.010",
+      "name": "Downgrade Attack",
+      "relevance": "Directly describes forcing negotiation to weaker protocol versions, which is the core risk in weak TLS protocol negotiation."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1600",
+      "name": "Weaken Encryption",
+      "relevance": "Covers adversary techniques to weaken encryption strength, relevant when TLS negotiation allows weak cipher suites or protocol versions."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1557",
+      "name": "Adversary-in-the-Middle",
+      "relevance": "Without mutual TLS authentication, adversaries can position themselves between client and server to intercept or manipulate traffic."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1649",
+      "name": "Steal or Forge Authentication Certificates",
+      "relevance": "Missing mTLS allows attackers to impersonate endpoints; stolen or forged certificates enable bypassing certificate-based authentication."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1001.003",
+      "name": "Protocol or Service Impersonation",
+      "relevance": "Absence of mutual authentication enables service impersonation where a malicious endpoint masquerades as a legitimate one."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1553.004",
+      "name": "Install Root Certificate",
+      "relevance": "Installing rogue root certificates is a primary technique to bypass TLS certificate validation by making fraudulent certificates appear trusted."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1565.002",
+      "name": "Transmitted Data Manipulation",
+      "relevance": "Without message integrity controls, adversaries can manipulate transmitted data in transit, directly matching this risk."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1550.001",
+      "name": "Application Access Token",
+      "relevance": "Captured tokens can be replayed to gain unauthorized access, directly representing the replay attack threat."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1528",
+      "name": "Steal Application Access Token",
+      "relevance": "Stolen tokens lacking replay protection can be reused by attackers to impersonate legitimate sessions."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1499.003",
+      "name": "Application Exhaustion Flood",
+      "relevance": "Without rate limiting, application-layer flood attacks can exhaust resources, directly exploiting the absence of transport-level controls."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1499.002",
+      "name": "Service Exhaustion Flood",
+      "relevance": "Missing rate limiting exposes services to exhaustion flood attacks that overwhelm transport-layer service capacity."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1599",
+      "name": "Network Boundary Bridging",
+      "relevance": "BGP hijacking can bridge network boundaries by rerouting traffic across network perimeters through malicious autonomous systems."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1572",
+      "name": "Protocol Tunneling",
+      "relevance": "Insecure backend communication channels can be exploited using protocol tunneling to bypass security controls between the gateway and backend."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1048",
+      "name": "Exfiltration Over Alternative Protocol",
+      "relevance": "Unprotected API gateway-to-backend legs can be leveraged for data exfiltration using alternative protocols that bypass monitoring."
+    }
+  ],
+  "respondsWith": []
+}

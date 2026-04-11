@@ -1,0 +1,261 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "email_body_classification_enforced": {
+        "type": "boolean",
+        "title": "Email Body Sensitivity Classification Enforced",
+        "description": "Indicates whether the email system enforces formal sensitivity classification labels (e.g., Confidential, PII, Restricted) on outbound and inbound message bodies at ingestion or send time.",
+        "default": false
+      },
+      "pii_scanning_enabled": {
+        "type": "boolean",
+        "title": "PII Content Scanning Enabled on Email Bodies",
+        "description": "Indicates whether automated PII detection scanning (via DLP or content inspection engine) is actively applied to email message bodies to identify sensitive data at ingestion.",
+        "default": false
+      },
+      "unclassified_email_retention_policy": {
+        "type": "string",
+        "enum": [
+          "indefinite",
+          "default_period",
+          "blocked"
+        ],
+        "title": "Retention Policy Applied to Unclassified Emails",
+        "description": "The retention policy applied to email messages that carry no sensitivity classification label. Indicates whether unclassified emails are retained indefinitely, subject to a default retention period, or blocked.",
+        "default": "indefinite"
+      },
+      "retention_policy_enforced": {
+        "type": "boolean",
+        "title": "Retention Policy Enforced",
+        "description": "Indicates whether an automated, technically enforced retention schedule exists for email server data, with defined deletion triggers for PII-bearing messages.",
+        "default": false
+      },
+      "maximum_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 36500,
+        "title": "Maximum Retention Period (Days)",
+        "description": "The configured maximum number of days PII-bearing emails are retained before automated deletion or anonymization is triggered. A value of 0 indicates no defined limit.",
+        "default": 0
+      },
+      "pii_classification_labels_applied": {
+        "type": "boolean",
+        "title": "PII Classification Labels Applied to Email and Attachments",
+        "description": "Indicates whether sensitivity or PII classification labels are systematically applied to emails and their attachments, enabling policy engines to identify and act on PII-bearing messages during retention enforcement and access control.",
+        "default": false
+      },
+      "mailbox_store_encryption_enabled": {
+        "type": "boolean",
+        "title": "Mailbox Store At-Rest Encryption Enabled",
+        "description": "Indicates whether the email server's mailbox store (including attachment data) is encrypted at rest, preventing direct readability if storage media or files are accessed without authorization.",
+        "default": false
+      },
+      "attachment_document_protection_enforced": {
+        "type": "boolean",
+        "title": "Attachment Document-Level Protection Enforced",
+        "description": "Indicates whether email attachments carrying sensitive content have document-level protection applied (e.g., IRM/DRM, password protection, or rights management labels) so that attachment content cannot be read without an additional decryption or authorization step.",
+        "default": false
+      },
+      "sensitivity_labeling_enforced_on_attachments": {
+        "type": "boolean",
+        "title": "Sensitivity Labeling Enforced on Attachments",
+        "description": "Indicates whether a mandatory sensitivity or classification label policy is enforced on email attachments containing PII, ensuring PII-bearing attachments are identified and subject to appropriate handling controls.",
+        "default": false
+      },
+      "content_based_access_control_enabled": {
+        "type": "boolean",
+        "title": "Content-Based Access Control Enabled",
+        "description": "Whether the email platform enforces access restrictions based on message sensitivity labels or PII classifications, rather than relying solely on mailbox ownership.",
+        "default": false
+      },
+      "shared_mailbox_pii_access_scope": {
+        "type": "string",
+        "enum": [
+          "none",
+          "restricted",
+          "broad",
+          "unrestricted"
+        ],
+        "title": "Shared Mailbox PII Access Scope",
+        "description": "The breadth of user access granted to shared mailboxes or delegated mailbox accounts that are known to contain PII data.",
+        "default": "none"
+      },
+      "transfer_destination_recorded": {
+        "type": "boolean",
+        "title": "Transfer Destination Recorded in Classification Record",
+        "description": "Whether the data classification record captures the geographic destination(s) of email relay nodes and archives used to route or store PII-containing emails.",
+        "default": false
+      },
+      "cross_border_transfer_compliance_verified": {
+        "type": "boolean",
+        "title": "Cross-Border Transfer Compliance Verified",
+        "description": "Whether each identified cross-border email routing path has been verified against applicable data residency requirements (e.g., GDPR Chapter V adequacy decisions, SCCs, BCRs) and the verification is documented.",
+        "default": false
+      },
+      "secure_erasure_policy_enabled": {
+        "type": "boolean",
+        "title": "Secure Erasure Policy Enabled",
+        "description": "Indicates whether a secure erasure policy is configured on the email server to permanently delete messages (including from recoverable deleted-items folders) after a defined period, preventing indefinite recoverability of PII.",
+        "default": false
+      },
+      "backup_snapshot_pii_purge_policy": {
+        "type": "string",
+        "enum": [
+          "none",
+          "manual",
+          "automated"
+        ],
+        "title": "Backup Snapshot PII Purge Policy",
+        "description": "Describes whether backup snapshots containing email data are subject to a PII purge or erasure procedure aligned with data subject erasure rights. 'none' means no policy exists, 'manual' means ad-hoc procedures only, 'automated' means system-enforced purge.",
+        "default": "none"
+      }
+    },
+    "required": [
+      "email_body_classification_enforced",
+      "pii_scanning_enabled",
+      "unclassified_email_retention_policy",
+      "retention_policy_enforced",
+      "maximum_retention_days",
+      "pii_classification_labels_applied",
+      "mailbox_store_encryption_enabled",
+      "attachment_document_protection_enforced",
+      "sensitivity_labeling_enforced_on_attachments",
+      "content_based_access_control_enabled",
+      "shared_mailbox_pii_access_scope",
+      "transfer_destination_recorded",
+      "cross_border_transfer_compliance_verified",
+      "secure_erasure_policy_enabled",
+      "backup_snapshot_pii_purge_policy"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/attachment_document_protection_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/email_body_classification_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mailbox_store_encryption_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/pii_classification_labels_applied"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/pii_scanning_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitivity_labeling_enforced_on_attachments"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/content_based_access_control_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/shared_mailbox_pii_access_scope"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_snapshot_pii_purge_policy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/maximum_retention_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/retention_policy_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secure_erasure_policy_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unclassified_email_retention_policy"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Operational Controls",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cross_border_transfer_compliance_verified"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/transfer_destination_recorded"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

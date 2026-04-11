@@ -1,0 +1,95 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — maximum exposures should fire",
+    "input": {
+      "token_store_classification_label": "public",
+      "max_token_retention_days": 1,
+      "token_storage_encryption": "none",
+      "tokens_logged_in_plaintext": true,
+      "log_access_control_scope": "broader_than_session_store",
+      "token_store_roles_with_read_access": [
+        "item_0"
+      ],
+      "non_auth_roles_require_token_access": false,
+      "secure_deletion_procedure_defined": false,
+      "encryption_at_rest_enabled": false,
+      "access_logging_enabled_on_token_store": false,
+      "token_retention_policy_days": -1,
+      "token_retention_policy_enforced": false,
+      "revoked_token_store_cleanup_enabled": false,
+      "log_token_masking_enabled": false,
+      "token_store_bulk_read_alerting_enabled": true,
+      "token_revocation_state_persisted_separately": false
+    },
+    "expectedExposures": [
+      "Misclassification As Non Sensitive",
+      "Token Persistence Beyond Session Lifetime",
+      "Unencrypted Token At Rest",
+      "Token Exposure In Log And Audit Data",
+      "Insufficient Access Control On Token Stores",
+      "Absent Or Non Compliant Disposal Procedure"
+    ]
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — no exposures should fire",
+    "input": {
+      "token_store_classification_label": "confidential",
+      "access_logging_enabled_on_token_store": true,
+      "token_retention_policy_enforced": true,
+      "revoked_token_store_cleanup_enabled": true,
+      "max_token_retention_days": 0,
+      "tokens_logged_in_plaintext": false,
+      "token_storage_encryption": "volume_encrypted",
+      "encryption_at_rest_enabled": true,
+      "log_token_masking_enabled": true,
+      "log_access_control_scope": "restricted_to_session_store_principals",
+      "non_auth_roles_require_token_access": true,
+      "secure_deletion_procedure_defined": true,
+      "token_retention_policy_days": -1,
+      "token_store_roles_with_read_access": [
+        "default"
+      ],
+      "token_store_bulk_read_alerting_enabled": true,
+      "token_revocation_state_persisted_separately": false
+    }
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "token_store_classification_label": "public",
+      "encryption_at_rest_enabled": true,
+      "access_logging_enabled_on_token_store": true,
+      "token_retention_policy_days": -1,
+      "token_retention_policy_enforced": true,
+      "revoked_token_store_cleanup_enabled": true,
+      "max_token_retention_days": 0,
+      "tokens_logged_in_plaintext": false,
+      "token_storage_encryption": "none",
+      "log_token_masking_enabled": true,
+      "log_access_control_scope": "broader_than_session_store",
+      "token_store_roles_with_read_access": [
+        "partial"
+      ],
+      "non_auth_roles_require_token_access": true,
+      "token_store_bulk_read_alerting_enabled": true,
+      "secure_deletion_procedure_defined": true,
+      "token_revocation_state_persisted_separately": false
+    },
+    "expectedExposures": [
+      "Misclassification As Non Sensitive",
+      "Unencrypted Token At Rest"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedExposures": [
+      "Token Persistence Beyond Session Lifetime",
+      "Absent Or Non Compliant Disposal Procedure"
+    ]
+  }
+]

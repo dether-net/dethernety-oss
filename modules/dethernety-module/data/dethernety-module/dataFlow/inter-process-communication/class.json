@@ -1,0 +1,8 @@
+{
+  "name": "Inter-process Communication",
+  "classType": "dataFlow",
+  "type": "Inter-process Communication",
+  "description": "Intra-OS application communication channels (IPC mechanisms such as Unix domain sockets, named pipes, shared memory message queues, D-Bus, and loopback TCP) are often assumed secure due to their local nature, but they can expose significant transit vulnerabilities when application-level controls are absent or misconfigured. Key concerns include lack of mutual authentication between communicating processes, absence of message integrity verification, unencrypted sensitive data on loopback or IPC channels, and susceptibility to local man-in-the-middle or injection attacks by co-resident processes.",
+  "category": "System Foundation",
+  "status": "reviewed"
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Employee Work Files",
+  "classType": "data",
+  "type": "Employee Work Files",
+  "description": "Confidential internal documents represent a high-value data class requiring strict lifecycle controls. Key risks include inconsistent classification labeling, inadequate access scoping, weak retention enforcement, improper disposal, and cross-border transfer violations. Because these documents are employee-created and operationally essential, they proliferate across storage locations and collaboration tools, increasing exposure surface at every lifecycle stage.",
+  "category": "Business Data",
+  "status": "reviewed"
+}

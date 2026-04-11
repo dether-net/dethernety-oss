@@ -1,0 +1,8 @@
+{
+  "name": "IDS",
+  "classType": "control",
+  "type": "IDS",
+  "description": "Network traffic monitoring system providing detection, analysis, and response capabilities against infrastructure threats through packet inspection, behavioral analytics, and signature matching — effectiveness determined by tuning quality, coverage depth, and integration with response systems.",
+  "category": "Cross Cutting Controls",
+  "status": "reviewed"
+}

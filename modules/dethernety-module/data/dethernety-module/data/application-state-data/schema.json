@@ -1,0 +1,302 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "session_token_data_classification": {
+        "type": "string",
+        "enum": [
+          "secret",
+          "confidential",
+          "internal",
+          "public",
+          "unclassified",
+          "transient"
+        ],
+        "title": "Session Token Data Classification Level",
+        "description": "The formal data classification tier assigned to session tokens in the organization's data governance policy or data dictionary. Also governs whether encryption-at-rest and masking requirements apply to memory artifacts and storage."
+      },
+      "field_level_encryption_enforced_for_tokens": {
+        "type": "boolean",
+        "title": "Field-Level Encryption Enforced for Session Tokens",
+        "description": "Whether field-level encryption is applied to session token storage (database columns, cache entries, etc.) as required by the classification policy.",
+        "default": false
+      },
+      "token_masking_in_logs_enabled": {
+        "type": "boolean",
+        "title": "Session Token Masking Applied in Logs",
+        "description": "Whether session tokens are masked, redacted, or filtered in all logging outputs (application logs, access logs, audit logs, middleware, WAF/proxy) to prevent plaintext exposure.",
+        "default": false
+      },
+      "token_access_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Strict Access Audit Logging Enabled for Token Operations",
+        "description": "Whether all read/write access to session token stores triggers strict audit log entries with user identity, timestamp, and operation type, as expected for confidential-tier data.",
+        "default": false
+      },
+      "log_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Log Retention Period (Days)",
+        "description": "Number of days that application or audit logs are retained before deletion or archival. If this exceeds the maximum session token lifetime, tokens are exposed beyond their functional validity period."
+      },
+      "max_session_token_lifetime_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Maximum Session Token Lifetime (Days)",
+        "description": "The maximum lifetime of a session token in days, as configured in the identity/session management system. Used to determine whether log retention exceeds the token's functional validity window."
+      },
+      "log_scope_includes_session_tokens": {
+        "type": "boolean",
+        "title": "Log Scope Includes Session Token Fields",
+        "description": "Whether the application logs fields that contain or could contain session token values, such as HTTP Authorization headers, Cookie headers, session ID fields, or raw request/response bodies.",
+        "default": false
+      },
+      "memory_snapshot_scrubbing_enabled": {
+        "type": "boolean",
+        "title": "Memory Snapshot Token Scrubbing Enabled",
+        "description": "Indicates whether the application scrubs or masks session tokens from heap dumps, core dumps, and crash reports before they are persisted or transmitted.",
+        "default": false
+      },
+      "crash_report_destination": {
+        "type": "string",
+        "enum": [
+          "external_service",
+          "local_disk",
+          "discarded"
+        ],
+        "title": "Crash Report Destination",
+        "description": "Where crash reports and core dumps are sent — local disk, external service (e.g., Sentry, Crashlytics), or discarded. External destinations amplify exposure risk.",
+        "default": "local_disk"
+      },
+      "token_store_rbac_enabled": {
+        "type": "boolean",
+        "title": "Token Store RBAC Enabled",
+        "description": "Whether role-based access control is enforced at the data level on the in-memory cache or temporary store holding active session tokens, restricting which processes or users can read token entries.",
+        "default": false
+      },
+      "token_store_access_scope": {
+        "type": "string",
+        "enum": [
+          "service_only",
+          "multi_service",
+          "host_wide"
+        ],
+        "title": "Token Store Access Scope",
+        "description": "The breadth of access granted to the token store — whether it is restricted to the owning service only, shared among multiple services, or accessible to any authenticated user or process on the host."
+      },
+      "token_enumeration_commands_restricted": {
+        "type": "boolean",
+        "title": "Token Enumeration Commands Restricted",
+        "description": "Whether bulk enumeration commands (e.g., KEYS *, SCAN, smembers on a session set) are blocked or require elevated privileges on the token store, preventing mass token harvesting."
+      },
+      "server_side_token_invalidation_on_logout": {
+        "type": "boolean",
+        "title": "Server-Side Token Invalidation on Logout",
+        "description": "Whether the application explicitly invalidates (blacklists or removes) session tokens on the server side when a user logs out, times out, or is revoked.",
+        "default": false
+      },
+      "token_overwrite_on_disposal": {
+        "type": "boolean",
+        "title": "Token Value Overwritten or Zeroed on Disposal",
+        "description": "Whether the token value is explicitly overwritten (zeroed or replaced) in memory and storage media upon session termination, preventing recovery from memory dumps or cache reads."
+      },
+      "token_logged_in_plaintext": {
+        "type": "boolean",
+        "title": "Token Logged in Plaintext",
+        "description": "Whether session token values appear in plaintext in application logs, access logs, or audit trails, creating a persistent post-session exposure vector."
+      },
+      "token_classified_as_personal_data": {
+        "type": "boolean",
+        "title": "Session Token Classified as Personal Data or Authentication Credential",
+        "description": "Indicates whether session tokens have been formally classified as personal data or authentication credentials under applicable jurisdictional law (e.g., GDPR, CCPA), triggering data transfer restrictions.",
+        "default": false
+      },
+      "cross_region_replication_enabled": {
+        "type": "boolean",
+        "title": "Cross-Region Token Replication Enabled",
+        "description": "Whether session tokens are actively replicated to cache nodes, analytics pipelines, or storage systems located in jurisdictions different from the originating region.",
+        "default": false
+      },
+      "data_transfer_agreement_status": {
+        "type": "string",
+        "enum": [
+          "valid",
+          "expired",
+          "none",
+          "under_review"
+        ],
+        "title": "Data Transfer Agreement Status",
+        "description": "The status of applicable cross-border data transfer agreements (e.g., SCCs, BCRs, adequacy decisions) covering the jurisdictions to which session tokens are transferred.",
+        "default": "none"
+      }
+    },
+    "required": [
+      "session_token_data_classification",
+      "field_level_encryption_enforced_for_tokens",
+      "token_masking_in_logs_enabled",
+      "token_access_audit_logging_enabled",
+      "log_retention_days",
+      "max_session_token_lifetime_days",
+      "log_scope_includes_session_tokens",
+      "memory_snapshot_scrubbing_enabled",
+      "crash_report_destination",
+      "token_store_rbac_enabled",
+      "token_store_access_scope",
+      "token_enumeration_commands_restricted",
+      "server_side_token_invalidation_on_logout",
+      "token_overwrite_on_disposal",
+      "token_logged_in_plaintext",
+      "token_classified_as_personal_data",
+      "cross_region_replication_enabled",
+      "data_transfer_agreement_status"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/server_side_token_invalidation_on_logout"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/token_store_access_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/token_store_rbac_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/max_session_token_lifetime_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/token_enumeration_commands_restricted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/token_overwrite_on_disposal"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/crash_report_destination"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/log_retention_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/log_scope_includes_session_tokens"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/token_access_audit_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/token_masking_in_logs_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/token_logged_in_plaintext"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/field_level_encryption_enforced_for_tokens"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/memory_snapshot_scrubbing_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/session_token_data_classification"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/token_classified_as_personal_data"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cross_region_replication_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/data_transfer_agreement_status"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

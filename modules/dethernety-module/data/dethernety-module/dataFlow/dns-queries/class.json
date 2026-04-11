@@ -1,0 +1,8 @@
+{
+  "name": "DNS Queries",
+  "classType": "dataFlow",
+  "type": "DNS Queries",
+  "description": "DNS client-to-server communications typically occur over plaintext UDP/TCP port 53, exposing internal hostnames, service discovery patterns, and network topology to passive interception. Sensitive internal configuration data embedded in DNS queries and responses lacks encryption, integrity protection, and mutual authentication by default, creating multiple transit-level attack surfaces including eavesdropping, spoofing, cache poisoning, and replay attacks.",
+  "category": "Infrastructure Services",
+  "status": "reviewed"
+}

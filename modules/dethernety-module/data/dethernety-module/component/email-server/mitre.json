@@ -1,0 +1,201 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1672",
+      "name": "Email Spoofing",
+      "relevance": "An open relay allows attackers to send spoofed emails through the misconfigured server without authentication."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1667",
+      "name": "Email Bombing",
+      "relevance": "Open relays are commonly abused to send large volumes of spam or bombing emails by relaying through the misconfigured server."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1110.001",
+      "name": "Password Guessing",
+      "relevance": "Weak or missing SMTP authentication enables attackers to guess credentials to gain unauthorized access to the mail server."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1110.003",
+      "name": "Password Spraying",
+      "relevance": "Absent or weak SMTP authentication makes the service susceptible to password spraying attacks across multiple accounts."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1110.004",
+      "name": "Credential Stuffing",
+      "relevance": "Weak SMTP authentication allows credential stuffing attacks using previously breached username/password pairs."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1071.003",
+      "name": "Mail Protocols",
+      "relevance": "Cleartext SMTP transmission exposes mail protocol communications to interception and monitoring."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1114.002",
+      "name": "Remote Email Collection",
+      "relevance": "Unencrypted SMTP traffic allows attackers to collect email content and credentials through network interception."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.010",
+      "name": "Downgrade Attack",
+      "relevance": "Weak TLS cipher support enables downgrade attacks forcing connections to use weaker encryption protocols."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1600.001",
+      "name": "Reduce Key Space",
+      "relevance": "Weak TLS ciphers reduce the effective key space, making encrypted communications easier to break."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1600",
+      "name": "Weaken Encryption",
+      "relevance": "Using outdated TLS protocol versions or weak ciphers directly weakens the encryption protecting email in transit."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1499.002",
+      "name": "Service Exhaustion Flood",
+      "relevance": "Without rate limiting, attackers can flood the SMTP service with connections to cause a denial of service."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1110",
+      "name": "Brute Force",
+      "relevance": "Insufficient throttling allows unrestricted brute force attacks against mail server authentication."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1548",
+      "name": "Abuse Elevation Control Mechanism",
+      "relevance": "An overprivileged MTA service account can be abused to escalate privileges or perform privileged actions on the host system."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1548.002",
+      "name": "Bypass User Account Control",
+      "relevance": "Excessive privileges on the MTA service account may allow bypassing access controls to perform unauthorized system operations."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1190",
+      "name": "Exploit Public-Facing Application",
+      "relevance": "Unpatched MTA software exposes known vulnerabilities that attackers can exploit to compromise the public-facing mail server."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1210",
+      "name": "Exploitation of Remote Services",
+      "relevance": "Known vulnerabilities in unpatched MTA software can be exploited remotely to gain unauthorized access."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.001",
+      "name": "Credentials In Files",
+      "relevance": "Storing SMTP credentials in plaintext configuration files allows attackers to directly harvest them from the filesystem."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552",
+      "name": "Unsecured Credentials",
+      "relevance": "Plaintext credentials in config files represent unsecured credentials that can be easily extracted by adversaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1070.008",
+      "name": "Clear Mailbox Data",
+      "relevance": "Inadequate logging makes it difficult to detect or investigate mailbox data manipulation or deletion events."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1505.002",
+      "name": "Transport Agent",
+      "relevance": "Insufficient audit logging may fail to detect malicious transport agents installed on the mail server to intercept messages."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1021",
+      "name": "Remote Services",
+      "relevance": "Unrestricted management interface exposure allows attackers to remotely access and control the MTA using legitimate remote service protocols."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1588.004",
+      "name": "Digital Certificates",
+      "relevance": "Absence of DANE leaves certificate validation reliant on CA trust, enabling attacks with fraudulent certificates during email transit."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1584.002",
+      "name": "DNS Server",
+      "relevance": "Missing DANE/MTA-STS policies that rely on DNS for enforcement can be undermined by DNS server compromise or manipulation."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1027.009",
+      "name": "Embedded Payloads",
+      "relevance": "Disabled content filtering allows emails with embedded malicious payloads to reach end users undetected."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1027.006",
+      "name": "HTML Smuggling",
+      "relevance": "Without attachment and content filtering, HTML smuggling techniques in email attachments bypass security controls."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1568.001",
+      "name": "Fast Flux DNS",
+      "relevance": "Without reverse DNS validation, fast flux DNS techniques can be used to obscure the true origin of malicious sending servers."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1590.002",
+      "name": "DNS",
+      "relevance": "Absent reverse lookup validation allows attackers to exploit DNS misconfigurations to misrepresent sending server identity."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1098.002",
+      "name": "Additional Email Delegate Permissions",
+      "relevance": "Misconfigured mail queue directory permissions may allow unauthorized users to access or manipulate queued email data."
+    }
+  ],
+  "respondsWith": []
+}

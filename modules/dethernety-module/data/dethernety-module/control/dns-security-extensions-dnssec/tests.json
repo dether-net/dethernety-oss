@@ -1,0 +1,111 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "dnssec_validation_mode": "permissive",
+      "ds_record_published": false,
+      "dnssec_enabled_at_zone": false,
+      "dnssec_validation_chain_status": "insecure",
+      "negative_response_proof_type": "none",
+      "validation_failure_action": "log_only",
+      "key_rollover_procedure_configured": false,
+      "dnssec_validation_enabled": false,
+      "cd_flag_enforcement_mode": "hard_fail",
+      "rrsig_coverage_percentage": 99,
+      "signature_expiry_monitoring_enabled": false,
+      "dnssec_enabled": false,
+      "ds_record_published_at_parent": false,
+      "root_to_tld_trust_anchor_validated": false,
+      "trust_anchor_configured": false,
+      "unsigned_zone_acceptance": "accept_all_unsigned",
+      "alert_threshold_days_before_expiry": 0,
+      "pre_publish_overlap_enabled": false,
+      "rollover_automation_status": "automated",
+      "signed_zones_coverage": "none",
+      "resolver_scope": "partial",
+      "re_signing_automated": false,
+      "resolver_software": "bind"
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "dnssec_validation_enabled": true,
+      "trust_anchor_configured": true,
+      "dnssec_validation_mode": "enforced",
+      "dnssec_enabled": true,
+      "ds_record_published": true,
+      "dnssec_enabled_at_zone": true,
+      "ds_record_published_at_parent": true,
+      "root_to_tld_trust_anchor_validated": true,
+      "negative_response_proof_type": "nsec",
+      "validation_failure_action": "block",
+      "key_rollover_procedure_configured": true,
+      "pre_publish_overlap_enabled": true,
+      "rollover_automation_status": "automated",
+      "cd_flag_enforcement_mode": "hard_fail",
+      "rrsig_coverage_percentage": 100,
+      "signature_expiry_monitoring_enabled": true,
+      "alert_threshold_days_before_expiry": 1,
+      "unsigned_zone_acceptance": "accept_all_unsigned",
+      "dnssec_validation_chain_status": "unknown",
+      "signed_zones_coverage": "none",
+      "resolver_scope": "partial",
+      "re_signing_automated": false,
+      "resolver_software": "bind"
+    },
+    "expectedCountermeasures": [
+      "Signature Expiry Monitoring",
+      "Origin Authenticity Verification",
+      "Chain Of Trust Coverage",
+      "Zone Signing Completeness",
+      "Negative Response Authentication",
+      "Resolver Validation Enforcement",
+      "Validation Failure Detection",
+      "Key Rollover Operational Continuity"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "dnssec_enabled": true,
+      "dnssec_enabled_at_zone": true,
+      "ds_record_published": true,
+      "ds_record_published_at_parent": true,
+      "root_to_tld_trust_anchor_validated": true,
+      "dnssec_validation_enabled": true,
+      "trust_anchor_configured": true,
+      "dnssec_validation_mode": "permissive",
+      "validation_failure_action": "log_only",
+      "cd_flag_enforcement_mode": "hard_fail",
+      "unsigned_zone_acceptance": "accept_all_unsigned",
+      "negative_response_proof_type": "none",
+      "rrsig_coverage_percentage": 0,
+      "signature_expiry_monitoring_enabled": true,
+      "alert_threshold_days_before_expiry": 0,
+      "key_rollover_procedure_configured": true,
+      "pre_publish_overlap_enabled": true,
+      "rollover_automation_status": "automated",
+      "dnssec_validation_chain_status": "insecure",
+      "signed_zones_coverage": "none",
+      "resolver_scope": "partial",
+      "re_signing_automated": false,
+      "resolver_software": "bind"
+    },
+    "expectedCountermeasures": [
+      "Chain Of Trust Coverage",
+      "Resolver Validation Enforcement",
+      "Key Rollover Operational Continuity"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]

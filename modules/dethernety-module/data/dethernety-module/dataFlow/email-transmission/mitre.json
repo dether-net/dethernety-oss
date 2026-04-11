@@ -1,0 +1,117 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1071.003",
+      "name": "Mail Protocols",
+      "relevance": "Attackers exploiting opportunistic TLS downgrade abuse SMTP mail protocols to intercept communications when encryption is negotiated away."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1588.004",
+      "name": "Digital Certificates",
+      "relevance": "Without DANE or MTA-STS enforcement, attackers can present fraudulent certificates during SMTP connections, directly exploiting the absence of certificate validation."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1587.003",
+      "name": "Digital Certificates",
+      "relevance": "Adversaries may develop or obtain forged digital certificates to impersonate mail servers when DANE or MTA-STS policies are absent."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1608.003",
+      "name": "Install Digital Certificate",
+      "relevance": "Weak or expired TLS certificates on relays directly relate to improper certificate installation and management, enabling attackers to exploit trust weaknesses."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1649",
+      "name": "Steal or Forge Authentication Certificates",
+      "relevance": "Expired or weak certificates on mail relays create opportunities for adversaries to forge or substitute fraudulent certificates to perform man-in-the-middle attacks."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1672",
+      "name": "Email Spoofing",
+      "relevance": "Without DKIM signing, message integrity cannot be verified, directly enabling email spoofing where attackers forge sender identity and message content."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1584.002",
+      "name": "DNS Server",
+      "relevance": "Hijacking DNS MX records involves compromising or manipulating DNS server infrastructure to redirect mail traffic to attacker-controlled servers."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1590.002",
+      "name": "DNS",
+      "relevance": "Adversaries gather DNS information including MX records as reconnaissance to identify targets for MX record hijacking attacks."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1583.002",
+      "name": "DNS Server",
+      "relevance": "Attackers may acquire or set up DNS servers to facilitate MX record hijacking and redirect victim email traffic."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1572",
+      "name": "Protocol Tunneling",
+      "relevance": "Attackers can exploit plaintext relay hops to tunnel malicious traffic or exfiltrate data through unencrypted SMTP relay segments."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1566",
+      "name": "Phishing",
+      "relevance": "Absence of SPF/DMARC authentication facilitates phishing attacks by allowing adversaries to send spoofed emails that appear to originate from trusted domains."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1573.001",
+      "name": "Symmetric Cryptography",
+      "relevance": "Weak TLS cipher suites using broken symmetric cryptography algorithms can be exploited to decrypt intercepted mail traffic."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1573.002",
+      "name": "Asymmetric Cryptography",
+      "relevance": "Outdated TLS protocol versions with weak asymmetric cryptography expose key exchange mechanisms to attacks enabling session decryption."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1586.002",
+      "name": "Email Accounts",
+      "relevance": "Exposed SMTP credentials in authenticated submission directly enables adversaries to compromise and abuse email accounts for malicious purposes."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1589.002",
+      "name": "Email Addresses",
+      "relevance": "Email traffic metadata leakage exposes email addresses and communication patterns that adversaries collect for reconnaissance and targeting."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1114.002",
+      "name": "Remote Email Collection",
+      "relevance": "Adversaries may remotely collect email metadata leaked through unprotected traffic to build intelligence about organizational communications."
+    }
+  ],
+  "respondsWith": []
+}

@@ -1,0 +1,122 @@
+[
+  {
+    "name": "All Insecure",
+    "description": "All attributes set to insecure values — no countermeasures should fire",
+    "input": {
+      "roles_defined_with_scoped_permissions": false,
+      "role_permission_enforcement_mode": "mixed",
+      "sod_policy_enforced": false,
+      "role_change_logging_enabled": false,
+      "role_based_permission_assignment": false,
+      "default_deny_policy": false,
+      "privileged_function_permission_check": "all",
+      "access_denial_logging_enabled": false,
+      "federated_role_sync_enabled": false,
+      "users_assigned_least_privilege_role": false,
+      "privileged_role_assignment_review_frequency": "continuous",
+      "separation_of_duties_enforced": true,
+      "users_with_direct_permission_grants": 0,
+      "role_permission_audit_enabled": true,
+      "conflicting_role_pairs_defined": 0,
+      "sod_enforcement_scope": "none",
+      "permission_change_log_retention_days": 0,
+      "logged_event_types": [],
+      "role_definition_review_frequency": "continuous",
+      "offboarding_role_revocation_automated": false,
+      "rbac_enforcement_enabled": false,
+      "least_privilege_policy_applied": true,
+      "role_policy_coverage": "full",
+      "last_sync_status": "success"
+    },
+    "expectedCountermeasures": []
+  },
+  {
+    "name": "All Secure",
+    "description": "All attributes set to secure values — all countermeasures should fire",
+    "input": {
+      "roles_defined_with_scoped_permissions": true,
+      "users_assigned_least_privilege_role": true,
+      "privileged_role_assignment_review_frequency": "continuous",
+      "role_permission_enforcement_mode": "strict_role_only",
+      "users_with_direct_permission_grants": 0,
+      "sod_policy_enforced": true,
+      "conflicting_role_pairs_defined": 1,
+      "sod_enforcement_scope": "preventive",
+      "role_change_logging_enabled": true,
+      "permission_change_log_retention_days": 90,
+      "logged_event_types": [
+        "role_assigned",
+        "role_revoked",
+        "permission_modified"
+      ],
+      "role_based_permission_assignment": true,
+      "offboarding_role_revocation_automated": true,
+      "role_definition_review_frequency": "continuous",
+      "rbac_enforcement_enabled": true,
+      "privileged_function_permission_check": "all",
+      "default_deny_policy": true,
+      "access_denial_logging_enabled": true,
+      "federated_role_sync_enabled": true,
+      "role_policy_coverage": "full",
+      "last_sync_status": "success",
+      "separation_of_duties_enforced": true,
+      "role_permission_audit_enabled": true,
+      "least_privilege_policy_applied": true
+    },
+    "expectedCountermeasures": [
+      "Separation Of Duties Coverage",
+      "Role Lifecycle Manageability",
+      "Permission Consistency Assurance",
+      "Unauthorized Function Prevention",
+      "Least Privilege Enforcement",
+      "Cross System Integration Depth",
+      "Privilege Escalation Detection",
+      "Access Change Auditability"
+    ]
+  },
+  {
+    "name": "Mixed Typical",
+    "description": "Typical deployment: secure booleans, weak enum choices",
+    "input": {
+      "roles_defined_with_scoped_permissions": true,
+      "users_assigned_least_privilege_role": true,
+      "privileged_role_assignment_review_frequency": "continuous",
+      "separation_of_duties_enforced": true,
+      "role_permission_enforcement_mode": "mixed",
+      "users_with_direct_permission_grants": 0,
+      "role_permission_audit_enabled": true,
+      "sod_policy_enforced": true,
+      "conflicting_role_pairs_defined": 0,
+      "sod_enforcement_scope": "none",
+      "role_change_logging_enabled": true,
+      "permission_change_log_retention_days": 0,
+      "logged_event_types": [
+        "partial"
+      ],
+      "role_based_permission_assignment": true,
+      "role_definition_review_frequency": "continuous",
+      "offboarding_role_revocation_automated": true,
+      "rbac_enforcement_enabled": true,
+      "privileged_function_permission_check": "all",
+      "default_deny_policy": true,
+      "access_denial_logging_enabled": true,
+      "least_privilege_policy_applied": true,
+      "federated_role_sync_enabled": true,
+      "role_policy_coverage": "full",
+      "last_sync_status": "success"
+    },
+    "expectedCountermeasures": [
+      "Role Lifecycle Manageability",
+      "Unauthorized Function Prevention",
+      "Least Privilege Enforcement",
+      "Cross System Integration Depth",
+      "Privilege Escalation Detection"
+    ]
+  },
+  {
+    "name": "Minimal Input",
+    "description": "Empty input — tests default value handling",
+    "input": {},
+    "expectedCountermeasures": []
+  }
+]
