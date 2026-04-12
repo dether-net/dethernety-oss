@@ -6,6 +6,7 @@ export interface Exposure {
   category: string;
   score?: number;
   reference?: string;
+  attackVector?: string;
   mitigationTechniques?: string[];
   detectionTechniques?: string[];
   tags?: string[];
@@ -15,3 +16,5 @@ export interface Exposure {
     value: string;
   }[] | string[];
 }
+
+export const VALID_ATTACK_VECTORS = new Set(['NETWORK', 'ADJACENT', 'LOCAL', 'PHYSICAL', 'UNSPECIFIED']);

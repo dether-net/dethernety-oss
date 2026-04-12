@@ -364,6 +364,7 @@ export interface Exposure {
   category: string;              // Exposure category
   score?: number;                // Severity score (0-10)
   reference?: string;            // External reference (e.g., CVE, CWE)
+  attackVector?: string;         // CVSS v3.1 attack vector (NETWORK, ADJACENT, LOCAL, PHYSICAL, UNSPECIFIED)
   mitigationTechniques?: string[]; // Recommended mitigations
   detectionTechniques?: string[];  // Detection methods
   tags?: string[];               // Classification tags

@@ -74,6 +74,7 @@ export class DtExposure {
           type: Number.parseInt(exposure.type ?? '0'),
           category: exposure.category,
           score: exposure.score,
+          attackVector: exposure.attackVector ?? null,
           element: {
             connect: { where: { node: { id: { eq: elementId } } } },
           },
@@ -119,6 +120,7 @@ export class DtExposure {
             type: { set: exposure.type },
             category: { set: exposure.category },
             score: { set: exposure.score },
+            attackVector: { set: exposure.attackVector },
             exploitedBy: {
               disconnect: {},
               connect: attackTechniqueIds.map(id => ({ where: { node: { id: { eq: id } } } })),

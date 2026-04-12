@@ -264,6 +264,7 @@ exposures[exposure] {
     "criticality": "high",
     "type": "vulnerability",
     "category": "access_control",
+    "attack_vector": "NETWORK",
     "exploited_by": ["T1078"]
   }
 }
@@ -276,6 +277,7 @@ exposures[exposure] {
     "criticality": "high",
     "type": "vulnerability",
     "category": "data_protection",
+    "attack_vector": "NETWORK",
     "exploited_by": ["T1557"]
   }
 }
@@ -305,6 +307,8 @@ countermeasures[countermeasure] {
 ### MITRE Framework Mapping
 
 Exposures can reference MITRE ATT&CK techniques via `exploited_by`, and countermeasures can reference MITRE D3FEND techniques via `responds_with`. These are rendered in the UI when the MITRE frameworks module is installed.
+
+Exposures can also include an `attack_vector` field (CVSS v3.1-aligned: `"NETWORK"`, `"ADJACENT"`, `"LOCAL"`, `"PHYSICAL"`). When omitted, the platform defaults to `"UNSPECIFIED"`. This field enables boundary-aware analysis and attack path constraints.
 
 ---
 

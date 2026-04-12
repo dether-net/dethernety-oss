@@ -205,6 +205,7 @@ export interface Exposure extends Element {
   type?: string
   category?: string
   score?: number
+  attackVector?: string
   mitigationSuggestions?: string[]
   detectionMethods?: string[]
   tags?: string[]

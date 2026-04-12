@@ -66,7 +66,7 @@ All relationship types and node labels referenced in this specification are defi
 | `ControlClass` | 407 | Same + `supportedTypes: [ComponentType!]`, `supportedCategories: [String!]` |
 | `Control` | 277 | `id`, `name`, `description`, `type`, `category` |
 | `Countermeasure` | 635 | `id`, `name`, `description`, `type`, `category`, `score`, `addressedExposures: [String!]` |
-| `Exposure` | 461 | `id`, `name`, `description`, `type`, `category`, `score`, `techniques: [String!]` |
+| `Exposure` | 461 | `id`, `name`, `description`, `type`, `category`, `score`, `techniques: [String!]`, `attackVector: AttackVector` |
 | `MitreAttackTechnique` | 523 | `id`, `name`, `attack_id`, `description` |
 | `MitreAttackMitigation` | 561 | `id`, `name`, `attack_id`, `description` |
 | `MitreDefendTechnique` | 613 | `id`, `name`, `d3fendId`, `description` |

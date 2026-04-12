@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from '@nestjs/common';
 import { OpaOps, Policy } from './opa-ops';
-import { DTModule, DTMetadata, Countermeasure, Exposure, DbOps } from './index';
+import { DTModule, DTMetadata, Countermeasure, Exposure, DbOps, VALID_ATTACK_VECTORS } from './index';
 
 /**
  * V2 classType folder mapping.
@@ -407,14 +407,25 @@ export class DtFileOpaModule implements DTModule {
       exposures.push(
         ...result
           .filter((e: any) => e.name)
-          .map((e: any) => ({
-            name: e.name,
-            description: e.description,
-            type: e.type,
-            category: e.category,
-            score: e.score,
-            exploitedBy: e.exploited_by || e.exploitedBy,
-          })),
+          .map((e: any) => {
+            const rawAV = (e.attack_vector ?? e.attackVector ?? null)?.toUpperCase();
+            const attackVector = rawAV && VALID_ATTACK_VECTORS.has(rawAV) ? rawAV : 'UNSPECIFIED';
+            if (rawAV && !VALID_ATTACK_VECTORS.has(rawAV)) {
+              this.logger.warn('Invalid attackVector in policy output, defaulting to UNSPECIFIED', {
+                moduleName: this.moduleName, rawValue: rawAV, exposureName: e.name,
+                policyPath, classId,
+              });
+            }
+            return {
+              name: e.name,
+              description: e.description,
+              type: e.type,
+              category: e.category,
+              score: e.score,
+              attackVector,
+              exploitedBy: e.exploited_by || e.exploitedBy,
+            };
+          }),
       );
     } catch (err: unknown) {
       this.logger.error('Error getting exposures', {
