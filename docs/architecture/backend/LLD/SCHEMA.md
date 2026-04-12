@@ -31,6 +31,18 @@ enum TrustLevel {
 }
 ```
 
+### AttackVector
+
+```graphql
+enum AttackVector {
+  NETWORK
+  ADJACENT
+  LOCAL
+  PHYSICAL
+  UNSPECIFIED
+}
+```
+
 ### ValueType
 
 ```graphql
@@ -205,6 +217,7 @@ Represents a potential security vulnerability.
 - `detectionMethods` ([String!]) — Detection methods
 - `tags` ([String!]) — Tags
 - `techniques` ([String!]) — Related techniques
+- `attackVector` (AttackVector) — CVSS v3.1-aligned attack vector (NETWORK, ADJACENT, LOCAL, PHYSICAL, UNSPECIFIED)
 
 **Relationships:**
 - `(Exposure)<-[:HAS_EXPOSURE]-(Component|DataFlow|SecurityBoundary|Data)` — Element with this exposure

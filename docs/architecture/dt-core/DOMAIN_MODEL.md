@@ -380,6 +380,7 @@ interface Exposure extends Element {
   type?: string
   category?: string
   score?: number                  // Severity score
+  attackVector?: string            // CVSS v3.1 attack vector (NETWORK, ADJACENT, LOCAL, PHYSICAL, UNSPECIFIED)
   mitigationSuggestions?: string[]
   detectionMethods?: string[]
   tags?: string[]

@@ -10,6 +10,7 @@ export const GET_EXPOSURES = gql`
       type
       category
       score
+      attackVector
       exploitedBy {
         id
         name
@@ -29,6 +30,7 @@ export const GET_EXPOSURE = gql`
       type
       category
       score
+      attackVector
       exploitedBy {
         id
         name
@@ -49,6 +51,7 @@ export const ADD_EXPOSURE = gql`
         type
         category
         score
+        attackVector
         exploitedBy {
           id
           name
@@ -56,7 +59,7 @@ export const ADD_EXPOSURE = gql`
           attack_id
         }
       }
-    } 
+    }
   }
 `
 
@@ -70,6 +73,7 @@ export const UPDATE_EXPOSURE = gql`
         type
         category
         score
+        attackVector
         mitigationSuggestions
         detectionMethods
         tags

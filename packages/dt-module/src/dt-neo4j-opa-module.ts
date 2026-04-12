@@ -1,4 +1,4 @@
-import { DTModule, DTMetadata, Countermeasure, Exposure, DbOps, OpaOps, Policy } from './index';
+import { DTModule, DTMetadata, Countermeasure, Exposure, DbOps, OpaOps, Policy, VALID_ATTACK_VECTORS } from './index';
 import * as https from 'https';
 import * as http from 'http';
 import { Logger } from '@nestjs/common';
@@ -717,14 +717,26 @@ export class DtNeo4jOpaModule implements DTModule {
         if (result && result.length > 0) {
           exposures.push(...result
             .filter((exposure: any) => exposure.name)
-            .map((exposure: any) => ({
-              name: exposure.name,
-              description: exposure.description,
-              criticality: exposure.criticality,
-              type: exposure.type,
-              category: exposure.category,
-              exploitedBy: exposure.exploited_by || exposure.exploitedBy
-            })));
+            .map((exposure: any) => {
+              const rawAV = (exposure.attack_vector ?? exposure.attackVector ?? null)?.toUpperCase();
+              const attackVector = rawAV && VALID_ATTACK_VECTORS.has(rawAV) ? rawAV : 'UNSPECIFIED';
+              if (rawAV && !VALID_ATTACK_VECTORS.has(rawAV)) {
+                this.logger.warn('Invalid attackVector in policy output, defaulting to UNSPECIFIED', {
+                  moduleName: this.moduleName, rawValue: rawAV, exposureName: exposure.name,
+                  policyPath, classId,
+                });
+              }
+              return {
+                name: exposure.name,
+                description: exposure.description,
+                criticality: exposure.criticality,
+                score: exposure.score,
+                type: exposure.type,
+                category: exposure.category,
+                attackVector,
+                exploitedBy: exposure.exploited_by || exposure.exploitedBy
+              };
+            }));
 
           this.logger.debug('Exposures evaluated successfully', {
             moduleName: this.moduleName,

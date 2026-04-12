@@ -49,6 +49,18 @@ Trust level assigned to a security boundary.
 | `SEMI_TRUSTED` | Partial trust — DMZ or shared zone |
 | `TRUSTED` | Full trust — internal or protected zone |
 
+### AttackVector
+
+CVSS v3.1-aligned attack vector classification for exposures.
+
+| Value | Description |
+|-------|-------------|
+| `NETWORK` | Exploitable from any network without preconditions |
+| `ADJACENT` | Requires same shared physical or logical network segment |
+| `LOCAL` | Requires local access (shell, code execution) |
+| `PHYSICAL` | Requires physical hardware access |
+| `UNSPECIFIED` | Not yet classified by the policy author |
+
 ### ValueType
 
 Value types for dynamic attributes.
@@ -276,6 +288,7 @@ Implements: `Element`
 | `detectionMethods` | `[String!]` | Detection methods |
 | `tags` | `[String!]` | Tags for filtering and grouping |
 | `techniques` | `[String!]` | MITRE ATT&CK technique IDs |
+| `attackVector` | `AttackVector` | CVSS v3.1-aligned attack vector (NETWORK, ADJACENT, LOCAL, PHYSICAL, UNSPECIFIED) |
 | `component` | `[Component!]!` | Components affected by this exposure (← `HAS_EXPOSURE`) |
 | `securityBoundary` | `[SecurityBoundary!]!` | Boundaries affected by this exposure (← `HAS_EXPOSURE`) |
 | `dataFlow` | `[DataFlow!]!` | Data flows affected by this exposure (← `HAS_EXPOSURE`) |

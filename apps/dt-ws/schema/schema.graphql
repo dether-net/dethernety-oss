@@ -68,6 +68,20 @@ enum TrustLevel {
   TRUSTED
 }
 
+"""CVSS v3.1-aligned attack vector classification for exposures."""
+enum AttackVector {
+  "Exploitable from any network without preconditions"
+  NETWORK
+  "Requires same shared physical or logical network segment"
+  ADJACENT
+  "Requires local access (shell, code execution)"
+  LOCAL
+  "Requires physical hardware access"
+  PHYSICAL
+  "Not yet classified by the policy author"
+  UNSPECIFIED
+}
+
 """Value types for dynamic attributes."""
 enum ValueType {
   "A text value"
@@ -521,6 +535,8 @@ type Exposure implements Element  @authentication @node {
   tags: [String!]
   "MITRE ATT&CK technique IDs"
   techniques: [String!]
+  "CVSS-aligned attack vector classification"
+  attackVector: AttackVector
   "Components affected by this exposure"
   component: [Component!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
   "Boundaries affected by this exposure"

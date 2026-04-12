@@ -207,6 +207,7 @@ export class DtFileJsonModule implements DTModule {
               category: exposureTemplate.category ?? 'Technical',
               score: jsonLogic.apply(exposureTemplate.score, attributes),
               reference: exposureTemplate.reference,
+              attackVector: exposureTemplate.attackVector ?? 'UNSPECIFIED',
               mitigationTechniques: exposureTemplate.mitigationTechniques || [],
               detectionTechniques: exposureTemplate.detectionTechniques || [],
               tags: exposureTemplate.tags || [],
