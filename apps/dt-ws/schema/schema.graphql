@@ -1175,6 +1175,10 @@ type CoverageSummary {
   mitigated: Int!
   unmitigated: Int!
   unaddressable: Int!
+  "Controls assigned but addressing different techniques than this exposure"
+  configuredCoverage: Int!
+  "Exposures without ATT&CK technique links (not analyzable through MITRE chain)"
+  noMitreChain: Int!
   coveragePct: Float!
 }
 
@@ -1184,6 +1188,36 @@ type ControlGapsResult {
   unaddressableExposures: [UnaddressableExposure!]!
   recommendedControls: [RecommendedControl!]!
   coverageSummary: CoverageSummary!
+}
+
+"""A control class's fit for a set of element types."""
+type ControlClassFit {
+  "Class ID"
+  classId: ID!
+  "Class name"
+  className: String!
+  "Module ID this class belongs to"
+  moduleId: ID!
+  "Module name"
+  moduleName: String!
+  "Whether this class's supportedTypes includes any of the queried element types"
+  compatible: Boolean!
+  "Number of countermeasures generated for this class (>0 means configured)"
+  countermeasureCount: Int!
+}
+
+"""A control candidate with per-class fit details."""
+type ControlCandidate {
+  "Control ID"
+  controlId: ID!
+  "Control name"
+  controlName: String!
+  "Per-class fit details"
+  classes: [ControlClassFit!]!
+  "Total countermeasures across all classes"
+  totalCountermeasures: Int!
+  "Element IDs this control already SUPPORTS"
+  assignedElementIds: [ID!]!
 }
 
 """Result of the reindexClassEmbeddings mutation."""
@@ -1273,6 +1307,13 @@ type Query {
 
   "Analyze control gaps for a model by traversing the MITRE framework chain"
   controlGaps(input: ControlGapsInput!): ControlGapsResult!
+    @authentication
+
+  "Find control candidates whose classes support the given element types, with per-class fit details"
+  controlCandidatesForType(
+    elementTypes: [ComponentType!]!
+    moduleIds: [ID!]
+  ): [ControlCandidate!]!
     @authentication
 }
 

@@ -10,6 +10,7 @@ import { AnalysisResolverService } from './resolver-services/analysis-resolver.s
 import { IssueResolverService } from './resolver-services/issue-resolver.service';
 import { MatchClassesResolverService } from './resolver-services/match-classes-resolver.service';
 import { ControlGapsResolverService } from './resolver-services/control-gaps-resolver.service';
+import { ControlCandidatesResolverService } from './resolver-services/control-candidates-resolver.service';
 import { AuthorizationService } from './services/authorization.service';
 import { MonitoringService } from './services/monitoring.service';
 import { TemplateCacheService } from './services/template-cache.service';
@@ -24,6 +25,7 @@ const resolverServiceClasses = [
   IssueResolverService,
   MatchClassesResolverService,
   ControlGapsResolverService,
+  ControlCandidatesResolverService,
 ];
 
 @Module({

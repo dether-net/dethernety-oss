@@ -46,13 +46,20 @@ All elements are classified. Quality: X/100.
 ### 3. Pass 1 — Deterministic Classification (D51)
 
 1. Read `activeModules` from `.dethereal/scope.json`
-2. For each active module, call `mcp__dethereal__get_classes(module_name: '<name>')` to fetch class types scoped to that module. If `activeModules` is absent from scope.json, call `get_classes` without module filter (backward compatibility — searches all installed modules)
-3. When matching, prefer classes from specialized modules (AWS, Kubernetes, Databases) over baseline module (dethernety-module/General) — specialized classes have more targeted attribute schemas with technology-specific OPA policies
-4. For each unclassified element, match by name, type, and description against available classes from active modules
-5. If the element was discovered from IaC (check `.dethereal/discovery.json` for `sources`), use the pre-classification from the infrastructure-scout's IaC mapping table — these were already validated against `get_classes` during discovery
-6. Mark high-confidence matches as pre-classified
+2. Extract `moduleIds` from `activeModules` (order matters — see tiebreaking below). If `activeModules` is absent from scope.json, omit `moduleIds` from `match_classes` calls (backward compatibility — searches all installed modules)
+3. Group unclassified elements by class label: components (`COMPONENT`), boundaries (`SECURITY_BOUNDARY`), flows (`DATA_FLOW`), data items (`DATA`)
+4. For each label with unclassified elements, call:
+   `mcp__dethereal__match_classes(elements: [{name, type?, description?}, ...], classLabel: <label>, moduleIds: [...], topN: 3, fields: ['description', 'category', 'type'])`
+5. Cross-module tiebreaking: when multiple modules return same-confidence matches for the same element, prefer the module listed earlier in `activeModules` (user-set priority order). Specialized modules should precede baseline (dethernety-module)
+6. For IaC-discovered elements, check `.dethereal/discovery.json` for `sources` — if pre-classification exists and matches a `match_classes` candidate, boost confidence to `high (IaC)`. If they differ, present both options in the confirmation table
+7. Auto-accept `exact_name` matches (high confidence)
+8. Present `fuzzy`/`vector`/`type` matches for confirmation
 
-If the platform is offline, skip Pass 1 entirely and do everything in Pass 2.
+**Offline fallback chain:**
+1. Call `match_classes(...)` as above
+2. If the result contains `{ success: false }` or an error → fall back to `mcp__dethereal__get_classes` per module (legacy behavior)
+3. If `get_classes` also returns errors → skip Pass 1 entirely, all classification in Pass 2
+4. Warning: "Platform connectivity issues — classification running in LLM-only mode. Re-run with platform access for server-side matching."
 
 ### 4. Pass 2 — LLM-Assisted Classification
 
@@ -61,7 +68,7 @@ For remaining unclassified elements:
 2. Consider connected data flows — what protocols, what data types
 3. Consider peer components — if sibling components in the same boundary are all classified as "Microservice", an unclassified sibling is likely similar
 4. Propose the closest available class from active modules — never fabricate class IDs
-5. If no suitable class exists in active modules, broaden the search: call `mcp__dethereal__get_classes` without a module filter. If a match is found in an inactive module, flag it: "Element 'X' matched class 'Y' from module 'Z' (not in active modules). Add module 'Z'? (yes / skip)"
+5. If no suitable class exists in active modules, broaden the search: call `mcp__dethereal__match_classes(elements: [...unclassified...], classLabel: <label>, topN: 3)` without `moduleIds`. The `moduleName` field on each candidate identifies which module to suggest. If a match is found in an inactive module, flag it: "Element 'X' matched class 'Y' from module 'Z' (not in active modules). Add module 'Z'? (yes / skip)"
 6. If still no match, mark as "unclassified" with a gap note
 
 ### 5. Crown Jewel Tagging (D21/D41)
@@ -89,12 +96,13 @@ Show a single confirmation table for all classification proposals:
 ```
 ## Classification Proposal
 
-| # | Element | Type | Current Class | Proposed Class | Confidence | Crown Jewel |
-|---|---------|------|---------------|----------------|------------|-------------|
-| 1 | Redis | STORE | — | Key-Value Store | high (IaC) | — |
-| 2 | PostgreSQL | STORE | — | Database | high (IaC) | yes |
-| 3 | Auth0 | EXTERNAL_ENTITY | — | Identity Provider | medium (LLM) | — |
-| 4 | API Server | PROCESS | — | Web Application | medium (LLM) | — |
+| # | Element | Type | Proposed Class | Module | Confidence | Match | Crown Jewel |
+|---|---------|------|----------------|--------|------------|-------|-------------|
+| 1 | Redis | STORE | Key-Value Store | dethernety-module | high (IaC) | exact | — |
+| 2 | PostgreSQL | STORE | Database | Databases | high (IaC) | exact | yes |
+| 3 | Auth0 | EXTERNAL_ENTITY | Identity Provider | dethernety-module | medium | fuzzy | — |
+| 4 | API Server | PROCESS | Web Application | dethernety-module | medium | vector | — |
+| 5 | gRPC Handler | PROCESS | — | — | — | unmatched | — |
 
 Apply all? (yes / modify / skip)
 ```
@@ -115,7 +123,7 @@ STOREs must be 100% classified for effective analysis.
 Classify now or skip? (classify / skip)
 ```
 
-If unclassified elements exist and `activeModules` is set, check if broadening to additional modules would help: search `get_classes` without module filter for each unclassified element. If matches found:
+If unclassified elements exist and `activeModules` is set, check if broadening to additional modules would help: call `mcp__dethereal__match_classes(elements: [...unclassified...], classLabel: <label>, topN: 3)` without `moduleIds`. The `moduleName` field on each candidate identifies which inactive module would resolve the gap. If matches found:
 ```
 Adding modules [Databases, Azure] would classify 2 more elements. Add? (yes / skip)
 ```

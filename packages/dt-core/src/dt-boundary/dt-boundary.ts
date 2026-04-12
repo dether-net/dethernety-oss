@@ -125,13 +125,29 @@ export class DtBoundary {
           dimensionsMinHeight: { set: updatedNode.data.minHeight },
           ...(parentBoundaryInput !== undefined && { parentBoundary: parentBoundaryInput }),
           controls: {
-            disconnect: updatedNode.data.controls === undefined ? {} : {},
+            disconnect: updatedNode.data.controls === undefined ? {} : {
+              where: {
+                NOT: {
+                  OR: updatedNode.data.controls.map((control: Control) => ({
+                    node: { id: { eq: control } },
+                  })),
+                },
+              },
+            },
             connect: updatedNode.data.controls === undefined ? [] : updatedNode.data.controls.map((control: Control) => ({
               where: { node: { id: { eq: control } } },
             })),
           },
           dataItems: {
-            disconnect: updatedNode.data.dataItems === undefined ? {} : {},
+            disconnect: updatedNode.data.dataItems === undefined ? {} : {
+              where: {
+                NOT: {
+                  OR: updatedNode.data.dataItems.map((dataItem: DataItem) => ({
+                    node: { id: { eq: dataItem } },
+                  })),
+                },
+              },
+            },
             connect: updatedNode.data.dataItems === undefined ? [] : updatedNode.data.dataItems.map((dataItem: DataItem) => ({
               where: { node: { id: { eq: dataItem } } },
             })),

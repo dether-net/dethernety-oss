@@ -200,8 +200,29 @@ export const CONTROL_GAPS = gql`
         mitigated
         unmitigated
         unaddressable
+        configuredCoverage
+        noMitreChain
         coveragePct
       }
+    }
+  }
+`
+
+export const CONTROL_CANDIDATES_FOR_TYPE = gql`
+  query ControlCandidatesForType($elementTypes: [ComponentType!]!, $moduleIds: [ID!]) {
+    controlCandidatesForType(elementTypes: $elementTypes, moduleIds: $moduleIds) {
+      controlId
+      controlName
+      classes {
+        classId
+        className
+        moduleId
+        moduleName
+        compatible
+        countermeasureCount
+      }
+      totalCountermeasures
+      assignedElementIds
     }
   }
 `

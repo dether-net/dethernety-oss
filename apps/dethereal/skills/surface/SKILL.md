@@ -71,26 +71,114 @@ Check `manifest.model.id` to determine if the model has been synced to the platf
   Run /dethereal:sync push to publish.
 ```
 
-### 4. Control Gap Analysis
+### 4. Control Coverage & Gap Analysis
 
-For each classified component, check if it has associated security controls in its attribute file (non-empty `controls` array or linked countermeasures). Components without controls are gaps.
+This step produces a two-tier coverage report: inferred coverage (from enrichment attributes) and formal coverage (from assigned controls). When the model is synced, it additionally integrates MITRE-chain-grounded gap analysis from the platform.
 
-Group gaps by enrichment tier. Assign each component to its **highest-priority matching tier only** (a crown jewel that is also cross-boundary appears only in Tier 1):
-- **Tier 1:** Crown jewels (`crown_jewel: true` in attribute file) — highest priority
-- **Tier 2:** Cross-boundary components (source or target of cross-boundary flows from Step 2)
+#### 4a. MITRE-Grounded Gap Analysis (synced models)
+
+**If model is synced** (`manifest.model.id` is set and non-null):
+
+1. Call `mcp__dethereal__get_control_gaps(model_id)` for MITRE-chain-grounded gap analysis
+2. If the call succeeds, present:
+   - **Unmitigated exposures** grouped by element — addressable gaps where MITRE ATT&CK Mitigations exist and installed modules have matching ControlClasses
+   - **Unaddressable exposures** — no installed ControlClass covers these MITRE mitigations (module gap)
+   - **Recommended controls** — type-compatible candidates with D3FEND technique links and `addressesCount`
+   - **Configured but non-matching** — `configuredCoverage` count: controls assigned to the element but addressing different techniques
+   - **No MITRE chain** — `noMitreChain` count: "N exposures have no ATT&CK technique mapping and cannot be analyzed through the framework chain"
+3. If the call fails (auth expired, network error): fall back to local file inspection in 4c below
+
+```
+### MITRE-Grounded Gap Analysis
+  N unmitigated exposures (addressable), M unaddressable (module gap), K with no MITRE chain.
+
+  Unmitigated:
+    api-server: SQL Injection (T1190 → M1016 Vulnerability Scanning)
+    payment-db: Data Manipulation (T1565 → M1041 Encrypt Sensitive Info)
+
+  Recommended Controls:
+    1. WAF Protection — addresses 3 techniques, D3FEND: D3-WSAA
+    2. DB Encryption (PG) — addresses 2 techniques, D3FEND: D3-DENCR
+
+  Unaddressable (module gap — no installed ControlClass):
+    scheduler: Resource Hijacking (T1496 → M1047)
+```
+
+**If model is not synced:**
+Skip this section. Gap analysis requires platform exposure data.
+
+#### 4b. Inferred Coverage (from enrichment attributes)
+
+Call `mcp__dethereal__validate_model_json(action: 'coverage', directory_path: <model-path>)` to compute the per-category inferred coverage breakdown.
+
+```
+### Inferred Coverage (from enrichment attributes)
+
+| Protection | Coverage | Missing |
+|------------|----------|---------|
+| Authentication | 10/12 (83%) | scheduler, batch-worker |
+| Encryption in transit | 8/10 cross-boundary flows (80%) | internal→data-tier, worker→queue |
+| Encryption at rest | 3/4 stores (75%) | session-cache |
+| Monitoring | 6/12 (50%) | scheduler, batch-worker, config-svc, ... |
+
+Note: Inferred from component attributes. Sufficient for security posture review;
+insufficient for compliance evidence. Run /dethereal:enrich to fill gaps.
+```
+
+#### 4c. Formal Control Coverage (from assigned controls)
+
+Present the per-tier breakdown from the coverage tool output. Each component is assigned to its **highest-priority matching tier only** (a crown jewel that is also cross-boundary appears only in Tier 1):
+
+- **Tier 1:** Crown jewels (`crown_jewel: true`)
+- **Tier 2:** Cross-boundary components (source or target of cross-boundary flows)
 - **Tier 3:** Internet-facing components (connected to EXTERNAL_ENTITY via data flow)
 - **Tier 4:** Internal-only components
 
 ```
-### Control Gaps
-  Components without controls:
-    Tier 1: payment-db (crown jewel — high priority)
-    Tier 2: api-gateway (cross-boundary)
-    Tier 3: web-frontend (internet-facing)
-    Tier 4: scheduler (internal)
+### Formal Control Coverage (from assigned controls)
+
+| Tier | Components | With Controls | Gap |
+|------|------------|---------------|-----|
+| 1 — Crown Jewels | 3 | 2 (67%) | payment-db |
+| 2 — Cross-boundary | 4 | 1 (25%) | api-gw, auth-svc, msg-queue |
+| 3 — Internet-facing | 2 | 2 (100%) | — |
+| 4 — Internal | 3 | 0 (0%) | scheduler, batch-worker, config-svc |
+| **Total** | **12** | **5 (42%)** | **7 components without formal controls** |
+
+Formal coverage required for: SOC2 CC6.1, ISO 27001 A.8, PCI-DSS 6.x.
+Run /dethereal:enrich --focus controls to assign controls.
 ```
 
-If all components have controls: "No control gaps — all classified components have controls."
+If no classified components have controls: "No formal controls assigned. Run `/dethereal:enrich --focus controls` to assign controls."
+
+#### 4d. Control Source Breakdown (when populated)
+
+If any controls have a `source` field, present the verification status:
+
+```
+### Control Verification Status
+
+| Source | Controls | Note |
+|--------|----------|------|
+| Discovered (verified in code/IaC) | 8 | Full confidence — implementation confirmed |
+| Declared (user-asserted) | 5 | Assumed effective, unverified |
+| Both (discovered + declared) | 2 | Highest confidence — governed and verified |
+```
+
+Omit this section if no controls have `source` field.
+
+#### 4e. Governance Controls (when declared)
+
+Read `.dethereal/scope.json`. If `declared_governance_controls` is populated, list them:
+
+```
+### Governance Controls (declared)
+  - Patch management: monthly patching cycle
+  - Access reviews: quarterly
+  - Change control: CAB approval required for production
+```
+
+Omit this section entirely if `declared_governance_controls` is empty or absent.
 
 ### 5. MITRE ATT&CK Coverage
 

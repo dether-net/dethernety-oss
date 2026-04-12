@@ -2,8 +2,10 @@
 name: enrich
 description: Populate security attributes, MITRE ATT&CK references, credentials, and monitoring tools
 agent: security-enricher
-argument-hint: "[tier1|all|pick] [--focus credentials|monitoring|compliance]"
+argument-hint: "[tier1|all|pick] [--focus credentials|monitoring|compliance|controls]"
 ---
+
+@../../docs/controls-enrichment.md
 
 Enrich a Dethernety threat model with security attributes, credential topology, MITRE ATT&CK technique references, compliance-driven data classification, and monitoring tool coverage.
 
@@ -30,7 +32,8 @@ Enrich a Dethernety threat model with security attributes, credential topology, 
 - `credentials` — credential inventory and mapping only
 - `monitoring` — monitoring tools capture only
 - `compliance` — compliance-driven prompts only
-- No focus flag → run all enrichment sub-workflows
+- `controls` — control assignment pass only (3-step: enforcement → detection → governance)
+- No focus flag → run all enrichment sub-workflows (excluding controls — controls require explicit `--focus controls`)
 
 ### 2. Check Stale Elements
 
@@ -282,4 +285,41 @@ Call `mcp__dethereal__validate_model_json` to check structural validity.
 [done] Enriched N components (M attributes, K credentials mapped, J data items classified). Quality: X/100.
       Template coverage: A/B classified components fully enriched (100% template fields set), C partially enriched, D unenriched. E unclassified (skipped).
 [next] /dethereal:review (quality assessment) or /dethereal:enrich --focus credentials (continue specific enrichment)
+```
+
+---
+
+### Control Pass (`--focus controls`)
+
+> This section activates ONLY when `--focus controls` is specified. Skip entirely otherwise.
+> Full instructions are in `@docs/controls-enrichment.md`.
+
+The control pass is a **separate agent invocation** with its own 40-turn budget. It does NOT run as part of the default enrichment flow. Users must explicitly request it.
+
+**Invocation:** Spawn `Agent(security-enricher)` with control-pass context.
+
+**Three-step sequence:**
+
+1. **Enforcement controls (Category 2)** — batched per boundary:
+   - Platform reachable: call `mcp__dethereal__manage_controls(action: 'rank', element_types: [...])`, present pre-ranked table, user confirms
+   - Platform unreachable: greenfield prompts, `{ id: null, name: "..." }` format
+   - B=0: single global enforcement prompt
+   - B>6: tiered prompt — crown-jewel boundaries first
+   - Write to `structure.json` after each boundary (incremental persistence)
+
+2. **Detection controls (Category 3)** — one global prompt:
+   - Pre-populate from `monitoring_tools` attribute data
+   - Source: `discovered` for pre-populated, `declared` for user-added
+
+3. **Governance placeholder (Category 4)** — single prompt:
+   - Free-text to `.dethereal/scope.json` as `declared_governance_controls`
+
+**Incremental persistence:** Write to `structure.json` after each boundary. If the agent hits its turn limit, partial progress is preserved.
+
+**State:** No state transition — the control pass operates within the existing `ENRICHING` state.
+
+**Footer:**
+```
+[done] Control pass complete. N enforcement, M detection, K governance controls assigned. Quality: X/100.
+[next] /dethereal:review (quality assessment) or /dethereal:sync push (publish to platform)
 ```

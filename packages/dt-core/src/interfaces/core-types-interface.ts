@@ -303,6 +303,8 @@ export interface CoverageSummary {
   mitigated: number
   unmitigated: number
   unaddressable: number
+  configuredCoverage: number
+  noMitreChain: number
   coveragePct: number
 }
 
@@ -311,6 +313,25 @@ export interface ControlGapsResult {
   unaddressableExposures: UnaddressableExposure[]
   recommendedControls: RecommendedControl[]
   coverageSummary: CoverageSummary
+}
+
+// Control Candidate Ranking
+
+export interface ControlClassFit {
+  classId: string
+  className: string
+  moduleId: string
+  moduleName: string
+  compatible: boolean
+  countermeasureCount: number
+}
+
+export interface ControlCandidate {
+  controlId: string
+  controlName: string
+  classes: ControlClassFit[]
+  totalCountermeasures: number
+  assignedElementIds: string[]
 }
 
 

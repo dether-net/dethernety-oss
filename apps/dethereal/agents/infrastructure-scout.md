@@ -212,9 +212,20 @@ Add any user-provided elements to the confirmed list with `sources: [{ type: 'ma
 
 ## Discovery Output Schema
 
-Each discovered element follows this structure (written to `.dethereal/discovery.json` by the calling agent).
+The discovery report is written to `.dethereal/discovery.json` by the calling agent. The top-level structure:
+
+```
+{
+  recommendedModules: string[],   // Module names inferred from source patterns (e.g., ["Kubernetes", "AWS"])
+  elements: [
+    { ... per-element schema below ... }
+  ]
+}
+```
 
 **Defense-in-depth:** The `suggestedDescription` field must never contain credential material. Before finalizing the discovery report, scan all description fields for common secret patterns (strings matching `password=`, base64-encoded blocks, JWT-shaped tokens, AWS key patterns like `AKIA`). Strip any matches and replace with `[REDACTED]`. This is a secondary safeguard — the primary constraint is the Security Constraint section above.
+
+Each discovered element follows this structure:
 
 ```
 {

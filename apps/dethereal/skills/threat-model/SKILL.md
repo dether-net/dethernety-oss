@@ -120,7 +120,7 @@ If the model was created from a description (not IaC), discovery still scans the
 Select which platform modules provide classes for classification and enrichment.
 
 1. Read `.dethereal/discovery.json` — extract `recommendedModules` and source type patterns
-2. Query available modules on the platform: call `mcp__dethereal__get_classes(fields: ['module'])` with no module filter to list all installed modules
+2. Query available modules on the platform: call `mcp__dethereal__match_classes` or `mcp__dethereal__get_classes(fields: ['module'])` with no module filter to list all installed modules
 3. Map discovery source patterns to recommended modules using the infrastructure-scout's Source Type → Module Mapping table
 4. Always include the baseline module — match by name `General` or `dethernety-module` (non-removable)
 5. Present a confirmation table:
@@ -161,7 +161,7 @@ No state transition — stays at `DISCOVERED` (same as Step 3).
 
 Run deterministic Pass 1 classification and review the discovered model.
 
-1. Read `activeModules` from `.dethereal/scope.json`. For each active module, call `mcp__dethereal__get_classes(module_name: '<name>')` to run deterministic fuzzy matching scoped to that module. If `activeModules` is absent, call `get_classes` without module filter (backward compatibility). Prefer classes from specialized modules over baseline (dethernety-module/General) when both match — specialized classes have more targeted attribute schemas (D51)
+1. Read `activeModules` from `.dethereal/scope.json`. Call `mcp__dethereal__match_classes` with element names, types, and descriptions from the model, scoped to active module IDs (`moduleIds`). Auto-accept `exact_name` matches; present others for confirmation. If `activeModules` is absent, call `match_classes` without `moduleIds` (searches all installed modules). Prefer classes from specialized modules over baseline (dethernety-module/General) when both match — specialized classes have more targeted attribute schemas (D51)
 2. For components not matched by the deterministic pass, match by name, type, and description against available classes from active modules
 3. If the component was discovered from IaC (check `.dethereal/discovery.json`), use the pre-classification from IaC mapping
 4. Check decomposition thresholds (21+ components, 9+ boundaries, 36+ flows, 19+ cross-boundary) — follow Decomposition Protocol if exceeded (D56: decomposition check runs after Step 3, not Step 2, because the blind spots interview may add components)
@@ -335,6 +335,33 @@ Delegate to `Agent(security-enricher)` for comprehensive security attribute enri
 4. Read updated attribute files from disk
 
 State: no transition — already at ENRICHING from Step 5.
+
+### Control Pass Offer
+
+After Step 8 (Enrichment) completes, offer a session break for the control assignment pass:
+
+```
+Enrichment complete. Quality: X/100.
+Ready for control assignment (~N prompts). Continue now or resume later?
+  [continue] Run control pass now
+  [later]    Resume with /dethereal:enrich --focus controls
+```
+
+Compute N from boundary count: N = B + 2 (B enforcement prompts + 1 detection + 1 governance). For B=0, N = 3.
+
+**If "continue":**
+1. Invoke `Agent(security-enricher)` as a new agent instance with control-pass context
+2. The agent runs the 3-step control pass per `@docs/controls-enrichment.md`
+3. This is a separate agent invocation with its own 40-turn budget
+4. After the control pass completes, read updated model files from disk
+5. Proceed to Step 9 (Validation)
+
+**If "later":**
+```
+To resume: /dethereal:enrich --focus controls
+Your enrichment progress is saved. Control assignment can be done at any time.
+```
+Proceed to Step 9 (Validation) without controls. The quality score's `control_coverage_rate` factor reflects the gap.
 
 ---
 

@@ -474,14 +474,14 @@ Add `.dethereal/discovery.json` to the suggested `.gitignore` — provenance met
 Classification uses a two-pass approach (R6/F6):
 
 **Pass 1 — Deterministic (at Step 3, during discovery confirmation):**
-1. Query `get_classes(action: 'classify_components')` with `{ name, type, description, discovery_source }`. The MCP tool performs deterministic fuzzy matching against the IaC mapping table and class definitions, returning `{ component_name, suggested_class_id, confidence, alternatives[] }` (D51).
+1. Call `match_classes` with `{ elements: [{ name, type, description }], classLabel: 'COMPONENT', moduleIds: [activeModules], topN: 3 }`. The MCP tool performs batch fuzzy matching against the IaC mapping table and class definitions across all specified modules, returning ranked matches with confidence levels and match types (`exact_name`, `fuzzy`, `type_only`) (D51).
 2. High-confidence matches (exact IaC mapping or unambiguous type match) are pre-filled in the discovery confirmation table, so users see *"Redis Cache (STORE / Key-Value Store)"* rather than *"Redis Cache (STORE / unclassified)"* when confirming discovered components.
 
 **Pass 2 — LLM-assisted (at Step 6, after boundary refinement):**
 3. Low-confidence and unmatched items are flagged for LLM-assisted reasoning — the agent uses component context (boundary position, connected flows) to propose classifications.
 4. Present batch table of remaining unclassified + any user-adjusted items. User confirms or adjusts.
 
-> D51: Deterministic classification saves 3,000-5,000 tokens per classification run by eliminating LLM reasoning over ~300 comparisons (12 components x 25 classes). Running Pass 1 at Step 3 (instead of deferring everything to Step 6) additionally improves boundary refinement decisions because component classifications are visible during Step 4. If `get_classes` requires platform connectivity and the platform is offline, Pass 1 is skipped and all classification happens at Step 6.
+> D51: Batch classification via `match_classes` reduces tool calls from 15-100 (per-module `get_classes` loops) to 1-5 batch calls, saving significant token overhead. Running Pass 1 at Step 3 (instead of deferring everything to Step 6) additionally improves boundary refinement decisions because component classifications are visible during Step 4. If `match_classes` requires platform connectivity and the platform is offline, Pass 1 is skipped and all classification happens at Step 6.
 
 ### Class Inventory (from dethernety-module)
 
@@ -658,7 +658,7 @@ score = (
 
 All factors are normalized to the range 0.0-1.0 before multiplication. Rate factors (`component_classification_rate`, etc.) are computed as ratios (e.g., classified_components / total_components). When a denominator is zero (e.g., `total_components = 0` during early scope definition, or `total_cross_boundary_flows = 0` for models without trust boundaries), the rate is 0.0 — not NaN or undefined.
 
-`control_coverage_rate`: percentage of classified components that have at least one DTControlClass control assigned via the platform.
+`control_coverage_rate`: two-tier metric. *Inferred tier* (offline): percentage of classified components with at least one positive security attribute per the mapping table in [CONTROL_INTEGRATION.md §10](CONTROL_INTEGRATION.md#phase-1--fix-the-quality-score-zero-new-ux). *Formal tier* (post-sync): percentage of classified components with at least one control reference in `controls[]` (directly or boundary-inherited). The quality score uses the maximum of the two tiers per element.
 
 `credential_coverage_rate`: percentage of cross-boundary data flows with `credential_type` set (not `"none"`).
 
