@@ -87,6 +87,9 @@ export class DtUpdate {
   private processedDataflowIds: Set<string> = new Set()
   private processedDataitemIds: Set<string> = new Set()
 
+  // Cached controls for resolveControls() — populated once per update batch
+  private cachedAvailableControls: any[] | null = null
+
   private progress: UpdateProgress = {
     currentStep: 0,
     totalSteps: 9,
@@ -126,6 +129,8 @@ export class DtUpdate {
     this.processedComponentIds = new Set()
     this.processedDataflowIds = new Set()
     this.processedDataitemIds = new Set()
+
+    this.cachedAvailableControls = null
 
     this.progress = {
       currentStep: 0,
@@ -383,11 +388,75 @@ export class DtUpdate {
     }
   }
 
+  /**
+   * Resolve control references (by ID or name) to server control IDs.
+   * Caches available controls for the duration of the update batch.
+   * Returns undefined when input is undefined (preserves existing controls).
+   */
+  private resolveControls = async (
+    controls: any[] | undefined
+  ): Promise<string[] | undefined> => {
+    if (controls === undefined) return undefined
+    if (controls.length === 0) return []
+
+    // Populate cache on first call
+    if (this.cachedAvailableControls === null) {
+      this.cachedAvailableControls = []
+      try {
+        const noFolderControls = await this.dtControl.getControls({ folderId: undefined })
+        this.cachedAvailableControls.push(...noFolderControls)
+      } catch { /* silently continue */ }
+      try {
+        const allControls = await this.dtControl.getControls({ folderId: 'all' })
+        for (const control of allControls) {
+          if (!this.cachedAvailableControls.find((c: any) => c.id === control.id)) {
+            this.cachedAvailableControls.push(control)
+          }
+        }
+      } catch { /* silently continue */ }
+    }
+
+    const controlIds: string[] = []
+    for (const controlData of controls) {
+      let found = false
+
+      // Priority 1: Match by exact ID
+      if (controlData.id) {
+        const match = this.cachedAvailableControls.find((c: any) => c.id === controlData.id)
+        if (match) { controlIds.push(match.id); found = true }
+      }
+
+      // Priority 2-4: Match by name (exact → case-insensitive → partial)
+      if (!found && controlData.name) {
+        const match = this.cachedAvailableControls.find((c: any) => c.name === controlData.name)
+          || this.cachedAvailableControls.find((c: any) =>
+            c.name.toLowerCase() === controlData.name.toLowerCase())
+          || this.cachedAvailableControls.find((c: any) =>
+            c.name.toLowerCase().includes(controlData.name.toLowerCase()) ||
+            controlData.name.toLowerCase().includes(c.name.toLowerCase()))
+        if (match) { controlIds.push(match.id); found = true }
+      }
+
+      if (!found) {
+        this.warnings.push(`Could not resolve control: ${controlData.name || controlData.id || 'unnamed'}`)
+      }
+    }
+    return controlIds
+  }
+
   private updateModelProperties = async (data: any, existingModel: Model): Promise<void> => {
     try {
       // Get current model state to preserve unchanged fields
       const moduleIds = existingModel.modules?.map((m: Module) => m.id) || []
-      const controlIds: string[] = []
+
+      // Resolve controls from input, falling back to existing model controls
+      let controlIds: string[]
+      if (data.controls !== undefined) {
+        const resolved = await this.resolveControls(data.controls)
+        controlIds = resolved ?? []
+      } else {
+        controlIds = existingModel.controls?.map((c: any) => typeof c === 'string' ? c : c.id) || []
+      }
 
       await this.dtModel.updateModel({
         id: this.currentModelId,
@@ -456,14 +525,14 @@ export class DtUpdate {
         }
       }
 
-      // Update model with new module list
+      // Update model with new module list (preserve existing controls)
       if (targetModuleIds.length > 0) {
         await this.dtModel.updateModel({
           id: this.currentModelId,
           name: existingModel.name || '',
           description: existingModel.description || '',
           modules: targetModuleIds,
-          controls: [],
+          controls: existingModel.controls?.map((c: any) => typeof c === 'string' ? c : c.id) || [],
           folderId: undefined
         })
         this.assignedModuleIds = targetModuleIds
@@ -498,6 +567,12 @@ export class DtUpdate {
         },
         width: boundaryData.dimensionsWidth,
         height: boundaryData.dimensionsHeight
+      }
+
+      // Resolve controls from input
+      const resolvedControls = await this.resolveControls(boundaryData.controls)
+      if (resolvedControls !== undefined) {
+        boundaryNode.data.controls = resolvedControls
       }
 
       await this.dtBoundary.updateBoundaryNode({
@@ -650,6 +725,12 @@ export class DtUpdate {
         height: boundaryData.dimensionsHeight || 0
       }
 
+      // Resolve controls from input
+      const resolvedControls = await this.resolveControls(boundaryData.controls)
+      if (resolvedControls !== undefined) {
+        boundaryNode.data.controls = resolvedControls
+      }
+
       await this.dtBoundary.updateBoundaryNode({
         updatedNode: boundaryNode,
         defaultBoundaryId: this.defaultBoundaryId
@@ -719,6 +800,30 @@ export class DtUpdate {
           boundaryData.attributes,
           boundaryData.name
         )
+      }
+
+      // Associate controls with newly created boundary via follow-up update
+      if (createdBoundary && boundaryData.controls) {
+        const resolvedControls = await this.resolveControls(boundaryData.controls)
+        if (resolvedControls && resolvedControls.length > 0) {
+          const updateNode: Node = {
+            id: createdBoundary.id,
+            type: 'SECURITY_BOUNDARY',
+            position: { x: boundaryData.positionX || 0, y: boundaryData.positionY || 0 },
+            data: {
+              label: boundaryData.name,
+              description: boundaryData.description || '',
+              controls: resolvedControls
+            },
+            parentNode: parentBoundaryId,
+            width: boundaryData.dimensionsWidth || 0,
+            height: boundaryData.dimensionsHeight || 0
+          }
+          await this.dtBoundary.updateBoundaryNode({
+            updatedNode: updateNode,
+            defaultBoundaryId: this.defaultBoundaryId
+          })
+        }
       }
 
       return createdBoundary
@@ -791,6 +896,12 @@ export class DtUpdate {
         parentNode: parentBoundaryId
       }
 
+      // Resolve controls from input
+      const resolvedControls = await this.resolveControls(componentData.controls)
+      if (resolvedControls !== undefined) {
+        componentNode.data.controls = resolvedControls
+      }
+
       await this.dtComponent.updateComponent({
         updatedNode: componentNode,
         defaultBoundaryId: this.defaultBoundaryId
@@ -858,6 +969,28 @@ export class DtUpdate {
           componentData.attributes,
           componentData.name
         )
+      }
+
+      // Associate controls with newly created component via follow-up update
+      if (createdComponent && componentData.controls) {
+        const resolvedControls = await this.resolveControls(componentData.controls)
+        if (resolvedControls && resolvedControls.length > 0) {
+          const updateNode: Node = {
+            id: createdComponent.id,
+            type: componentData.type,
+            position: { x: componentData.positionX || 0, y: componentData.positionY || 0 },
+            data: {
+              label: componentData.name,
+              description: componentData.description || '',
+              controls: resolvedControls
+            },
+            parentNode: parentBoundaryId
+          }
+          await this.dtComponent.updateComponent({
+            updatedNode: updateNode,
+            defaultBoundaryId: this.defaultBoundaryId
+          })
+        }
       }
 
       return createdComponent
@@ -940,6 +1073,12 @@ export class DtUpdate {
         }
       }
 
+      // Resolve controls from input
+      const resolvedControls = await this.resolveControls(flowData.controls)
+      if (resolvedControls !== undefined) {
+        edge.data.controls = resolvedControls
+      }
+
       await this.dtDataflow.updateDataFlow({
         edge,
         updates: {
@@ -1008,6 +1147,29 @@ export class DtUpdate {
           flowData.attributes,
           flowData.name
         )
+      }
+
+      // Associate controls with newly created data flow via follow-up update
+      if (createdFlow && flowData.controls) {
+        const resolvedControls = await this.resolveControls(flowData.controls)
+        if (resolvedControls && resolvedControls.length > 0) {
+          const updateEdge: Edge = {
+            id: createdFlow.id,
+            source: sourceId,
+            target: targetId,
+            sourceHandle: flowData.sourceHandle,
+            targetHandle: flowData.targetHandle,
+            label: flowData.name,
+            data: {
+              description: flowData.description || '',
+              controls: resolvedControls
+            }
+          }
+          await this.dtDataflow.updateDataFlow({
+            edge: updateEdge,
+            updates: {}
+          })
+        }
       }
 
       return createdFlow

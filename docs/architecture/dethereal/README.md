@@ -79,7 +79,7 @@ Each step is individually invocable (`/dethereal:discover`, `/dethereal:enrich`,
 |-----------|-------|---------|
 | **Skills** | 14 | Slash commands for each workflow step + utilities (login, status, help) |
 | **Agents** | 4 | Specialized subagents: infrastructure-scout, threat-modeler, security-enricher, model-reviewer |
-| **MCP Tools** | 20 | Platform communication: model CRUD, MITRE ATT&CK/D3FEND, exposures, controls, countermeasures, analysis, attribute stub generation |
+| **MCP Tools** | 22 | Platform communication: model CRUD, MITRE ATT&CK/D3FEND, exposures, controls, countermeasures, analysis, class matching, control gaps, attribute stub generation |
 | **Hooks** | 3 | Session orientation, post-write validation, pre-compaction context preservation |
 
 ## Architecture Documentation
@@ -92,10 +92,13 @@ Each step is individually invocable (`/dethereal:discover`, `/dethereal:enrich`,
 | [USER_EXPERIENCE.md](USER_EXPERIENCE.md) | User journey, interaction patterns, file presentation, error handling |
 | [SYNC_AND_SOURCE_OF_TRUTH.md](SYNC_AND_SOURCE_OF_TRUTH.md) | Publish/pull architecture, conflict taxonomy, push flow, state bootstrap |
 | [OPERATIONAL_REQUIREMENTS.md](OPERATIONAL_REQUIREMENTS.md) | Attack surface accuracy, detection readiness, compliance, trustworthiness |
+| [CLASSIFICATION_ENHANCEMENT.md](CLASSIFICATION_ENHANCEMENT.md) | Classification workflow enhancement — server-side class matching via `match_classes` |
 | [CONTROL_INTEGRATION.md](CONTROL_INTEGRATION.md) | Control integration design — categories, workflow placement, local intent capture |
 | [BACKEND_DELEGATION.md](BACKEND_DELEGATION.md) | Backend delegation strategy — what to compute server-side vs client-side |
 | [CLASS_AND_CONTROL_RESOLVER_ARCHITECTURE.md](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_ARCHITECTURE.md) | Backend services target architecture — service design, embedding pipeline, integration, quality attributes |
 | [CLASS_AND_CONTROL_RESOLVER_SPEC.md](../backend/LLD/CLASS_AND_CONTROL_RESOLVER_SPEC.md) | Backend services specification — GraphQL types, Cypher queries, method signatures, implementation sequence |
+| [GAP_ANALYSIS.md](GAP_ANALYSIS.md) | Implementation gap analysis — 25 gaps with dependencies between design docs and current code |
+| [SPRINT_PLAN_CONTROL_CLASSIFICATION.md](SPRINT_PLAN_CONTROL_CLASSIFICATION.md) | Sprint plan for control integration and classification enhancement — 6 sprints, 20 user stories |
 | [DECISIONS.md](DECISIONS.md) | All 66 architecture decisions with rationale |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Current MCP server implementation (pre-upgrade reference) |
 

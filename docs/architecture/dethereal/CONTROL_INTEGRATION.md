@@ -14,7 +14,8 @@
 - [8. Enrichment Prompt Design](#8-enrichment-prompt-design)
 - [9. Two-Tier Reporting Format](#9-two-tier-reporting-format)
 - [10. Implementation Phasing](#10-implementation-phasing)
-- [11. Known Gaps and Risks](#11-known-gaps-and-risks)
+- [11. Implementation Architecture](#11-implementation-architecture)
+- [12. Known Gaps and Risks](#12-known-gaps-and-risks)
 
 ---
 
@@ -271,27 +272,107 @@ In both cases, control references are captured as `controls: [{ id, name }]` in 
 
 ### 6.2 Workflow placement
 
-Control assignment is a sub-step within the existing enrichment step (Step 7/8 of the guided workflow), positioned after class-template-driven attribute enrichment and before credential enrichment. It does not warrant a new top-level workflow step.
+Control assignment is a **focus mode** within the existing enrichment step (Step 8 of the guided workflow), invoked as `/dethereal:enrich --focus controls`. It does not warrant a new top-level workflow step.
 
-The enrichment step already captures the security attributes that inform control selection. After the agent discovers what protections an element has (attributes), it asks what additional protective systems exist (controls). The question shifts from "what are this element's security properties?" to "what additional enforcement, detection, or governance controls protect this element beyond its own configuration?"
+The focus mode approach (rather than inline sub-steps) is driven by three Claude Code implementation constraints:
+
+1. **Turn budget:** The security-enricher agent has `maxTurns: 40`. Current enrichment already uses 20-30 turns for a 15-component model. Embedding control prompts inline risks exhausting the budget before reaching later steps.
+2. **Instruction linearity:** Splitting control sub-steps across the enrichment flow (enforcement controls after Step 4, detection controls after Step 9) creates non-linear control flow that degrades LLM instruction-following.
+3. **Instruction size:** The security-enricher is already ~360 lines. Adding ~150 lines of control instructions inline would exceed the effective limit for reliable agent behavior. The `--focus controls` mode loads control instructions from a separate file (`@docs/controls-enrichment.md`) only when invoked.
+
+The enrichment step already captures the security attributes that inform control selection. The `--focus controls` pass runs after main enrichment is complete — the agent has the full context of what protections each element has (attributes), and asks what additional protective systems exist (controls).
+
+**Execution model:** The `--focus controls` pass is a **separate agent invocation** with its own 40-turn budget, not a continuation of the main enrichment session. Main enrichment consumes 20-30 turns; the control pass cannot share that budget. In the guided workflow (`/dethereal:threat-model`), the orchestrating skill spawns the control pass as a new enricher invocation after main enrichment completes, with a session break offered to the user:
+
+```
+Enrichment complete. Quality: 72/100.
+Ready for control assignment (~6 prompts). Continue now or resume later?
+  [continue] Run control pass now
+  [later]    Resume with /dethereal:enrich --focus controls
+```
+
+**Instruction loading:** The `@docs/controls-enrichment.md` reference goes in the enrich skill's `SKILL.md` under the `--focus controls` conditional block, not in the agent's base instructions. This ensures control instructions load only when the focus mode is invoked and do not consume context on regular enrichment runs.
 
 ### 6.3 User interaction model
 
 #### Brownfield (existing control library)
 
-When the platform is reachable, query existing controls via `manage_controls(action: 'list')`. Filter by relevance using `supportedTypes` and `supportedCategories` matching the element's type and class. Present as a batch table:
+When the platform is reachable, query existing controls via `manage_controls(action: 'list')`. Filter by relevance using the control's `controlClasses` — each class has `supportedTypes` and `supportedCategories` that indicate which element types it can protect. Note: the current `GET_CONTROLS` GraphQL query returns class names but not `supportedTypes`; the query must be extended to include these fields, or the agent filters by class name heuristics.
+
+##### Multi-class control evaluation
+
+A Control can have multiple ControlClasses via `IS_INSTANCE_OF` edges (e.g., a "Web Server Security Package" bundles TLS, input validation, and authentication classes). When searching for a control by a needed class, the agent must evaluate the control's **full class profile** — not just the matching class:
+
+1. **Not all classes on a control are necessarily applicable.** A control with classes `[WAF, CloudFront-WAF-Config, AWS-SecurityGroup-Rules]` is a strong match for an AWS environment but a poor fit for Azure infrastructure — two of its three classes are irrelevant and configured for the wrong platform.
+
+2. **Relevance requires checking other classes.** A control can only be reused if its non-matching classes are also relevant to the current context (element type, technology stack, deployment environment) and properly configured for the actual use. A PostgreSQL-specific encryption control (`[Encryption-at-Rest, PostgreSQL-TDE, Key-Management-KMS]`) found via the `Encryption-at-Rest` class is only applicable if the target element is actually PostgreSQL.
+
+3. **When multiple controls match, select the most applicable.** The best-fit control is the one with the most relevant, properly-configured classes for the current context:
+   - **All classes relevant and configured** — strong match (assign directly)
+   - **Some classes relevant, others neutral** — good match (assign, note unused classes)
+   - **Some classes irrelevant but unconfigured** — acceptable (unused classes generate no countermeasures)
+   - **Some classes irrelevant AND configured** — **weak match / disqualifier** (misconfigured classes actively generate inaccurate countermeasures via OPA/Rego, which is worse than no control — creates false confidence)
+
+##### Ranking: backend-delegated, not agent-reasoned
+
+The multi-class evaluation is **deterministic scoring**, not a judgment call. The backend and MCP tool layer compute it; the agent presents the result. Three layers collaborate:
+
+**Layer 1 — Schema `@cypher` query (`controlCandidatesForType`):** Returns controls whose ControlClasses have `supportedTypes` matching the target element type, with countermeasure counts per class (proxy for "configured") and already-assigned element IDs. Single Cypher traversal, no custom resolver needed.
+
+**Layer 2 — MCP tool (`manage_controls` `rank` action):** Accepts element type, element class ID/module (from local files), and module scope. Calls the schema query, then enriches with local context:
+- `compatible` = `supportedTypes` includes element type (from query result)
+- `configured` = countermeasure count > 0 for this class (from query result)
+- `sameDomain` = control class module matches element class module (local + query)
+- `alreadyAssigned` = element ID in assigned element list (local + query)
+
+Scoring formula:
+
+```
+score = compatible_and_configured / total_classes
+      - penalty * incompatible_and_configured / total_classes
+
+where:
+  compatible_and_configured = classes with supportedTypes match AND countermeasures > 0
+  incompatible_and_configured = classes WITHOUT supportedTypes match BUT countermeasures > 0
+  penalty = 1.0 (misconfigured classes fully offset a compatible class)
+```
+
+Three buckets:
+- **compatible + configured** → contributes positively (this class helps)
+- **incompatible + unconfigured** → neutral (dormant, generates nothing)
+- **incompatible + configured** → penalty (generates wrong countermeasures)
+
+**Relevance label thresholds:**
+
+| Label | Score range | Additional constraint | Meaning |
+|-------|-----------|----------------------|---------|
+| **strong** | >= 0.8 | `incompatible_and_configured == 0` | All relevant classes fit; no wrong countermeasures |
+| **good** | >= 0.5 | — | Majority of classes fit; minor gaps |
+| **weak** | < 0.5 | — | More noise than signal; recommend creating new |
+
+The `strong` label requires zero misconfigured classes regardless of score. A control with 3 compatible + 1 misconfigured class scores `3/4 - 1.0*1/4 = 0.5` ("good", not "strong") — the misconfigured class prevents the strong label both by score and by the explicit constraint. This prevents false confidence: a control labeled "strong" never generates inaccurate countermeasures.
+
+Returns top 5 candidates pre-ranked with relevance label, class-level fit details, and pre-loaded countermeasure summaries.
+
+**Layer 3 — Agent:** Presents the pre-ranked table. Asks yes/no. No scoring loop, no unbounded reasoning. The agent's only judgment call is whether to recommend creating a new control when all candidates are weak.
+
+**Post-assignment verification:** After assigning a control, the countermeasures it generates are already in the `manage_controls` response (pre-loaded by `findControls`). The agent presents these in the confirmation: "This control provides: [Network Filtering (D3-NF), Packet Filtering (D3-PF)]. Assign?" This closes the verification gap without an additional tool call.
+
+**Why not create a new control instead?** When no existing control scores above `weak` (all candidates have incompatible-and-configured classes), the agent recommends creating a new control with only the applicable classes rather than reusing a poor match.
+
+Present as a batch table with class relevance visible:
 
 ```
 ## Control Assignment — Tier 1 Components (Crown Jewels)
 
 Existing controls from your library:
 
-| # | Component | Suggested Control | Type | Classes | Assign? |
-|---|-----------|-------------------|------|---------|---------|
-| 1 | payment-db | Database Encryption Package | technical | Encryption at Rest, Access Control | Y |
-| 2 | payment-db | SOC Monitoring | detection | SIEM Integration, Log Correlation | Y |
-| 3 | api-gateway | WAF Protection | technical | Web Application Firewall | Y |
-| 4 | api-gateway | Rate Limiting | technical | API Rate Limiting | ? |
+| # | Component | Suggested Control | Relevance | Classes (relevant / total) | Assign? |
+|---|-----------|-------------------|-----------|---------------------------|---------|
+| 1 | payment-db | DB Encryption (PG) | strong | 3/3 (Encryption-at-Rest, PG-TDE, KMS) | Y |
+| 2 | payment-db | SOC Monitoring | good | 2/3 (SIEM, Log-Correlation; NDR N/A) | Y |
+| 3 | api-gateway | WAF Protection (AWS) | strong | 3/3 (WAF, CloudFront, AWS-SG) | Y |
+| 4 | api-gateway | WAF Protection (Generic) | weak | 1/2 (WAF; Azure-FrontDoor N/A) | ? |
 
 Additional controls not in your library? (describe or "none")
 ```
@@ -314,18 +395,45 @@ Write references as `{ id: null, name: "WAF Protection" }`. At sync time, `resol
 
 ### 6.4 Local JSON format
 
-Control references on elements use the existing `ControlReference` schema (already defined, already exported, currently ignored by the update pipeline):
+Control references use the existing `ControlReference` schema (already defined, already exported, currently ignored by the update pipeline). Controls can be stored on **boundaries, components, or data flows** — the schema supports `controls?: ControlReference[]` on all three.
+
+**Boundary-level assignment (preferred for enforcement controls):** When a control protects an entire boundary (e.g., a firewall protecting a DMZ), store the control reference on the boundary in `structure.json`, not on each individual component. This matches how security teams think ("WAF protects the DMZ zone"), avoids stale fan-out when components are added later, and creates a `SUPPORTS -> SecurityBoundary` edge at sync — which the platform supports natively.
 
 ```json
-// structure.json — component with controls
+// structure.json — boundary with enforcement controls
+{
+  "id": "boundary-dmz",
+  "name": "DMZ",
+  "type": "BOUNDARY",
+  "controls": [
+    { "id": "ctrl-waf", "name": "WAF Protection", "source": "declared" },
+    { "id": null, "name": "Perimeter Firewall", "source": "declared" }
+  ],
+  "children": [
+    {
+      "id": "comp-api-gateway",
+      "name": "API Gateway",
+      "type": "PROCESS",
+      "controls": [
+        { "id": "ctrl-rate-limit", "name": "Rate Limiting", "source": "declared" }
+      ]
+    }
+  ]
+}
+```
+
+**Element-level assignment (for component-specific or flow-specific controls):**
+
+```json
+// structure.json — component with specific controls
 {
   "id": "comp-payment-db",
   "name": "Payment Database",
   "type": "STORE",
   "classData": { "id": "class-postgresql" },
   "controls": [
-    { "id": "ctrl-db-encryption", "name": "Database Encryption Package" },
-    { "id": null, "name": "SOC Monitoring" }
+    { "id": "ctrl-db-encryption", "name": "Database Encryption Package", "source": "discovered" },
+    { "id": null, "name": "SOC Monitoring", "source": "declared" }
   ]
 }
 
@@ -335,26 +443,81 @@ Control references on elements use the existing `ControlReference` schema (alrea
   "source": { "id": "comp-api" },
   "target": { "id": "comp-payment-db" },
   "controls": [
-    { "id": "ctrl-tls", "name": "TLS Encryption" }
+    { "id": "ctrl-tls", "name": "TLS Encryption", "source": "discovered" }
   ]
 }
 ```
 
+**Assignment level guidance:**
+
+| Control type | Preferred assignment level | Rationale |
+|-------------|---------------------------|-----------|
+| Firewall, WAF, IDS/IPS | Boundary | Protects a zone, not individual components |
+| Database encryption, application auth | Component | Specific to the element's configuration |
+| TLS, mTLS | Data flow | Protects a specific communication path |
+| SIEM, monitoring | Boundary or component | Depends on coverage scope |
+
 ### 6.5 Quality score integration
 
-Replace the hardcoded `control_coverage_rate = 0` with a local computation: count classified elements with non-empty `controls[]` arrays (even with null IDs) divided by total classified elements. This gives offline progress visibility and raises the max offline score from ~85 to ~95.
+Replace the hardcoded `control_coverage_rate = 0` with a two-tier local computation:
+
+1. **Attribute-inferred coverage (Phase 1):** Count classified elements with at least one positive security attribute (per the mapping table in Section 10, Phase 1). This is the offline-only baseline.
+2. **Formal control coverage (Phase 2+):** Count classified elements that are "control-covered" divided by total classified elements. This supplements attribute-inferred coverage once the enrichment workflow captures control references.
+
+An element is **control-covered** when any of the following is true:
+- It has a non-empty `controls[]` array (even with null IDs) — directly assigned
+- It is a child of a boundary that has a non-empty `controls[]` array — **boundary-inherited coverage**
+
+Boundary-inherited coverage is critical: Section 6.4 recommends boundary-level assignment for enforcement controls (`SUPPORTS → SecurityBoundary`). A firewall assigned to the DMZ boundary protects all components inside that boundary. Without inheritance, the quality score would show 0% formal coverage on those components despite them being protected — a misleading signal that contradicts the recommended assignment pattern.
+
+**Implementation:** The `computeQuality` method already reads `structure.json` and walks the boundary tree (it collects component IDs recursively). When counting formal coverage, walk the tree and propagate `controls[]` from boundaries to their children. A component counts as covered if `component.controls.length > 0` OR `parentBoundary.controls.length > 0` (checked recursively up the boundary hierarchy).
+
+The quality score should use the **maximum** of the two computations (attribute-inferred and formal) for each element: an element with `encryption_in_transit: TLS 1.3` and no `controls[]` still counts as covered (attribute-inferred). An element with a `controls[]` entry (directly or boundary-inherited) but no enrichment attributes also counts (formally assigned).
+
+**Platform-side note:** The `get_control_gaps` backend query must also traverse boundary-level SUPPORTS edges. When checking whether a component is mitigated, the Phase 2 Cypher should match both direct `(Control)-[:SUPPORTS]->(Component)` and indirect `(Control)-[:SUPPORTS]->(Boundary)<-[:BELONGS_TO]-(Component)` paths. Without this, post-analysis gap recommendations will suggest redundant controls for components already protected by boundary-level assignments.
+
+**Cross-document note:** THREAT_MODELING_WORKFLOW.md Section 8 defines `control_coverage_rate` as "percentage of classified components that have at least one DTControlClass control assigned via the platform." This definition applies to platform-side scoring (after sync). The local computation described here is a pre-sync approximation using attribute inference, local JSON references, and boundary inheritance. The workflow doc should be updated to reflect the two-tier approach when this design is implemented.
 
 ### 6.6 Post-analysis complementary path (Approach D)
 
-After sync and analysis, the `/dethereal:surface` skill identifies unmitigated exposures and recommends controls. This is the second pass that catches what the user missed during enrichment. The workflow is:
+After sync and analysis, the `/dethereal:surface` skill identifies unmitigated exposures and recommends controls. This is the second pass that catches what the user missed during enrichment.
 
-1. Query platform-computed exposures on elements (`manage_exposures`)
-2. Query countermeasures on assigned controls (`manage_countermeasures`) to see what is already covered
-3. Identify unmitigated exposures (exposures not addressed by any countermeasure)
-4. Recommend Controls from the org library whose countermeasures address the gaps — or suggest creating new Controls with appropriate ControlClasses
-5. Assign recommended Controls to elements (SUPPORTS edges)
+The platform has the full MITRE ATT&CK and D3FEND frameworks loaded in the graph database and connected to each other (`mitre-frameworks` module). This means the exposure→countermeasure loop can be closed with a single graph traversal:
 
-This path complements pre-analysis control assignment, not replaces it. It leverages the platform's automatic countermeasure generation: once a Control with configured attributes is assigned to an element, its countermeasures automatically cover the relevant exposures.
+```
+Exposure -[:EXPLOITED_BY]-> ATT&CK Technique
+                              ↑
+              [:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]
+                              |
+                       ATT&CK Mitigation
+                              ↑
+                      [:RESPONDS_WITH]
+                              |
+                        Countermeasure -[:RESPONDS_WITH]-> D3FEND Technique
+                              ↑
+                   [:HAS_COUNTERMEASURE]
+                              |
+                           Control -[:SUPPORTS]-> Element
+```
+
+This chain enables **framework-grounded recommendations**: starting from an unmitigated exposure, the backend walks the graph to find which ATT&CK Mitigations defend against the technique, which Countermeasures implement those mitigations, and which Controls (or ControlClasses) produce those countermeasures. The recommendation is a deterministic graph query grounded in the MITRE frameworks — not LLM-generated guesswork. However, the MITRE data has known coverage gaps (see "Chain completeness" below), and ATT&CK Mitigations are intentionally coarse (M1032 "Multi-factor Authentication" links to dozens of techniques), so recommendations should be treated as ranked candidates, not prescriptions.
+
+**Chain completeness:** The `get_control_gaps` backend distinguishes three states for unmitigated exposures:
+
+1. **Unmitigated, addressable** — ATT&CK Mitigations exist and at least one installed module's ControlClass covers them. Actionable: assign or create a control.
+2. **Unmitigated, unaddressable (module gap)** — ATT&CK Mitigations exist but no installed module's ControlClass produces countermeasures for them. Actionable for module authors, not for users. The backend returns these separately so the agent can present: "No ControlClass covers mitigation M1032 in your installed modules."
+3. **Unmitigated, no MITRE chain** — Exposure has no `EXPLOITED_BY` link to an ATT&CK Technique, or the technique has no mapped mitigations. Not actionable through the framework. These count toward `totalExposures` but not toward any coverage tier.
+
+**Type-compatible filtering:** The `get_control_gaps` Phase 3 Cypher filters recommended controls by `ControlClass.supportedTypes` compatibility with the affected element types. A database-tier MFA control is not recommended for an API gateway element. This is a backend-side filter (one-line `WHERE` in the existing Cypher), not an agent-side evaluation.
+
+**Workflow (via backend `get_control_gaps` tool — see Section 11):**
+
+1. Agent calls `get_control_gaps(model_id)` — a single MCP tool call
+2. Backend traverses the full chain, returns: unmitigated exposures (partitioned into addressable and unaddressable), ranked type-compatible candidate controls, and MITRE technique/mitigation/D3FEND context for each
+3. Agent presents the top recommendations to the user: "Exposure 'Valid Accounts' (T1078) is unmitigated. MITRE recommends 'Multi-factor Authentication' (M1032 / D3-MFA). Your org has ControlClass 'MFA' available. Create a control?"
+4. User confirms — agent assigns Controls to elements
+
+This replaces what would otherwise be 20+ sequential MCP tool calls (N exposure queries + M countermeasure queries + agent-side diffing) with a single backend-computed result. The agent's job is presentation and confirmation, not graph traversal.
 
 ### 6.7 Two-tier reporting
 
@@ -427,13 +590,11 @@ The plugin's role is the same in both cases: assign the class, fill in the attri
 
 ## 8. Enrichment Prompt Design
 
-Control assignment is positioned within the existing enrichment step (Step 7/8 of the guided workflow), after class-template-driven attribute enrichment and before credential enrichment. The prompts are designed to minimize fatigue while capturing Categories 2-4.
+Control assignment runs as a **focus mode** (`/dethereal:enrich --focus controls`) — a separate pass after main enrichment is complete. This avoids the turn budget, instruction bloat, and split-step ordering problems of inline embedding (see Section 6.2). The control pass has access to all enrichment data (attributes, monitoring tools, credentials) since main enrichment has already run.
 
-### Prompt Budget
+The prompts are designed to minimize fatigue while capturing Categories 2-4. The total is **B + 2 prompts** (B = boundary count, typically 3-5). For a typical 4-boundary model, that is 6 prompts.
 
-The enrichment step already captures 6+ attributes per component, credentials, monitoring tools, auth failure modes, and compliance attributes. The control sub-step adds at most **B + 2 prompts** (B = boundary count, typically 3-5). For a typical 4-boundary model, that is 6 additional prompts. Each prompt captures multiple controls via batch tables.
-
-### Step 4b.1 — Enforcement Controls (Category 2)
+### Step 1 — Enforcement Controls (Category 2)
 
 **Batched per boundary**, not per component. Enforcement entities (firewalls, WAFs, IDS/IPS) typically sit at boundaries, not at individual components. This reduces N component-level prompts to B boundary-level prompts.
 
@@ -450,19 +611,20 @@ What enforcement controls protect components in this boundary?
 Enter controls or "none" to skip.
 ```
 
-For each declared control, the agent writes `controls: [{ id: null, name: "...", source: "declared" }]` to the relevant element entries in `structure.json` or `dataflows.json`.
+For boundary-scoped controls (e.g., "this firewall protects the entire DMZ"), the agent writes the control reference to the **boundary** entry in `structure.json`. For controls protecting specific components, the agent writes to the component entry. See Section 6.4 for assignment level guidance.
 
-If the platform is reachable, the agent first queries `manage_controls(action: 'list')` and filters by `supportedTypes` matching the boundary's element types. Matching existing controls are pre-populated in the table with their platform IDs. Existing controls already have countermeasures generated — assigning them is pure linking, immediately providing countermeasure coverage on the element.
+If the platform is reachable, the agent calls `manage_controls(action: 'rank', element_type: '<boundary-type>', module_ids: [...])` to get pre-ranked control candidates with class-level fit details (Section 6.3). The MCP tool returns top 5 candidates scored and labeled (strong/good/weak), with countermeasure summaries pre-loaded. The agent presents the table directly — no scoring loop needed. If no existing control scores above `weak`, the agent recommends creating a new one with only the applicable classes. Existing controls that are assigned already have countermeasures generated — assigning them is pure linking, immediately providing countermeasure coverage on the element.
 
-### Step 4b.2 — Detection and Response Controls (Category 3)
+**Error recovery:** If `manage_controls(action: 'rank')` fails (platform unreachable or error), fall back to the greenfield prompts (name-only references). Do not retry or stall.
 
-**One global prompt**, pre-populated from `monitoring_tools` data captured earlier in enrichment. This turns an open-ended question into a confirmation task — dramatically lower cognitive load.
+### Step 2 — Detection and Response Controls (Category 3)
+
+**One global prompt**, pre-populated from `monitoring_tools` data captured during main enrichment. Since the control pass runs after main enrichment, `monitoring_tools` is always available — no ordering dependency. This turns an open-ended question into a confirmation task — dramatically lower cognitive load.
 
 ```
 ## Detection & Response Coverage
 
-You declared monitoring_tools on components during enrichment.
-Which of these are formal detection controls with defined coverage?
+Monitoring tools captured during enrichment:
 
 | # | Tool | Components Covered | Detection Scope | Assign as Control? |
 |---|------|-------------------|-----------------|-------------------|
@@ -472,7 +634,7 @@ Which of these are formal detection controls with defined coverage?
 Additional detection controls? (SOC monitoring, NDR, automated response, or "none")
 ```
 
-### Step 4b.3 — Governance Placeholder (Category 4, V1 only)
+### Step 3 — Governance Placeholder (Category 4, V1 only)
 
 **Single prompt, once per model.** No graph entities created — documentation only.
 
@@ -485,19 +647,49 @@ Noted for documentation — formal governance control mapping in a future versio
 
 Responses written to `.dethereal/scope.json` as `declared_governance_controls: string[]`.
 
-### Prompt Sequence Within Enrichment
+### Prompt Sequence
+
+The control focus pass runs as a separate agent invocation (own 40-turn budget) in a linear sequence with **incremental persistence** — control references are written to local JSON after each boundary completes, not at the end:
 
 ```
-Tier N attribute enrichment (existing Step 4)
-  → Step 4b.1: Enforcement controls per boundary
-  → Step 4b.2: Detection controls (global, pre-populated)
-  → Step 4b.3: Governance placeholder (global, once)
-  → Step 5: Credential enrichment (existing)
+/dethereal:enrich --focus controls
+  1. Read model files + attribute files (context loading)
+  2. Step 1: For each boundary (Category 2):
+     a. Rank or prompt for enforcement controls
+     b. Write control references to structure.json  ← checkpoint
+     - If boundary_count == 0: single global enforcement prompt (Gap 6 mitigation)
+     - If boundary_count > 6: tiered prompt — crown-jewel boundaries first (Gap 8)
+  3. Step 2: Detection controls — pre-populated from monitoring_tools (Category 3)
+     a. Write detection control references  ← checkpoint
+  4. Step 3: Governance placeholder (Category 4)
+  5. Validate and report quality score
 ```
 
-The control sub-steps run after the agent has discovered each element's security attributes (encryption, auth, monitoring) — it has the context to ask the right control question without a cold start. The user is already thinking about security posture; the cognitive switching cost is near zero.
+**Incremental persistence rationale:** Claude Code agents cannot detect their remaining turn count — the harness terminates them at the limit. If the agent is cut off at turn 38, boundaries 1-4 are already persisted because each boundary writes its results immediately. The re-run behavior (Section 8, "Re-run behavior") handles resumption: previously declared controls appear as "currently assigned" and the agent continues with remaining boundaries.
 
-**Skip behavior:** If the user answers "none" to any sub-step, it takes one word to skip. Skipped controls leave `controls[]` empty; the quality score reflects this, and `/dethereal:surface` catches gaps post-analysis.
+### Turn Budget Breakdown
+
+Turn counts use tool-call accounting (each MCP call + file read/write = 1 turn), not prompt counting.
+
+The `rank` action accepts an array of element types (`element_types: [PROCESS, STORE]`), returning a unified candidate list for the boundary. This avoids per-type rank calls for mixed-type boundaries — one `rank` call per boundary regardless of how many element types it contains.
+
+| Step | Greenfield (no existing controls) | Brownfield (org library) |
+|------|-----------------------------------|--------------------------|
+| 1. Context loading (read model, attributes, scope) | 3 | 3 |
+| 2. Enforcement per boundary (B boundaries) | B × 2 (prompt + write) | B × 3 (rank + prompt + write) |
+| 3. Detection controls | 2 (prompt + write) | 3 (rank + prompt + write) |
+| 4. Governance placeholder | 1 | 1 |
+| 5. Validation | 1 | 1 |
+| **Total (B=4)** | **12** | **16** |
+| **Total (B=6)** | **16** | **22** |
+
+At B=6 brownfield, the pass uses 22 of 40 turns — leaving 18 turns for error recovery, follow-up questions, and `rank` failures (which fall back to greenfield prompts, saving 1 turn per failed boundary). **Gap 8 mitigation (tiered prompts for B>6) is required for Phase 2 launch**, not a deferred enhancement. For B>6, collapsing to crown-jewel boundaries first reduces the effective B to 3-4 while preserving coverage for the highest-value elements.
+
+**Skip behavior:** If the user answers "none" to any step, it takes one word to skip. Skipped controls leave `controls[]` empty; the quality score reflects this, and `/dethereal:surface` catches gaps post-analysis.
+
+**Re-run behavior:** On re-run, the agent reads existing `controls[]` from local JSON and pre-populates batch tables with previously declared controls. Boundaries with existing controls show them as "currently assigned" with options to add or remove.
+
+**Turn budget exhaustion:** With incremental persistence, each boundary's controls are written immediately after confirmation. If the harness terminates the agent at the turn limit, all completed boundaries are already saved. On re-run, the agent reads existing controls and continues with remaining boundaries (see "Re-run behavior" above).
 
 ---
 
@@ -565,28 +757,102 @@ The gap between the two tiers tells the governance narrative. When inferred cove
 
 Three phases with clean dependency boundaries. Each phase delivers independent value.
 
-### Phase 1 — "Stop lying" (zero new UX)
+### Phase 1 — "Fix the quality score" (zero new UX)
 
-Fix the quality score to derive `control_coverage_rate` from existing enrichment attributes (Category 1 auto-inference). This immediately reduces the cry-wolf problem and raises the quality ceiling — with no user interaction change.
-
-| # | Item | File | Description |
-|---|------|------|-------------|
-| P2 | Compute quality score locally | `dethereal/src/tools/validate-model.tool.ts` | Replace hardcoded `controlCoverageRate = 0`. Derive from enrichment attributes: count classified elements with security-relevant attributes (authentication, encryption, monitoring) populated, divided by total classified elements. |
-
-**Value:** Quality score stops lying. First analysis run has fewer false positives for controls visible in attributes. No new tools, no schema changes, no workflow changes.
-
-### Phase 2 — "Start asking" (enrichment workflow)
-
-Add the control assignment sub-step to the enrichment workflow. Users declare Category 2-3 controls during enrichment. Controls written to local JSON as `ControlReference[]`.
+Fix the quality score to derive `control_coverage_rate` from existing enrichment attributes (Category 1 auto-inference). This raises the quality ceiling and gives accurate completeness feedback — with no user interaction change.
 
 | # | Item | File | Description |
 |---|------|------|-------------|
-| P4 | Enrich skill update | `dethereal/skills/enrich/SKILL.md` | Add control assignment sub-step (Steps 4b.1-4b.3) after class-template attributes, before credentials. |
-| P5 | Security-enricher agent update | `dethereal/agents/security-enricher.md` | Add Category 2-4 control prompts per the enrichment prompt design (Section 8). Add `source` field handling. |
+| P2 | Compute quality score locally | `dethereal/src/tools/validate-model.tool.ts` | Replace hardcoded `controlCoverageRate = 0`. Derive from enrichment attributes using the positive attribute mapping table below. |
 
-**Value:** Models capture enforcement and detection controls. Quality score reflects control coverage from local JSON. The enrichment prompt design (Section 8) keeps added interaction to B+2 prompts.
+**Value:** Quality score reflects actual security attribute coverage. No new tools, no schema changes, no workflow changes.
 
-**Dependency:** P2 must ship first or concurrently (quality score must count `controls[]` from local JSON, not just attributes).
+**Scope limitation:** Phase 1 fixes the quality score display, not the analysis engine's edge weight computation. The analysis engine still does not consume the full set of enrichment attributes for path cost calculation (Gap 3.5). The cry-wolf problem in analysis findings is addressed by Phase 3 (SUPPORTS edges feed the engine). Phase 1 is a necessary first step, not a complete fix.
+
+**Positive attribute mapping table** (used by the quality score computation):
+
+| Attribute | Counts as "control present" when | Does NOT count |
+|-----------|----------------------------------|----------------|
+| `encryption_in_transit` | Value is not `none`, `null`, absent, `SSLv3`, or `TLS 1.0` | `none`, `null`, absent, deprecated protocols |
+| `encryption_at_rest` | Value is not `none`, `null`, absent, `DES`, `3DES`, or `RC4` | `none`, `null`, absent, deprecated algorithms |
+| `authentication_type` | Value is not `none`, `null`, or absent; additionally, `basic` does not count when `encryption_in_transit` is absent, `none`, `SSLv3`, or `TLS 1.0` (basic auth over cleartext or deprecated TLS is a vulnerability per PCI-DSS 4.0 §4.2.1, not a control) | `none`, `null`, absent; `basic` without adequate encryption |
+| `monitoring_tools` | Non-empty array | `[]`, `null`, absent |
+| `implicit_deny_enabled` | `true` | `false`, `null`, absent |
+
+An element counts toward `control_coverage_rate` when it has **at least one positive security attribute** from this table. The metric is: classified elements with at least one positive security attribute / total classified elements.
+
+**Quality threshold rationale:** A model where every component uses `TLS 1.0` and `basic` auth should not score 100% on control coverage — that is a false confidence signal. The thresholds exclude deprecated protocols and cleartext-credential combinations that a security team would flag as findings, not credit as controls.
+
+### Phase 2 — "Start asking" (control focus mode)
+
+Add the `--focus controls` mode to the enrichment skill. Users declare Category 2-3 controls in a dedicated pass. Controls written to local JSON as `ControlReference[]`.
+
+| # | Item | File | Description |
+|---|------|------|-------------|
+| P4 | Enrich skill update | `dethereal/skills/enrich/SKILL.md` | Add `controls` to the `--focus` enum. Define the 3-step control pass (Section 8). |
+| P5 | Control instructions file | `dethereal/docs/controls-enrichment.md` | New file with control assignment instructions, loaded by the security-enricher only when `--focus controls` is invoked. Keeps the base agent instructions under ~360 lines. |
+| P5b | Security-enricher agent update | `dethereal/agents/security-enricher.md` | No `@docs/controls-enrichment.md` reference in the base agent — the reference goes in the enrich skill's SKILL.md (P4) under the `--focus controls` conditional. The agent's base instructions stay under ~360 lines. Add `source` field handling only. |
+| P5c | MCP `rank` action on manage_controls | `dethereal/src/tools/manage-controls.tool.ts` | Add `rank` action that calls `controlCandidatesForType` schema query, enriches with local element context, scores using Section 6.3 formula, returns top N. |
+| P5d | Schema `@cypher` query | `dt-ws/schema/schema.graphql` | Add `controlCandidatesForType` query as `@cypher` directive (spec below). No custom resolver needed. |
+
+**P5d specification — `controlCandidatesForType` schema query:**
+
+```graphql
+type ControlCandidate {
+  controlId: ID!
+  controlName: String!
+  classes: [ControlClassFit!]!
+  totalCountermeasures: Int!
+  assignedElementIds: [ID!]!
+}
+
+type ControlClassFit {
+  classId: ID!
+  className: String!
+  moduleId: ID!
+  moduleName: String!
+  compatible: Boolean!          # supportedTypes includes the queried element type
+  countermeasureCount: Int!     # >0 means configured (OPA generated countermeasures)
+}
+
+type Query {
+  controlCandidatesForType(
+    elementTypes: [ComponentType!]!
+    moduleIds: [ID!]
+  ): [ControlCandidate!]!
+    @authentication
+    @cypher(statement: """
+      MATCH (ctrl:Control)-[:IS_INSTANCE_OF]->(cc:ControlClass)<-[:HAS_CLASS]-(m:Module)
+      WHERE ANY(et IN $elementTypes WHERE et IN cc.supportedTypes)
+        AND ($moduleIds IS NULL OR m.id IN $moduleIds)
+      OPTIONAL MATCH (ctrl)-[:HAS_COUNTERMEASURE]->(cm:Countermeasure)
+                     -[:IS_COUNTERMEASURE_OF]->(cmClass:ControlClass)
+      WHERE cmClass.id = cc.id
+      WITH ctrl, cc, m, count(DISTINCT cm) AS cmCount
+      WITH ctrl,
+           collect({
+             classId: cc.id, className: cc.name,
+             moduleId: m.id, moduleName: m.name,
+             compatible: ANY(et IN $elementTypes WHERE et IN cc.supportedTypes),
+             countermeasureCount: cmCount
+           }) AS classes,
+           sum(cmCount) AS totalCm
+      OPTIONAL MATCH (ctrl)-[:SUPPORTS]->(elem)
+      WITH ctrl, classes, totalCm, collect(DISTINCT elem.id) AS assignedIds
+      RETURN ctrl.id AS controlId, ctrl.name AS controlName,
+             classes, totalCm AS totalCountermeasures, assignedIds AS assignedElementIds
+    """)
+}
+```
+
+Note: `elementTypes` is an array — the MCP `rank` action passes all element types present in the boundary, and the Cypher returns controls compatible with any of them. The `compatible` field per class tells the MCP tool which specific classes match which types, enabling per-class scoring without additional queries.
+
+**Value:** Models capture enforcement and detection controls. Quality score reflects control coverage from local JSON. The prompt design (Section 8) keeps interaction to B+2 prompts in a dedicated pass with its own 40-turn budget.
+
+**Dependencies:**
+- P2 must ship first or concurrently (quality score must count `controls[]` from local JSON, not just attributes)
+- C1 from [CLASSIFICATION_ENHANCEMENT.md](CLASSIFICATION_ENHANCEMENT.md) should ship first (establishes `match_classes` pattern in plugin vocabulary)
+- Gap 8 mitigation (tiered prompts for B>6) is required for launch, not deferred
 
 ### Phase 3 — "Close the loop" (platform integration)
 
@@ -595,7 +861,9 @@ Fix the update pipeline, add the batch assignment tool, and surface sync warning
 | # | Item | File | Description |
 |---|------|------|-------------|
 | P1 | Fix update pipeline | `dt-core/src/dt-update/dt-update.ts` | `updateComponent()`, `updateBoundary()`, `updateDataFlow()` must process `controls[]` from local JSON. Use disconnect/connect semantics on the update mutation — do NOT copy the import pipeline's `associateControlsDirectly` pattern, which sets `dataItems: []` as a side effect. Only touch controls when the incoming JSON includes them (`data.controls !== undefined`). |
-| P3 | Add `assign` action to `manage_controls` | `dethereal/src/tools/manage-controls.tool.ts` | Must accept a batch of `{ control_id, element_id }` pairs, not one-at-a-time. 20 components x 5 controls = 100 sequential tool calls otherwise. Creates SUPPORTS edges on the platform. |
+| P3 | ~~Add `assign` action to `manage_controls`~~ | `dethereal/src/tools/manage-controls.tool.ts` | **Done** (#140). Accepts `control_id` + `element_ids[]`, creates SUPPORTS edges. |
+| P3b | ~~Add `findControls()` method to dt-core~~ | `dt-core/src/dt-control/dt-control.ts` | **Done** (#137). Dual-path: `controlIdsByElements` Cypher helper for element-based lookup, auto-generated GraphQL for other filters. |
+| P3c | ~~Add `assignControlToElements()` method to dt-core~~ | `dt-core/src/dt-control/dt-control.ts` | **Done** (#137). Append-only connect via polymorphic `elements` relationship. Idempotent. |
 | P6 | Surface unresolved controls at sync | `dethereal/skills/sync/SKILL.md` | Pass through warnings from `resolveControls()`. After first successful sync, write resolved IDs back to local JSON to pin references. |
 
 **Value:** Controls survive re-sync. Post-analysis gap-filling via `/dethereal:surface` works end-to-end. Two-tier reporting has both inferred and formal coverage.
@@ -606,13 +874,178 @@ Fix the update pipeline, add the batch assignment tool, and surface sync warning
 
 | Phase | Prerequisites | New UX | Value |
 |-------|--------------|--------|-------|
-| 1. Stop lying | P2 | None | Quality score accuracy, reduced cry-wolf |
-| 2. Start asking | P4, P5 | B+2 prompts during enrichment | Control capture, local quality score |
-| 3. Close the loop | P1, P3, P6 | Sync warnings | Platform integration, two-tier reporting |
+| 1. Fix quality score | P2 | None | Quality score accuracy, attribute-inferred coverage |
+| 2. Start asking | P4, P5, P5b, P5c, P5d | B+2 prompts in `--focus controls` pass (separate invocation) | Control capture, local quality score, deterministic ranking |
+| 3. Close the loop | P1, ~~P3~~, ~~P3b~~, ~~P3c~~, P6 | Sync warnings | Platform integration, two-tier reporting. P3/P3b/P3c done (#137, #140). |
+
+### Cross-document dependency diagram
+
+```
+CLASSIFICATION_ENHANCEMENT.md           CONTROL_INTEGRATION.md
+─────────────────────────────           ──────────────────────
+C1 (classify skill migration)           P2 (quality score fix)
+  │  standalone                           │  standalone, parallel with C1
+  │                                       │
+  ├── C3 (enricher alignment)             │
+  │                                       │
+  └───────────────┐                       │
+                  ▼                       ▼
+              P4/P5/P5b/P5c/P5d (control focus mode)
+              depends on: C1 (match_classes pattern) + P2 (quality score)
+                  │
+                  ▼
+              P1/P6 (platform integration — update pipeline + sync warnings)
+              P3/P3b/P3c already done (#137, #140)
+```
+
+**Critical path:** C1 → P4. C1 is the bottleneck — it establishes `match_classes` in the plugin vocabulary and must ship before the control focus mode can reference `match_classes(classLabel: CONTROL)`. P2 is parallel with C1.
 
 ---
 
-## 11. Known Gaps and Risks
+## 11. Implementation Architecture
+
+### Backend delegation strategy
+
+Three operations should be implemented as server-side computations exposed through MCP tools, rather than multi-step agent orchestrations. The agent has a 40-turn budget; these operations would consume 24+ turns if done client-side. As backend tools, they each take 1 turn.
+
+#### `get_control_gaps(model_id)` — highest impact
+
+Replaces the 5-step Approach D workflow (~20 agent turns → 1 tool call). The backend traverses the full MITRE framework chain in the graph database:
+
+```
+Exposure -[:EXPLOITED_BY]-> ATT&CK Technique
+  <-[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]- ATT&CK Mitigation
+  <-[:RESPONDS_WITH]- Countermeasure
+  <-[:HAS_COUNTERMEASURE]- Control -[:SUPPORTS]-> Element
+```
+
+Both MITRE ATT&CK and D3FEND frameworks are loaded in the graph (`mitre-frameworks` module) and connected to each other. The query walks the full chain to find unmitigated exposures and recommend controls grounded in the frameworks — not LLM guesswork.
+
+```
+Input:  { model_id: string, top_n?: number (default 3) }
+Output: {
+  unmitigated_exposures: [{
+    element_id, element_name,
+    exposure_id, exposure_name,
+    attack_techniques: [{ id, name }],
+    recommended_mitigations: [{ id, name }]  // ATT&CK Mitigations
+  }],
+  recommended_controls: [{
+    control_id?,          // existing control from org library (null if only ControlClass match)
+    control_name?,
+    control_class_id, control_class_name,
+    d3fend_techniques: [{ id, name }],
+    addresses_count: number,
+    elements_affected: [{ id, name }]
+  }],
+  coverage_summary: { total_exposures, mitigated, unmitigated, coverage_pct }
+}
+```
+
+Implementation: A single Cypher query with pattern matching and set difference. The graph engine handles this in milliseconds. The agent's job is "present table, ask yes/no."
+
+#### Control matching — three-layer architecture
+
+Control candidate ranking is split across three layers (see Section 6.3 for details):
+
+| Layer | Component | Responsibility | Why here |
+|-------|-----------|---------------|----------|
+| **Schema `@cypher`** | `controlCandidatesForType` query | Return controls with matching `supportedTypes`, countermeasure counts, assigned elements | Single Cypher traversal, serves both MCP and Studio, no app logic needed |
+| **MCP tool** | `manage_controls` `rank` action | Score candidates using local element context (class module match, technology domain), sort, return top N | Needs local file data (element classId, activeModules) not available to the backend |
+| **Agent** | Presentation + confirmation | Present pre-ranked table, ask yes/no, recommend new control if all candidates weak | Judgment: only whether to create new vs assign existing |
+
+This replaces the previous design where the agent performed the entire evaluation loop (~10-15 reasoning turns) with a single MCP tool call (1 turn). The scoring formula is deterministic (Section 6.3).
+
+#### `compute_control_coverage(directory_path, model_id?)` — reporting
+
+Replaces multi-step coverage computation (~4 agent turns → 1 tool call). Hybrid local/online:
+
+- **Offline** (directory_path only): Reads local attribute files, computes inferred coverage using the positive attribute mapping table. Also counts `controls[]` references in structure.json/dataflows.json.
+- **Online** (model_id provided): Additionally queries SUPPORTS edges and countermeasure coverage from the platform.
+
+```
+Input:  { directory_path: string, model_id?: string }
+Output: {
+  inferred: { auth: {covered, total, pct}, encryption_transit: {...}, encryption_rest: {...}, monitoring: {...} },
+  formal: { by_tier: [{ tier, label, total, with_controls, gap_elements: string[] }], total_pct },
+  source_breakdown: { discovered: number, declared: number, both: number }
+}
+```
+
+The key benefit beyond turn savings: **the tool computes percentages, not the LLM.** This eliminates arithmetic errors in the reporting output that would erode user trust.
+
+#### Turn budget impact
+
+| Operation | Without backend/MCP tools | With backend/MCP tools | Turns saved |
+|-----------|----------------------|-------------------|-------------|
+| Gap analysis (Approach D) | ~20 turns | 1 turn | ~19 |
+| Class matching (incl. controls) | ~3 turns | 1 turn | ~2 |
+| Control candidate ranking (Section 6.3) | ~10-15 turns (agent reasoning loop) | 1 turn (MCP `rank` action) | ~10-14 |
+| Coverage reporting | ~4 turns | 1 turn | ~3 |
+| **Total** | **~37-42 turns** | **4 turns** | **~34-38** |
+
+The MCP `rank` action on `manage_controls` (Section 6.3) is the largest single improvement — it replaces an unbounded agent reasoning loop (evaluate every candidate control's class profile) with a single deterministic tool call. Combined with the backend delegation, these 4 tool calls replace what was previously impossible to fit within a 40-turn budget.
+
+See Section 8 "Turn Budget Breakdown" for the full control pass turn accounting.
+
+### Agent instruction strategy
+
+The security-enricher agent (`agents/security-enricher.md`, ~360 lines) is near the practical limit for reliable LLM instruction-following. Control assignment instructions (~150 lines) are factored into a separate file (`docs/controls-enrichment.md`) loaded only when `--focus controls` is invoked. This keeps the base agent under its effective instruction limit and prevents performance degradation for non-control enrichment flows.
+
+### Enhancement architecture — three-layer split
+
+New enhancements are split across three layers based on what each layer has access to:
+
+#### Layer 1: Schema `@cypher` directives (graph data, no app logic)
+
+Queries that are single Cypher traversals with no multi-phase orchestration. Use `@cypher` in `schema.graphql` with `@authentication` — no custom resolver needed. This follows the pattern of existing `@cypher` queries (`getExposuresForElement`, `addElementsToIssue`, `deleteModel`, etc.).
+
+| Query | Purpose | Cypher |
+|-------|---------|--------|
+| `controlCandidatesForType(elementType, moduleIds)` | Return controls with `supportedTypes` match, countermeasure counts per class, assigned element IDs | `MATCH (ctrl:Control)-[:IS_INSTANCE_OF]->(cc:ControlClass)` with `$elementType IN cc.supportedTypes` |
+| `controlIdsByElements(elementIds)` | Control IDs by SUPPORTS edges | Already exists as custom resolver; candidate for simplification to `@cypher` |
+
+**Why `@cypher` and not custom resolvers:** These are pure data retrieval — no multi-phase orchestration, no application-level partitioning, no complex output assembly. The `@cypher` directive provides auth via `@authentication`, avoids ~60 lines of resolver boilerplate per query, and is simpler to maintain. Custom resolvers are reserved for operations that need multi-phase Cypher orchestration with application logic between phases (like `controlGaps` and `matchClasses`).
+
+#### Layer 2: Custom resolver enhancements (existing resolvers, multi-phase logic)
+
+Modifications to existing custom resolvers that already need application logic:
+
+| Enhancement | Resolver | Change |
+|-------------|----------|--------|
+| Type-compatible gap recommendations | `ControlGapsResolverService` | Add `WHERE $elementType IN cc.supportedTypes` to Phase 3 recommended controls Cypher |
+| Configured coverage metric | `ControlGapsResolverService` | Compute `configuredCoverage` (controls with at least one non-default attribute) from existing Phase 2/3 data, add to `CoverageSummary` output. Also add `noMitreChain` count so all fields sum to `totalExposures`. **Assign to Phase 3** alongside P1/P6. |
+
+#### Layer 3: MCP tool functions (local data + compose from backend)
+
+Deterministic scoring that requires local file context (element classData, activeModules) not available to the backend:
+
+| Function | Tool | What it does |
+|----------|------|-------------|
+| Control candidate ranking | `manage_controls` `rank` action | Calls `controlCandidatesForType`, enriches with local element context (class module match), scores using Section 6.3 formula, returns top N |
+| Match result ordering | Post-process `match_classes` | Re-order same-confidence candidates by `activeModules` priority (user-set order from `scope.json`) |
+| Attribute quality thresholds | `validate_model_json` `quality` action | Exclude deprecated protocols (TLS 1.0, basic-over-cleartext) from positive attribute table |
+
+### MCP tool changes (existing tools)
+
+**`manage_controls` tool** (`src/tools/manage-controls.tool.ts`):
+- `assign` action — **Done** (#140). Accepts `control_id` + `element_ids[]`, creates SUPPORTS edges via `assignControlToElements`.
+- `rank` action — **New (P5c)**. Accepts element type, element class ID/module, module scope. Calls `controlCandidatesForType` schema query, scores per Section 6.3 formula, returns top N pre-ranked with relevance labels and countermeasure summaries.
+
+### Quality score computation
+
+The `computeQuality` method (`validate-model.tool.ts` line 177) already reads all attribute files via `readAttributes()` (line 189) and model structure files (lines 186-188). Both data sources needed for the two-tier `control_coverage_rate` computation are already loaded — no additional I/O required. Phase 1 is a ~20-line change replacing `const controlCoverageRate = 0` at line 253.
+
+### Plugin configuration
+
+No changes needed to:
+- Plugin manifest (`plugin.json`) — new backend tools are additional actions on existing tools or new tools registered in the MCP server
+- Hook definitions (`hooks.json`) — the post-write validation hook does not inspect file contents
+- Plugin settings (`settings.json`) — no new configuration surfaces
+
+---
+
+## 12. Known Gaps and Risks
 
 ### Gap 1: SUPPORTS edge idempotency on re-sync
 
@@ -632,17 +1065,57 @@ The import pipeline's `associateControlsDirectly` (`dt-import.ts` lines 1060-108
 
 **Mitigation:** The update pipeline must use the update mutation's disconnect/connect semantics, operating on `controls` independently of `dataItems`. The `dt-component.ts` mutation supports this — it only touches controls when `data.controls` is explicitly set. If `data.controls` is `undefined`, it skips the operation. Addressed in Phase 3 (P1) implementation guidance above.
 
-### Gap 4: No batch assignment API
+### Gap 4: No batch assignment API — Resolved
 
-The proposed `assign` action on `manage_controls` creates one SUPPORTS edge at a time. A model with 20 components and 5 controls each means 100 sequential MCP tool calls. The enricher agent's batch table UX implies batch assignment, but the underlying tool does not support it.
+Resolved by the `assign` action on `manage_controls` (#140). Accepts `control_id` + `element_ids[]` array and calls `assignControlToElements` which creates SUPPORTS edges in a single GraphQL mutation. Idempotent (MERGE semantics).
 
-**Mitigation:** The `assign` action must accept an array of `{ control_id, element_id }` pairs and process them in a single GraphQL mutation batch. Addressed in Phase 3 (P3).
+### Gap 5: Category 1 auto-inference boundary — Resolved
 
-### Gap 5: Category 1 auto-inference boundary
+Phase 1 derives `control_coverage_rate` from enrichment attributes. The positive attribute mapping table is now defined in Section 10, Phase 1.
 
-Phase 1 derives `control_coverage_rate` from enrichment attributes, but the exact mapping from attribute values to "control present" is not defined. Which attributes count? Does `authentication_type: none` count as "authentication attribute populated" (yes for completeness, no for control presence)?
+### Gap 6: Zero-boundary models
 
-**Mitigation:** Define a minimal attribute-to-control mapping table. Only positive security attributes count: `encryption_in_transit` with a value other than `none`/`null`, `authentication_type` with a value other than `none`/`null`, `monitoring_tools` with a non-empty array. The quality score should count "elements with at least one positive security attribute" not just "elements with any attribute populated."
+A model with no boundaries (flat architecture) produces zero Step 4b.1 prompts. Enforcement controls are silently skipped entirely. The quality score does not flag the gap.
+
+**Mitigation:** When the boundary count is zero, collapse Step 4b.1 into a single global prompt: "What enforcement controls protect this system? (Firewalls, WAFs, IDS/IPS, or 'none')." Assign declared controls to the model root or to individual components.
+
+### Gap 7: Re-running enrichment
+
+The document says "re-running enrich is additive" for state transitions but does not specify control behavior on re-run. If the user enriches, declares a WAF, then re-runs enrichment — does Step 4b.1 show the previously declared WAF? Does it re-ask for boundaries that already have controls?
+
+**Mitigation:** On re-run, the agent reads existing `controls[]` from local JSON and pre-populates the batch tables with previously declared controls. Boundaries with existing controls show them as "currently assigned" with an option to add more or remove. This mirrors the existing enrichment re-run pattern for attributes (read current values, present for confirmation/modification).
+
+### Gap 8: Large models (20+ boundaries) — Required for Phase 2
+
+At B=20, Step 1 alone produces 20 prompts (60 turns brownfield). Combined with user fatigue from main enrichment, this creates a prompt fatigue cliff where users answer "none" to skip — degrading control coverage without a conscious decision.
+
+**Mitigation (required for Phase 2 launch):** For models with B > 6 boundaries, collapse Step 1 into a tiered prompt: "N boundaries have no enforcement controls. Review: (1) crown-jewel boundaries only, (2) all boundaries, (3) skip." This respects the enrichment priority tiers (D43) already defined in the security-enricher agent. Crown-jewel boundaries first reduces the effective B to 3-4 while preserving coverage for the highest-value elements.
+
+### Gap 9: Compensating controls
+
+Compensating controls — temporary mitigations that exist because a primary control cannot be implemented (e.g., enhanced monitoring when patching is delayed) — do not have a clear home in the four-category taxonomy. They straddle Categories 2/3/4.
+
+**Mitigation:** Compensating controls are handled as regular Category 2 or 3 controls with a `source: "declared"` tag and an optional `compensating` field in the local JSON:
+
+```json
+{
+  "id": null,
+  "name": "Enhanced Monitoring (compensating for delayed patching)",
+  "source": "declared",
+  "compensating": {
+    "expires": "2026-06-30",
+    "primary_control": "Automated Patch Management",
+    "original_requirement": "PCI-DSS 6.3.3",
+    "risk_acceptance": "RISK-2026-042"
+  }
+}
+```
+
+The `compensating` field is local-only (no platform schema change) and preserves the audit trail required by PCI-DSS v4.0 Appendix B (Compensating Controls Worksheet): expiration date, primary control being compensated for, the original requirement not being met, and risk acceptance reference. SOC2 CC6.1 has similar documentation requirements. Without this, compensating controls become permanent fixtures in the threat model. The field is optional — non-compensating controls omit it.
+
+### Gap 10: Post-analysis recommendation noise — Resolved
+
+Addressed by the `get_control_gaps` backend tool (Section 11). The backend ranks recommendations by exposure coverage and returns `top_n` (default 3) candidates. The agent presents pre-ranked results, not an exhaustive mapping. The MITRE framework chain provides framework-grounded justifications rather than LLM-generated reasoning.
 
 ---
 
@@ -652,4 +1125,5 @@ Phase 1 derives `control_coverage_rate` from enrichment attributes, but the exac
 - [SYNC_AND_SOURCE_OF_TRUTH.md](SYNC_AND_SOURCE_OF_TRUTH.md) — Publish/pull architecture and `resolveControls()`
 - [PLUGIN_ARCHITECTURE.md](PLUGIN_ARCHITECTURE.md) — Section 10: Quality scoring and control coverage
 - [OPERATIONAL_REQUIREMENTS.md](OPERATIONAL_REQUIREMENTS.md) — Section 5: Compliance-driven control checklists
+- [BACKEND_DELEGATION.md](BACKEND_DELEGATION.md) — Backend delegation strategy (prerequisite — generalizes the backend tools proposed in Section 11)
 - [DECISIONS.md](DECISIONS.md) — D28 (countermeasure schema scope), D31 (surface skill scope)

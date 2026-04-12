@@ -87,13 +87,29 @@ export class DtDataflow {
           sourceHandle: { set: edge.sourceHandle },
           targetHandle: { set: edge.targetHandle },
           controls: {
-            disconnect: edge.data.controls === undefined ? {} : {},
+            disconnect: edge.data.controls === undefined ? {} : {
+              where: {
+                NOT: {
+                  OR: edge.data.controls.map((control: Control) => ({
+                    node: { id: { eq: control } },
+                  })),
+                },
+              },
+            },
             connect: edge.data.controls === undefined ? [] : edge.data.controls.map((control: Control) => ({
               where: { node: { id: { eq: control } } },
             })),
           },
           dataItems: {
-            disconnect: edge.data.dataItems === undefined ? {} : {},
+            disconnect: edge.data.dataItems === undefined ? {} : {
+              where: {
+                NOT: {
+                  OR: edge.data.dataItems.map((dataItem: DataItem) => ({
+                    node: { id: { eq: dataItem } },
+                  })),
+                },
+              },
+            },
             connect: edge.data.dataItems === undefined ? [] : edge.data.dataItems.map((dataItem: DataItem) => ({
               where: { node: { id: { eq: dataItem } } },
             })),

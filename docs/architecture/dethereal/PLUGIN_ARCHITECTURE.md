@@ -803,6 +803,29 @@ When a module is added to `activeModules` after initial classification:
 
 If `activeModules` is absent from `scope.json`, classification searches all installed modules — identical to pre-module-selection behavior. No existing models break.
 
+### Module Selection Integration
+
+The `match_classes` MCP tool is the batch classification entry point. It accepts element names, types, and descriptions with optional `moduleIds` scope, and returns ranked matches with confidence levels:
+
+1. **scope.json → classification:** `activeModules` IDs from `scope.json` flow into `match_classes` as `moduleIds`. This scopes the search to modules the user confirmed during the module selection step.
+2. **Fallback broadening:** If no matches are found within active modules, the classify skill broadens the search by calling `match_classes` without `moduleIds` (all installed modules).
+3. **Late module addition:** If the user adds a module after classification (via `/dethereal:add` or re-running module selection), existing classifications are preserved. New components are classified against the updated module set.
+
+### Control Integration Architecture
+
+Control assignment is a separate enrichment sub-workflow invoked via `/dethereal:enrich --focus controls`. It runs as a new `Agent(security-enricher)` instance with its own 40-turn budget.
+
+**Three-layer ranking architecture:**
+1. **Platform candidates** — `controlCandidatesForType` backend query returns controls whose `ControlClass.supportedTypes` include the target element types, with countermeasure counts and D3FEND technique links
+2. **Local context scoring** — the `manage_controls(action: 'rank')` MCP tool enriches candidates with local context (compatible/configured class count, same-domain signals, already-assigned status) and computes a deterministic score: `score = compatible_configured / total - incompatible_configured / total`
+3. **Relevance labels** — strong (>= 0.8, zero incompatible), good (>= 0.5), weak (< 0.5)
+
+**Two-tier quality scoring:**
+- *Inferred* (offline): percentage of classified components with at least one positive security attribute (encryption, authentication, monitoring) per the mapping table in CONTROL_INTEGRATION.md §10
+- *Formal* (post-sync): percentage of classified components with `controls[]` entries (directly or boundary-inherited). The quality score uses the maximum of the two tiers per element.
+
+**Control pass 3-step sequence:** enforcement controls (Category 2, per-boundary) → detection controls (Category 3, one global prompt pre-populated from `monitoring_tools`) → governance placeholder (Category 4, free-text to `scope.json`).
+
 ---
 
 ## 9. Architecture Decision: MCP vs Skills for Documentation (D45/D46)

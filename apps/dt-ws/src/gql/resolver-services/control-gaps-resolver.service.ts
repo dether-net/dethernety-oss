@@ -16,11 +16,13 @@ const MAX_LIMIT = 200;
 interface RawExposureRow {
   elementId: string;
   elementName: string;
+  elementType: string | null;
   exposureId: string;
   exposureName: string;
   techniques: Array<{ id: string; name: string }>;
   mitigations: Array<{ id: string; name: string }>;
   controlIds: string[];
+  anyControlIds: string[];
 }
 
 interface ControlGapsInput {
@@ -65,8 +67,8 @@ export class ControlGapsResolverService {
     if (!input.modelId || input.modelId.trim() === '') {
       throw new Error('modelId is required');
     }
-    const topN = input.topN ?? DEFAULT_TOP_N;
-    const limit = Math.min(input.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
+    const topN = Math.floor(input.topN ?? DEFAULT_TOP_N);
+    const limit = Math.min(Math.floor(input.limit ?? DEFAULT_LIMIT), MAX_LIMIT);
     if (topN < 1) {
       throw new Error('topN must be at least 1');
     }
@@ -134,11 +136,18 @@ export class ControlGapsResolverService {
         OPTIONAL MATCH (exp)-[:EXPLOITED_BY]->(tech:MitreAttackTechnique)
         OPTIONAL MATCH (tech)<-[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]-(mit:MitreAttackMitigation)
         OPTIONAL MATCH (mit)<-[:RESPONDS_WITH]-(cm:Countermeasure)<-[:HAS_COUNTERMEASURE]-(ctrl:Control)-[:SUPPORTS]->(element)
+        OPTIONAL MATCH (element)-[:BELONGS_TO]->(parentBnd:SecurityBoundary)<-[:SUPPORTS]-(bndCtrl:Control)-[:HAS_COUNTERMEASURE]->(bndCm:Countermeasure)-[:RESPONDS_WITH]->(mit)
+        WITH element, exp,
+             collect(DISTINCT CASE WHEN tech IS NOT NULL THEN {id: tech.attack_id, name: tech.name} END) AS techniques,
+             collect(DISTINCT CASE WHEN mit IS NOT NULL THEN {id: mit.attack_id, name: mit.name} END) AS mitigations,
+             collect(DISTINCT CASE WHEN ctrl IS NOT NULL THEN ctrl.id END) + collect(DISTINCT CASE WHEN bndCtrl IS NOT NULL THEN bndCtrl.id END) AS controlIds
+        OPTIONAL MATCH (anyCtrl:Control)-[:SUPPORTS]->(element)
+        OPTIONAL MATCH (element)-[:BELONGS_TO]->(anyBnd:SecurityBoundary)<-[:SUPPORTS]-(anyBndCtrl:Control)
         RETURN element.id AS elementId, element.name AS elementName,
+               element.type AS elementType,
                exp.id AS exposureId, exp.name AS exposureName,
-               collect(DISTINCT CASE WHEN tech IS NOT NULL THEN {id: tech.attack_id, name: tech.name} END) AS techniques,
-               collect(DISTINCT CASE WHEN mit IS NOT NULL THEN {id: mit.attack_id, name: mit.name} END) AS mitigations,
-               collect(DISTINCT ctrl.id) AS controlIds
+               techniques, mitigations, controlIds,
+               collect(DISTINCT CASE WHEN anyCtrl IS NOT NULL THEN anyCtrl.id END) + collect(DISTINCT CASE WHEN anyBndCtrl IS NOT NULL THEN anyBndCtrl.id END) AS anyControlIds
       `;
 
       const result = await session.executeRead(async (tx: any) => {
@@ -148,6 +157,7 @@ export class ControlGapsResolverService {
       return result.records.map((record: any) => ({
         elementId: record.get('elementId'),
         elementName: record.get('elementName'),
+        elementType: record.get('elementType') || null,
         exposureId: record.get('exposureId'),
         exposureName: record.get('exposureName'),
         techniques: (record.get('techniques') || []).filter(
@@ -157,6 +167,9 @@ export class ControlGapsResolverService {
           (m: any) => m !== null,
         ),
         controlIds: (record.get('controlIds') || []).filter(
+          (id: any) => id !== null,
+        ),
+        anyControlIds: (record.get('anyControlIds') || []).filter(
           (id: any) => id !== null,
         ),
       }));
@@ -200,6 +213,7 @@ export class ControlGapsResolverService {
   private async executeRecommendedControls(
     techniqueIds: string[],
     modelElementIds: string[],
+    elementTypes: string[],
     topN: number,
   ): Promise<any[]> {
     if (techniqueIds.length === 0) return [];
@@ -210,14 +224,18 @@ export class ControlGapsResolverService {
         MATCH (ctrl:Control)-[:HAS_COUNTERMEASURE]->(cm:Countermeasure)-[:RESPONDS_WITH]->(mit:MitreAttackMitigation)
               -[:MITIGATION_DEFENDS_AGAINST_TECHNIQUE]->(tech:MitreAttackTechnique)
         WHERE tech.attack_id IN $techniqueIds
-        OPTIONAL MATCH (ctrl)-[:IS_INSTANCE_OF]->(cc:ControlClass)
+        MATCH (ctrl)-[:IS_INSTANCE_OF]->(cc:ControlClass)
+        WHERE cc.supportedTypes IS NULL OR ANY(et IN $elementTypes WHERE et IN cc.supportedTypes)
         OPTIONAL MATCH (cm)-[:RESPONDS_WITH]->(d3:MitreDefendTechnique)
         OPTIONAL MATCH (ctrl)-[:SUPPORTS]->(elem)
         WHERE elem.id IN $modelElementIds
+        OPTIONAL MATCH (ctrl)-[:SUPPORTS]->(bnd:SecurityBoundary)<-[:BELONGS_TO]-(bndElem)
+        WHERE bndElem.id IN $modelElementIds
         WITH ctrl, cc,
              count(DISTINCT tech) AS addressesCount,
              collect(DISTINCT CASE WHEN d3 IS NOT NULL THEN {id: d3.d3fendId, name: d3.name} END) AS d3fendTechniques,
-             collect(DISTINCT CASE WHEN elem IS NOT NULL THEN {id: elem.id, name: elem.name} END) AS elementsAffected
+             collect(DISTINCT CASE WHEN elem IS NOT NULL THEN {id: elem.id, name: elem.name} END) +
+             collect(DISTINCT CASE WHEN bndElem IS NOT NULL THEN {id: bndElem.id, name: bndElem.name} END) AS elementsAffected
         ORDER BY addressesCount DESC
         LIMIT $topN
         RETURN ctrl.id AS controlId, ctrl.name AS controlName,
@@ -226,7 +244,7 @@ export class ControlGapsResolverService {
       `;
 
       const result = await session.executeRead(async (tx: any) => {
-        return await tx.run(query, { techniqueIds, modelElementIds, topN });
+        return await tx.run(query, { techniqueIds, modelElementIds, elementTypes, topN });
       });
 
       return result.records.map((record: any) => ({
@@ -262,6 +280,8 @@ export class ControlGapsResolverService {
         mitigated: 0,
         unmitigated: 0,
         unaddressable: 0,
+        configuredCoverage: 0,
+        noMitreChain: 0,
         coveragePct: 0,
       },
     };
@@ -289,6 +309,7 @@ export class ControlGapsResolverService {
         techniques: Map<string, { id: string; name: string }>;
         mitigations: Map<string, { id: string; name: string }>;
         hasControl: boolean;
+        hasAnyControl: boolean;
       }
     >();
 
@@ -303,6 +324,7 @@ export class ControlGapsResolverService {
           techniques: new Map(),
           mitigations: new Map(),
           hasControl: false,
+          hasAnyControl: false,
         };
         exposureMap.set(row.exposureId, entry);
       }
@@ -316,11 +338,21 @@ export class ControlGapsResolverService {
       if (row.controlIds.length > 0) {
         entry.hasControl = true;
       }
+      if (row.anyControlIds.length > 0) {
+        entry.hasAnyControl = true;
+      }
     }
 
-    // Classify exposures
+    // Classify exposures into five states:
+    // mitigated: control matches via MITRE chain
+    // configuredCoverage: control assigned but addresses different techniques
+    // unmitigated: addressable mitigations exist but no control implements them
+    // unaddressable: MITRE mitigations exist but no installed module covers them
+    // noMitreChain: no ATT&CK technique linked to the exposure
     const totalExposures = exposureMap.size;
     let mitigated = 0;
+    let noMitreChain = 0;
+    let configuredCoverage = 0;
     const unmitigatedCandidates: Array<{
       elementId: string;
       elementName: string;
@@ -332,13 +364,26 @@ export class ControlGapsResolverService {
 
     for (const entry of exposureMap.values()) {
       if (entry.techniques.size === 0) {
-        // Un-linked exposure — no ATT&CK technique mapped.
-        // Counts in totalExposures but not in mitigated/unmitigated/unaddressable.
+        noMitreChain++;
         continue;
       }
 
       if (entry.hasControl) {
         mitigated++;
+      } else if (entry.hasAnyControl) {
+        // Control assigned to this element but doesn't address this exposure's techniques
+        configuredCoverage++;
+        // Still check for addressable mitigations for recommendations
+        if (entry.mitigations.size > 0) {
+          unmitigatedCandidates.push({
+            elementId: entry.elementId,
+            elementName: entry.elementName,
+            exposureId: entry.exposureId,
+            exposureName: entry.exposureName,
+            techniques: Array.from(entry.techniques.values()),
+            mitigations: Array.from(entry.mitigations.values()),
+          });
+        }
       } else if (entry.mitigations.size > 0) {
         unmitigatedCandidates.push({
           elementId: entry.elementId,
@@ -350,7 +395,7 @@ export class ControlGapsResolverService {
         });
       }
       // Exposures with techniques but no mitigations are a MITRE data gap —
-      // treated similarly to un-linked (not classified as mitigated/unmitigated/unaddressable).
+      // counted in totalExposures but not in any named category.
     }
 
     // Phase 2b: Check addressability of mitigations
@@ -405,13 +450,17 @@ export class ControlGapsResolverService {
     const modelElementIds = [
       ...new Set(rows.map((r) => r.elementId)),
     ];
+    const elementTypes = [
+      ...new Set(rows.map((r) => r.elementType).filter(Boolean)),
+    ] as string[];
     const recommendedControls = await this.executeRecommendedControls(
       unmitigatedTechniqueIds,
       modelElementIds,
+      elementTypes,
       topN,
     );
 
-    // Coverage summary
+    // Coverage summary — all fields must sum to totalExposures
     const coveragePct =
       totalExposures > 0 ? (mitigated / totalExposures) * 100 : 0;
 
@@ -424,6 +473,8 @@ export class ControlGapsResolverService {
         mitigated,
         unmitigated: unmitigatedExposures.length,
         unaddressable: unaddressableExposures.length,
+        configuredCoverage,
+        noMitreChain,
         coveragePct: Math.round(coveragePct * 100) / 100,
       },
     };

@@ -89,13 +89,18 @@ Two-pass classification for assigning platform module classes to model elements.
 ### Pass 1 — Deterministic Classification (D51)
 
 1. Read `activeModules` from `.dethereal/scope.json`
-2. For each active module, call `mcp__dethereal__get_classes(module_name: '<name>')` to fetch class types scoped to that module. If `activeModules` is absent, call `get_classes` without module filter (backward compatibility)
-3. Prefer classes from specialized modules (AWS, Kubernetes, Databases) over baseline module (dethernety-module/General) — specialized classes have more targeted attribute schemas
-4. Match unclassified elements by name, type, and description against available classes from active modules
-5. If discovery found IaC resources, use pre-classification from the infrastructure-scout's IaC mapping table (already validated against `get_classes`)
-6. Mark high-confidence matches as pre-classified
+2. Extract `moduleIds` from `activeModules` (order matters — see tiebreaking). If `activeModules` is absent, omit `moduleIds` from `match_classes` calls (backward compatibility — searches all installed modules)
+3. For each class label with unclassified elements, call:
+   `mcp__dethereal__match_classes(elements: [{name, type?, description?}, ...], classLabel: <label>, moduleIds: [...], topN: 3, fields: ['description', 'category', 'type'])`
+4. Cross-module tiebreaking: when multiple modules return same-confidence matches for the same element, prefer the module listed earlier in `activeModules`
+5. For IaC-discovered elements, check `discovery.json` — if pre-classification matches a `match_classes` candidate, boost confidence to `high (IaC)`
+6. Auto-accept `exact_name` matches (high confidence), present `fuzzy`/`vector`/`type` matches for confirmation
 
-If the platform is offline, skip Pass 1 entirely and do everything in Pass 2.
+**Offline fallback chain:**
+1. Call `match_classes(...)` as above
+2. If result contains `{ success: false }` or error → fall back to `mcp__dethereal__get_classes` per module
+3. If `get_classes` also errors → skip Pass 1, all classification in Pass 2
+4. Warning: "Platform connectivity issues — classification running in LLM-only mode."
 
 ### Pass 2 — LLM-Assisted Classification
 
@@ -103,7 +108,7 @@ For remaining unclassified elements:
 1. Use boundary context (which boundary contains the element, what flows connect to it)
 2. Consider connected flows and peer components for contextual inference
 3. Use the closest available class from active modules — never fabricate class IDs
-4. If no suitable class exists in active modules, broaden the search: call `get_classes` without module filter. If a match is found in an inactive module, flag it for the user to add the module
+4. If no suitable class exists in active modules, broaden the search: call `mcp__dethereal__match_classes(elements: [...unclassified...], classLabel: <label>, topN: 3)` without `moduleIds`. The `moduleName` field on each candidate identifies the module. If a match is found in an inactive module, flag it for the user to add the module
 5. If still no match, leave unclassified and note the gap
 
 ### Late Module Addition
@@ -130,6 +135,8 @@ After classification confirmation, validate:
 - **80% of all elements must be classified** for overall pass
 
 If the gate fails, show which elements are unclassified and prompt to classify or explicitly skip.
+
+If unclassified elements exist and `activeModules` is set, check if broadening would help: call `mcp__dethereal__match_classes(elements: [...unclassified...], classLabel: <label>, topN: 3)` without `moduleIds`. The `moduleName` on each candidate identifies which module to suggest adding.
 
 ### Classification Output
 
@@ -295,6 +302,33 @@ Write `monitoring_tools: string[]` to component attribute files. Values: SIEM, E
 V1: monitoring_tools captured for human review only. Detection feasibility mapping is
 documented but not engine-integrated. No automated detection coverage scoring.
 ```
+
+## Control Source Tracking
+
+When writing `controls[]` entries on boundaries, components, or data flows, set a `source` field on each ControlReference:
+
+| Source | Meaning | When to Set |
+|--------|---------|-------------|
+| `discovered` | Inferred from IaC/code attributes | Attribute evidence: `encryption_in_transit`, `authentication_type`, `implicit_deny_enabled`, `tls_enabled`, etc. |
+| `declared` | User stated during control pass | User typed or confirmed during prompts |
+| `both` | Code evidence corroborates user declaration | User confirmed a control that code/IaC also supports |
+
+**Format:**
+```json
+{
+  "controls": [
+    { "id": "ctrl-waf", "name": "WAF Protection", "source": "declared" },
+    { "id": null, "name": "Perimeter Firewall", "source": "declared" }
+  ]
+}
+```
+
+**Rules:**
+- Default to `declared` for controls added during user-facing prompts
+- Set `discovered` only when code evidence directly implies the control (e.g., `tls_enabled: true` implies a TLS control)
+- Upgrade to `both` when a user confirms a control that was also found in code
+- Greenfield controls (no platform ID) always use `{ id: null, name: "..." }`
+- The `source` field is informational in V1 — the Analysis Engine does not currently differentiate by source
 
 ## Auth Failure Mode Handling (D48, D63)
 

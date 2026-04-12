@@ -11,7 +11,7 @@ import { DtControl } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 
 const InputSchema = z.object({
-  action: z.enum(['list', 'get', 'create', 'update', 'delete', 'assign']).describe('Action to perform'),
+  action: z.enum(['list', 'get', 'create', 'update', 'delete', 'assign', 'rank']).describe('Action to perform'),
   folder_id: z.string().optional().describe('Folder ID for listing or creating controls'),
   control_id: z.string().optional().describe('Control ID (required for get, update, delete, assign)'),
   class_ids: z.array(z.string()).optional().describe('Control class IDs for filtering (list) or assignment (create/update)'),
@@ -21,6 +21,8 @@ const InputSchema = z.object({
   element_ids: z.array(z.string()).optional().describe('Element IDs — for list: filter controls supporting these elements; for assign: elements to link'),
   module_id: z.string().optional().describe('Module ID filter (for list action)'),
   module_name: z.string().optional().describe('Module name filter (for list action)'),
+  element_types: z.array(z.string()).optional().describe('Element types for rank action (e.g. PROCESS, STORE, EXTERNAL_ENTITY)'),
+  top_n: z.number().optional().describe('Number of top candidates to return for rank action (default 5)'),
 }).superRefine((data, ctx) => {
   if (['get', 'update', 'delete'].includes(data.action) && !data.control_id) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_id" is required for this action', path: ['control_id'] })
@@ -31,13 +33,16 @@ const InputSchema = z.object({
   if (data.action === 'assign' && (!data.control_id || !data.element_ids || data.element_ids.length === 0)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_id" and "element_ids" are required for "assign" action', path: ['control_id'] })
   }
+  if (data.action === 'rank' && (!data.element_types || data.element_types.length === 0)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"element_types" is required for "rank" action', path: ['element_types'] })
+  }
 })
 
 type ManageControlsInput = z.infer<typeof InputSchema>
 
 export class ManageControlsTool extends ClientDependentTool<ManageControlsInput, unknown> {
   readonly name = 'manage_controls'
-  readonly description = 'Create, read, update, delete, and assign security controls on the Dethernety platform. Controls can be assigned to component classes, linked to exposures via countermeasures, and assigned to model elements. Use "list" with filters (name, class_type, element_ids, module_name) for flexible search.'
+  readonly description = 'Create, read, update, delete, assign, and rank security controls on the Dethernety platform. Controls can be assigned to component classes, linked to exposures via countermeasures, and assigned to model elements. Use "list" with filters (name, class_type, element_ids, module_name) for flexible search. Use "rank" with element_types to get pre-scored control candidates for a boundary or element set.'
   readonly inputSchema = InputSchema
 
   async execute(input: ManageControlsInput, context: ToolContext): Promise<ToolResult<unknown>> {
@@ -125,6 +130,49 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
             return { success: false, error: `Failed to assign control ${input.control_id} to elements` }
           }
           return { success: true, data: { control, assigned_elements: input.element_ids!.length } }
+        }
+
+        case 'rank': {
+          const candidates = await dtControl.controlCandidatesForType({
+            elementTypes: input.element_types!,
+            moduleIds: input.module_id ? [input.module_id] : [],
+          })
+
+          const topN = input.top_n ?? 5
+
+          // Score each candidate using deterministic formula from CI §6.3
+          const scored = candidates
+            .filter(c => c.classes.length > 0) // Skip orphaned controls (zero classes = data corruption)
+            .map(c => {
+              const totalClasses = c.classes.length
+              const compatibleConfigured = c.classes.filter(cl => cl.compatible && cl.countermeasureCount > 0).length
+              const incompatibleConfigured = c.classes.filter(cl => !cl.compatible && cl.countermeasureCount > 0).length
+
+              const score = (compatibleConfigured / totalClasses) - (1.0 * incompatibleConfigured / totalClasses)
+
+              let relevance: 'strong' | 'good' | 'weak'
+              if (score >= 0.8 && incompatibleConfigured === 0) {
+                relevance = 'strong'
+              } else if (score >= 0.5) {
+                relevance = 'good'
+              } else {
+                relevance = 'weak'
+              }
+
+              return {
+                controlId: c.controlId,
+                controlName: c.controlName,
+                score: Math.round(score * 100) / 100,
+                relevance,
+                totalCountermeasures: c.totalCountermeasures,
+                assignedElementIds: c.assignedElementIds,
+                classes: c.classes,
+              }
+            })
+            .sort((a, b) => b.score - a.score)
+            .slice(0, topN)
+
+          return { success: true, data: { candidates: scored, total: scored.length } }
         }
 
         default:

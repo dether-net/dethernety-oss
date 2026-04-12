@@ -134,6 +134,39 @@ interface QualityOutput {
     data_items: number
   }
   model_name: string
+  warnings?: string[]
+}
+
+interface CategoryCoverage {
+  covered: number
+  total: number
+  missing: string[]
+}
+
+interface InferredCategoryBreakdown {
+  authentication: CategoryCoverage
+  encryption_transit: CategoryCoverage
+  encryption_at_rest: CategoryCoverage
+  monitoring: CategoryCoverage
+}
+
+interface TierCoverage {
+  total: number
+  with_controls: number
+  gaps: string[]
+}
+
+interface FormalTierBreakdown {
+  tier_1_crown_jewels: TierCoverage
+  tier_2_cross_boundary: TierCoverage
+  tier_3_internet_facing: TierCoverage
+  tier_4_internal: TierCoverage
+}
+
+interface SourceBreakdown {
+  discovered: number
+  declared: number
+  both: number
 }
 
 interface CoverageOutput {
@@ -143,8 +176,13 @@ interface CoverageOutput {
     mitigated: number
     unmitigated: number
     unaddressable: number
+    configured_coverage?: number
+    no_mitre_chain?: number
     coverage_pct: number
   }
+  inferred_coverage?: InferredCategoryBreakdown
+  formal_coverage?: FormalTierBreakdown
+  source_breakdown?: SourceBreakdown
   details?: any
 }
 
@@ -268,8 +306,34 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       ? classifiedDataItems / totalDataItems : 0
 
     // Factor 6: control_coverage_rate (weight 10)
-    // Requires platform data — set to 0 when offline
-    const controlCoverageRate = 0
+    // Two-tier: attribute-inferred (Tier 1) + formal controls[] (Tier 2), max per element
+    const classifiedComponentIds = this.collectClassifiedComponentIds(
+      structure.defaultBoundary, attributes)
+
+    const controlCoveredIds = this.buildControlCoverageSet(
+      structure.defaultBoundary, dataFlows)
+
+    let coveredCount = 0
+    for (const compId of classifiedComponentIds) {
+      const hasTier1 = attributes.components?.[compId] &&
+        this.hasPositiveSecurityAttribute(attributes.components[compId])
+      const hasTier2 = controlCoveredIds.has(compId)
+      if (hasTier1 || hasTier2) coveredCount++
+    }
+
+    const totalClassified = classifiedComponentIds.size
+    const controlCoverageRate = totalClassified > 0
+      ? Math.min(coveredCount / totalClassified, 1.0) : 0
+
+    const anyFormalControls = controlCoveredIds.size > 0
+    let controlCoverageNote: string | undefined
+    if (totalClassified === 0) {
+      controlCoverageNote = undefined
+    } else if (coveredCount > 0 && !anyFormalControls) {
+      controlCoverageNote = 'Inferred from attributes; no formal controls assigned'
+    } else if (coveredCount === 0) {
+      controlCoverageNote = 'No security attributes or controls found on classified elements'
+    }
 
     // Factor 7: credential_coverage_rate (weight 5)
     // Percentage of cross-boundary data flows with credential_type set (not "none")
@@ -291,6 +355,33 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     }
     const credentialCoverageRate = crossBoundaryFlows > 0
       ? crossBoundaryWithCreds / crossBoundaryFlows : 0
+
+    // Scan for expired compensating controls
+    const warnings: string[] = []
+    const today = new Date().toISOString().slice(0, 10)
+
+    const scanControls = (controls: any[] | undefined): void => {
+      if (!controls) return
+      for (const ctrl of controls) {
+        const comp = (ctrl as any).compensating
+        if (comp?.expires && comp.expires < today) {
+          const name = ctrl.name || 'Unnamed control'
+          const origReq = comp.original_requirement
+            ? ` (original requirement: ${comp.original_requirement})` : ''
+          warnings.push(
+            `Compensating control '${name}' expired on ${comp.expires}${origReq}. Review or remove.`
+          )
+        }
+      }
+    }
+
+    const scanBoundary = (b: any): void => {
+      scanControls(b.controls)
+      if (b.components) for (const c of b.components) scanControls(c.controls)
+      if (b.boundaries) for (const nested of b.boundaries) scanBoundary(nested)
+    }
+    scanBoundary(structure.defaultBoundary)
+    for (const flow of dataFlows) scanControls(flow.controls)
 
     // Compute total score (0-100)
     const score =
@@ -321,7 +412,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
           boundary_hierarchy_quality: { value: boundaryHierarchyQuality, weight: 15 },
           data_flow_coverage: { value: dataFlowCoverage, weight: 15 },
           data_classification_rate: { value: dataClassificationRate, weight: 10 },
-          control_coverage_rate: { value: controlCoverageRate, weight: 10, note: 'Requires platform — 0 when offline' },
+          control_coverage_rate: { value: controlCoverageRate, weight: 10, ...(controlCoverageNote ? { note: controlCoverageNote } : {}) },
           credential_coverage_rate: { value: credentialCoverageRate, weight: 5 }
         },
         element_counts: {
@@ -330,7 +421,8 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
           data_flows: dataFlows.length,
           data_items: totalDataItems
         },
-        model_name: manifest.model.name
+        model_name: manifest.model.name,
+        ...(warnings.length > 0 ? { warnings } : {})
       }
     }
   }
@@ -348,6 +440,18 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
           topN: 3,
           limit: 50,
         })
+
+        // Also read local files for inferred coverage and source breakdown
+        let inferred_coverage: InferredCategoryBreakdown | undefined
+        let formal_coverage: FormalTierBreakdown | undefined
+        let source_breakdown: SourceBreakdown | undefined
+        if (input.directory_path && await pathExists(input.directory_path) && await isModelDirectory(input.directory_path)) {
+          const localData = await this.computeLocalCoverageBreakdown(input.directory_path)
+          inferred_coverage = localData.inferred_coverage
+          formal_coverage = localData.formal_coverage
+          source_breakdown = localData.source_breakdown
+        }
+
         return {
           success: true,
           data: {
@@ -357,8 +461,13 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
               mitigated: result.coverageSummary.mitigated,
               unmitigated: result.coverageSummary.unmitigated,
               unaddressable: result.coverageSummary.unaddressable,
+              configured_coverage: result.coverageSummary.configuredCoverage,
+              no_mitre_chain: result.coverageSummary.noMitreChain,
               coverage_pct: result.coverageSummary.coveragePct,
             },
+            ...(inferred_coverage ? { inferred_coverage } : {}),
+            ...(formal_coverage ? { formal_coverage } : {}),
+            ...(source_breakdown ? { source_breakdown } : {}),
             details: result,
           },
         }
@@ -380,22 +489,9 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
         return { success: false, error: `Not a valid model directory: ${input.directory_path}` }
       }
 
-      const structure = await readStructure(input.directory_path)
-      const dataFlows = await readDataFlows(input.directory_path)
-      const dataItems = await readDataItems(input.directory_path)
-      const attributes = await readAttributes(input.directory_path, { structure, dataFlows, dataItems })
-
-      // Count elements with classData (proxy for exposure potential)
-      const allComponentIds = this.collectComponentIds(structure.defaultBoundary)
-      let classifiedCount = 0
-      for (const compId of allComponentIds) {
-        const compAttrs = attributes.components?.[compId]
-        if (compAttrs && (compAttrs as any).classData?.id) {
-          classifiedCount++
-        }
-      }
-      classifiedCount = Math.max(classifiedCount,
-        this.countClassifiedComponents(structure.defaultBoundary))
+      const localData = await this.computeLocalCoverageBreakdown(input.directory_path)
+      const classifiedCount = localData.classified_count
+      const coveredCount = localData.covered_count
 
       return {
         success: true,
@@ -403,14 +499,17 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
           mode: 'offline',
           coverage_summary: {
             total_exposures: classifiedCount,
-            mitigated: 0,
-            unmitigated: classifiedCount,
+            mitigated: coveredCount,
+            unmitigated: classifiedCount - coveredCount,
             unaddressable: 0,
-            coverage_pct: 0,
+            coverage_pct: classifiedCount > 0 ? Math.round((coveredCount / classifiedCount) * 10000) / 100 : 0,
           },
+          inferred_coverage: localData.inferred_coverage,
+          formal_coverage: localData.formal_coverage,
+          ...(localData.source_breakdown ? { source_breakdown: localData.source_breakdown } : {}),
         },
         warnings: [
-          'Offline mode: coverage estimated from classified element count. Use model_id with authentication for authoritative MITRE-chain coverage analysis.',
+          'Offline mode: coverage estimated from local attributes and controls. Use model_id with authentication for authoritative MITRE-chain coverage analysis.',
         ],
       }
     }
@@ -419,6 +518,243 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       success: false,
       error: 'Coverage requires either model_id (online, with authentication) or directory_path (offline estimate)',
     }
+  }
+
+  /**
+   * Compute per-category inferred coverage, per-tier formal coverage, and source breakdown
+   * from local model files.
+   */
+  private async computeLocalCoverageBreakdown(dirPath: string): Promise<{
+    classified_count: number
+    covered_count: number
+    inferred_coverage: InferredCategoryBreakdown
+    formal_coverage: FormalTierBreakdown
+    source_breakdown: SourceBreakdown | undefined
+  }> {
+    const structure = await readStructure(dirPath)
+    const dataFlows = await readDataFlows(dirPath)
+    const dataItems = await readDataItems(dirPath)
+    const attributes = await readAttributes(dirPath, { structure, dataFlows, dataItems })
+
+    const classifiedIds = this.collectClassifiedComponentIds(structure.defaultBoundary, attributes)
+    const controlCoverageSet = this.buildControlCoverageSet(structure.defaultBoundary, dataFlows)
+    const componentBoundaryMap = this.buildComponentBoundaryMap(structure.defaultBoundary)
+
+    // Per-category inferred coverage
+    const auth: CategoryCoverage = { covered: 0, total: 0, missing: [] }
+    const encTransit: CategoryCoverage = { covered: 0, total: 0, missing: [] }
+    const encRest: CategoryCoverage = { covered: 0, total: 0, missing: [] }
+    const monitoring: CategoryCoverage = { covered: 0, total: 0, missing: [] }
+
+    // Per-tier formal coverage
+    const tiers: Record<string, TierCoverage> = {
+      tier_1: { total: 0, with_controls: 0, gaps: [] },
+      tier_2: { total: 0, with_controls: 0, gaps: [] },
+      tier_3: { total: 0, with_controls: 0, gaps: [] },
+      tier_4: { total: 0, with_controls: 0, gaps: [] },
+    }
+
+    // Identify cross-boundary and internet-facing components for tier assignment
+    const crossBoundaryIds = new Set<string>()
+    const internetFacingIds = new Set<string>()
+    const externalEntityIds = new Set<string>()
+
+    // Collect external entity IDs
+    const collectExternals = (b: any): void => {
+      if (b.components) {
+        for (const c of b.components) {
+          if (c.type === 'EXTERNAL_ENTITY') externalEntityIds.add(c.id)
+        }
+      }
+      if (b.boundaries) {
+        for (const nested of b.boundaries) collectExternals(nested)
+      }
+    }
+    collectExternals(structure.defaultBoundary)
+
+    // Identify cross-boundary and internet-facing from flows
+    for (const flow of dataFlows) {
+      const srcBoundary = flow.source?.id ? componentBoundaryMap.get(flow.source.id) : undefined
+      const tgtBoundary = flow.target?.id ? componentBoundaryMap.get(flow.target.id) : undefined
+      if (srcBoundary && tgtBoundary && srcBoundary !== tgtBoundary) {
+        if (flow.source?.id) crossBoundaryIds.add(flow.source.id)
+        if (flow.target?.id) crossBoundaryIds.add(flow.target.id)
+      }
+      if (flow.source?.id && externalEntityIds.has(flow.source.id) && flow.target?.id) {
+        internetFacingIds.add(flow.target.id)
+      }
+      if (flow.target?.id && externalEntityIds.has(flow.target.id) && flow.source?.id) {
+        internetFacingIds.add(flow.source.id)
+      }
+    }
+
+    let coveredCount = 0
+
+    for (const compId of classifiedIds) {
+      const compAttrs = attributes.components?.[compId] as any
+      const compName = this.getComponentName(structure.defaultBoundary, compId) || compId
+
+      // Per-category inferred coverage
+      const categories = this.getAttributeCategories(compAttrs)
+      auth.total++
+      encRest.total++
+      monitoring.total++
+      if (categories.authentication) { auth.covered++ } else { auth.missing.push(compName) }
+      if (categories.encryption_at_rest) { encRest.covered++ } else { encRest.missing.push(compName) }
+      if (categories.monitoring) { monitoring.covered++ } else { monitoring.missing.push(compName) }
+
+      // Check if component has any positive attribute or formal control
+      const hasPositive = this.hasPositiveSecurityAttribute(compAttrs)
+      const hasFormalControl = controlCoverageSet.has(compId)
+      if (hasPositive || hasFormalControl) coveredCount++
+
+      // Per-tier formal coverage — assign to highest priority tier only
+      const isCrownJewel = compAttrs?.crown_jewel === true || compAttrs?.attributes?.crown_jewel === true
+      let tier: string
+      if (isCrownJewel) {
+        tier = 'tier_1'
+      } else if (crossBoundaryIds.has(compId)) {
+        tier = 'tier_2'
+      } else if (internetFacingIds.has(compId)) {
+        tier = 'tier_3'
+      } else {
+        tier = 'tier_4'
+      }
+      tiers[tier].total++
+      if (hasFormalControl) {
+        tiers[tier].with_controls++
+      } else {
+        tiers[tier].gaps.push(compName)
+      }
+    }
+
+    // Encryption in transit: per cross-boundary flow
+    for (const flow of dataFlows) {
+      const srcBoundary = flow.source?.id ? componentBoundaryMap.get(flow.source.id) : undefined
+      const tgtBoundary = flow.target?.id ? componentBoundaryMap.get(flow.target.id) : undefined
+      if (srcBoundary && tgtBoundary && srcBoundary !== tgtBoundary) {
+        encTransit.total++
+        const flowAttrs = attributes.dataFlows?.[flow.id] as any
+        const encValue = flowAttrs?.encryption_in_transit ?? flowAttrs?.attributes?.encryption_in_transit
+        const deprecatedTransit = new Set(['none', 'sslv3', 'ssl v3', 'tls 1.0', 'tls1.0'])
+        if (encValue && typeof encValue === 'string' && !deprecatedTransit.has(encValue.toLowerCase())) {
+          encTransit.covered++
+        } else {
+          encTransit.missing.push(flow.name || flow.id)
+        }
+      }
+    }
+
+    // Source breakdown from control references
+    const source_breakdown = this.computeSourceBreakdown(structure.defaultBoundary, dataFlows)
+
+    return {
+      classified_count: classifiedIds.size,
+      covered_count: coveredCount,
+      inferred_coverage: {
+        authentication: auth,
+        encryption_transit: encTransit,
+        encryption_at_rest: encRest,
+        monitoring,
+      },
+      formal_coverage: {
+        tier_1_crown_jewels: tiers.tier_1,
+        tier_2_cross_boundary: tiers.tier_2,
+        tier_3_internet_facing: tiers.tier_3,
+        tier_4_internal: tiers.tier_4,
+      },
+      source_breakdown: source_breakdown.discovered + source_breakdown.declared + source_breakdown.both > 0
+        ? source_breakdown : undefined,
+    }
+  }
+
+  /**
+   * Get per-category security attribute results (unlike hasPositiveSecurityAttribute which returns a single boolean).
+   */
+  private getAttributeCategories(attrs: any): {
+    authentication: boolean
+    encryption_at_rest: boolean
+    monitoring: boolean
+  } {
+    const get = (key: string): unknown =>
+      attrs?.attributes?.[key] ?? attrs?.[key] ?? null
+
+    const encInTransit = get('encryption_in_transit')
+    const encAtRest = get('encryption_at_rest')
+    const authType = get('authentication_type')
+    const monTools = get('monitoring_tools')
+
+    const deprecatedTransit = new Set(['none', 'sslv3', 'ssl v3', 'tls 1.0', 'tls1.0'])
+    const deprecatedAtRest = new Set(['none', 'des', '3des', 'triple-des', 'rc4'])
+
+    const authentication = (() => {
+      if (!authType || typeof authType !== 'string' || authType.toLowerCase() === 'none') return false
+      const authLower = authType.toLowerCase()
+      if (authLower === 'basic' || authLower === 'digest') {
+        return !!(encInTransit && typeof encInTransit === 'string' &&
+          !deprecatedTransit.has(encInTransit.toLowerCase()))
+      }
+      return true
+    })()
+
+    const encryption_at_rest = !!(encAtRest && typeof encAtRest === 'string' &&
+      !deprecatedAtRest.has(encAtRest.toLowerCase()))
+
+    const monitoring = !!(Array.isArray(monTools) && monTools.length > 0)
+
+    return { authentication, encryption_at_rest, monitoring }
+  }
+
+  /**
+   * Get component name from boundary tree by ID.
+   */
+  private getComponentName(boundary: any, targetId: string): string | undefined {
+    if (boundary.components) {
+      for (const c of boundary.components) {
+        if (c.id === targetId) return c.name
+      }
+    }
+    if (boundary.boundaries) {
+      for (const nested of boundary.boundaries) {
+        const found = this.getComponentName(nested, targetId)
+        if (found) return found
+      }
+    }
+    return undefined
+  }
+
+  /**
+   * Count controls by source field (discovered/declared/both) from structure and flows.
+   */
+  private computeSourceBreakdown(boundary: any, dataFlows: any[]): SourceBreakdown {
+    const result: SourceBreakdown = { discovered: 0, declared: 0, both: 0 }
+
+    const countControls = (controls: any[] | undefined) => {
+      if (!Array.isArray(controls)) return
+      for (const ctrl of controls) {
+        const src = ctrl.source?.toLowerCase()
+        if (src === 'discovered') result.discovered++
+        else if (src === 'both') result.both++
+        else if (ctrl.id || ctrl.name) result.declared++ // default to declared
+      }
+    }
+
+    const walkBoundary = (b: any): void => {
+      countControls(b.controls)
+      if (b.components) {
+        for (const c of b.components) countControls(c.controls)
+      }
+      if (b.boundaries) {
+        for (const nested of b.boundaries) walkBoundary(nested)
+      }
+    }
+    walkBoundary(boundary)
+
+    for (const flow of dataFlows) {
+      countControls(flow.controls)
+    }
+
+    return result
   }
 
   private countClassifiedComponents(boundary: any): number {
@@ -480,6 +816,126 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       return false
     }
     return checkNested(boundary, true)
+  }
+
+  /**
+   * Check if an element's attributes contain at least one positive security attribute.
+   * Uses the mapping table from CONTROL_INTEGRATION.md §10 Phase 1.
+   */
+  private hasPositiveSecurityAttribute(attrs: any): boolean {
+    const get = (key: string): unknown =>
+      attrs?.attributes?.[key] ?? attrs?.[key] ?? null
+
+    const encInTransit = get('encryption_in_transit')
+    const encAtRest = get('encryption_at_rest')
+    const authType = get('authentication_type')
+    const monTools = get('monitoring_tools')
+    const implDeny = get('implicit_deny_enabled')
+
+    const deprecatedTransit = new Set(['none', 'sslv3', 'ssl v3', 'tls 1.0', 'tls1.0'])
+    const deprecatedAtRest = new Set(['none', 'des', '3des', 'triple-des', 'rc4'])
+
+    // encryption_in_transit: not none/null/absent/SSLv3/TLS 1.0
+    if (encInTransit && typeof encInTransit === 'string' &&
+        !deprecatedTransit.has(encInTransit.toLowerCase())) {
+      return true
+    }
+
+    // encryption_at_rest: not none/null/absent/DES/3DES/RC4
+    if (encAtRest && typeof encAtRest === 'string' &&
+        !deprecatedAtRest.has(encAtRest.toLowerCase())) {
+      return true
+    }
+
+    // authentication_type: not none/null/absent; basic/digest only with adequate encryption
+    if (authType && typeof authType === 'string' && authType.toLowerCase() !== 'none') {
+      const authLower = authType.toLowerCase()
+      if (authLower === 'basic' || authLower === 'digest') {
+        const hasAdequateEncryption = encInTransit && typeof encInTransit === 'string' &&
+          !deprecatedTransit.has(encInTransit.toLowerCase())
+        if (hasAdequateEncryption) return true
+      } else {
+        return true
+      }
+    }
+
+    // monitoring_tools: non-empty array
+    if (Array.isArray(monTools) && monTools.length > 0) {
+      return true
+    }
+
+    // implicit_deny_enabled: true
+    if (implDeny === true) {
+      return true
+    }
+
+    return false
+  }
+
+  /**
+   * Build a set of element IDs that have control coverage (directly or boundary-inherited).
+   * Walks the boundary tree propagating controls[] downward.
+   */
+  private buildControlCoverageSet(boundary: any, dataFlows: any[]): Set<string> {
+    const coveredIds = new Set<string>()
+
+    const propagate = (b: any, parentHasControls: boolean): void => {
+      const hasOwnControls = Array.isArray(b.controls) && b.controls.length > 0
+      const hasControls = hasOwnControls || parentHasControls
+
+      if (b.id && hasControls) coveredIds.add(b.id)
+
+      if (b.components) {
+        for (const comp of b.components) {
+          const compHasOwnControls = Array.isArray(comp.controls) && comp.controls.length > 0
+          if (compHasOwnControls || hasControls) {
+            coveredIds.add(comp.id)
+          }
+        }
+      }
+
+      if (b.boundaries) {
+        for (const nested of b.boundaries) {
+          propagate(nested, hasControls)
+        }
+      }
+    }
+
+    propagate(boundary, false)
+
+    for (const flow of dataFlows) {
+      if (Array.isArray(flow.controls) && flow.controls.length > 0) {
+        coveredIds.add(flow.id)
+      }
+    }
+
+    return coveredIds
+  }
+
+  /**
+   * Collect IDs of classified components from both attribute files and inline structure.
+   */
+  private collectClassifiedComponentIds(boundary: any, attributes: any): Set<string> {
+    const ids = new Set<string>()
+
+    const process = (b: any): void => {
+      if (b.components) {
+        for (const c of b.components) {
+          if (c.classData?.id) {
+            ids.add(c.id)
+          } else if (attributes.components?.[c.id] &&
+                     (attributes.components[c.id] as any).classData?.id) {
+            ids.add(c.id)
+          }
+        }
+      }
+      if (b.boundaries) {
+        for (const nested of b.boundaries) process(nested)
+      }
+    }
+
+    process(boundary)
+    return ids
   }
 
   private async validateDirectory(dirPath: string): Promise<ToolResult<ValidateOutput>> {

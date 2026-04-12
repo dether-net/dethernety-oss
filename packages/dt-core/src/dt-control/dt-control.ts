@@ -1,7 +1,7 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-import { Class, Control, ControlGapsResult } from '../interfaces/core-types-interface.js'
+import { Class, Control, ControlCandidate, ControlGapsResult } from '../interfaces/core-types-interface.js'
 import {
   CREATE_CONTROL,
   DELETE_CONTROL,
@@ -10,6 +10,7 @@ import {
   FIND_CONTROLS,
   CONTROL_IDS_BY_ELEMENTS,
   CONTROL_GAPS,
+  CONTROL_CANDIDATES_FOR_TYPE,
   ASSIGN_CONTROL_TO_ELEMENTS,
 } from './dt-control-gql.js'
 
@@ -465,6 +466,33 @@ export class DtControl {
         fetchPolicy: 'network-only'
       })
       return response.controlGaps
+    } catch (error) {
+      throw error
+    }
+  }
+
+  /**
+   * Find control candidates whose classes support the given element types.
+   * Returns per-class fit details for scoring by the MCP rank action.
+   * @param elementTypes - Element types to match against class supportedTypes
+   * @param moduleIds - Optional module filter (empty array = all modules)
+   * @returns Array of control candidates with class fit details
+   */
+  controlCandidatesForType = async ({
+    elementTypes,
+    moduleIds,
+  }: {
+    elementTypes: string[]
+    moduleIds?: string[]
+  }): Promise<ControlCandidate[]> => {
+    try {
+      const response = await this.dtUtils.performQuery<{ controlCandidatesForType: ControlCandidate[] }>({
+        query: CONTROL_CANDIDATES_FOR_TYPE,
+        variables: { elementTypes, moduleIds: moduleIds ?? [] },
+        action: 'controlCandidatesForType',
+        fetchPolicy: 'network-only'
+      })
+      return response.controlCandidatesForType
     } catch (error) {
       throw error
     }

@@ -169,8 +169,43 @@ If user chooses **cancel**: stop.
    Server IDs written to local files.
    Commit these changes to preserve sync state.
    ```
-3. If countermeasures exist in the model: "Run `/dethereal:surface` after analysis to link controls to exposures."
-4. Post-action footer:
+3. **Control Resolution Warnings:** Check the `update_model` response for control resolution warnings (emitted by `resolveControls()` during the push).
+   If any warnings contain unresolved control references:
+   ```
+   Control resolution warnings:
+     - "WAF Protection" not found on platform. Create it or adjust the name.
+     - "Custom Firewall" not found on platform.
+   
+   Unresolved controls are stored as name-only references.
+   Create these controls on the platform, then re-sync to link them.
+   ```
+   If no control warnings: omit this section.
+
+4. **Control ID Pinning:** After successful push, check local model files for name-only control references (`id: null`).
+   If any exist:
+   - Call `mcp__dethereal__manage_controls(action: 'list')` to get the platform control inventory
+   - For each name-only control reference in `structure.json` and `dataflows.json`, match by name against platform controls
+   - If matched: write the resolved platform ID back to the local JSON file:
+     `{ id: null, name: "WAF", source: "declared" }` → `{ id: "ctrl-xyz", name: "WAF", source: "declared" }`
+   - Write updated files to disk
+   - Show: "Pinned N control IDs to local files."
+
+   ID pinning prevents name-match flipping on re-sync — without it, a renamed platform control would silently break the reference.
+
+5. **Stale Reference Detection:** For each control reference with a non-null `id` in local files:
+   - Check if that ID exists in the platform controls list (from step 4)
+   - If not found, warn:
+     ```
+     Stale control references:
+       - "Old Firewall" (ctrl-abc-123) — no longer exists on platform
+     
+     Remove from local model? (yes / keep as name-only)
+     ```
+   If "yes": set `id: null` on the stale reference (preserves the control name for re-matching).
+   If "keep": no change. Warning noted for manual review.
+
+6. If countermeasures exist in the model: "Run `/dethereal:surface` after analysis to link controls to exposures."
+7. Post-action footer:
    ```
    [done] Push complete. Quality: X/100.
    [next] Commit changes to git, then /dethereal:review (assess quality)

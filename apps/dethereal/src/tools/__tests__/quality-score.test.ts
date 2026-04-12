@@ -145,7 +145,7 @@ describe('Quality Score', () => {
     expect(data.model_name).toBe('My Model')
   })
 
-  it('should note control_coverage_rate requires platform', async () => {
+  it('should handle control_coverage_rate with no classified elements', async () => {
     await writeModel(
       { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'Test', defaultBoundaryId: 'b-1' } },
       { defaultBoundary: { id: 'b-1', name: 'System' } }
@@ -153,7 +153,270 @@ describe('Quality Score', () => {
 
     const result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
     const data = result.data as any
-    expect(data.factors.control_coverage_rate.note).toContain('platform')
     expect(data.factors.control_coverage_rate.value).toBe(0)
+    // No note when there are no classified elements to evaluate
+    expect(data.factors.control_coverage_rate.note).toBeUndefined()
+  })
+})
+
+describe('Control Coverage', () => {
+  let tmpDir: string
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-control-'))
+  })
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  async function writeModel(manifest: any, structure: any, dataFlows: any[] = [], dataItems: any[] = []) {
+    await fs.writeFile(path.join(tmpDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
+    await fs.writeFile(path.join(tmpDir, 'structure.json'), JSON.stringify(structure, null, 2))
+    await fs.writeFile(path.join(tmpDir, 'dataflows.json'), JSON.stringify({ dataFlows }, null, 2))
+    await fs.writeFile(path.join(tmpDir, 'data-items.json'), JSON.stringify({ dataItems }, null, 2))
+    await fs.mkdir(path.join(tmpDir, 'attributes', 'boundaries'), { recursive: true })
+    await fs.mkdir(path.join(tmpDir, 'attributes', 'components'), { recursive: true })
+    await fs.mkdir(path.join(tmpDir, 'attributes', 'dataFlows'), { recursive: true })
+    await fs.mkdir(path.join(tmpDir, 'attributes', 'dataItems'), { recursive: true })
+  }
+
+  async function writeComponentAttrs(compId: string, attrs: Record<string, unknown>) {
+    await fs.writeFile(
+      path.join(tmpDir, 'attributes', 'components', `${compId}.json`),
+      JSON.stringify({
+        elementId: compId,
+        elementType: 'component',
+        classData: { id: 'cls-1', name: 'TestClass' },
+        attributes: attrs
+      }, null, 2)
+    )
+  }
+
+  const manifest = { schemaVersion: '2.0.0', format: 'split', model: { id: null, name: 'Test', defaultBoundaryId: 'b-1' } }
+
+  it('should compute attribute-inferred coverage from encryption_in_transit', async () => {
+    await writeModel(manifest, {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [
+          { id: 'c-1', name: 'Web Server', classData: { id: 'cls-1', name: 'Web Server' } },
+          { id: 'c-2', name: 'API Server', classData: { id: 'cls-2', name: 'API Server' } }
+        ]
+      }
+    })
+    await writeComponentAttrs('c-1', { encryption_in_transit: 'TLS 1.3' })
+    await writeComponentAttrs('c-2', { encryption_in_transit: 'TLS 1.2' })
+
+    const result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
+    const data = result.data as any
+    expect(data.factors.control_coverage_rate.value).toBe(1.0)
+  })
+
+  it('should inherit control coverage from parent boundary', async () => {
+    await writeModel(manifest, {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        boundaries: [{
+          id: 'b-2', name: 'Protected Zone',
+          controls: [{ id: 'ctrl-1', name: 'Firewall' }],
+          components: [
+            { id: 'c-1', name: 'App Server', classData: { id: 'cls-1', name: 'App' } }
+          ]
+        }]
+      }
+    })
+    await writeComponentAttrs('c-1', {})
+
+    const result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
+    const data = result.data as any
+    expect(data.factors.control_coverage_rate.value).toBeGreaterThan(0)
+  })
+
+  it('should count mixed attribute + formal coverage (max rule)', async () => {
+    await writeModel(manifest, {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        boundaries: [{
+          id: 'b-2', name: 'Zone A',
+          controls: [{ id: 'ctrl-1', name: 'WAF' }],
+          components: [
+            { id: 'c-1', name: 'Frontend', classData: { id: 'cls-1', name: 'Web App' } }
+          ]
+        }],
+        components: [
+          { id: 'c-2', name: 'Backend', classData: { id: 'cls-2', name: 'API' } }
+        ]
+      }
+    })
+    // c-1: covered by boundary controls (Tier 2)
+    await writeComponentAttrs('c-1', {})
+    // c-2: covered by attributes (Tier 1)
+    await writeComponentAttrs('c-2', { encryption_in_transit: 'TLS 1.3' })
+
+    const result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
+    const data = result.data as any
+    expect(data.factors.control_coverage_rate.value).toBe(1.0)
+  })
+
+  it('should NOT count basic auth without encryption', async () => {
+    await writeModel(manifest, {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [
+          { id: 'c-1', name: 'API', classData: { id: 'cls-1', name: 'API' } }
+        ]
+      }
+    })
+    await writeComponentAttrs('c-1', { authentication_type: 'basic' })
+
+    const result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
+    const data = result.data as any
+    expect(data.factors.control_coverage_rate.value).toBe(0)
+  })
+
+  it('should count basic auth WITH adequate encryption', async () => {
+    await writeModel(manifest, {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [
+          { id: 'c-1', name: 'API', classData: { id: 'cls-1', name: 'API' } }
+        ]
+      }
+    })
+    await writeComponentAttrs('c-1', {
+      authentication_type: 'basic',
+      encryption_in_transit: 'TLS 1.3'
+    })
+
+    const result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
+    const data = result.data as any
+    expect(data.factors.control_coverage_rate.value).toBeGreaterThan(0)
+  })
+
+  it('should NOT count deprecated TLS 1.0', async () => {
+    await writeModel(manifest, {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [
+          { id: 'c-1', name: 'Legacy', classData: { id: 'cls-1', name: 'Legacy' } }
+        ]
+      }
+    })
+    await writeComponentAttrs('c-1', { encryption_in_transit: 'TLS 1.0' })
+
+    const result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
+    const data = result.data as any
+    expect(data.factors.control_coverage_rate.value).toBe(0)
+  })
+
+  it('should NOT count deprecated encryption at rest (DES, 3DES, RC4)', async () => {
+    await writeModel(manifest, {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [
+          { id: 'c-1', name: 'Store A', classData: { id: 'cls-1', name: 'DB' } },
+          { id: 'c-2', name: 'Store B', classData: { id: 'cls-2', name: 'DB' } },
+          { id: 'c-3', name: 'Store C', classData: { id: 'cls-3', name: 'DB' } }
+        ]
+      }
+    })
+    await writeComponentAttrs('c-1', { encryption_at_rest: 'DES' })
+    await writeComponentAttrs('c-2', { encryption_at_rest: '3DES' })
+    await writeComponentAttrs('c-3', { encryption_at_rest: 'RC4' })
+
+    const result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
+    const data = result.data as any
+    expect(data.factors.control_coverage_rate.value).toBe(0)
+  })
+
+  it('should NOT count digest auth without encryption', async () => {
+    await writeModel(manifest, {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [
+          { id: 'c-1', name: 'API', classData: { id: 'cls-1', name: 'API' } }
+        ]
+      }
+    })
+    await writeComponentAttrs('c-1', { authentication_type: 'digest' })
+
+    const result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
+    const data = result.data as any
+    expect(data.factors.control_coverage_rate.value).toBe(0)
+  })
+
+  it('should emit warning for expired compensating control', async () => {
+    await writeModel(manifest, {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [{
+          id: 'c-1', name: 'App',
+          classData: { id: 'cls-1', name: 'App' },
+          controls: [{
+            id: null,
+            name: 'Enhanced Monitoring',
+            compensating: {
+              expires: '2025-01-01',
+              primary_control: 'Automated Patch Management',
+              original_requirement: 'PCI-DSS 6.3.3',
+              risk_acceptance: 'RISK-2025-001'
+            }
+          }]
+        }]
+      }
+    })
+    await writeComponentAttrs('c-1', {})
+
+    const result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
+    const data = result.data as any
+    expect(data.warnings).toBeDefined()
+    expect(data.warnings.length).toBeGreaterThan(0)
+    expect(data.warnings[0]).toContain('Enhanced Monitoring')
+    expect(data.warnings[0]).toContain('expired')
+    expect(data.warnings[0]).toContain('PCI-DSS 6.3.3')
+  })
+
+  it('should NOT emit warning for non-expired compensating control', async () => {
+    await writeModel(manifest, {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [{
+          id: 'c-1', name: 'App',
+          classData: { id: 'cls-1', name: 'App' },
+          controls: [{
+            id: null,
+            name: 'Temporary WAF Rule',
+            compensating: {
+              expires: '2027-12-31',
+              primary_control: 'Code Fix',
+              original_requirement: 'OWASP A1'
+            }
+          }]
+        }]
+      }
+    })
+    await writeComponentAttrs('c-1', {})
+
+    const result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
+    const data = result.data as any
+    expect(data.warnings).toBeUndefined()
+  })
+
+  it('should note "Inferred from attributes" when no formal controls exist', async () => {
+    await writeModel(manifest, {
+      defaultBoundary: {
+        id: 'b-1', name: 'System',
+        components: [
+          { id: 'c-1', name: 'API', classData: { id: 'cls-1', name: 'API' } }
+        ]
+      }
+    })
+    await writeComponentAttrs('c-1', { encryption_in_transit: 'TLS 1.3' })
+
+    const result = await validateModelTool.run({ action: 'quality', directory_path: tmpDir }, context)
+    const data = result.data as any
+    expect(data.factors.control_coverage_rate.value).toBeGreaterThan(0)
+    expect(data.factors.control_coverage_rate.note).toContain('Inferred from attributes')
   })
 })
