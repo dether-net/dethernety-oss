@@ -197,7 +197,7 @@ if needs_module_install; then
   step "Building dethernety-module"
   "${MODULE_MANAGER}" build "${OSS_ROOT}/modules/dethernety-module"
 
-  DETHERNETY_TARBALL="${OSS_ROOT}/modules/dethernety-module/dist/dethernety-1.0.0.tar.gz"
+  DETHERNETY_TARBALL="${OSS_ROOT}/modules/dethernety-module/dist/dethernety-module-2.0.0.tar.gz"
   if [ ! -f "${DETHERNETY_TARBALL}" ]; then
     die "Expected tarball not found: ${DETHERNETY_TARBALL}"
   fi
