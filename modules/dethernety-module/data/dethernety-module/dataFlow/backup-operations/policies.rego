@@ -7,7 +7,8 @@ _unencrypted_backup_channel_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 unencrypted_backup_channel[_unencrypted_backup_channel_def] if {
@@ -29,7 +30,8 @@ _transport_protocol_downgrade_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 transport_protocol_downgrade[_transport_protocol_downgrade_def] if {
@@ -59,7 +61,8 @@ _missing_mutual_tls_authentication_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 missing_mutual_tls_authentication[_missing_mutual_tls_authentication_def] if {
@@ -85,7 +88,8 @@ _weak_cipher_suite_negotiation_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 weak_cipher_suite_negotiation[_weak_cipher_suite_negotiation_def] if {
@@ -115,7 +119,8 @@ _absent_message_integrity_verification_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 absent_message_integrity_verification[_absent_message_integrity_verification_def] if {
@@ -138,7 +143,8 @@ _replay_attack_on_backup_stream_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 replay_attack_on_backup_stream[_replay_attack_on_backup_stream_def] if {
@@ -166,7 +172,8 @@ _certificate_validation_bypass_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 certificate_validation_bypass[_certificate_validation_bypass_def] if {
@@ -192,7 +199,8 @@ _uncontrolled_backup_transfer_bandwidth_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 uncontrolled_backup_transfer_bandwidth[_uncontrolled_backup_transfer_bandwidth_def] if {
@@ -211,7 +219,8 @@ _bgp_route_hijacking_of_backup_path_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 bgp_route_hijacking_of_backup_path[_bgp_route_hijacking_of_backup_path_def] if {
@@ -241,7 +250,8 @@ _predictable_backup_scheduling_timing_def := {
     "category": "network_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 predictable_backup_scheduling_timing[_predictable_backup_scheduling_timing_def] if {
@@ -265,7 +275,8 @@ _insecure_key_exchange_for_backup_encryption_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 insecure_key_exchange_for_backup_encryption[_insecure_key_exchange_for_backup_encryption_def] if {

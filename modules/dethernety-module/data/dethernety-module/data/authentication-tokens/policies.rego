@@ -9,7 +9,8 @@ _misclassification_as_non_sensitive_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 misclassification_as_non_sensitive[_misclassification_as_non_sensitive_def] if {
@@ -42,7 +43,8 @@ _token_persistence_beyond_session_lifetime_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 token_persistence_beyond_session_lifetime[_token_persistence_beyond_session_lifetime_def] if {
@@ -72,7 +74,8 @@ _unencrypted_token_at_rest_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 unencrypted_token_at_rest[_unencrypted_token_at_rest_def] if {
@@ -99,7 +102,8 @@ _token_exposure_in_log_and_audit_data_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 token_exposure_in_log_and_audit_data[_token_exposure_in_log_and_audit_data_def] if {
@@ -123,7 +127,8 @@ _insufficient_access_control_on_token_stores_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_access_control_on_token_stores[_insufficient_access_control_on_token_stores_def] if {
@@ -148,7 +153,8 @@ _absent_or_non_compliant_disposal_procedure_def := {
     "category": "physical_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 absent_or_non_compliant_disposal_procedure[_absent_or_non_compliant_disposal_procedure_def] if {

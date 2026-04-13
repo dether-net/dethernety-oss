@@ -22,7 +22,8 @@ _plaintext_dns_query_interception_def := {
             "name": "DNS",
             "relevance": "DNS is the protocol used in plaintext query interception, making this technique directly relevant."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 plaintext_dns_query_interception[_plaintext_dns_query_interception_def] if {
@@ -63,7 +64,8 @@ _dns_response_spoofing_no_dnssec_def := {
             "name": "DNS Server",
             "relevance": "Attackers can acquire DNS server infrastructure to conduct spoofing attacks when DNSSEC is absent."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 dns_response_spoofing_no_dnssec[_dns_response_spoofing_no_dnssec_def] if {
@@ -100,7 +102,8 @@ _dns_over_tls_dot_not_enforced_def := {
             "name": "Protocol Tunneling",
             "relevance": "Lack of DoT enforcement allows attackers to exploit unencrypted DNS channels for covert communication or tunneling."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 dns_over_tls_dot_not_enforced[_dns_over_tls_dot_not_enforced_def] if {
@@ -147,7 +150,8 @@ _dns_cache_poisoning_via_birthday_attack_def := {
             "name": "DNS Calculation",
             "relevance": "DNS Calculation involves manipulating DNS responses, directly relevant to birthday attack-based cache poisoning."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 dns_cache_poisoning_via_birthday_attack[_dns_cache_poisoning_via_birthday_attack_def] if {
@@ -186,7 +190,8 @@ _zone_transfer_over_unencrypted_channel_def := {
             "name": "DNS",
             "relevance": "Unencrypted zone transfers leak DNS information that adversaries can gather for target reconnaissance."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 zone_transfer_over_unencrypted_channel[_zone_transfer_over_unencrypted_channel_def] if {
@@ -232,7 +237,8 @@ _lack_of_mutual_authentication_between_client_and_resolver_def := {
             "name": "DNS",
             "relevance": "Lack of mutual authentication enables adversaries to gather DNS information by impersonating legitimate resolvers."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 lack_of_mutual_authentication_between_client_and_resolver[_lack_of_mutual_authentication_between_client_and_resolver_def] if {
@@ -272,7 +278,8 @@ _tsig_shared_secret_replay_or_weak_mac_def := {
             "name": "DNS Server",
             "relevance": "Compromising TSIG secrets allows attackers to manipulate DNS server zone data through forged authenticated updates."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 tsig_shared_secret_replay_or_weak_mac[_tsig_shared_secret_replay_or_weak_mac_def] if {
@@ -311,7 +318,8 @@ _dns_query_amplification_and_reflection_def := {
             "name": "DNS Server",
             "relevance": "Open DNS servers are leveraged as reflectors in amplification attacks, making server infrastructure central to this vector."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 dns_query_amplification_and_reflection[_dns_query_amplification_and_reflection_def] if {
@@ -350,7 +358,8 @@ _dns_over_https_doh_inspection_bypass_def := {
             "name": "Protocol Tunneling",
             "relevance": "DNS-over-HTTPS encapsulates DNS within HTTPS traffic, representing a protocol tunneling technique to evade inspection."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 dns_over_https_doh_inspection_bypass[_dns_over_https_doh_inspection_bypass_def] if {
@@ -389,7 +398,8 @@ _information_leakage_via_query_name_minimisation_absence_def := {
             "name": "DNS",
             "relevance": "Absence of query name minimisation leaks full DNS query details to upstream servers, facilitating information gathering."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 information_leakage_via_query_name_minimisation_absence[_information_leakage_via_query_name_minimisation_absence_def] if {
@@ -423,7 +433,8 @@ _dns_query_flood_no_rate_limiting_def := {
             "name": "DNS",
             "relevance": "Flooding DNS queries abuses the DNS protocol to exhaust resolver resources due to absent rate limiting."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 dns_query_flood_no_rate_limiting[_dns_query_flood_no_rate_limiting_def] if {
@@ -461,7 +472,8 @@ _unvalidated_routing_path_for_dns_traffic_def := {
             "name": "DNS Server",
             "relevance": "Unvalidated DNS routing paths allow adversaries to compromise intermediate DNS infrastructure to redirect traffic."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unvalidated_routing_path_for_dns_traffic[_unvalidated_routing_path_for_dns_traffic_def] if {

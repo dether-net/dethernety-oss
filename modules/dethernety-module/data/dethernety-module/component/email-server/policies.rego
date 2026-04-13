@@ -22,7 +22,8 @@ _open_relay_misconfiguration_def := {
             "name": "Email Bombing",
             "relevance": "Open relays are commonly abused to send large volumes of spam or bombing emails by relaying through the misconfigured server."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 open_relay_misconfiguration[_open_relay_misconfiguration_def] if {
@@ -70,7 +71,8 @@ _missing_or_weak_smtp_authentication_def := {
             "name": "Credential Stuffing",
             "relevance": "Weak SMTP authentication allows credential stuffing attacks using previously breached username/password pairs."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_or_weak_smtp_authentication[_missing_or_weak_smtp_authentication_def] if {
@@ -113,7 +115,8 @@ _cleartext_smtp_transmission_def := {
             "name": "Remote Email Collection",
             "relevance": "Unencrypted SMTP traffic allows attackers to collect email content and credentials through network interception."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 cleartext_smtp_transmission[_cleartext_smtp_transmission_def] if {
@@ -163,7 +166,8 @@ _weak_tls_cipher_or_protocol_version_def := {
             "name": "Weaken Encryption",
             "relevance": "Using outdated TLS protocol versions or weak ciphers directly weakens the encryption protecting email in transit."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 weak_tls_cipher_or_protocol_version[_weak_tls_cipher_or_protocol_version_def] if {
@@ -197,7 +201,8 @@ _missing_spf_dkim_dmarc_enforcement_def := {
             "name": "Email Spoofing",
             "relevance": "Missing SPF, DKIM, and DMARC policies allow attackers to spoof the domain in phishing and fraud campaigns."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_spf_dkim_dmarc_enforcement[_missing_spf_dkim_dmarc_enforcement_def] if {
@@ -249,7 +254,8 @@ _insufficient_rate_limiting_and_connection_throttling_def := {
             "name": "Password Spraying",
             "relevance": "Lack of connection throttling enables password spraying attacks against multiple accounts without lockout."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 insufficient_rate_limiting_and_connection_throttling[_insufficient_rate_limiting_and_connection_throttling_def] if {
@@ -293,7 +299,8 @@ _overprivileged_mta_service_account_def := {
             "name": "Bypass User Account Control",
             "relevance": "Excessive privileges on the MTA service account may allow bypassing access controls to perform unauthorized system operations."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 overprivileged_mta_service_account[_overprivileged_mta_service_account_def] if {
@@ -334,7 +341,8 @@ _unpatched_mta_software_def := {
             "name": "Exploitation of Remote Services",
             "relevance": "Known vulnerabilities in unpatched MTA software can be exploited remotely to gain unauthorized access."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unpatched_mta_software[_unpatched_mta_software_def] if {
@@ -372,7 +380,8 @@ _plaintext_credential_storage_in_config_def := {
             "name": "Unsecured Credentials",
             "relevance": "Plaintext credentials in config files represent unsecured credentials that can be easily extracted by adversaries."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 plaintext_credential_storage_in_config[_plaintext_credential_storage_in_config_def] if {
@@ -411,7 +420,8 @@ _inadequate_mail_queue_and_audit_logging_def := {
             "name": "Transport Agent",
             "relevance": "Insufficient audit logging may fail to detect malicious transport agents installed on the mail server to intercept messages."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 inadequate_mail_queue_and_audit_logging[_inadequate_mail_queue_and_audit_logging_def] if {
@@ -469,7 +479,8 @@ _unrestricted_management_interface_exposure_def := {
             "name": "Remote Services",
             "relevance": "Unrestricted management interface exposure allows attackers to remotely access and control the MTA using legitimate remote service protocols."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unrestricted_management_interface_exposure[_unrestricted_management_interface_exposure_def] if {
@@ -515,7 +526,8 @@ _missing_mta_sts_or_dane_policy_def := {
             "name": "DNS Server",
             "relevance": "Missing DANE/MTA-STS policies that rely on DNS for enforcement can be undermined by DNS server compromise or manipulation."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 missing_mta_sts_or_dane_policy[_missing_mta_sts_or_dane_policy_def] if {
@@ -549,7 +561,8 @@ _attachment_and_content_filtering_disabled_def := {
             "name": "HTML Smuggling",
             "relevance": "Without attachment and content filtering, HTML smuggling techniques in email attachments bypass security controls."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 attachment_and_content_filtering_disabled[_attachment_and_content_filtering_disabled_def] if {
@@ -591,7 +604,8 @@ _dns_reverse_lookup_validation_absent_def := {
             "name": "DNS",
             "relevance": "Absent reverse lookup validation allows attackers to exploit DNS misconfigurations to misrepresent sending server identity."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 dns_reverse_lookup_validation_absent[_dns_reverse_lookup_validation_absent_def] if {
@@ -629,7 +643,8 @@ _mail_queue_directory_permission_misconfiguration_def := {
             "name": "Remote Email Collection",
             "relevance": "Loose permissions on mail queue directories enable unauthorized collection of emails staged in the queue."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 mail_queue_directory_permission_misconfiguration[_mail_queue_directory_permission_misconfiguration_def] if {

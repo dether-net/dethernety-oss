@@ -7,7 +7,8 @@ _insufficient_ingress_allowlist_enforcement_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 insufficient_ingress_allowlist_enforcement[_insufficient_ingress_allowlist_enforcement_def] if {
@@ -34,7 +35,8 @@ _missing_egress_traffic_inspection_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 missing_egress_traffic_inspection[_missing_egress_traffic_inspection_def] if {
@@ -64,7 +66,8 @@ _flat_cloud_network_segmentation_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 flat_cloud_network_segmentation[_flat_cloud_network_segmentation_def] if {
@@ -96,7 +99,8 @@ _implicit_trust_propagation_via_service_mesh_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 implicit_trust_propagation_via_service_mesh[_implicit_trust_propagation_via_service_mesh_def] if {
@@ -119,7 +123,8 @@ _overpermissive_cloud_iam_federation_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 overpermissive_cloud_iam_federation[_overpermissive_cloud_iam_federation_def] if {
@@ -149,7 +154,8 @@ _uncontrolled_cloud_peering_and_private_link_exposure_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 uncontrolled_cloud_peering_and_private_link_exposure[_uncontrolled_cloud_peering_and_private_link_exposure_def] if {
@@ -172,7 +178,8 @@ _management_plane_not_isolated_from_data_plane_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 management_plane_not_isolated_from_data_plane[_management_plane_not_isolated_from_data_plane_def] if {
@@ -222,7 +229,8 @@ _transitive_storage_bucket_policy_exposure_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 transitive_storage_bucket_policy_exposure[_transitive_storage_bucket_policy_exposure_def] if {
@@ -242,7 +250,8 @@ _shared_nat_gateway_collapsing_zone_boundaries_def := {
     "category": "network_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 shared_nat_gateway_collapsing_zone_boundaries[_shared_nat_gateway_collapsing_zone_boundaries_def] if {

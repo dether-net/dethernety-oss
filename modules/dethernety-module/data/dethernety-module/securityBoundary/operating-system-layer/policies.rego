@@ -22,7 +22,8 @@ _syscall_ingress_filter_bypass_def := {
             "name": "Ptrace System Calls",
             "relevance": "Ptrace syscalls can be used to bypass ingress filters by manipulating process execution and intercepting/modifying system calls."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 syscall_ingress_filter_bypass[_syscall_ingress_filter_bypass_def] if {
@@ -56,7 +57,8 @@ _ipc_trust_boundary_permeability_def := {
             "name": "Inter-Process Communication",
             "relevance": "Directly addresses abuse of IPC mechanisms to cross trust boundaries between processes."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 ipc_trust_boundary_permeability[_ipc_trust_boundary_permeability_def] if {
@@ -106,7 +108,8 @@ _namespace_segmentation_escape_def := {
             "name": "Ptrace System Calls",
             "relevance": "Ptrace can be leveraged to escape namespace boundaries by attaching to processes in different namespaces."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 namespace_segmentation_escape[_namespace_segmentation_escape_def] if {
@@ -166,7 +169,8 @@ _credential_store_zone_leakage_def := {
             "name": "Ccache Files",
             "relevance": "Ccache files represent a credential store that can leak Kerberos tickets across security zones."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 credential_store_zone_leakage[_credential_store_zone_leakage_def] if {
@@ -207,7 +211,8 @@ _privilege_escalation_via_suid_boundary_crossing_def := {
             "name": "Exploitation for Privilege Escalation",
             "relevance": "Covers exploitation of vulnerabilities including SUID misconfigurations to escalate privileges across boundaries."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 privilege_escalation_via_suid_boundary_crossing[_privilege_escalation_via_suid_boundary_crossing_def] if {
@@ -258,7 +263,8 @@ _procfs_egress_information_exposure_def := {
             "name": "Process Discovery",
             "relevance": "Proc filesystem is commonly used for process discovery to enumerate running processes and their attributes."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 procfs_egress_information_exposure[_procfs_egress_information_exposure_def] if {
@@ -300,7 +306,8 @@ _cgroup_resource_boundary_sidechannel_def := {
             "name": "Group Policy Discovery",
             "relevance": "Relates to discovery of group/cgroup policies that define resource boundaries which could be exploited for side-channel attacks."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 cgroup_resource_boundary_sidechannel[_cgroup_resource_boundary_sidechannel_def] if {
@@ -341,7 +348,8 @@ _audit_and_monitoring_gap_at_zone_boundary_def := {
             "name": "Log Enumeration",
             "relevance": "Attackers may enumerate logs to identify gaps in monitoring coverage at zone boundaries."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 audit_and_monitoring_gap_at_zone_boundary[_audit_and_monitoring_gap_at_zone_boundary_def] if {
@@ -399,7 +407,8 @@ _capability_propagation_across_exec_boundary_def := {
             "name": "Unix Shell Configuration Modification",
             "relevance": "Modifying shell configuration can enable capability propagation across exec boundaries when new shells or processes are spawned."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 capability_propagation_across_exec_boundary[_capability_propagation_across_exec_boundary_def] if {
@@ -439,7 +448,8 @@ _device_file_ingress_path_to_kernel_def := {
             "name": "Subvert Trust Controls",
             "relevance": "Accessing kernel via device files may involve subverting trust controls that protect kernel interfaces."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 device_file_ingress_path_to_kernel[_device_file_ingress_path_to_kernel_def] if {

@@ -7,7 +7,8 @@ _unencrypted_or_weak_transport_encryption_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 unencrypted_or_weak_transport_encryption[_unencrypted_or_weak_transport_encryption_def] if {
@@ -45,7 +46,8 @@ _missing_mutual_tls_authentication_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 missing_mutual_tls_authentication[_missing_mutual_tls_authentication_def] if {
@@ -67,7 +69,8 @@ _configuration_payload_replay_attack_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 configuration_payload_replay_attack[_configuration_payload_replay_attack_def] if {
@@ -95,7 +98,8 @@ _transit_message_integrity_bypass_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 transit_message_integrity_bypass[_transit_message_integrity_bypass_def] if {
@@ -125,7 +129,8 @@ _tls_certificate_validation_failure_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 tls_certificate_validation_failure[_tls_certificate_validation_failure_def] if {
@@ -160,7 +165,8 @@ _management_channel_protocol_downgrade_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 management_channel_protocol_downgrade[_management_channel_protocol_downgrade_def] if {
@@ -186,7 +192,8 @@ _bandwidth_exhaustion_via_update_flooding_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 bandwidth_exhaustion_via_update_flooding[_bandwidth_exhaustion_via_update_flooding_def] if {
@@ -214,7 +221,8 @@ _bgp_route_hijacking_of_management_traffic_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 bgp_route_hijacking_of_management_traffic[_bgp_route_hijacking_of_management_traffic_def] if {
@@ -246,7 +254,8 @@ _dns_spoofing_of_management_server_resolution_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 dns_spoofing_of_management_server_resolution[_dns_spoofing_of_management_server_resolution_def] if {
@@ -272,7 +281,8 @@ _sensitive_configuration_data_in_cleartext_headers_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 sensitive_configuration_data_in_cleartext_headers[_sensitive_configuration_data_in_cleartext_headers_def] if {
@@ -296,7 +306,8 @@ _update_channel_session_fixation_or_hijacking_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 update_channel_session_fixation_or_hijacking[_update_channel_session_fixation_or_hijacking_def] if {
@@ -325,7 +336,8 @@ _insufficient_update_channel_segmentation_def := {
     "category": "network_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 insufficient_update_channel_segmentation[_insufficient_update_channel_segmentation_def] if {
@@ -349,7 +361,8 @@ _update_payload_compression_oracle_attack_def := {
     "category": "network_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 update_payload_compression_oracle_attack[_update_payload_compression_oracle_attack_def] if {

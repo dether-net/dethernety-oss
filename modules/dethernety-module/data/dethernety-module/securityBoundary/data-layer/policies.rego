@@ -24,7 +24,8 @@ _unrestricted_ingress_to_storage_endpoints_def := {
             "name": "Exfiltration Over Web Service",
             "relevance": "Open ingress to storage endpoints can be exploited to exfiltrate data over web-based storage services."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unrestricted_ingress_to_storage_endpoints[_unrestricted_ingress_to_storage_endpoints_def] if {
@@ -67,7 +68,8 @@ _missing_egress_filtering_from_storage_zone_def := {
             "name": "Exfiltration Over Alternative Protocol",
             "relevance": "Without egress filtering, attackers can use alternative protocols to exfiltrate data from the storage zone undetected."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 missing_egress_filtering_from_storage_zone[_missing_egress_filtering_from_storage_zone_def] if {
@@ -118,7 +120,8 @@ _overly_broad_cross_zone_trust_propagation_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Overly permissive cross-zone trust effectively bridges network boundaries, enabling attackers to bypass segmentation controls."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 overly_broad_cross_zone_trust_propagation[_overly_broad_cross_zone_trust_propagation_def] if {
@@ -162,7 +165,8 @@ _shared_credential_plane_across_zone_boundary_def := {
             "name": "Additional Cloud Credentials",
             "relevance": "Shared credential planes can be exploited to create or abuse additional cloud credentials spanning multiple zones."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 shared_credential_plane_across_zone_boundary[_shared_credential_plane_across_zone_boundary_def] if {
@@ -211,7 +215,8 @@ _insufficient_micro_segmentation_between_database_and_object_storage_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Insufficient micro-segmentation effectively bridges the network boundary between database and object storage zones."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_micro_segmentation_between_database_and_object_storage[_insufficient_micro_segmentation_between_database_and_object_storage_def] if {
@@ -263,7 +268,8 @@ _boundary_monitoring_blind_spots_on_east_west_traffic_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Blind spots on east-west traffic allow boundary bridging activities to go undetected between internal zones."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 boundary_monitoring_blind_spots_on_east_west_traffic[_boundary_monitoring_blind_spots_on_east_west_traffic_def] if {
@@ -314,7 +320,8 @@ _management_plane_not_isolated_from_data_plane_at_boundary_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Failure to isolate management from data plane effectively creates a boundary bridge that can be exploited for privilege escalation."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 management_plane_not_isolated_from_data_plane_at_boundary[_management_plane_not_isolated_from_data_plane_at_boundary_def] if {
@@ -362,7 +369,8 @@ _object_storage_presigned_url_bypass_of_boundary_controls_def := {
             "name": "Steal Application Access Token",
             "relevance": "Presigned URLs act as application access tokens that can be stolen to bypass storage boundary controls."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 object_storage_presigned_url_bypass_of_boundary_controls[_object_storage_presigned_url_bypass_of_boundary_controls_def] if {
@@ -402,7 +410,8 @@ _boundary_rule_permitting_broad_source_cidr_ranges_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Permissive CIDR rules effectively weaken network boundary controls, enabling attackers from broad IP ranges to bridge into protected zones."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 boundary_rule_permitting_broad_source_cidr_ranges[_boundary_rule_permitting_broad_source_cidr_ranges_def] if {
@@ -448,7 +457,8 @@ _lack_of_mutual_authentication_at_zone_boundary_def := {
             "name": "Protocol Tunneling",
             "relevance": "Without mutual authentication, attackers can tunnel traffic through the zone boundary by masquerading as trusted services."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 lack_of_mutual_authentication_at_zone_boundary[_lack_of_mutual_authentication_at_zone_boundary_def] if {
@@ -496,7 +506,8 @@ _dns_resolution_not_constrained_within_storage_zone_def := {
             "name": "DNS Server",
             "relevance": "Unconstrained DNS allows attackers to redirect storage zone queries to attacker-controlled DNS servers for data interception or exfiltration."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 dns_resolution_not_constrained_within_storage_zone[_dns_resolution_not_constrained_within_storage_zone_def] if {

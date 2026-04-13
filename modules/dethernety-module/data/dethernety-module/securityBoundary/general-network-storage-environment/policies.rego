@@ -9,7 +9,8 @@ _permissive_storage_protocol_ingress_filtering_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 permissive_storage_protocol_ingress_filtering[_permissive_storage_protocol_ingress_filtering_def] if {
@@ -38,7 +39,8 @@ _nfs_trust_propagation_via_uid_gid_mapping_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 nfs_trust_propagation_via_uid_gid_mapping[_nfs_trust_propagation_via_uid_gid_mapping_def] if {
@@ -64,7 +66,8 @@ _management_plane_zone_colocation_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 management_plane_zone_colocation[_management_plane_zone_colocation_def] if {
@@ -93,7 +96,8 @@ _shared_credential_propagation_across_zones_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 shared_credential_propagation_across_zones[_shared_credential_propagation_across_zones_def] if {
@@ -123,7 +127,8 @@ _egress_unfiltered_storage_replication_channels_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 egress_unfiltered_storage_replication_channels[_egress_unfiltered_storage_replication_channels_def] if {
@@ -149,7 +154,8 @@ _smb_relay_path_across_zone_boundary_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 smb_relay_path_across_zone_boundary[_smb_relay_path_across_zone_boundary_def] if {
@@ -173,7 +179,8 @@ _iscsi_initiator_zone_enforcement_gap_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 iscsi_initiator_zone_enforcement_gap[_iscsi_initiator_zone_enforcement_gap_def] if {
@@ -206,7 +213,8 @@ _insufficient_east_west_monitoring_on_storage_vlan_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 insufficient_east_west_monitoring_on_storage_vlan[_insufficient_east_west_monitoring_on_storage_vlan_def] if {
@@ -228,7 +236,8 @@ _guest_or_anonymous_share_exposure_at_zone_edge_def := {
     "category": "network_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 guest_or_anonymous_share_exposure_at_zone_edge[_guest_or_anonymous_share_exposure_at_zone_edge_def] if {

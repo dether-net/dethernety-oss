@@ -24,7 +24,8 @@ _misclassification_of_performance_data_as_non_sensitive_def := {
             "name": "Stored Data Manipulation",
             "relevance": "Incorrectly labeled sensitive performance data in storage is at risk of manipulation if not properly protected through classification controls."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 misclassification_of_performance_data_as_non_sensitive[_misclassification_of_performance_data_as_non_sensitive_def] if {
@@ -72,7 +73,8 @@ _excessive_retention_beyond_operational_need_def := {
             "name": "Data Staged",
             "relevance": "Excessively retained data accumulates in staged storage locations, increasing the attack surface for unauthorized data collection."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 excessive_retention_beyond_operational_need[_excessive_retention_beyond_operational_need_def] if {
@@ -115,7 +117,8 @@ _absence_of_encryption_at_rest_for_stored_metrics_def := {
             "name": "Data from Cloud Storage",
             "relevance": "Without encryption at rest, metrics stored in cloud storage can be accessed and exfiltrated by adversaries exploiting misconfigured permissions."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 absence_of_encryption_at_rest_for_stored_metrics[_absence_of_encryption_at_rest_for_stored_metrics_def] if {
@@ -158,7 +161,8 @@ _overly_broad_read_access_to_raw_performance_records_def := {
             "name": "Permission Groups Discovery",
             "relevance": "Adversaries can discover overly permissive groups with read access to raw performance records to identify targets for data collection."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 overly_broad_read_access_to_raw_performance_records[_overly_broad_read_access_to_raw_performance_records_def] if {
@@ -199,7 +203,8 @@ _no_anonymization_or_aggregation_before_cross_team_sharing_def := {
             "name": "Business Relationships",
             "relevance": "Cross-team sharing without anonymization can inadvertently reveal organizational relationships and sensitive operational details to unintended parties."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 no_anonymization_or_aggregation_before_cross_team_sharing[_no_anonymization_or_aggregation_before_cross_team_sharing_def] if {
@@ -241,7 +246,8 @@ _non_compliant_cross_border_transfer_of_operationally_sensitive_metrics_def := {
             "name": "Exfiltration Over Alternative Protocol",
             "relevance": "Unauthorized cross-border data transfers may use alternative protocols to bypass data loss prevention and compliance controls."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 non_compliant_cross_border_transfer_of_operationally_sensitive_metrics[_non_compliant_cross_border_transfer_of_operationally_sensitive_metrics_def] if {
@@ -292,7 +298,8 @@ _inadequate_disposal_procedures_for_decommissioned_performance_datasets_def := {
             "name": "Lifecycle-Triggered Deletion",
             "relevance": "Implementing lifecycle-triggered deletion is a direct countermeasure to inadequate disposal of decommissioned performance datasets."
         }
-    ]
+    ],
+    "attack_vector": "PHYSICAL"
 }
 
 inadequate_disposal_procedures_for_decommissioned_performance_datasets[_inadequate_disposal_procedures_for_decommissioned_performance_datasets_def] if {

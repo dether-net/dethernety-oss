@@ -24,7 +24,8 @@ _unclassified_pii_in_email_bodies_def := {
             "name": "Email Addresses",
             "relevance": "PII in email bodies often includes email addresses that adversaries can gather for reconnaissance or targeting purposes."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 unclassified_pii_in_email_bodies[_unclassified_pii_in_email_bodies_def] if {
@@ -68,7 +69,8 @@ _indefinite_retention_of_pii_bearing_messages_def := {
             "name": "Email Hiding Rules",
             "relevance": "Attackers may use email hiding rules to obscure indefinitely retained PII-bearing messages from detection or compliance review."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 indefinite_retention_of_pii_bearing_messages[_indefinite_retention_of_pii_bearing_messages_def] if {
@@ -111,7 +113,8 @@ _plaintext_pii_in_email_attachments_def := {
             "name": "Remote Email Collection",
             "relevance": "Plaintext PII attachments are susceptible to remote email collection by attackers accessing mail servers or cloud email systems."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 plaintext_pii_in_email_attachments[_plaintext_pii_in_email_attachments_def] if {
@@ -150,7 +153,8 @@ _excessive_mailbox_access_grants_to_pii_data_def := {
             "name": "Email Forwarding Rule",
             "relevance": "Excessive access grants may be exploited to create forwarding rules that exfiltrate PII-containing emails to unauthorized recipients."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 excessive_mailbox_access_grants_to_pii_data[_excessive_mailbox_access_grants_to_pii_data_def] if {
@@ -190,7 +194,8 @@ _cross_border_pii_transfer_via_email_routing_def := {
             "name": "Transfer Data to Cloud Account",
             "relevance": "Routing PII-bearing emails across borders may involve transferring data to foreign cloud accounts, aligning with this exfiltration technique."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 cross_border_pii_transfer_via_email_routing[_cross_border_pii_transfer_via_email_routing_def] if {
@@ -235,7 +240,8 @@ _inadequate_disposal_of_deleted_pii_emails_def := {
             "name": "Data Destruction",
             "relevance": "Inadequate disposal procedures fail to ensure complete data destruction of PII-containing emails, leaving them recoverable."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 inadequate_disposal_of_deleted_pii_emails[_inadequate_disposal_of_deleted_pii_emails_def] if {

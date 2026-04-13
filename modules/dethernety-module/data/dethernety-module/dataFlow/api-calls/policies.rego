@@ -22,7 +22,8 @@ _unencrypted_transport_def := {
             "name": "Network Sniffing",
             "relevance": "Unencrypted transport exposes data to network sniffing attacks where adversaries can capture plaintext traffic."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unencrypted_transport[_unencrypted_transport_def] if {
@@ -63,7 +64,8 @@ _weak_tls_protocol_negotiation_def := {
             "name": "Weaken Encryption",
             "relevance": "Covers adversary techniques to weaken encryption strength, relevant when TLS negotiation allows weak cipher suites or protocol versions."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 weak_tls_protocol_negotiation[_weak_tls_protocol_negotiation_def] if {
@@ -124,7 +126,8 @@ _missing_mutual_tls_authentication_def := {
             "name": "Protocol or Service Impersonation",
             "relevance": "Absence of mutual authentication enables service impersonation where a malicious endpoint masquerades as a legitimate one."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_mutual_tls_authentication[_missing_mutual_tls_authentication_def] if {
@@ -166,7 +169,8 @@ _tls_certificate_validation_bypass_def := {
             "name": "Steal or Forge Authentication Certificates",
             "relevance": "Forged certificates are used to exploit certificate validation bypass, enabling man-in-the-middle attacks on TLS connections."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 tls_certificate_validation_bypass[_tls_certificate_validation_bypass_def] if {
@@ -207,7 +211,8 @@ _message_integrity_absence_def := {
             "name": "Adversary-in-the-Middle",
             "relevance": "Absence of message integrity enables adversary-in-the-middle attacks where messages can be altered without detection."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 message_integrity_absence[_message_integrity_absence_def] if {
@@ -247,7 +252,8 @@ _replay_attack_susceptibility_def := {
             "name": "Steal Application Access Token",
             "relevance": "Stolen tokens lacking replay protection can be reused by attackers to impersonate legitimate sessions."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 replay_attack_susceptibility[_replay_attack_susceptibility_def] if {
@@ -304,7 +310,8 @@ _bearer_token_interception_in_transit_def := {
             "name": "Application Access Token",
             "relevance": "Intercepted bearer tokens can be used by adversaries to authenticate as the legitimate user without credentials."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 bearer_token_interception_in_transit[_bearer_token_interception_in_transit_def] if {
@@ -349,7 +356,8 @@ _missing_transport_rate_limiting_def := {
             "name": "Service Exhaustion Flood",
             "relevance": "Missing rate limiting exposes services to exhaustion flood attacks that overwhelm transport-layer service capacity."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_transport_rate_limiting[_missing_transport_rate_limiting_def] if {
@@ -391,7 +399,8 @@ _bgp_route_hijacking_exposure_def := {
             "name": "Network Boundary Bridging",
             "relevance": "BGP hijacking can bridge network boundaries by rerouting traffic across network perimeters through malicious autonomous systems."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 bgp_route_hijacking_exposure[_bgp_route_hijacking_exposure_def] if {
@@ -423,7 +432,8 @@ _http_header_injection_in_transit_def := {
             "name": "Adversary-in-the-Middle",
             "relevance": "HTTP header injection in transit is facilitated by adversary-in-the-middle positioning to insert or modify HTTP headers in intercepted traffic."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 http_header_injection_in_transit[_http_header_injection_in_transit_def] if {
@@ -467,7 +477,8 @@ _insecure_api_gateway_to_backend_leg_def := {
             "name": "Exfiltration Over Alternative Protocol",
             "relevance": "Unprotected API gateway-to-backend legs can be leveraged for data exfiltration using alternative protocols that bypass monitoring."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 insecure_api_gateway_to_backend_leg[_insecure_api_gateway_to_backend_leg_def] if {

@@ -31,7 +31,8 @@ _mutual_tls_not_enforced_def := {
             "name": "Protocol or Service Impersonation",
             "relevance": "Without mutual TLS enforcement, malicious services can impersonate legitimate ones as there is no cryptographic proof of identity on both sides."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 mutual_tls_not_enforced[_mutual_tls_not_enforced_def] if {
@@ -84,7 +85,8 @@ _certificate_validation_bypass_def := {
             "name": "Install Digital Certificate",
             "relevance": "Attackers can install malicious digital certificates to exploit systems that skip proper certificate validation."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 certificate_validation_bypass[_certificate_validation_bypass_def] if {
@@ -139,7 +141,8 @@ _tls_protocol_downgrade_def := {
             "name": "Weaken Encryption",
             "relevance": "Downgrading TLS effectively weakens the encryption strength, allowing adversaries to intercept or decrypt traffic."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 tls_protocol_downgrade[_tls_protocol_downgrade_def] if {
@@ -189,7 +192,8 @@ _missing_message_integrity_signing_def := {
             "name": "Protocol or Service Impersonation",
             "relevance": "Absence of message signing allows attackers to craft or alter messages impersonating legitimate services without cryptographic proof of origin."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 missing_message_integrity_signing[_missing_message_integrity_signing_def] if {
@@ -228,7 +232,8 @@ _replay_attack_on_service_requests_def := {
             "name": "Steal Application Access Token",
             "relevance": "Captured tokens from service requests can be replayed by attackers to impersonate legitimate service calls."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 replay_attack_on_service_requests[_replay_attack_on_service_requests_def] if {
@@ -274,7 +279,8 @@ _unencrypted_service_discovery_traffic_def := {
             "name": "DNS",
             "relevance": "Unencrypted DNS-based service discovery reveals infrastructure details that adversaries can exploit for targeting."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unencrypted_service_discovery_traffic[_unencrypted_service_discovery_traffic_def] if {
@@ -318,7 +324,8 @@ _absence_of_per_service_rate_limiting_def := {
             "name": "Application Exhaustion Flood",
             "relevance": "Lack of per-service rate limiting enables application-layer exhaustion attacks targeting specific microservices."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 absence_of_per_service_rate_limiting[_absence_of_per_service_rate_limiting_def] if {
@@ -364,7 +371,8 @@ _certificate_rotation_gap_def := {
             "name": "Digital Certificates",
             "relevance": "Certificate rotation gaps allow adversaries more time to discover and exploit certificate information gathered through reconnaissance."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 certificate_rotation_gap[_certificate_rotation_gap_def] if {
@@ -415,7 +423,8 @@ _east_west_traffic_not_segmented_def := {
             "name": "External Remote Services",
             "relevance": "Unsegmented east-west traffic enables lateral movement by treating internal services as accessible remote services."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 east_west_traffic_not_segmented[_east_west_traffic_not_segmented_def] if {
@@ -469,7 +478,8 @@ _tls_termination_at_shared_proxy_def := {
             "name": "Protocol Tunneling",
             "relevance": "A compromised shared proxy can be abused for protocol tunneling to exfiltrate data decrypted during TLS termination."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 tls_termination_at_shared_proxy[_tls_termination_at_shared_proxy_def] if {

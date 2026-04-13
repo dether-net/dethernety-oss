@@ -24,7 +24,8 @@ _unclassified_or_misclassified_pii_fields_def := {
             "name": "Data from Cloud Storage",
             "relevance": "Misclassified PII fields stored in cloud environments are at risk of unauthorized access and exfiltration from cloud storage due to inadequate classification and protection."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 unclassified_or_misclassified_pii_fields[_unclassified_or_misclassified_pii_fields_def] if {
@@ -65,7 +66,8 @@ _excessive_retention_beyond_policy_def := {
             "name": "Data Destruction",
             "relevance": "Excessive retention beyond policy relates directly to failures in data lifecycle management, where required deletion or destruction of data is not performed."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 excessive_retention_beyond_policy[_excessive_retention_beyond_policy_def] if {
@@ -108,7 +110,8 @@ _unmasked_pii_in_non_production_environments_def := {
             "name": "Data Staged",
             "relevance": "Unmasked PII copied into non-production environments effectively stages real sensitive data in less-protected locations, mimicking adversarial data staging behavior."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 unmasked_pii_in_non_production_environments[_unmasked_pii_in_non_production_environments_def] if {
@@ -149,7 +152,8 @@ _insufficient_field_level_encryption_for_sensitive_attributes_def := {
             "name": "Private Keys",
             "relevance": "Lack of field-level encryption for sensitive attributes may expose cryptographic keys or sensitive data that adversaries can leverage directly without needing to crack encryption."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_field_level_encryption_for_sensitive_attributes[_insufficient_field_level_encryption_for_sensitive_attributes_def] if {
@@ -199,7 +203,8 @@ _overly_broad_data_access_without_need_to_know_def := {
             "name": "Temporary Elevated Cloud Access",
             "relevance": "Excessive access permissions without need-to-know controls mirror the risk of temporary elevated cloud access, where accounts gain more privilege than necessary."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 overly_broad_data_access_without_need_to_know[_overly_broad_data_access_without_need_to_know_def] if {
@@ -248,7 +253,8 @@ _cross_border_transfer_without_adequacy_controls_def := {
             "name": "Data from Cloud Storage",
             "relevance": "Data moved across borders without controls is often staged or accessed via cloud storage, making this technique highly relevant to the exposure risk."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 cross_border_transfer_without_adequacy_controls[_cross_border_transfer_without_adequacy_controls_def] if {
@@ -302,7 +308,8 @@ _insecure_or_incomplete_data_disposal_def := {
             "name": "File Deletion",
             "relevance": "Insecure disposal that relies on simple file deletion without secure erasure leaves data recoverable, directly tied to the risks of incomplete file deletion practices."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 insecure_or_incomplete_data_disposal[_insecure_or_incomplete_data_disposal_def] if {
@@ -343,7 +350,8 @@ _absence_of_data_lineage_and_classification_audit_trail_def := {
             "name": "Business Relationships",
             "relevance": "Absence of audit trails for data lineage obscures how data flows across business relationships and third parties, enabling undetected data misuse or exfiltration."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 absence_of_data_lineage_and_classification_audit_trail[_absence_of_data_lineage_and_classification_audit_trail_def] if {

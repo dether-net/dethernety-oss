@@ -1,0 +1,117 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1649",
+      "name": "Steal or Forge Authentication Certificates",
+      "relevance": "Absence of mutual TLS allows an attacker to bypass certificate-based authentication, enabling theft or forgery of credentials used during artifact push."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1553.003",
+      "name": "SIP and Trust Provider Hijacking",
+      "relevance": "Without mutual TLS, trust validation during artifact push can be subverted, similar to hijacking trust providers to accept unauthorized artifacts."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1573.001",
+      "name": "Symmetric Cryptography",
+      "relevance": "Weak or expired TLS cipher negotiation undermines the symmetric encryption layer protecting data in transit, enabling interception or decryption of communications."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1573.002",
+      "name": "Asymmetric Cryptography",
+      "relevance": "Expired or weak TLS ciphers compromise asymmetric key exchange mechanisms, allowing adversaries to perform downgrade or man-in-the-middle attacks."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.002",
+      "name": "Credentials in Registry",
+      "relevance": "Overprivileged write tokens for pipeline service identities are a form of excessive credential exposure that attackers can harvest and abuse."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1550.001",
+      "name": "Application Access Token",
+      "relevance": "Bearer token replay directly maps to the use of stolen application access tokens to authenticate and push artifacts to a registry without valid credentials."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1528",
+      "name": "Steal Application Access Token",
+      "relevance": "The attack vector involves stealing a bearer token to replay it for unauthorized registry push operations."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1587.002",
+      "name": "Code Signing Certificates",
+      "relevance": "Removing SBOM and signatures from artifacts in transit directly targets the code signing verification chain used to authenticate artifact provenance."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1070",
+      "name": "Indicator Removal",
+      "relevance": "Stripping SBOMs and signatures is a form of indicator removal, eliminating evidence of tampering and provenance metadata from artifacts."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1048",
+      "name": "Exfiltration Over Alternative Protocol",
+      "relevance": "Fallback to plaintext protocols creates an unencrypted channel that adversaries can exploit for data exfiltration over alternative, unprotected protocols."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1572",
+      "name": "Protocol Tunneling",
+      "relevance": "Plaintext protocol fallback can be abused by attackers to tunnel malicious traffic through unencrypted channels, bypassing security controls."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1036.001",
+      "name": "Invalid Code Signature",
+      "relevance": "Without content-addressable integrity verification, artifacts with invalid or absent signatures can be pushed undetected, directly relating to this technique."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1677",
+      "name": "Poisoned Pipeline Execution",
+      "relevance": "Without content-addressable integrity checks, malicious artifacts can be injected into the pipeline, enabling poisoned pipeline execution."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1119",
+      "name": "Automated Collection",
+      "relevance": "Absent rate limiting on the write path allows automated, high-volume operations such as bulk artifact uploads or automated abuse of the write API."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1584.002",
+      "name": "DNS Server",
+      "relevance": "DNS spoofing to redirect artifact push traffic directly involves compromising or manipulating DNS infrastructure to point to a rogue registry."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1071.004",
+      "name": "DNS",
+      "relevance": "The attack leverages DNS protocol manipulation to redirect artifact push operations to an attacker-controlled registry."
+    }
+  ],
+  "respondsWith": []
+}

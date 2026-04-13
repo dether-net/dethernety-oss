@@ -24,7 +24,8 @@ _insufficient_ingress_filtering_from_dmz_def := {
             "name": "Exfiltration Over Alternative Protocol",
             "relevance": "Insufficient ingress filtering can allow adversaries to use alternative protocols to move data or commands across the DMZ boundary."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 insufficient_ingress_filtering_from_dmz[_insufficient_ingress_filtering_from_dmz_def] if {
@@ -81,7 +82,8 @@ _unrestricted_egress_to_backend_tiers_def := {
             "name": "Exfiltration Over Alternative Protocol",
             "relevance": "Unrestricted outbound traffic to backend tiers enables data exfiltration through various protocols without detection."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 unrestricted_egress_to_backend_tiers[_unrestricted_egress_to_backend_tiers_def] if {
@@ -124,7 +126,8 @@ _east_west_lateral_movement_within_boundary_def := {
             "name": "Software Deployment Tools",
             "relevance": "Attackers abuse software deployment tools to propagate laterally across systems within the same boundary zone."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 east_west_lateral_movement_within_boundary[_east_west_lateral_movement_within_boundary_def] if {
@@ -167,7 +170,8 @@ _trust_propagation_via_shared_service_accounts_def := {
             "name": "Steal Application Access Token",
             "relevance": "Shared service account tokens can be stolen and reused to impersonate trusted identities across boundaries."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 trust_propagation_via_shared_service_accounts[_trust_propagation_via_shared_service_accounts_def] if {
@@ -210,7 +214,8 @@ _boundary_monitoring_coverage_gap_def := {
             "name": "Traffic Signaling",
             "relevance": "Monitoring gaps enable covert traffic signaling techniques to operate undetected at the boundary."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 boundary_monitoring_coverage_gap[_boundary_monitoring_coverage_gap_def] if {
@@ -257,7 +262,8 @@ _management_plane_ingress_not_isolated_def := {
             "name": "Exploit Public-Facing Application",
             "relevance": "Management interfaces exposed without isolation can be directly exploited by external adversaries."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 management_plane_ingress_not_isolated[_management_plane_ingress_not_isolated_def] if {
@@ -296,7 +302,8 @@ _inter_zone_certificate_trust_misconfiguration_def := {
             "name": "Digital Certificates",
             "relevance": "Misconfigured certificate trust allows attackers to forge or misuse digital certificates to impersonate trusted zone endpoints."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 inter_zone_certificate_trust_misconfiguration[_inter_zone_certificate_trust_misconfiguration_def] if {
@@ -346,7 +353,8 @@ _outbound_dns_and_http_egress_for_exfiltration_def := {
             "name": "Exfiltration Over Alternative Protocol",
             "relevance": "Allowed DNS and HTTP egress paths are used as alternative protocols to exfiltrate data outside the boundary."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 outbound_dns_and_http_egress_for_exfiltration[_outbound_dns_and_http_egress_for_exfiltration_def] if {
@@ -386,7 +394,8 @@ _zone_boundary_bypass_via_allowed_middleware_protocols_def := {
             "name": "Application Layer Protocol",
             "relevance": "Permitted middleware application layer protocols are exploited to traverse zone boundaries covertly."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 zone_boundary_bypass_via_allowed_middleware_protocols[_zone_boundary_bypass_via_allowed_middleware_protocols_def] if {
@@ -430,7 +439,8 @@ _inconsistent_boundary_enforcement_across_redundant_paths_def := {
             "name": "Fallback Channels",
             "relevance": "Redundant paths with weaker enforcement can serve as fallback channels for adversarial communication."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 inconsistent_boundary_enforcement_across_redundant_paths[_inconsistent_boundary_enforcement_across_redundant_paths_def] if {

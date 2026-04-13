@@ -2,7 +2,7 @@
   "name": "Artifact Promotion Flow",
   "classType": "dataFlow",
   "type": "Artifact Promotion Flow",
-  "description": "Data in transit from the CI/CD Pipeline Engine to the Artifact Repository and Container Registry, carrying built binaries, container images, SBOMs, and cryptographic signatures. High sensitivity as the primary injection point for supply-chain attacks. Write access on this flow must be tightly scoped to pipeline service identities.",
+  "description": "The CI/CD pipeline-to-artifact repository and container registry data flow is the highest-value transit target in the software supply chain. Built binaries, container images, SBOMs, and cryptographic signatures traverse this channel, making it the primary injection vector for tampered artifacts. Transit vulnerabilities here enable adversaries to substitute legitimate artifacts with malicious ones, strip or forge signatures, or intercept credentials used for write access — all without needing to compromise the endpoints themselves. Mutual TLS, artifact signing verification, and tightly scoped service identity authentication are the critical controls on this flow.",
   "category": "Software Supply Chain",
-  "status": "draft"
+  "status": "reviewed"
 }

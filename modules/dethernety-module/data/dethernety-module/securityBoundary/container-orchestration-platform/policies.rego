@@ -1,340 +1,496 @@
 package _dt_built_in.exposures.container_orchestration_platform
 
-_api_server_unauthenticated_ingress_exposure_def := {
-    "name": "Api Server Unauthenticated Ingress Exposure",
-    "description": "The Kubernetes API server is reachable from workload network segments or external networks without enforced network-layer ingress filtering, allowing unauthenticated or weakly authenticated requests to reach the control plane boundary. Absence of network policy or firewall rules permitting workload pods to initiate connections to the API server port removes the first enforcement layer before RBAC applies.",
+_unauthenticated_api_server_ingress_def := {
+    "name": "Unauthenticated Api Server Ingress",
+    "description": "API server reachable from workload network segments without mutual TLS or token authentication enforced, allowing unauthenticated requests to traverse the workload-to-control-plane trust boundary. Presence detectable by checking whether anonymous-auth is enabled and whether network policy restricts workload-to-apiserver traffic.",
     "type": "misconfiguration",
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1550.001",
+            "name": "Application Access Token",
+            "relevance": "Unauthenticated API server access allows adversaries to exploit missing token validation to gain unauthorized access."
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1599",
+            "name": "Network Boundary Bridging",
+            "relevance": "Exposed unauthenticated API endpoints enable adversaries to bridge network boundaries and access internal cluster resources."
+        }
+    ],
+    "attack_vector": "ADJACENT"
 }
 
-api_server_unauthenticated_ingress_exposure[_api_server_unauthenticated_ingress_exposure_def] if {
-    not input.network_policy_restricts_api_server_egress
+unauthenticated_api_server_ingress[_unauthenticated_api_server_ingress_def] if {
     input.anonymous_auth_enabled == true
+    not input.workload_to_apiserver_network_policy_enforced
 }
 
-api_server_unauthenticated_ingress_exposure[_api_server_unauthenticated_ingress_exposure_def] if {
-    not input.api_server_firewall_ingress_restricted
+unauthenticated_api_server_ingress[_unauthenticated_api_server_ingress_def] if {
     input.anonymous_auth_enabled == true
+    not input.mutual_tls_enforced
 }
 
-api_server_unauthenticated_ingress_exposure[_api_server_unauthenticated_ingress_exposure_def] if {
-    not input.network_policy_restricts_api_server_egress
-    not input.api_server_firewall_ingress_restricted
+unauthenticated_api_server_ingress[_unauthenticated_api_server_ingress_def] if {
+    input.api_server_insecure_port > 0
+    not input.workload_to_apiserver_network_policy_enforced
 }
 
-exposures contains _api_server_unauthenticated_ingress_exposure_def if {
-    count(api_server_unauthenticated_ingress_exposure) > 0
+exposures contains _unauthenticated_api_server_ingress_def if {
+    count(unauthenticated_api_server_ingress) > 0
 }
 
-_overpermissive_rbac_role_binding_propagation_def := {
-    "name": "Overpermissive Rbac Role Binding Propagation",
-    "description": "RBAC role bindings granting cluster-scoped or cross-namespace permissions (e.g., cluster-admin, wildcard resource verbs) to workload service accounts enable trust propagation from the workload zone into the control plane zone. A compromised pod inheriting such bindings can issue API server requests that cross the intended zone boundary, achieving lateral movement to control plane authority without exploiting a vulnerability.",
+_etcd_exposed_outside_control_plane_zone_def := {
+    "name": "Etcd Exposed Outside Control Plane Zone",
+    "description": "etcd endpoints accessible from zones beyond the control plane boundary (e.g., node network, workload network) without zone-level network filtering, bypassing the API server's authn/authz gateway entirely. Detectable by whether etcd listen addresses are bound to interfaces reachable from non-control-plane segments and whether firewall rules enforce control-plane-only ingress.",
     "type": "misconfiguration",
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1040",
+            "name": "Network Sniffing",
+            "relevance": "etcd exposed outside the control plane zone is vulnerable to network sniffing attacks that can intercept sensitive cluster state data."
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1599",
+            "name": "Network Boundary Bridging",
+            "relevance": "Exposing etcd outside its designated zone allows adversaries to bridge network boundaries and directly access cluster secrets and configurations."
+        }
+    ],
+    "attack_vector": "ADJACENT"
 }
 
-overpermissive_rbac_role_binding_propagation[_overpermissive_rbac_role_binding_propagation_def] if {
-    input.binding_scope == "cluster"
-    input.bound_role_has_wildcard_or_admin == true
-    input.subject_type == "ServiceAccount"
-    input.service_account_automounts_token == true
-}
-
-overpermissive_rbac_role_binding_propagation[_overpermissive_rbac_role_binding_propagation_def] if {
-    input.binding_scope == "namespace"
-    input.bound_role_has_wildcard_or_admin == true
-    input.subject_type == "ServiceAccount"
-    input.service_account_automounts_token == true
-}
-
-exposures contains _overpermissive_rbac_role_binding_propagation_def if {
-    count(overpermissive_rbac_role_binding_propagation) > 0
-}
-
-_etcd_direct_access_bypass_of_api_server_boundary_def := {
-    "name": "Etcd Direct Access Bypass Of Api Server Boundary",
-    "description": "etcd is reachable directly from within the cluster network or from nodes without strict network segmentation enforcing that only the API server communicates with etcd. Direct access bypasses all API server authn/authz and admission controls, allowing an attacker with network access to read or write all cluster state including secrets, reducing the control plane boundary to the etcd network perimeter alone.",
-    "type": "misconfiguration",
-    "category": "network_security",
-    "criticality": "high",
-    "score": 8,
-    "exploited_by": []
-}
-
-etcd_direct_access_bypass_of_api_server_boundary[_etcd_direct_access_bypass_of_api_server_boundary_def] if {
-    not input.etcd_network_access_restricted_to_api_server
-    not input.etcd_client_cert_auth_enabled
-}
-
-etcd_direct_access_bypass_of_api_server_boundary[_etcd_direct_access_bypass_of_api_server_boundary_def] if {
-    not input.etcd_network_access_restricted_to_api_server
+etcd_exposed_outside_control_plane_zone[_etcd_exposed_outside_control_plane_zone_def] if {
     input.etcd_listen_address_scope == "all_interfaces"
+    not input.firewall_restricts_etcd_to_control_plane
 }
 
-etcd_direct_access_bypass_of_api_server_boundary[_etcd_direct_access_bypass_of_api_server_boundary_def] if {
-    input.etcd_listen_address_scope == "all_interfaces"
-    not input.etcd_client_cert_auth_enabled
+etcd_exposed_outside_control_plane_zone[_etcd_exposed_outside_control_plane_zone_def] if {
+    input.etcd_listen_address_scope == "node_network"
+    not input.firewall_restricts_etcd_to_control_plane
 }
 
-exposures contains _etcd_direct_access_bypass_of_api_server_boundary_def if {
-    count(etcd_direct_access_bypass_of_api_server_boundary) > 0
+exposures contains _etcd_exposed_outside_control_plane_zone_def if {
+    count(etcd_exposed_outside_control_plane_zone) > 0
 }
 
-_admission_webhook_bypass_via_scope_gap_def := {
-    "name": "Admission Webhook Bypass Via Scope Gap",
-    "description": "Admission webhooks are scoped to specific resource types, namespaces, or operations. Gaps in webhook rule coverage \u2014 such as missing rules for UPDATE operations, subresources (e.g., pods/exec, pods/ephemeralcontainers), or certain API groups \u2014 allow policy-violating requests to transit the control plane boundary without inspection. Attackers can craft requests targeting uncovered surfaces to install privileged workloads or escalate without triggering enforcement.",
-    "type": "missing_control",
-    "category": "network_security",
-    "criticality": "high",
-    "score": 8,
-    "exploited_by": []
-}
-
-admission_webhook_bypass_via_scope_gap[_admission_webhook_bypass_via_scope_gap_def] if {
-    not "UPDATE" in input.webhook_covered_operations
-}
-
-admission_webhook_bypass_via_scope_gap[_admission_webhook_bypass_via_scope_gap_def] if {
-    not "pods/exec" in input.webhook_covered_subresources
-}
-
-admission_webhook_bypass_via_scope_gap[_admission_webhook_bypass_via_scope_gap_def] if {
-    not "pods/ephemeralcontainers" in input.webhook_covered_subresources
-}
-
-admission_webhook_bypass_via_scope_gap[_admission_webhook_bypass_via_scope_gap_def] if {
-    input.webhook_namespace_selector_present == true
-}
-
-admission_webhook_bypass_via_scope_gap[_admission_webhook_bypass_via_scope_gap_def] if {
-    not input.high_risk_api_groups_covered
-}
-
-exposures contains _admission_webhook_bypass_via_scope_gap_def if {
-    count(admission_webhook_bypass_via_scope_gap) > 0
-}
-
-_service_account_token_cross_zone_exfiltration_def := {
-    "name": "Service Account Token Cross Zone Exfiltration",
-    "description": "Service account tokens are automatically mounted into pods by default, and their network egress to the API server is unrestricted by egress network policy. A compromised pod can exfiltrate its token and use it from any network location to authenticate against the API server, crossing the workload-to-control-plane trust boundary. The absence of egress filtering on port 443/6443 toward control plane IPs from workload namespaces removes a countermeasure layer.",
+_overpermissive_rbac_cluster_role_binding_def := {
+    "name": "Overpermissive Rbac Cluster Role Binding",
+    "description": "ClusterRoleBindings granting broad verbs (get/list/watch/create on secrets, pods, or nodes) to service accounts operating within workload trust zones, enabling privilege propagation across the control plane boundary without additional authentication steps. Detectable by enumerating ClusterRoleBindings referencing default or workload-namespace service accounts with wildcard resource or verb grants.",
     "type": "insecure_default",
     "category": "network_security",
-    "criticality": "medium",
-    "score": 5,
-    "exploited_by": []
+    "criticality": "high",
+    "score": 8,
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1098.006",
+            "name": "Additional Container Cluster Roles",
+            "relevance": "Overpermissive ClusterRoleBindings directly correspond to attackers adding or abusing excessive container cluster roles to escalate privileges."
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1548.005",
+            "name": "Temporary Elevated Cloud Access",
+            "relevance": "Overly broad RBAC bindings grant elevated permissions that can be exploited for privilege escalation within the cluster."
+        }
+    ],
+    "attack_vector": "LOCAL"
 }
 
-service_account_token_cross_zone_exfiltration[_service_account_token_cross_zone_exfiltration_def] if {
-    not input.service_account_automounts_token
-    not input.egress_network_policy_controls_control_plane_ports
+overpermissive_rbac_cluster_role_binding[_overpermissive_rbac_cluster_role_binding_def] if {
+    "ServiceAccount" in input.bound_subject_types
+    not input.subject_namespace in ["kube-system", "kube-public", "kube-node-lease"]
+    "*" in input.granted_verbs
+    "*" in input.granted_resources
 }
 
-service_account_token_cross_zone_exfiltration[_service_account_token_cross_zone_exfiltration_def] if {
-    not input.service_account_automounts_token
-    not input.egress_network_policy_controls_control_plane_ports
-    not input.token_bound_to_audience
+overpermissive_rbac_cluster_role_binding[_overpermissive_rbac_cluster_role_binding_def] if {
+    "ServiceAccount" in input.bound_subject_types
+    not input.subject_namespace in ["kube-system", "kube-public", "kube-node-lease"]
+    "secrets" in input.granted_resources
+    "list" in input.granted_verbs
 }
 
-exposures contains _service_account_token_cross_zone_exfiltration_def if {
-    count(service_account_token_cross_zone_exfiltration) > 0
+overpermissive_rbac_cluster_role_binding[_overpermissive_rbac_cluster_role_binding_def] if {
+    "ServiceAccount" in input.bound_subject_types
+    not input.subject_namespace in ["kube-system", "kube-public", "kube-node-lease"]
+    "create" in input.granted_verbs
+    "nodes" in input.granted_resources
 }
 
-_admission_webhook_server_trust_inversion_def := {
-    "name": "Admission Webhook Server Trust Inversion",
-    "description": "The API server calls out to admission webhook servers that may reside in the workload zone or be operated by workload owners. If a webhook server is compromised or maliciously configured, it can return allow decisions for policy-violating objects or deny decisions for legitimate ones, inverting the trust relationship at the policy enforcement boundary. The control plane trusts the webhook response without independent verification of enforcement correctness.",
+overpermissive_rbac_cluster_role_binding[_overpermissive_rbac_cluster_role_binding_def] if {
+    "ServiceAccount" in input.bound_subject_types
+    not input.subject_namespace in ["kube-system", "kube-public", "kube-node-lease"]
+    "*" in input.granted_verbs
+    "pods" in input.granted_resources
+}
+
+overpermissive_rbac_cluster_role_binding[_overpermissive_rbac_cluster_role_binding_def] if {
+    "ServiceAccount" in input.bound_subject_types
+    not input.subject_namespace in ["kube-system", "kube-public", "kube-node-lease"]
+    "*" in input.granted_resources
+    "get" in input.granted_verbs
+}
+
+exposures contains _overpermissive_rbac_cluster_role_binding_def if {
+    count(overpermissive_rbac_cluster_role_binding) > 0
+}
+
+_admission_webhook_bypass_via_missing_coverage_def := {
+    "name": "Admission Webhook Bypass Via Missing Coverage",
+    "description": "Policy admission webhooks (OPA/Gatekeeper, Kyverno) configured with namespace selectors or object selectors that exempt system namespaces, specific workload namespaces, or resource types, creating uncovered ingress paths through the policy enforcement boundary. Detectable by inspecting webhook matchPolicy, namespaceSelector, and failurePolicy fields for gap-inducing configurations.",
     "type": "misconfiguration",
     "category": "network_security",
-    "criticality": "medium",
-    "score": 5,
-    "exploited_by": []
+    "criticality": "high",
+    "score": 8,
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1484",
+            "name": "Domain or Tenant Policy Modification",
+            "relevance": "Missing admission webhook coverage allows adversaries to bypass policy enforcement, effectively circumventing domain-level security controls."
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1480",
+            "name": "Execution Guardrails",
+            "relevance": "Gaps in admission webhook coverage remove execution guardrails that would otherwise restrict malicious workload deployment."
+        }
+    ],
+    "attack_vector": "LOCAL"
 }
 
-admission_webhook_server_trust_inversion[_admission_webhook_server_trust_inversion_def] if {
-    input.webhook_server_zone == "workload_zone"
-    not input.webhook_ca_bundle_configured
-}
-
-admission_webhook_server_trust_inversion[_admission_webhook_server_trust_inversion_def] if {
-    input.webhook_server_zone == "workload_zone"
+admission_webhook_bypass_via_missing_coverage[_admission_webhook_bypass_via_missing_coverage_def] if {
     input.webhook_failure_policy == "Ignore"
 }
 
-admission_webhook_server_trust_inversion[_admission_webhook_server_trust_inversion_def] if {
-    input.webhook_server_zone in ["workload_zone", "shared_zone"]
-    not input.webhook_ca_bundle_configured
-    input.webhook_operator_rbac_unrestricted == true
+admission_webhook_bypass_via_missing_coverage[_admission_webhook_bypass_via_missing_coverage_def] if {
+    input.namespace_selector_exempts_system_namespaces == true
 }
 
-exposures contains _admission_webhook_server_trust_inversion_def if {
-    count(admission_webhook_server_trust_inversion) > 0
+admission_webhook_bypass_via_missing_coverage[_admission_webhook_bypass_via_missing_coverage_def] if {
+    input.webhook_match_policy == "Exact"
 }
 
-_network_policy_enforcement_gap_at_control_plane_egress_def := {
-    "name": "Network Policy Enforcement Gap At Control Plane Egress",
-    "description": "Kubernetes NetworkPolicy operates at the pod level and is enforced by the CNI plugin, but control plane components (API server, controller-manager, scheduler) typically run outside NetworkPolicy scope or in namespaces without egress restrictions. Egress from control plane components to arbitrary workload endpoints is unrestricted, enabling exploitation of SSRF or callback vulnerabilities in control plane software to reach workload-zone resources, blurring the directional trust boundary.",
-    "type": "misconfiguration",
-    "category": "network_security",
-    "criticality": "medium",
-    "score": 5,
-    "exploited_by": []
+admission_webhook_bypass_via_missing_coverage[_admission_webhook_bypass_via_missing_coverage_def] if {
+    count(input.uncovered_resource_types) > 0
 }
 
-network_policy_enforcement_gap_at_control_plane_egress[_network_policy_enforcement_gap_at_control_plane_egress_def] if {
-    not input.control_plane_namespace_egress_networkpolicy_configured
-    input.cni_plugin_enforces_networkpolicy_in_control_plane_namespace == true
+exposures contains _admission_webhook_bypass_via_missing_coverage_def if {
+    count(admission_webhook_bypass_via_missing_coverage) > 0
 }
 
-network_policy_enforcement_gap_at_control_plane_egress[_network_policy_enforcement_gap_at_control_plane_egress_def] if {
-    not input.cni_plugin_enforces_networkpolicy_in_control_plane_namespace
-    not input.control_plane_namespace_egress_networkpolicy_configured
-}
-
-network_policy_enforcement_gap_at_control_plane_egress[_network_policy_enforcement_gap_at_control_plane_egress_def] if {
-    input.control_plane_components_run_as_static_pods_outside_cni == true
-    not input.control_plane_namespace_egress_networkpolicy_configured
-}
-
-exposures contains _network_policy_enforcement_gap_at_control_plane_egress_def if {
-    count(network_policy_enforcement_gap_at_control_plane_egress) > 0
-}
-
-_kubeconfig_credential_isolation_failure_def := {
-    "name": "Kubeconfig Credential Isolation Failure",
-    "description": "Kubeconfig files granting cluster-admin or elevated API server access are stored in CI/CD systems, developer workstations, or shared namespaces without isolation from workload-accessible paths. Credential leakage crosses the zone boundary by granting workload-zone actors direct control plane authentication without exploiting any API server vulnerability. Absence of short-lived credential rotation and namespace-scoped credential stores is the enforcement gap.",
+_service_account_token_auto_mount_across_trust_zones_def := {
+    "name": "Service Account Token Auto Mount Across Trust Zones",
+    "description": "Service account tokens automatically mounted into pods grant API server credentials to workloads regardless of whether those workloads require control plane access, collapsing the workload-to-control-plane trust boundary by distributing credentials into the lower trust zone. Detectable by checking automountServiceAccountToken field on pod specs and service account objects.",
     "type": "misconfiguration",
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1528",
+            "name": "Steal Application Access Token",
+            "relevance": "Auto-mounted service account tokens across trust zones expose tokens that can be stolen from compromised pods to escalate access."
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1550.001",
+            "name": "Application Access Token",
+            "relevance": "Automatically mounted tokens can be directly used by adversaries as application access tokens to authenticate to the Kubernetes API."
+        }
+    ],
+    "attack_vector": "LOCAL"
 }
 
-kubeconfig_credential_isolation_failure[_kubeconfig_credential_isolation_failure_def] if {
-    input.kubeconfig_privilege_level in ["cluster_admin", "elevated"]
-    input.workload_accessible_storage == true
-    not input.short_lived_credential_rotation_enabled
+service_account_token_auto_mount_across_trust_zones[_service_account_token_auto_mount_across_trust_zones_def] if {
+    input.automount_service_account_token == true
+    input.service_account_has_elevated_rbac == true
 }
 
-kubeconfig_credential_isolation_failure[_kubeconfig_credential_isolation_failure_def] if {
-    input.kubeconfig_privilege_level == "cluster_admin"
-    input.workload_accessible_storage == true
-    count(input.kubeconfig_storage_locations) > 0
+service_account_token_auto_mount_across_trust_zones[_service_account_token_auto_mount_across_trust_zones_def] if {
+    input.automount_service_account_token == true
+    not input.service_account_has_elevated_rbac
+    input.workload_namespace_trust_zone in ["restricted", "administrative"]
 }
 
-exposures contains _kubeconfig_credential_isolation_failure_def if {
-    count(kubeconfig_credential_isolation_failure) > 0
+exposures contains _service_account_token_auto_mount_across_trust_zones_def if {
+    count(service_account_token_auto_mount_across_trust_zones) > 0
 }
 
-_control_plane_audit_log_blind_spot_in_lateral_movement_detection_def := {
-    "name": "Control Plane Audit Log Blind Spot In Lateral Movement Detection",
-    "description": "API server audit logging may be configured with incomplete policy \u2014 omitting RequestResponse level logging for sensitive verbs (get secrets, exec, bind, escalate) or specific API groups. This monitoring gap means lateral movement across the control plane boundary via legitimate-looking API calls is not recorded or alerted on, preventing detection of trust zone boundary crossing even when enforcement controls fail.",
+_cross_tenant_namespace_rbac_propagation_def := {
+    "name": "Cross Tenant Namespace Rbac Propagation",
+    "description": "RBAC roles or bindings in one tenant namespace grant access to resources in peer tenant namespaces or to cluster-scoped resources, violating horizontal trust zone separation between tenants. Detectable by checking whether RoleBindings reference subjects from foreign namespaces and whether any Role grants access to cross-namespace resource paths.",
     "type": "misconfiguration",
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1098.006",
+            "name": "Additional Container Cluster Roles",
+            "relevance": "Cross-tenant RBAC propagation allows adversaries to gain additional container cluster roles across namespace boundaries."
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1484.002",
+            "name": "Trust Modification",
+            "relevance": "Propagating RBAC across tenant namespaces constitutes modification of trust relationships between isolated tenants."
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1199",
+            "name": "Trusted Relationship",
+            "relevance": "Cross-namespace RBAC propagation exploits trusted relationships between namespaces to gain unauthorized access."
+        }
+    ],
+    "attack_vector": "LOCAL"
 }
 
-control_plane_audit_log_blind_spot_in_lateral_movement_detection[_control_plane_audit_log_blind_spot_in_lateral_movement_detection_def] if {
-    not input.audit_policy_configured
+cross_tenant_namespace_rbac_propagation[_cross_tenant_namespace_rbac_propagation_def] if {
+    input.foreign_namespace_subjects_in_rolebindings == true
 }
 
-control_plane_audit_log_blind_spot_in_lateral_movement_detection[_control_plane_audit_log_blind_spot_in_lateral_movement_detection_def] if {
-    input.audit_policy_configured == true
-    not input.audit_log_backend_enabled
+cross_tenant_namespace_rbac_propagation[_cross_tenant_namespace_rbac_propagation_def] if {
+    input.role_grants_cluster_scoped_resources == true
 }
 
-control_plane_audit_log_blind_spot_in_lateral_movement_detection[_control_plane_audit_log_blind_spot_in_lateral_movement_detection_def] if {
-    input.audit_policy_configured == true
-    input.audit_log_backend_enabled == true
-    input.audit_policy_sensitive_verb_coverage in ["partial", "none"]
+cross_tenant_namespace_rbac_propagation[_cross_tenant_namespace_rbac_propagation_def] if {
+    input.subject_namespace
 }
 
-exposures contains _control_plane_audit_log_blind_spot_in_lateral_movement_detection_def if {
-    count(control_plane_audit_log_blind_spot_in_lateral_movement_detection) > 0
+exposures contains _cross_tenant_namespace_rbac_propagation_def if {
+    count(cross_tenant_namespace_rbac_propagation) > 0
 }
 
-_node_to_control_plane_impersonation_via_kubelet_credential_reuse_def := {
-    "name": "Node To Control Plane Impersonation Via Kubelet Credential Reuse",
-    "description": "Kubelet credentials (node certificates) authorize node-scoped API server access, but if these credentials are accessible from workload pods on the node (e.g., via host path mounts or node filesystem access) they can be reused to impersonate the node identity against the API server. This crosses the workload-to-control-plane boundary using a credential that the control plane trusts as a node-zone principal, bypassing workload-level RBAC restrictions.",
+_admission_webhook_failure_open_policy_def := {
+    "name": "Admission Webhook Failure Open Policy",
+    "description": "Admission webhooks configured with failurePolicy: Ignore allow policy enforcement to be bypassed when the webhook endpoint is unavailable, creating an intermittent open path through the admission control boundary during outages or targeted denial-of-service against the webhook service. Detectable by inspecting failurePolicy field on MutatingWebhookConfiguration and ValidatingWebhookConfiguration objects.",
+    "type": "misconfiguration",
+    "category": "network_security",
+    "criticality": "medium",
+    "score": 5,
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1556.009",
+            "name": "Conditional Access Policies",
+            "relevance": "A failure-open admission webhook policy allows adversaries to bypass conditional access enforcement by triggering webhook failures."
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1567.004",
+            "name": "Exfiltration Over Webhook",
+            "relevance": "Failure-open webhook policies can be abused to deploy malicious workloads that exfiltrate data via webhook channels."
+        }
+    ],
+    "attack_vector": "LOCAL"
+}
+
+admission_webhook_failure_open_policy[_admission_webhook_failure_open_policy_def] if {
+    input.webhook_failure_policy == "Ignore"
+}
+
+exposures contains _admission_webhook_failure_open_policy_def if {
+    count(admission_webhook_failure_open_policy) > 0
+}
+
+_kubeconfig_credential_not_isolated_by_zone_def := {
+    "name": "Kubeconfig Credential Not Isolated By Zone",
+    "description": "Administrative kubeconfig files or service account credentials with cluster-admin or broad namespace rights are stored or accessible in zones below the control plane trust boundary (e.g., CI/CD runners, developer workstations, monitoring agents in workload namespaces), allowing credential theft to collapse zone separation. Detectable by auditing where high-privilege kubeconfig files are stored and whether workload-zone systems can access credential stores holding control-plane-scoped credentials.",
     "type": "misconfiguration",
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1552.001",
+            "name": "Credentials In Files",
+            "relevance": "Kubeconfig files contain credentials stored on disk that can be discovered and exfiltrated if not properly isolated by zone."
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1078.004",
+            "name": "Cloud Accounts",
+            "relevance": "Kubeconfig credentials not isolated by zone can be leveraged to authenticate as valid cloud or cluster accounts from unauthorized zones."
+        }
+    ],
+    "attack_vector": "LOCAL"
 }
 
-node_to_control_plane_impersonation_via_kubelet_credential_reuse[_node_to_control_plane_impersonation_via_kubelet_credential_reuse_def] if {
-    input.kubelet_credential_host_path_mount_present == true
-    not input.node_restriction_admission_plugin_enabled
+kubeconfig_credential_not_isolated_by_zone[_kubeconfig_credential_not_isolated_by_zone_def] if {
+    "ci_cd_runner" in input.high_privilege_kubeconfig_zones
+    input.credential_scope in ["cluster_admin", "broad_namespace"]
 }
 
-node_to_control_plane_impersonation_via_kubelet_credential_reuse[_node_to_control_plane_impersonation_via_kubelet_credential_reuse_def] if {
-    input.kubelet_credential_host_path_mount_present == true
+kubeconfig_credential_not_isolated_by_zone[_kubeconfig_credential_not_isolated_by_zone_def] if {
+    "developer_workstation" in input.high_privilege_kubeconfig_zones
+    input.credential_scope in ["cluster_admin", "broad_namespace"]
 }
 
-node_to_control_plane_impersonation_via_kubelet_credential_reuse[_node_to_control_plane_impersonation_via_kubelet_credential_reuse_def] if {
-    input.node_certificate_file_permissions_world_readable == true
-    not input.node_restriction_admission_plugin_enabled
+kubeconfig_credential_not_isolated_by_zone[_kubeconfig_credential_not_isolated_by_zone_def] if {
+    "workload_namespace" in input.high_privilege_kubeconfig_zones
+    input.credential_scope in ["cluster_admin", "broad_namespace"]
 }
 
-node_to_control_plane_impersonation_via_kubelet_credential_reuse[_node_to_control_plane_impersonation_via_kubelet_credential_reuse_def] if {
-    input.node_certificate_file_permissions_world_readable == true
+kubeconfig_credential_not_isolated_by_zone[_kubeconfig_credential_not_isolated_by_zone_def] if {
+    "monitoring_agent" in input.high_privilege_kubeconfig_zones
+    input.credential_scope in ["cluster_admin", "broad_namespace"]
 }
 
-exposures contains _node_to_control_plane_impersonation_via_kubelet_credential_reuse_def if {
-    count(node_to_control_plane_impersonation_via_kubelet_credential_reuse) > 0
+kubeconfig_credential_not_isolated_by_zone[_kubeconfig_credential_not_isolated_by_zone_def] if {
+    input.workload_zone_credential_store_accessible == true
+    input.credential_scope in ["cluster_admin", "broad_namespace"]
 }
 
-_ingress_controller_privilege_escalation_to_control_plane_def := {
-    "name": "Ingress Controller Privilege Escalation To Control Plane",
-    "description": "Ingress controllers often hold cluster-scoped RBAC permissions to read Ingress, Secret, and Service resources across namespaces, and run in positions exposed to external traffic. Compromise of the ingress controller propagates trust from the external zone through the workload zone to the control plane zone via its service account, as a single component straddles multiple trust boundaries without segmentation of its credential scope.",
+exposures contains _kubeconfig_credential_not_isolated_by_zone_def if {
+    count(kubeconfig_credential_not_isolated_by_zone) > 0
+}
+
+_control_plane_ingress_not_restricted_by_network_policy_def := {
+    "name": "Control Plane Ingress Not Restricted By Network Policy",
+    "description": "Absence of NetworkPolicy or external firewall rules restricting which workload namespaces or pods may initiate connections to the API server, etcd, or scheduler, leaving the control plane ingress boundary defined solely by logical authn/authz rather than enforced network zone separation. Detectable by checking for NetworkPolicy or firewall rules explicitly denying workload-to-control-plane traffic on control plane ports.",
+    "type": "misconfiguration",
+    "category": "network_security",
+    "criticality": "medium",
+    "score": 5,
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1562.007",
+            "name": "Disable or Modify Cloud Firewall",
+            "relevance": "Missing network policy restrictions on control plane ingress is analogous to a missing or disabled cloud firewall allowing unrestricted access."
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1599",
+            "name": "Network Boundary Bridging",
+            "relevance": "Unrestricted control plane ingress enables adversaries to bridge network boundaries and directly attack control plane components."
+        }
+    ],
+    "attack_vector": "ADJACENT"
+}
+
+control_plane_ingress_not_restricted_by_network_policy[_control_plane_ingress_not_restricted_by_network_policy_def] if {
+    not input.network_policy_restricts_control_plane_ingress
+    not input.external_firewall_restricts_control_plane_ingress
+}
+
+exposures contains _control_plane_ingress_not_restricted_by_network_policy_def if {
+    count(control_plane_ingress_not_restricted_by_network_policy) > 0
+}
+
+_audit_log_gap_at_control_plane_boundary_def := {
+    "name": "Audit Log Gap At Control Plane Boundary",
+    "description": "Kubernetes audit policy configured with None or metadata-only logging for sensitive control plane operations (secret reads, RBAC modifications, privileged pod creation), leaving boundary-crossing events undetected in monitoring coverage. Detectable by inspecting the audit policy file for rules applying None or Metadata level to secrets, clusterrolebindings, or pods/exec resources.",
     "type": "misconfiguration",
     "category": "network_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1562.008",
+            "name": "Disable or Modify Cloud Logs",
+            "relevance": "Audit log gaps at the control plane boundary represent missing or incomplete logging that adversaries can exploit to operate undetected."
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1562.012",
+            "name": "Disable or Modify Linux Audit System",
+            "relevance": "Gaps in audit logging at the control plane boundary effectively disable audit visibility, mirroring the impact of modifying the audit system."
+        }
+    ]
 }
 
-ingress_controller_privilege_escalation_to_control_plane[_ingress_controller_privilege_escalation_to_control_plane_def] if {
-    input.ingress_controller_cluster_scoped_secret_access == true
-    input.ingress_controller_exposed_to_external_traffic == true
-    input.ingress_controller_automount_service_account_token == true
+audit_log_gap_at_control_plane_boundary[_audit_log_gap_at_control_plane_boundary_def] if {
+    input.audit_log_path_configured == true
+    input.audit_policy_file_present == true
+    input.audit_policy_sensitive_resources_log_level == "None"
 }
 
-ingress_controller_privilege_escalation_to_control_plane[_ingress_controller_privilege_escalation_to_control_plane_def] if {
-    not input.ingress_controller_namespace_isolation_enforced
-    input.ingress_controller_exposed_to_external_traffic == true
-    input.ingress_controller_automount_service_account_token == true
+audit_log_gap_at_control_plane_boundary[_audit_log_gap_at_control_plane_boundary_def] if {
+    input.audit_log_path_configured == true
+    input.audit_policy_file_present == true
+    input.audit_policy_sensitive_resources_log_level == "Metadata"
 }
 
-exposures contains _ingress_controller_privilege_escalation_to_control_plane_def if {
-    count(ingress_controller_privilege_escalation_to_control_plane) > 0
+audit_log_gap_at_control_plane_boundary[_audit_log_gap_at_control_plane_boundary_def] if {
+    input.audit_log_path_configured == true
+    not input.audit_policy_file_present
 }
 
-_namespace_boundary_non_enforcement_in_multi_tenant_control_plane_def := {
-    "name": "Namespace Boundary Non Enforcement In Multi Tenant Control Plane",
-    "description": "Namespaces provide logical but not enforced network or RBAC isolation by default. Absence of NetworkPolicy between namespaces, combined with lack of hierarchical namespace policies, allows a tenant in one namespace to reach API server endpoints or shared admission webhook services and interact with control plane boundary surfaces intended to be scoped to other tenants, enabling cross-tenant trust zone traversal at the boundary layer.",
-    "type": "insecure_default",
+audit_log_gap_at_control_plane_boundary[_audit_log_gap_at_control_plane_boundary_def] if {
+    not input.audit_log_path_configured
+}
+
+exposures contains _audit_log_gap_at_control_plane_boundary_def if {
+    count(audit_log_gap_at_control_plane_boundary) > 0
+}
+
+_scheduler_and_controller_manager_unauthenticated_endpoints_def := {
+    "name": "Scheduler And Controller Manager Unauthenticated Endpoints",
+    "description": "Scheduler or controller manager components exposing health/metrics endpoints on 0.0.0.0 without authentication, accessible from workload or node networks, leaking cluster topology and providing a reconnaissance surface at the control plane zone boundary. Detectable by checking --bind-address and --port flags on kube-scheduler and kube-controller-manager for non-loopback bindings with authentication disabled.",
+    "type": "misconfiguration",
     "category": "network_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1613",
+            "name": "Container and Resource Discovery",
+            "relevance": "Unauthenticated scheduler and controller manager endpoints allow adversaries to enumerate container resources and cluster topology."
+        },
+        {
+            "label": "MitreAttackTechnique",
+            "property": "attack_id",
+            "value": "T1059.013",
+            "name": "Container CLI/API",
+            "relevance": "Exposed unauthenticated endpoints can be accessed via container CLI/API calls to manipulate scheduling and controller decisions."
+        }
+    ],
+    "attack_vector": "ADJACENT"
 }
 
-namespace_boundary_non_enforcement_in_multi_tenant_control_plane[_namespace_boundary_non_enforcement_in_multi_tenant_control_plane_def] if {
-    not input.default_network_policy_present
+scheduler_and_controller_manager_unauthenticated_endpoints[_scheduler_and_controller_manager_unauthenticated_endpoints_def] if {
+    input.bind_address_non_loopback == true
+    input.authentication_disabled_on_endpoint == true
 }
 
-namespace_boundary_non_enforcement_in_multi_tenant_control_plane[_namespace_boundary_non_enforcement_in_multi_tenant_control_plane_def] if {
-    input.cross_namespace_rbac_bindings_present == true
-}
-
-exposures contains _namespace_boundary_non_enforcement_in_multi_tenant_control_plane_def if {
-    count(namespace_boundary_non_enforcement_in_multi_tenant_control_plane) > 0
+exposures contains _scheduler_and_controller_manager_unauthenticated_endpoints_def if {
+    count(scheduler_and_controller_manager_unauthenticated_endpoints) > 0
 }

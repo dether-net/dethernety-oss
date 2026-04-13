@@ -9,7 +9,8 @@ _cleartext_nfs_data_transmission_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 cleartext_nfs_data_transmission[_cleartext_nfs_data_transmission_def] if {
@@ -43,7 +44,8 @@ _missing_mutual_authentication_on_mount_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 missing_mutual_authentication_on_mount[_missing_mutual_authentication_on_mount_def] if {
@@ -72,7 +74,8 @@ _rpc_replay_attack_exposure_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 rpc_replay_attack_exposure[_rpc_replay_attack_exposure_def] if {
@@ -100,7 +103,8 @@ _in_transit_data_integrity_absence_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 in_transit_data_integrity_absence[_in_transit_data_integrity_absence_def] if {
@@ -124,7 +128,8 @@ _nfs_over_unencrypted_transport_layer_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 nfs_over_unencrypted_transport_layer[_nfs_over_unencrypted_transport_layer_def] if {
@@ -153,7 +158,8 @@ _portmapper_rpcbind_interception_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 portmapper_rpcbind_interception[_portmapper_rpcbind_interception_def] if {
@@ -177,7 +183,8 @@ _nfs_traffic_routing_manipulation_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 nfs_traffic_routing_manipulation[_nfs_traffic_routing_manipulation_def] if {
@@ -202,7 +209,8 @@ _absence_of_nfs_traffic_rate_limiting_def := {
     "category": "network_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 absence_of_nfs_traffic_rate_limiting[_absence_of_nfs_traffic_rate_limiting_def] if {
@@ -221,7 +229,8 @@ _kerberos_ticket_interception_in_transit_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 kerberos_ticket_interception_in_transit[_kerberos_ticket_interception_in_transit_def] if {

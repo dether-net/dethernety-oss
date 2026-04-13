@@ -15,7 +15,8 @@ _unencrypted_db_transport_def := {
             "name": "Network Sniffing",
             "relevance": "Unencrypted database transport allows attackers to capture credentials and query data via network sniffing."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 unencrypted_db_transport[_unencrypted_db_transport_def] if {
@@ -59,7 +60,8 @@ _weak_or_deprecated_tls_version_def := {
             "name": "Weaken Encryption",
             "relevance": "Using deprecated TLS versions directly weakens encryption strength, enabling interception of communications."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 weak_or_deprecated_tls_version[_weak_or_deprecated_tls_version_def] if {
@@ -104,7 +106,8 @@ _tls_certificate_validation_bypass_def := {
             "name": "Steal or Forge Authentication Certificates",
             "relevance": "Certificate validation bypass enables attackers to forge or misuse certificates to impersonate trusted endpoints."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 tls_certificate_validation_bypass[_tls_certificate_validation_bypass_def] if {
@@ -147,7 +150,8 @@ _database_wire_protocol_plaintext_fallback_def := {
             "name": "Exfiltration Over Alternative Protocol",
             "relevance": "Plaintext fallback may allow data exfiltration over unencrypted alternative protocol channels."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 database_wire_protocol_plaintext_fallback[_database_wire_protocol_plaintext_fallback_def] if {
@@ -182,7 +186,8 @@ _missing_query_message_integrity_def := {
             "name": "Network Sniffing",
             "relevance": "Without message integrity checks, database queries can be intercepted and observed or tampered with via network sniffing."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 missing_query_message_integrity[_missing_query_message_integrity_def] if {
@@ -222,7 +227,8 @@ _absent_connection_rate_and_query_throttling_def := {
             "name": "Service Exhaustion Flood",
             "relevance": "Without throttling, attackers can flood database connections to exhaust service resources."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 absent_connection_rate_and_query_throttling[_absent_connection_rate_and_query_throttling_def] if {
@@ -266,7 +272,8 @@ _unencrypted_connection_pooler_segment_def := {
             "name": "Network Sniffing",
             "relevance": "Unencrypted traffic between the application and connection pooler can be captured via network sniffing on internal segments."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 unencrypted_connection_pooler_segment[_unencrypted_connection_pooler_segment_def] if {
@@ -309,7 +316,8 @@ _bgp_route_injection_for_traffic_interception_def := {
             "name": "Network Boundary Bridging",
             "relevance": "BGP route injection can bridge network boundaries to intercept traffic that would otherwise be isolated."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 bgp_route_injection_for_traffic_interception[_bgp_route_injection_for_traffic_interception_def] if {

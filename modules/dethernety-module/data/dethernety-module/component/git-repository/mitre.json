@@ -1,0 +1,222 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1213.003",
+      "name": "Code Repositories",
+      "relevance": "Anonymous access to code repositories allows unauthenticated users to read sensitive data from information repositories without credentials."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1213",
+      "name": "Data from Information Repositories",
+      "relevance": "Enabling anonymous access exposes repository data to collection by any unauthenticated actor."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1078",
+      "name": "Valid Accounts",
+      "relevance": "Weak or missing admin authentication allows adversaries to gain access using valid or easily guessed credentials."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1078.001",
+      "name": "Default Accounts",
+      "relevance": "Missing authentication often leaves default admin accounts exploitable by attackers."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1110.004",
+      "name": "Credential Stuffing",
+      "relevance": "Weak authentication mechanisms are susceptible to credential stuffing attacks."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.004",
+      "name": "Private Keys",
+      "relevance": "Exposure of SSH host keys allows adversaries to obtain private keys used for authentication and secure communications."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1563.001",
+      "name": "SSH Hijacking",
+      "relevance": "Weak SSH configuration or key exposure enables session hijacking of existing SSH connections."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1021.004",
+      "name": "SSH",
+      "relevance": "Weak SSH configuration enables attackers to leverage SSH for unauthorized remote access."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1048",
+      "name": "Exfiltration Over Alternative Protocol",
+      "relevance": "Unencrypted HTTP allows interception and exfiltration of data transmitted over plaintext protocols."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1572",
+      "name": "Protocol Tunneling",
+      "relevance": "Without TLS enforcement, attackers can tunnel malicious traffic through unencrypted HTTP connections."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1567.001",
+      "name": "Exfiltration to Code Repository",
+      "relevance": "Public repository visibility can facilitate unintended data exposure and exfiltration of sensitive source code."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1550.001",
+      "name": "Application Access Token",
+      "relevance": "Unrestricted API token issuance allows adversaries to use stolen or generated tokens to authenticate and access resources."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1528",
+      "name": "Steal Application Access Token",
+      "relevance": "Unrestricted token issuance increases attack surface for stealing application access tokens to impersonate users or services."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1134",
+      "name": "Access Token Manipulation",
+      "relevance": "Without restrictions on API token issuance, adversaries can manipulate or forge tokens to escalate privileges."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1677",
+      "name": "Poisoned Pipeline Execution",
+      "relevance": "Unprotected default branches allow adversaries to inject malicious code that executes in CI/CD pipelines."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1195.001",
+      "name": "Compromise Software Dependencies and Development Tools",
+      "relevance": "Unprotected branches enable supply chain compromise by allowing unauthorized modifications to source code and dependencies."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1195",
+      "name": "Supply Chain Compromise",
+      "relevance": "Lack of branch protection allows attackers to tamper with code, compromising the software supply chain."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1567.004",
+      "name": "Exfiltration Over Webhook",
+      "relevance": "Unrestricted webhook targets can be abused to exfiltrate data to attacker-controlled endpoints via SSRF."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1611",
+      "name": "Escape to Host",
+      "relevance": "A git service running as root or privileged user facilitates container or sandbox escape to the underlying host."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1609",
+      "name": "Container Administration Command",
+      "relevance": "Privileged process execution enables attackers to run administrative commands within the container environment."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1543.005",
+      "name": "Container Service",
+      "relevance": "Running as root allows adversaries to create or modify container services for persistence and privilege escalation."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1530",
+      "name": "Data from Cloud Storage",
+      "relevance": "Publicly accessible or unencrypted backup storage allows adversaries to directly access and exfiltrate stored backup data."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.008",
+      "name": "Disable or Modify Cloud Logs",
+      "relevance": "Disabled or incomplete audit logging mirrors the impact of adversaries disabling logs to avoid detection."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.002",
+      "name": "Disable Windows Event Logging",
+      "relevance": "Incomplete audit logging reduces visibility into attacker activity, analogous to disabling event logging."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1654",
+      "name": "Log Enumeration",
+      "relevance": "Without complete audit logs, adversaries can enumerate and exploit gaps in logging coverage to evade detection."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1190",
+      "name": "Exploit Public-Facing Application",
+      "relevance": "Outdated platform versions contain known vulnerabilities that adversaries exploit in public-facing applications."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1210",
+      "name": "Exploitation of Remote Services",
+      "relevance": "Unpatched software exposes known vulnerabilities in remote services that attackers can exploit for access."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1133",
+      "name": "External Remote Services",
+      "relevance": "Network exposure to untrusted segments allows adversaries to access external remote services without proper network controls."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1021",
+      "name": "Remote Services",
+      "relevance": "Untrusted network access enables adversaries to leverage remote services for lateral movement or initial access."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.001",
+      "name": "Credentials In Files",
+      "relevance": "Secrets stored in repository configuration or history represent credentials stored in files that adversaries can discover."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552",
+      "name": "Unsecured Credentials",
+      "relevance": "Storing secrets in repository configuration or commit history constitutes unsecured credential storage accessible to attackers."
+    }
+  ],
+  "respondsWith": []
+}

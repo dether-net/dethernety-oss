@@ -15,7 +15,8 @@ _opportunistic_tls_downgrade_def := {
             "name": "Mail Protocols",
             "relevance": "Attackers exploiting opportunistic TLS downgrade abuse SMTP mail protocols to intercept communications when encryption is negotiated away."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 opportunistic_tls_downgrade[_opportunistic_tls_downgrade_def] if {
@@ -56,7 +57,8 @@ _missing_dane_or_mta_sts_enforcement_def := {
             "name": "Digital Certificates",
             "relevance": "Adversaries may develop or obtain forged digital certificates to impersonate mail servers when DANE or MTA-STS policies are absent."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_dane_or_mta_sts_enforcement[_missing_dane_or_mta_sts_enforcement_def] if {
@@ -95,7 +97,8 @@ _weak_or_expired_tls_certificate_on_relay_def := {
             "name": "Steal or Forge Authentication Certificates",
             "relevance": "Expired or weak certificates on mail relays create opportunities for adversaries to forge or substitute fraudulent certificates to perform man-in-the-middle attacks."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 weak_or_expired_tls_certificate_on_relay[_weak_or_expired_tls_certificate_on_relay_def] if {
@@ -137,7 +140,8 @@ _absent_dkim_message_integrity_def := {
             "name": "Email Spoofing",
             "relevance": "Without DKIM signing, message integrity cannot be verified, directly enabling email spoofing where attackers forge sender identity and message content."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 absent_dkim_message_integrity[_absent_dkim_message_integrity_def] if {
@@ -187,7 +191,8 @@ _dns_mx_record_hijacking_def := {
             "name": "DNS Server",
             "relevance": "Attackers may acquire or set up DNS servers to facilitate MX record hijacking and redirect victim email traffic."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 dns_mx_record_hijacking[_dns_mx_record_hijacking_def] if {
@@ -230,7 +235,8 @@ _smtp_relay_hop_plaintext_leg_def := {
             "name": "Protocol Tunneling",
             "relevance": "Attackers can exploit plaintext relay hops to tunnel malicious traffic or exfiltrate data through unencrypted SMTP relay segments."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 smtp_relay_hop_plaintext_leg[_smtp_relay_hop_plaintext_leg_def] if {
@@ -268,7 +274,8 @@ _missing_spf_dmarc_sender_authentication_def := {
             "name": "Phishing",
             "relevance": "Absence of SPF/DMARC authentication facilitates phishing attacks by allowing adversaries to send spoofed emails that appear to originate from trusted domains."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_spf_dmarc_sender_authentication[_missing_spf_dmarc_sender_authentication_def] if {
@@ -309,7 +316,8 @@ _tls_protocol_version_cipher_weakness_def := {
             "name": "Asymmetric Cryptography",
             "relevance": "Outdated TLS protocol versions with weak asymmetric cryptography expose key exchange mechanisms to attacks enabling session decryption."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 tls_protocol_version_cipher_weakness[_tls_protocol_version_cipher_weakness_def] if {
@@ -346,7 +354,8 @@ _smtp_credential_exposure_in_authenticated_submission_def := {
             "name": "Mail Protocols",
             "relevance": "Credential exposure occurs over SMTP mail protocol sessions, making mail protocol abuse the direct vector for credential interception."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 smtp_credential_exposure_in_authenticated_submission[_smtp_credential_exposure_in_authenticated_submission_def] if {
@@ -392,7 +401,8 @@ _email_traffic_metadata_leakage_def := {
             "name": "Remote Email Collection",
             "relevance": "Adversaries may remotely collect email metadata leaked through unprotected traffic to build intelligence about organizational communications."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 email_traffic_metadata_leakage[_email_traffic_metadata_leakage_def] if {
@@ -438,7 +448,8 @@ _replay_attack_on_smtp_session_def := {
             "name": "Mail Protocols",
             "relevance": "SMTP session replay attacks directly abuse the SMTP mail protocol by reusing captured protocol exchanges to inject unauthorized messages."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 replay_attack_on_smtp_session[_replay_attack_on_smtp_session_def] if {

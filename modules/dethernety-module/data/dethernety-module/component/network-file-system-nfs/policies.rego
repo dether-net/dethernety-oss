@@ -7,7 +7,8 @@ _unrestricted_export_scope_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 unrestricted_export_scope[_unrestricted_export_scope_def] if {
@@ -33,7 +34,8 @@ _no_auth_sys_replacement_with_kerberos_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 no_auth_sys_replacement_with_kerberos[_no_auth_sys_replacement_with_kerberos_def] if {
@@ -60,7 +62,8 @@ _root_squash_disabled_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 root_squash_disabled[_root_squash_disabled_def] if {
@@ -82,7 +85,8 @@ _missing_transport_encryption_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 missing_transport_encryption[_missing_transport_encryption_def] if {
@@ -107,7 +111,8 @@ _write_permission_on_sensitive_exports_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 write_permission_on_sensitive_exports[_write_permission_on_sensitive_exports_def] if {
@@ -133,7 +138,8 @@ _nfs_service_exposed_on_public_interface_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 nfs_service_exposed_on_public_interface[_nfs_service_exposed_on_public_interface_def] if {
@@ -162,7 +168,8 @@ _unpatched_nfs_server_software_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 unpatched_nfs_server_software[_unpatched_nfs_server_software_def] if {
@@ -186,7 +193,8 @@ _insecure_mount_options_on_client_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 insecure_mount_options_on_client[_insecure_mount_options_on_client_def] if {
@@ -212,7 +220,8 @@ _rpcbind_portmapper_unrestricted_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 rpcbind_portmapper_unrestricted[_rpcbind_portmapper_unrestricted_def] if {
@@ -271,7 +280,8 @@ _all_squash_misconfiguration_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 all_squash_misconfiguration[_all_squash_misconfiguration_def] if {
@@ -295,7 +305,8 @@ _nfsv2_or_nfsv3_enabled_unnecessarily_def := {
     "category": "network_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 nfsv2_or_nfsv3_enabled_unnecessarily[_nfsv2_or_nfsv3_enabled_unnecessarily_def] if {
@@ -318,7 +329,8 @@ _weak_idmapping_configuration_def := {
     "category": "host_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 weak_idmapping_configuration[_weak_idmapping_configuration_def] if {
@@ -341,7 +353,8 @@ _no_export_filesystem_isolation_def := {
     "category": "network_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 no_export_filesystem_isolation[_no_export_filesystem_isolation_def] if {

@@ -24,7 +24,8 @@ _unauthenticated_monitoring_api_endpoint_def := {
             "name": "Indicator Blocking",
             "relevance": "Unauthenticated access to a monitoring API could allow attackers to suppress or block security indicators."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unauthenticated_monitoring_api_endpoint[_unauthenticated_monitoring_api_endpoint_def] if {
@@ -63,7 +64,8 @@ _unencrypted_telemetry_transmission_def := {
             "name": "Transmitted Data Manipulation",
             "relevance": "Unencrypted telemetry is vulnerable to in-transit manipulation by adversaries."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unencrypted_telemetry_transmission[_unencrypted_telemetry_transmission_def] if {
@@ -105,7 +107,8 @@ _overprivileged_agent_service_account_def := {
             "name": "Event Triggered Execution",
             "relevance": "Overprivileged accounts can be abused to establish persistence via event-triggered execution mechanisms."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 overprivileged_agent_service_account[_overprivileged_agent_service_account_def] if {
@@ -151,7 +154,8 @@ _hardcoded_or_default_credentials_def := {
             "name": "Credentials In Files",
             "relevance": "Hardcoded credentials stored in configuration files are a primary example of credentials in files."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 hardcoded_or_default_credentials[_hardcoded_or_default_credentials_def] if {
@@ -201,7 +205,8 @@ _alert_suppression_via_unauthorized_config_modification_def := {
             "name": "Spoof Security Alerting",
             "relevance": "Unauthorized config changes can be used to spoof or suppress security alerting systems."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 alert_suppression_via_unauthorized_config_modification[_alert_suppression_via_unauthorized_config_modification_def] if {
@@ -243,7 +248,8 @@ _unpatched_monitoring_agent_software_def := {
             "name": "Exploitation of Remote Services",
             "relevance": "Unpatched agent software exposes exploitable remote services to adversaries."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unpatched_monitoring_agent_software[_unpatched_monitoring_agent_software_def] if {
@@ -286,7 +292,8 @@ _excessive_network_exposure_of_agent_listener_def := {
             "name": "System Network Connections Discovery",
             "relevance": "Attackers can enumerate exposed agent listener connections to map network attack surfaces."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 excessive_network_exposure_of_agent_listener[_excessive_network_exposure_of_agent_listener_def] if {
@@ -332,7 +339,8 @@ _insufficient_logging_of_alert_and_config_changes_def := {
             "name": "Indicator Blocking",
             "relevance": "Insufficient logging enables indicator blocking to succeed unnoticed in alert and config changes."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_logging_of_alert_and_config_changes[_insufficient_logging_of_alert_and_config_changes_def] if {
@@ -384,7 +392,8 @@ _secrets_stored_in_plaintext_config_files_def := {
             "name": "Private Keys",
             "relevance": "Config files may contain private keys stored in plaintext, enabling authentication bypass."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 secrets_stored_in_plaintext_config_files[_secrets_stored_in_plaintext_config_files_def] if {
@@ -423,7 +432,8 @@ _missing_mutual_tls_for_agent_to_collector_communication_def := {
             "name": "Steal or Forge Authentication Certificates",
             "relevance": "Absence of mutual TLS exposes certificate-based authentication to theft or forgery."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_mutual_tls_for_agent_to_collector_communication[_missing_mutual_tls_for_agent_to_collector_communication_def] if {
@@ -464,7 +474,8 @@ _single_point_of_failure_in_alert_delivery_def := {
             "name": "Spoof Security Alerting",
             "relevance": "Single points of failure in alert delivery are targets for spoofing security alerting systems."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 single_point_of_failure_in_alert_delivery[_single_point_of_failure_in_alert_delivery_def] if {
@@ -503,7 +514,8 @@ _weak_role_based_access_to_alert_management_console_def := {
             "name": "Spoof Security Alerting",
             "relevance": "Weak access controls on alert consoles enable unauthorized users to spoof or manipulate security alerts."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 weak_role_based_access_to_alert_management_console[_weak_role_based_access_to_alert_management_console_def] if {
@@ -552,7 +564,8 @@ _log_rotation_and_retention_misconfiguration_def := {
             "name": "Disable or Modify Cloud Logs",
             "relevance": "Misconfigured log rotation may effectively disable or truncate cloud logs, reducing visibility."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 log_rotation_and_retention_misconfiguration[_log_rotation_and_retention_misconfiguration_def] if {
@@ -596,7 +609,8 @@ _unvalidated_external_input_to_alert_routing_rules_def := {
             "name": "Exfiltration Over Webhook",
             "relevance": "Unvalidated routing rule input could redirect alerts to attacker-controlled webhooks for exfiltration."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 unvalidated_external_input_to_alert_routing_rules[_unvalidated_external_input_to_alert_routing_rules_def] if {

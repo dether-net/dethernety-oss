@@ -24,7 +24,8 @@ _missing_mutual_authentication_on_ipc_channel_def := {
             "name": "Remote Services",
             "relevance": "Lack of mutual authentication on IPC channels mirrors the risk of unauthenticated access to remote services."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 missing_mutual_authentication_on_ipc_channel[_missing_mutual_authentication_on_ipc_channel_def] if {
@@ -63,7 +64,8 @@ _message_integrity_absence_on_shared_memory_queue_def := {
             "name": "Proc Memory",
             "relevance": "Attackers can manipulate shared memory regions without integrity checks, similar to proc memory injection techniques."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 message_integrity_absence_on_shared_memory_queue[_message_integrity_absence_on_shared_memory_queue_def] if {
@@ -103,7 +105,8 @@ _replay_attack_on_ipc_messages_def := {
             "name": "Network Sniffing",
             "relevance": "Capturing IPC messages for replay requires intercepting/sniffing the communication, analogous to network sniffing."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 replay_attack_on_ipc_messages[_replay_attack_on_ipc_messages_def] if {
@@ -150,7 +153,8 @@ _dbus_unauthenticated_method_exposure_def := {
             "name": "System Services",
             "relevance": "D-Bus services often mediate system service interactions; unauthenticated exposure can allow abuse of system services."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 dbus_unauthenticated_method_exposure[_dbus_unauthenticated_method_exposure_def] if {
@@ -185,7 +189,8 @@ _named_pipe_squatting_or_hijacking_def := {
             "name": "Path Interception by Unquoted Path",
             "relevance": "Named pipe squatting is conceptually similar to path interception, where an attacker pre-creates a resource at an expected location."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 named_pipe_squatting_or_hijacking[_named_pipe_squatting_or_hijacking_def] if {
@@ -224,7 +229,8 @@ _absence_of_rate_limiting_on_ipc_endpoints_def := {
             "name": "Inter-Process Communication",
             "relevance": "The absence of rate limiting on IPC endpoints directly enables abuse of inter-process communication mechanisms."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 absence_of_rate_limiting_on_ipc_endpoints[_absence_of_rate_limiting_on_ipc_endpoints_def] if {
@@ -270,7 +276,8 @@ _weak_or_absent_tls_on_loopback_rpc_def := {
             "name": "Protocol Tunneling",
             "relevance": "Weak TLS on loopback RPC can be exploited to tunnel malicious traffic through the unprotected RPC channel."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 weak_or_absent_tls_on_loopback_rpc[_weak_or_absent_tls_on_loopback_rpc_def] if {
@@ -313,7 +320,8 @@ _sensitive_data_in_ipc_metadata_or_headers_def := {
             "name": "Exfiltration Over Unencrypted Non-C2 Protocol",
             "relevance": "Sensitive data present in unprotected IPC headers can be exfiltrated over unencrypted protocols by a local attacker."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 sensitive_data_in_ipc_metadata_or_headers[_sensitive_data_in_ipc_metadata_or_headers_def] if {

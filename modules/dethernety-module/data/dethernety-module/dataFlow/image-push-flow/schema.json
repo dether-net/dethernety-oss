@@ -1,0 +1,489 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "registry_tls_enforced": {
+        "type": "boolean",
+        "title": "Registry TLS Enforced",
+        "description": "Whether the registry endpoint requires HTTPS/TLS for all push and pull operations, rejecting plain HTTP connections. Also captures whether insecure registry configurations (HTTP or unverified TLS) are present.",
+        "default": false
+      },
+      "minimum_tls_version": {
+        "type": "string",
+        "enum": [
+          "ssl3",
+          "tls1.0",
+          "tls1.1",
+          "tls1.2",
+          "tls1.3"
+        ],
+        "title": "Minimum TLS Version",
+        "description": "The minimum TLS protocol version enforced for registry transport connections. Versions below TLS 1.2 are vulnerable to downgrade attacks."
+      },
+      "insecure_registry_configured": {
+        "type": "boolean",
+        "title": "Insecure Registry Configured",
+        "description": "Whether the container runtime or CI/CD agent has the registry listed as insecure (HTTP or unverified TLS), bypassing certificate validation.",
+        "default": false
+      },
+      "registry_ca_validation_enforced": {
+        "type": "boolean",
+        "title": "Registry CA Validation Enforced",
+        "description": "Whether the CI/CD pipeline and container runtime enforce server certificate validation against a trusted CA for all registry connections, preventing MITM via fraudulent certificates.",
+        "default": false
+      },
+      "mutual_tls_enforced": {
+        "type": "boolean",
+        "title": "Mutual TLS Enforced on Registry Push Endpoint",
+        "description": "Whether the container registry endpoint requires client certificate authentication (mTLS) for push operations, ensuring only authorized CI/CD pipeline identities can push images.",
+        "default": false
+      },
+      "registry_network_exposure": {
+        "type": "string",
+        "enum": [
+          "public",
+          "internal",
+          "isolated"
+        ],
+        "title": "Registry Network Exposure Level",
+        "description": "The network scope from which the registry push endpoint is reachable, indicating blast radius if mTLS is absent.",
+        "default": "internal"
+      },
+      "client_cert_validation_configured": {
+        "type": "boolean",
+        "title": "Client Certificate CA Validation Configured",
+        "description": "Whether a trusted Certificate Authority (CA) is configured on the registry to validate incoming client certificates, a prerequisite for effective mTLS enforcement.",
+        "default": false
+      },
+      "digest_verification_enabled": {
+        "type": "boolean",
+        "title": "Layer Digest Verification Enabled",
+        "description": "Whether the registry client verifies the SHA-256 content-addressable digest of each layer blob against the manifest during push/pull operations in transit.",
+        "default": false
+      },
+      "manifest_digest_pinning_enforced": {
+        "type": "boolean",
+        "title": "Manifest Digest Pinning Enforced",
+        "description": "Whether the CI/CD pipeline references images by immutable content-addressable digest (e.g., image@sha256:...) rather than mutable tags, ensuring the full manifest is integrity-bound during transit. Also applies to proxy/pull-through cache paths.",
+        "default": false
+      },
+      "registry_transport_protocol": {
+        "type": "string",
+        "enum": [
+          "https",
+          "http",
+          "unknown"
+        ],
+        "title": "Registry Transport Protocol",
+        "description": "The transport protocol used for communication between the CI/CD pipeline and the container registry during image push/pull operations."
+      },
+      "signature_push_atomic_with_manifest": {
+        "type": "boolean",
+        "title": "Signature Push Atomic With Manifest",
+        "description": "Whether the pipeline is configured to push signatures and attestation blobs as part of an atomic or sequentially validated operation that fails the entire push if the signature call is dropped or rejected.",
+        "default": false
+      },
+      "registry_signature_policy_enforcement": {
+        "type": "string",
+        "enum": [
+          "required",
+          "warn",
+          "none"
+        ],
+        "title": "Registry Signature Policy Enforcement",
+        "description": "The enforcement mode for signature presence at the registry or admission layer. 'required' means images without attached signatures are rejected at push or pull. 'warn' means absence is logged but not blocked. 'none' means no check is performed.",
+        "default": "none"
+      },
+      "tls_inspection_present_on_registry_path": {
+        "type": "boolean",
+        "title": "TLS Inspection Present on Registry Network Path",
+        "description": "Whether a TLS-terminating proxy or network appliance sits on the network path between the CI/CD pipeline and the container registry, creating an opportunity for on-path signature call dropping or traffic interception.",
+        "default": false
+      },
+      "signature_presence_verified_post_push": {
+        "type": "boolean",
+        "title": "Signature Presence Verified Post-Push",
+        "description": "Whether the CI/CD pipeline includes a post-push verification step that queries the registry to confirm the signature or attestation blob is reachable and valid before marking the build as successful.",
+        "default": false
+      },
+      "push_request_replay_protection_enabled": {
+        "type": "boolean",
+        "title": "Push Request Replay Protection Enabled",
+        "description": "Indicates whether the registry push API enforces replay protection mechanisms such as nonces, short-lived JWT claims (jti), timestamps with expiry windows, or monotonic sequence numbers on authenticated push requests.",
+        "default": false
+      },
+      "tag_immutability_enforced": {
+        "type": "boolean",
+        "title": "Tag Immutability Enforced",
+        "description": "Indicates whether the registry enforces immutable tags, preventing an image tag from being overwritten by a push of a different image digest. Without immutability, a successful replay attack can silently replace the current tagged image.",
+        "default": false
+      },
+      "push_token_max_validity_seconds": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 2147483647,
+        "title": "Push Token Maximum Validity (Seconds)",
+        "description": "The maximum lifetime in seconds of authentication tokens or credentials accepted for registry push operations. Long-lived or non-expiring tokens increase the window during which a captured push request can be replayed."
+      },
+      "dnssec_validation_enabled": {
+        "type": "boolean",
+        "title": "DNSSEC Validation Enabled",
+        "description": "Whether the pipeline's DNS resolver enforces DNSSEC validation when resolving the container registry hostname, preventing DNS spoofing or cache poisoning attacks.",
+        "default": false
+      },
+      "registry_certificate_pinning_configured": {
+        "type": "boolean",
+        "title": "Registry Certificate Pinning Configured",
+        "description": "Whether the pipeline enforces certificate pinning or a constrained trust anchor (e.g., pinned CA or leaf certificate) for TLS connections to the container registry, preventing acceptance of certificates issued by a compromised or rogue CA.",
+        "default": false
+      },
+      "registry_endpoint_uses_static_ip_or_verified_hostname": {
+        "type": "boolean",
+        "title": "Registry Endpoint Uses Static IP or Verified Hostname",
+        "description": "Whether the pipeline is configured to connect to the container registry via a static IP address or an internally verified hostname rather than a publicly resolvable hostname susceptible to BGP or DNS hijacking.",
+        "default": false
+      },
+      "registry_push_rate_limiting_enabled": {
+        "type": "boolean",
+        "title": "Registry Push Rate Limiting Enabled",
+        "description": "Whether the container registry or its ingress layer enforces rate limiting on push requests (layer blob uploads, manifest pushes) per client or credential.",
+        "default": false
+      },
+      "registry_push_connection_throttling_enabled": {
+        "type": "boolean",
+        "title": "Registry Push Connection Throttling Enabled",
+        "description": "Whether concurrent connection limits or bandwidth throttling are enforced on registry push endpoints to prevent bulk blob flooding.",
+        "default": false
+      },
+      "push_credential_scope_restriction": {
+        "type": "boolean",
+        "title": "Push Credentials Scoped to Specific Repositories",
+        "description": "Whether push credentials (tokens, service account keys) are scoped to specific repositories rather than granted registry-wide push access, limiting the blast radius of credential abuse.",
+        "default": false
+      },
+      "registry_auth_method": {
+        "type": "string",
+        "enum": [
+          "static_token",
+          "basic_auth",
+          "oidc_workload_identity",
+          "mtls_client_certificate",
+          "none"
+        ],
+        "title": "Registry Authentication Method",
+        "description": "The authentication mechanism used by the CI/CD pipeline to authenticate to the container registry when pushing images."
+      },
+      "credential_shared_across_pipeline_stages": {
+        "type": "boolean",
+        "title": "Credential Reused Across Pipeline Stages",
+        "description": "Indicates whether the same registry credential (token or password) is reused across multiple distinct pipeline stages rather than scoped or rotated per stage."
+      },
+      "credential_rotation_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Registry Credential Rotation Period (Days)",
+        "description": "The number of days between mandatory rotations of the registry push credential. A value of 0 indicates the credential never expires or has no defined rotation policy.",
+        "default": 0
+      },
+      "registry_tls_ca_scope": {
+        "type": "string",
+        "enum": [
+          "system",
+          "custom_restricted",
+          "none"
+        ],
+        "title": "Registry TLS CA Trust Scope",
+        "description": "The scope of CA certificates trusted by the registry client during TLS handshake. 'system' means the full OS/browser trust store. 'custom_restricted' means only an organization-controlled CA is trusted. 'none' means TLS verification is disabled.",
+        "default": "system"
+      },
+      "registry_hostname_verified": {
+        "type": "boolean",
+        "title": "Registry Hostname Verification Enforced",
+        "description": "Whether the registry client enforces TLS hostname verification (i.e., does not use --insecure-skip-tls-verify or equivalent flags that disable certificate chain and hostname validation).",
+        "default": true
+      },
+      "chunk_digest_verification_enabled": {
+        "type": "boolean",
+        "title": "Per-Chunk Digest Verification Enabled",
+        "description": "Whether the registry or upload pipeline verifies the digest of each individual PATCH chunk before accepting it, rather than only verifying the assembled blob digest at upload completion.",
+        "default": false
+      },
+      "final_digest_recheck_enforced": {
+        "type": "boolean",
+        "title": "Final Assembled Blob Digest Rechecked Against Manifest",
+        "description": "Whether the registry enforces server-side verification of the assembled blob's digest against the referencing manifest before making the blob available.",
+        "default": false
+      },
+      "proxy_in_registry_transit_path": {
+        "type": "boolean",
+        "title": "Proxy in Registry Transit Path",
+        "description": "Indicates whether an HTTP proxy or pull-through cache (e.g., corporate proxy, Nexus, Artifactory pull-through, Harbor proxy cache) is inserted between the CI/CD pipeline and the upstream container registry.",
+        "default": false
+      }
+    },
+    "required": [
+      "registry_tls_enforced",
+      "minimum_tls_version",
+      "insecure_registry_configured",
+      "registry_ca_validation_enforced",
+      "mutual_tls_enforced",
+      "registry_network_exposure",
+      "client_cert_validation_configured",
+      "digest_verification_enabled",
+      "manifest_digest_pinning_enforced",
+      "registry_transport_protocol",
+      "signature_push_atomic_with_manifest",
+      "registry_signature_policy_enforcement",
+      "tls_inspection_present_on_registry_path",
+      "signature_presence_verified_post_push",
+      "push_request_replay_protection_enabled",
+      "tag_immutability_enforced",
+      "push_token_max_validity_seconds",
+      "dnssec_validation_enabled",
+      "registry_certificate_pinning_configured",
+      "registry_endpoint_uses_static_ip_or_verified_hostname",
+      "registry_push_rate_limiting_enabled",
+      "registry_push_connection_throttling_enabled",
+      "push_credential_scope_restriction",
+      "registry_auth_method",
+      "credential_shared_across_pipeline_stages",
+      "credential_rotation_days",
+      "registry_tls_ca_scope",
+      "registry_hostname_verified"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/client_cert_validation_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/insecure_registry_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/minimum_tls_version"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mutual_tls_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/registry_ca_validation_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/registry_certificate_pinning_configured"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/registry_tls_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/registry_transport_protocol"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_inspection_present_on_registry_path"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/registry_hostname_verified"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/registry_tls_ca_scope"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/push_request_replay_protection_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/registry_auth_method"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_rotation_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_shared_across_pipeline_stages"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/push_credential_scope_restriction"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/push_token_max_validity_seconds"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/registry_push_connection_throttling_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/registry_push_rate_limiting_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/digest_verification_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/manifest_digest_pinning_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/registry_signature_policy_enforcement"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/signature_presence_verified_post_push"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/signature_push_atomic_with_manifest"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tag_immutability_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/chunk_digest_verification_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/final_digest_recheck_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/dnssec_validation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/registry_network_exposure"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/registry_endpoint_uses_static_ip_or_verified_hostname"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/proxy_in_registry_transit_path"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

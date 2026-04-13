@@ -31,7 +31,8 @@ _default_or_weak_database_credentials_def := {
             "name": "Credential Stuffing",
             "relevance": "Default credentials are commonly included in credential stuffing lists used to gain unauthorized database access."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 default_or_weak_database_credentials[_default_or_weak_database_credentials_def] if {
@@ -65,7 +66,8 @@ _unencrypted_client_connections_def := {
             "name": "Network Sniffing",
             "relevance": "Unencrypted database connections can be intercepted via network sniffing, exposing credentials and sensitive data in transit."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 unencrypted_client_connections[_unencrypted_client_connections_def] if {
@@ -106,7 +108,8 @@ _unencrypted_data_at_rest_def := {
             "name": "Stored Data Manipulation",
             "relevance": "Unencrypted stored data is vulnerable to manipulation by adversaries who gain access to storage."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 unencrypted_data_at_rest[_unencrypted_data_at_rest_def] if {
@@ -145,7 +148,8 @@ _database_network_port_publicly_exposed_def := {
             "name": "Search Open Technical Databases",
             "relevance": "Exposed database ports may be indexed by internet scanning services, enabling adversaries to discover them passively."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 database_network_port_publicly_exposed[_database_network_port_publicly_exposed_def] if {
@@ -184,7 +188,8 @@ _overprivileged_database_accounts_def := {
             "name": "Account Manipulation",
             "relevance": "Adversaries may manipulate overprivileged database accounts to maintain persistence or escalate privileges."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 overprivileged_database_accounts[_overprivileged_database_accounts_def] if {
@@ -238,7 +243,8 @@ _audit_logging_disabled_or_incomplete_def := {
             "name": "Disable Windows Event Logging",
             "relevance": "Disabled database audit logging reduces visibility into malicious activity, similar to disabling event logging."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 audit_logging_disabled_or_incomplete[_audit_logging_disabled_or_incomplete_def] if {
@@ -298,7 +304,8 @@ _unpatched_database_engine_def := {
             "name": "Exploitation for Privilege Escalation",
             "relevance": "Unpatched database engine vulnerabilities may be leveraged for privilege escalation on the host system."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unpatched_database_engine[_unpatched_database_engine_def] if {
@@ -337,7 +344,8 @@ _anonymous_or_unauthenticated_access_enabled_def := {
             "name": "Data from Information Repositories",
             "relevance": "Unauthenticated access enables adversaries to collect data from information repositories without needing credentials."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 anonymous_or_unauthenticated_access_enabled[_anonymous_or_unauthenticated_access_enabled_def] if {
@@ -374,7 +382,8 @@ _backup_files_stored_without_access_controls_def := {
             "name": "Credentials In Files",
             "relevance": "Database backup files may contain credentials that adversaries can harvest if stored without proper access controls."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 backup_files_stored_without_access_controls[_backup_files_stored_without_access_controls_def] if {
@@ -419,7 +428,8 @@ _database_admin_interface_exposed_def := {
             "name": "Exploitation of Remote Services",
             "relevance": "Database admin interfaces exposed remotely can be exploited via vulnerabilities in the remote service."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 database_admin_interface_exposed[_database_admin_interface_exposed_def] if {
@@ -464,7 +474,8 @@ _os_level_database_process_running_as_privileged_user_def := {
             "name": "Exploit Public-Facing Application",
             "relevance": "Exploiting a database service running as a privileged user via a public-facing vulnerability grants elevated OS-level access."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 os_level_database_process_running_as_privileged_user[_os_level_database_process_running_as_privileged_user_def] if {
@@ -512,7 +523,8 @@ _secrets_stored_in_database_configuration_files_in_plaintext_def := {
             "name": "Private Keys",
             "relevance": "Configuration files may contain private keys or tokens stored in plaintext, exposing cryptographic material to adversaries."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 secrets_stored_in_database_configuration_files_in_plaintext[_secrets_stored_in_database_configuration_files_in_plaintext_def] if {
@@ -558,7 +570,8 @@ _no_connection_rate_limiting_or_max_connections_enforcement_def := {
             "name": "Credential Stuffing",
             "relevance": "Without rate limiting, adversaries can perform unlimited credential stuffing attempts against database authentication."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 no_connection_rate_limiting_or_max_connections_enforcement[_no_connection_rate_limiting_or_max_connections_enforcement_def] if {
@@ -595,7 +608,8 @@ _unnecessary_database_features_or_plugins_enabled_def := {
             "name": "Exploit Public-Facing Application",
             "relevance": "Enabled but unnecessary database features may contain vulnerabilities exploitable in public-facing database deployments."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unnecessary_database_features_or_plugins_enabled[_unnecessary_database_features_or_plugins_enabled_def] if {

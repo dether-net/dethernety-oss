@@ -7,7 +7,8 @@ _ingress_filter_bypass_via_trusted_channel_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 ingress_filter_bypass_via_trusted_channel[_ingress_filter_bypass_via_trusted_channel_def] if {
@@ -39,7 +40,8 @@ _egress_path_enumeration_through_unmonitored_port_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 egress_path_enumeration_through_unmonitored_port[_egress_path_enumeration_through_unmonitored_port_def] if {
@@ -68,7 +70,8 @@ _subzone_segmentation_absence_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 subzone_segmentation_absence[_subzone_segmentation_absence_def] if {
@@ -95,7 +98,8 @@ _trust_propagation_via_inherited_session_context_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 trust_propagation_via_inherited_session_context[_trust_propagation_via_inherited_session_context_def] if {
@@ -124,7 +128,8 @@ _credential_exposure_at_boundary_transition_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 credential_exposure_at_boundary_transition[_credential_exposure_at_boundary_transition_def] if {
@@ -147,7 +152,8 @@ _boundary_monitoring_blind_spot_at_protocol_layer_transition_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 boundary_monitoring_blind_spot_at_protocol_layer_transition[_boundary_monitoring_blind_spot_at_protocol_layer_transition_def] if {
@@ -174,7 +180,8 @@ _lateral_movement_via_shared_boundary_interface_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 lateral_movement_via_shared_boundary_interface[_lateral_movement_via_shared_boundary_interface_def] if {
@@ -198,7 +205,8 @@ _insufficient_egress_rate_limiting_enabling_staged_exfiltration_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_egress_rate_limiting_enabling_staged_exfiltration[_insufficient_egress_rate_limiting_enabling_staged_exfiltration_def] if {
@@ -227,7 +235,8 @@ _zone_boundary_definition_drift_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 zone_boundary_definition_drift[_zone_boundary_definition_drift_def] if {
@@ -256,7 +265,8 @@ _boundary_control_bypass_via_physical_interface_def := {
     "category": "physical_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 boundary_control_bypass_via_physical_interface[_boundary_control_bypass_via_physical_interface_def] if {

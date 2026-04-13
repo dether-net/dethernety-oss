@@ -1,0 +1,1382 @@
+[
+  {
+    "option_name": "registry_tls_enforced",
+    "option_description": "Controls whether the container registry endpoint requires HTTPS/TLS for all image push and pull operations, actively rejecting any plain HTTP connections. This encompasses both the registry server configuration and any client-side enforcement that prevents fallback to unencrypted transport.",
+    "security_impact": "The Rego policy fires the unencrypted_or_downgraded_registry_transport exposure whenever registry_tls_enforced is false (not input.registry_tls_enforced). Without TLS enforcement, image layers, manifests, and authentication tokens traverse the network in plaintext, enabling T1040 Network Sniffing to capture credentials and layer content. An attacker on the same network segment can perform SSLstrip or STARTTLS stripping to silently downgrade connections even when clients attempt HTTPS.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Docker registry (distribution) server configuration file for the http.tls section to confirm TLS is configured and HTTP redirect is enabled.",
+        "command": "grep -A 10 'tls:' /etc/docker/registry/config.yml && grep -A 5 'http:' /etc/docker/registry/config.yml",
+        "file_path": "/etc/docker/registry/config.yml",
+        "navigation": null,
+        "expected_output": "Should show 'certificate' and 'key' fields populated under 'tls:', and optionally 'redirect: disable: false' under 'http:' to enforce HTTPS."
+      },
+      {
+        "type": "command",
+        "instruction": "Attempt a plain HTTP connection to the registry push endpoint and confirm it is rejected with a redirect or connection refusal.",
+        "command": "curl -v http://<registry-host>:5000/v2/ 2>&1 | grep -E 'HTTP/|Location:|Recv failure|Connection refused'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Should return HTTP 301/302 redirect to HTTPS, or a connection refused/reset error indicating plain HTTP is not accepted."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Docker daemon configuration for insecure-registries entries that would allow plain HTTP to this registry.",
+        "command": "cat /etc/docker/daemon.json | python3 -m json.tool | grep -A 5 'insecure-registries'",
+        "file_path": "/etc/docker/daemon.json",
+        "navigation": null,
+        "expected_output": "The 'insecure-registries' array should be empty or should not contain the target registry hostname/IP."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use OpenSSL to verify the registry responds to TLS handshake on the configured port, confirming the TLS listener is active.",
+        "command": "openssl s_client -connect <registry-host>:443 -brief 2>&1 | grep -E 'CONNECTION ESTABLISHED|no peer certificate|SSL handshake'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Should show 'CONNECTION ESTABLISHED' with a valid certificate presented, confirming TLS is active on the registry endpoint."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (production registries using Harbor, ECR, GCR, or properly configured distribution)",
+      "false (internal development registries, air-gapped environments with misconfigured HTTP listeners, or legacy on-premise registries)"
+    ]
+  },
+  {
+    "option_name": "minimum_tls_version",
+    "option_description": "Defines the lowest TLS protocol version the registry server and/or client will accept for transport connections. Values range from the deprecated ssl3 through tls1.3. This setting governs protocol negotiation and determines whether downgrade attacks are feasible against registry transport sessions.",
+    "security_impact": "The Rego policy triggers unencrypted_or_downgraded_registry_transport when minimum_tls_version is in [ssl3, tls1.0, tls1.1]. These versions are vulnerable to BEAST, POODLE, and DROWN attacks enabling T1071.001 Web Protocol exploitation to intercept layer transmission. TLS 1.0 and 1.1 lack support for modern AEAD cipher suites and have known CBC padding oracle vulnerabilities that allow session decryption. The registry must negotiate at minimum TLS 1.2 to prevent practical downgrade exploitation.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Use nmap with ssl-enum-ciphers script to enumerate all TLS versions accepted by the registry endpoint and identify the minimum version in use.",
+        "command": "nmap --script ssl-enum-ciphers -p 443,5000 <registry-host> 2>&1 | grep -E 'TLSv|SSLv|least strength'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Should only show TLSv1.2 and/or TLSv1.3 as supported. Any listing of SSLv3, TLSv1.0, or TLSv1.1 indicates the minimum version is too low."
+      },
+      {
+        "type": "command",
+        "instruction": "Explicitly test whether the registry accepts a TLS 1.1 or TLS 1.0 connection using OpenSSL to verify old protocol versions are rejected.",
+        "command": "openssl s_client -connect <registry-host>:443 -tls1_1 2>&1 | grep -E 'handshake failure|no protocols|CONNECTED' && openssl s_client -connect <registry-host>:443 -tls1 2>&1 | grep -E 'handshake failure|no protocols|CONNECTED'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Should show 'handshake failure' or 'no protocols available' for TLS 1.1 and TLS 1.0 attempts, confirming these versions are rejected."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the nginx or HAProxy ingress/load balancer configuration in front of the registry for ssl_protocols or tls-min-version directives.",
+        "command": "grep -rn 'ssl_protocols\\|tls-min-version\\|MinProtocol\\|ssl_min_proto_version' /etc/nginx/ /etc/haproxy/ /etc/ssl/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Should show 'ssl_protocols TLSv1.2 TLSv1.3;' or equivalent, with no mention of TLSv1, TLSv1.1, or SSLv3."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Harbor registry deployments, inspect the nginx configuration embedded in the Harbor installation for TLS version settings.",
+        "command": "find /etc/harbor /opt/harbor -name 'nginx.conf' 2>/dev/null | xargs grep -l 'ssl_protocols' | xargs grep 'ssl_protocols'",
+        "file_path": "/opt/harbor/common/config/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Should display only TLSv1.2 and TLSv1.3 in the ssl_protocols directive."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls1.2 (most common in production environments)",
+      "tls1.3 (modern hardened deployments)",
+      "tls1.1 (legacy enterprise environments with older CI/CD agents)",
+      "tls1.0 (very old enterprise or IoT-adjacent deployments)"
+    ]
+  },
+  {
+    "option_name": "insecure_registry_configured",
+    "option_description": "Captures whether the container runtime (Docker daemon, containerd, Podman) or CI/CD agent has explicitly listed the target registry as insecure, which bypasses TLS certificate validation or permits plain HTTP connections. This is a client-side override that undermines server-side TLS enforcement.",
+    "security_impact": "The Rego policy fires unencrypted_or_downgraded_registry_transport when insecure_registry_configured == true. Even when the registry server enforces TLS, an insecure-registry listing on the client negates all transport security by disabling certificate validation. This opens identical attack surface to T1040 Network Sniffing and T1071.001 web protocol exploitation since the client will happily accept a fraudulent certificate or HTTP downgrade initiated by an on-path attacker without any warning or error.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the Docker daemon configuration file and check the insecure-registries array for any registry entries.",
+        "command": "cat /etc/docker/daemon.json 2>/dev/null | python3 -m json.tool | grep -A 20 'insecure-registries' || echo 'File not found or key absent'",
+        "file_path": "/etc/docker/daemon.json",
+        "navigation": null,
+        "expected_output": "The 'insecure-registries' key should be absent or contain an empty list []. Any registry hostname or IP present indicates insecure configuration."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect containerd configuration for insecure host overrides that disable TLS verification for specific registry endpoints.",
+        "command": "find /etc/containerd /etc/crictl.yaml /var/snap/microk8s/current/args/ -name '*.toml' -o -name 'config.toml' 2>/dev/null | xargs grep -l 'insecure\\|skip_verify' 2>/dev/null | xargs grep -A 5 'insecure\\|skip_verify'",
+        "file_path": "/etc/containerd/config.toml",
+        "navigation": null,
+        "expected_output": "No 'insecure = true' or 'skip_verify = true' entries should exist under any [plugins.\"io.containerd.grpc.v1.cri\".registry.mirrors] or host configuration blocks."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check CI/CD pipeline definitions (GitLab CI, GitHub Actions, Jenkins) for --insecure, --tls-verify=false, or DOCKER_TLS_VERIFY=false environment variable settings.",
+        "command": "grep -rn --include='*.yml' --include='*.yaml' --include='Jenkinsfile' 'insecure\\|tls-verify=false\\|DOCKER_TLS_VERIFY\\|skip.tls' ./ /etc/gitlab-runner/ /var/lib/jenkins/ 2>/dev/null | head -50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No occurrences of insecure flags or TLS verification disablement should appear in pipeline configuration files."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Podman/Buildah configuration for insecure registries in the registries.conf file used by CI agents.",
+        "command": "grep -A 5 'insecure\\|unqualified-search' /etc/containers/registries.conf /etc/containers/registries.conf.d/*.conf 2>/dev/null",
+        "file_path": "/etc/containers/registries.conf",
+        "navigation": null,
+        "expected_output": "Should show no registries listed under [[registry]] blocks with 'insecure = true'. The location setting should use https endpoints only."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (properly configured production environments)",
+      "true (development environments, self-hosted registries with self-signed certificates where proper PKI was not established, air-gapped environments with expired certificates)"
+    ]
+  },
+  {
+    "option_name": "registry_ca_validation_enforced",
+    "option_description": "Controls whether the CI/CD pipeline agents and container runtimes validate the registry server's TLS certificate against a trusted Certificate Authority during all push and pull operations. When disabled, clients accept any certificate including self-signed or attacker-generated ones, making TLS encryption meaningless for authentication purposes.",
+    "security_impact": "The Rego policy fires unencrypted_or_downgraded_registry_transport when registry_ca_validation_enforced is false (not input.registry_ca_validation_enforced). Without CA validation, an on-path attacker can present any self-signed certificate and the client will establish an encrypted but compromised TLS session, enabling T1040 Network Sniffing of authentication tokens and image layers transmitted within the falsely trusted session. This is frequently exploited via --insecure or CURL_CA_BUNDLE=/dev/null overrides in CI scripts.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect CI/CD pipeline scripts and configuration for flags that disable certificate validation including --tlsverify=false, CURL_CA_BUNDLE overrides, or GIT_SSL_NO_VERIFY equivalents for registry operations.",
+        "command": "grep -rn --include='*.sh' --include='*.yml' --include='*.yaml' --include='Dockerfile' 'CURL_CA_BUNDLE\\|--insecure\\|--tls-verify=false\\|SSL_CERT_FILE=/dev\\|NODE_TLS_REJECT_UNAUTHORIZED' ./ /etc/gitlab-runner/config.toml 2>/dev/null | head -30",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No matches should be found. Any occurrence of these patterns indicates CA validation is being bypassed for some or all registry connections."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Verify that a valid CA certificate bundle is present in the Docker or containerd certificate directories for the registry hostname.",
+        "command": "ls -la /etc/docker/certs.d/<registry-host>/ 2>/dev/null && cat /etc/docker/certs.d/<registry-host>/ca.crt 2>/dev/null | openssl x509 -noout -subject -issuer -dates",
+        "file_path": "/etc/docker/certs.d/<registry-host>/ca.crt",
+        "navigation": null,
+        "expected_output": "Should show a valid CA certificate with unexpired dates whose subject matches the registry's issuing CA. Absence indicates no custom CA is configured and system defaults (which may be permissive) are used."
+      },
+      {
+        "type": "command",
+        "instruction": "Simulate a registry connection using curl with explicit CA validation to confirm the CI/CD agent's trust store correctly validates the registry certificate.",
+        "command": "curl --cacert /etc/ssl/certs/ca-certificates.crt -v https://<registry-host>/v2/ 2>&1 | grep -E 'SSL certificate verify|issuer|subject|expire'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Should show 'SSL certificate verify ok' with the correct issuer chain. 'SSL certificate problem' or 'verify error' indicates CA validation failure."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the CI/CD runner registration configuration and environment variable defaults to confirm DOCKER_TLS_VERIFY is set to 1 and no global certificate bypass is configured.",
+        "command": "cat /etc/gitlab-runner/config.toml | grep -E 'tls|verify|ca_file|cert' 2>/dev/null; env | grep -E 'TLS|SSL|CERT|VERIFY' 2>/dev/null",
+        "file_path": "/etc/gitlab-runner/config.toml",
+        "navigation": null,
+        "expected_output": "DOCKER_TLS_VERIFY should be '1' or 'true'. The runner config should reference a valid CA file path. No skip-verify flags should be present."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (managed cloud CI/CD platforms with system CA bundles, enterprise environments with internal PKI)",
+      "false (CI environments using self-signed certificates without proper CA distribution, scripts using --insecure for convenience, environments where CA bundle updates are neglected)"
+    ]
+  },
+  {
+    "option_name": "mutual_tls_enforced",
+    "option_description": "Determines whether the container registry's push endpoint requires client certificate authentication (mutual TLS / mTLS) in addition to standard server certificate validation. When enforced, only CI/CD pipeline agents presenting a valid client certificate signed by the configured CA can successfully authenticate and push images, creating cryptographic identity binding for all pushes.",
+    "security_impact": "The Rego policy fires missing_mutual_tls_on_registry_push when mutual_tls_enforced is false and registry_network_exposure is public or internal. Without mTLS, any actor who obtains valid registry credentials (static tokens, basic auth passwords) can push images from any network location, bypassing pipeline-enforced scanning and signing gates. This enables T1649 Steal or Forge Authentication Certificates exploitation where stolen credentials alone grant push access. The policy also fires for the chunked_upload_resumption_without_integrity_checkpoint rule when mTLS is absent, compounding integrity risk.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Docker registry (distribution) config.yml for clientCAs configuration under the http.tls section, which is required to request and validate client certificates.",
+        "command": "grep -A 20 'tls:' /etc/docker/registry/config.yml | grep -E 'clientcas|clientCAs|certificate|key|minimumtls'",
+        "file_path": "/etc/docker/registry/config.yml",
+        "navigation": null,
+        "expected_output": "Should show 'clientcas: /path/to/ca-bundle.pem' under the tls section. Absence of clientcas means client certificate authentication is not configured."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a registry push API call without a client certificate and verify the server rejects the connection with a TLS handshake failure requiring client authentication.",
+        "command": "curl -v --cacert /etc/ssl/certs/ca-certificates.crt https://<registry-host>/v2/ 2>&1 | grep -E 'tls: certificate required|bad certificate|SSL alert|CERTIFICATE_REQUIRED|400|401'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Should return a TLS handshake error requiring a client certificate (e.g., 'tls: certificate required') or HTTP 400 Bad Request when no client cert is presented."
+      },
+      {
+        "type": "gui",
+        "instruction": "For Harbor registry, navigate to the registry administration panel to check if client certificate authentication is configured on the push endpoint or via the embedded nginx proxy configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Harbor Admin UI → Administration → Configuration → System Settings → Review 'Registry Certificate' section and check nginx config at /etc/nginx/nginx.conf for 'ssl_verify_client' directive",
+        "expected_output": "nginx configuration should show 'ssl_verify_client on;' and 'ssl_client_certificate /path/to/ca.pem;' for mTLS enforcement."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the registry's v2 API with and without a client certificate using curl to determine whether client certificate presentation is required for authenticated operations.",
+        "command": "curl -v --cert /path/to/client.crt --key /path/to/client.key --cacert /etc/ssl/certs/ca-certificates.crt https://<registry-host>/v2/ 2>&1 | grep -E 'HTTP/|200|401|403'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A request with a valid client certificate should succeed (200 or 401 for auth), while a request without a client certificate should fail at TLS layer, confirming mTLS is required."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (vast majority of deployments including ECR, GCR, Docker Hub, and most self-hosted Harbor/Nexus instances rely on token/password auth only)",
+      "true (high-security enterprise environments with internal PKI, financial sector deployments, FedRAMP-compliant container pipelines)"
+    ]
+  },
+  {
+    "option_name": "registry_network_exposure",
+    "option_description": "Describes the network scope from which the registry push endpoint is reachable: public (internet-accessible), internal (reachable from the broader organizational network), or isolated (accessible only from a dedicated CI/CD network segment with strict ingress controls). This attribute determines the blast radius and attack surface severity when mTLS is absent.",
+    "security_impact": "The Rego policy uses registry_network_exposure as a severity multiplier for missing_mutual_tls_on_registry_push. The exposure fires for both public and internal network exposure when mTLS is absent, and a third condition fires when mTLS is claimed but client cert CA validation is not configured for non-isolated registries. A public registry without mTLS is trivially reachable by any internet actor with stolen credentials, while an internal registry without mTLS still allows lateral movement post-compromise. Only isolated network placement partially mitigates the absence of mTLS.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Attempt to connect to the registry push endpoint from an external IP or use a cloud metadata service to determine if the registry address resolves and responds from outside the organization network.",
+        "command": "curl -m 5 -o /dev/null -w '%{http_code}' https://<registry-host>/v2/ 2>/dev/null; nmap -Pn -p 443,5000,5001 <registry-host> 2>&1 | grep -E 'open|filtered|closed'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "For isolated/internal registries, connection should time out or be refused from external networks. An HTTP response from the public internet confirms public exposure."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review cloud provider security group rules, firewall rules, or Kubernetes NetworkPolicy resources governing ingress to the registry service.",
+        "command": "kubectl get networkpolicy -n <registry-namespace> -o yaml 2>/dev/null; aws ec2 describe-security-groups --group-ids <sg-id> --query 'SecurityGroups[].IpPermissions' 2>/dev/null | python3 -m json.tool | grep -E 'CidrIp|IpRanges|FromPort'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Security groups or NetworkPolicy should restrict registry port access to specific CIDR ranges (CI/CD subnet) rather than 0.0.0.0/0 (public) or broad internal ranges."
+      },
+      {
+        "type": "gui",
+        "instruction": "For cloud-hosted registries (ECR, GCR, ACR, Artifact Registry), check the registry's network configuration in the cloud console for public endpoint enablement or VPC-only access settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console → ECR → Repository → Edit → Network access: check 'Public endpoint' vs 'VPC endpoint only' | GCP Console → Artifact Registry → Repository → Networking settings → Access control",
+        "expected_output": "Registries should show VPC-only or private endpoint access. 'Public' access enabled indicates public network exposure level."
+      },
+      {
+        "type": "command",
+        "instruction": "Check if the registry hostname resolves to a public IP address versus a private RFC 1918 address to classify its network exposure.",
+        "command": "dig +short <registry-host> | while read ip; do echo \"$ip\"; ipcalc -n $ip 2>/dev/null || python3 -c \"import ipaddress; n=ipaddress.ip_address('$ip'); print('private' if n.is_private else 'public')\"; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Should resolve to a private IP (10.x, 172.16-31.x, 192.168.x) for internal registries, or show connection only via VPN/private DNS. Public IP resolution indicates internet exposure."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "internal (most enterprise self-hosted registries on private networks)",
+      "public (Docker Hub, GitHub Container Registry, cloud-managed registries with public endpoints enabled)",
+      "isolated (high-security environments with dedicated build network segments, air-gapped pipelines)"
+    ]
+  },
+  {
+    "option_name": "client_cert_validation_configured",
+    "option_description": "Indicates whether the registry server has a trusted CA certificate bundle configured for validating incoming client certificates during mTLS handshakes. This is a prerequisite for mTLS to be meaningful: even if the registry requests a client certificate, without a configured CA it cannot authenticate the client's identity. The CA bundle must correspond to the PKI that issues certificates to CI/CD pipeline agents.",
+    "security_impact": "The Rego policy fires missing_mutual_tls_on_registry_push when mutual_tls_enforced is true but client_cert_validation_configured is false for non-isolated registries. This condition represents a deceptive security failure: operators believe mTLS is active but the registry accepts any client certificate (or none) because it has no CA to validate against. This enables T1596.003 Digital Certificates exploitation where any self-signed certificate passes validation, completely defeating the identity-binding purpose of mTLS for registry push authorization.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check the Docker registry (distribution) configuration for a populated clientcas field referencing a valid CA bundle file that exists on disk.",
+        "command": "CA_PATH=$(grep -i 'clientcas' /etc/docker/registry/config.yml | awk '{print $2}'); echo \"Configured CA path: $CA_PATH\"; if [ -n \"$CA_PATH\" ]; then openssl x509 -noout -subject -issuer -dates -in $CA_PATH 2>/dev/null || echo 'CA file invalid or unreadable'; else echo 'No clientcas configured'; fi",
+        "file_path": "/etc/docker/registry/config.yml",
+        "navigation": null,
+        "expected_output": "Should display a valid CA certificate subject, issuer, and non-expired dates. 'No clientcas configured' or an unreadable file indicates client cert validation is not properly set up."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For nginx-fronted registries, check for ssl_client_certificate directive pointing to a valid CA file and ssl_verify_client set to 'on' or 'optional_no_ca'.",
+        "command": "grep -rn 'ssl_client_certificate\\|ssl_verify_client\\|ssl_trusted_certificate' /etc/nginx/ /opt/harbor/common/config/nginx/ 2>/dev/null",
+        "file_path": "/etc/nginx/conf.d/registry.conf",
+        "navigation": null,
+        "expected_output": "Should show 'ssl_verify_client on;' paired with 'ssl_client_certificate /path/to/ca.pem;'. If ssl_verify_client is 'off' or ssl_client_certificate is absent, CA validation is not configured."
+      },
+      {
+        "type": "command",
+        "instruction": "Present a self-signed (untrusted) client certificate to the registry and verify the server rejects it, proving CA validation is actually enforced and not just configured superficially.",
+        "command": "openssl req -x509 -newkey rsa:2048 -keyout /tmp/test.key -out /tmp/test.crt -days 1 -nodes -subj '/CN=test' 2>/dev/null && curl -v --cert /tmp/test.crt --key /tmp/test.key --cacert /etc/ssl/certs/ca-certificates.crt https://<registry-host>/v2/ 2>&1 | grep -E 'SSL alert|certificate unknown|400|403|tls:'; rm -f /tmp/test.key /tmp/test.crt",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Should return a TLS alert or HTTP 400/403 rejecting the untrusted client certificate. If the connection succeeds with a self-signed cert, CA validation is not enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Harbor or Nexus registry API to check if client certificate authentication is listed as a required authentication method in the registry's security configuration.",
+        "command": "curl -s -u admin:<password> https://<harbor-host>/api/v2.0/configurations | python3 -m json.tool | grep -E 'auth_mode\\|client_cert\\|cert_verification'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Configuration response should indicate client certificate authentication is enabled. Harbor-specific: check if a client CA is referenced in system configuration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default for most registry deployments; mTLS is rarely fully configured with client CA validation in practice)",
+      "true (purpose-built secure supply chain environments, registries integrated with enterprise PKI systems like Vault PKI or EJBCA)"
+    ]
+  },
+  {
+    "option_name": "digest_verification_enabled",
+    "option_description": "Controls whether the registry client (Docker daemon, containerd, Skopeo, or CI/CD push tooling) verifies the SHA-256 content-addressable digest of each image layer blob against the image manifest during push and pull operations. This provides in-transit integrity verification ensuring that what was built matches what is stored in the registry.",
+    "security_impact": "The Rego policy fires layer_manifest_integrity_not_verified_in_transit when digest_verification_enabled is false (not input.digest_verification_enabled). Without digest verification, an on-path attacker can substitute a layer blob in transit between the CI/CD agent and registry storage, and the registry will store the tampered layer. This enables T1553.003 SIP and Trust Provider Hijacking by undermining the integrity verification chain, and mirrors T1574.001 DLL Search Order Hijacking by allowing malicious content substitution within the legitimate image assembly process. A third policy condition also fires when both digest verification and manifest digest pinning are absent simultaneously.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check if Docker Content Trust (DCT) is enabled in the CI/CD environment, which enforces digest verification and signature checking for all image operations.",
+        "command": "grep -rn 'DOCKER_CONTENT_TRUST\\|content-trust\\|disable-content-trust' /etc/docker/daemon.json /etc/gitlab-runner/config.toml ~/.docker/config.json /proc/1/environ 2>/dev/null; echo \"Current shell: DOCKER_CONTENT_TRUST=${DOCKER_CONTENT_TRUST}\"",
+        "file_path": "/etc/docker/daemon.json",
+        "navigation": null,
+        "expected_output": "DOCKER_CONTENT_TRUST should be set to '1' in CI/CD environment variables. No '--disable-content-trust' flags should appear in pipeline scripts. The daemon.json should not have content trust disabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect containerd CRI configuration and Kubernetes image pull policy settings for digest-based image references versus mutable tag references, which determines whether digest verification is in practice.",
+        "command": "grep -rn 'image.*sha256\\|imagePullPolicy\\|digest\\|skip.verify' /etc/containerd/config.toml /var/lib/kubelet/config.yaml 2>/dev/null | head -20",
+        "file_path": "/etc/containerd/config.toml",
+        "navigation": null,
+        "expected_output": "Images referenced by digest (image@sha256:...) indicate digest verification is in use. Tag-only references (image:tag) without digest pinning indicate verification may not be enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Perform a test docker pull with --disable-content-trust flag and compare behavior against default to determine if content trust and digest verification are active by default in the environment.",
+        "command": "docker pull --disable-content-trust <registry-host>/test-image:latest 2>&1 | grep -E 'Digest:|digest:|sha256:'; docker pull <registry-host>/test-image:latest 2>&1 | grep -E 'Digest:|digest:|sha256:|Content trust'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Both pulls should display the SHA-256 digest. If content trust is enabled, the pull without --disable-content-trust should additionally show signature verification. Pull failure without the flag confirms DCT enforcement."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check CI/CD pipeline scripts for Skopeo, crane, or oras push/copy commands and verify they use --digest-file or equivalent options that enforce digest verification during transfer.",
+        "command": "grep -rn --include='*.sh' --include='*.yml' --include='*.yaml' 'skopeo\\|crane\\|oras\\|docker push\\|podman push' ./ /etc/gitlab-runner/ 2>/dev/null | grep -v '^Binary' | head -30",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Skopeo commands should use '--src-tls-verify=true' and not include '--override-os' bypasses. Docker push commands in pipelines should follow content-trust-enabled environments. oras push should include digest validation flags."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (cloud-native CI/CD platforms with content trust enabled, Tekton/Sigstore supply chain pipelines, environments using digest-pinned image references)",
+      "false (majority of traditional CI/CD pipelines using mutable tags, environments where DOCKER_CONTENT_TRUST is not set, pipelines using direct docker push without DCT configuration)"
+    ]
+  },
+  {
+    "option_name": "manifest_digest_pinning_enforced",
+    "option_description": "Controls whether the CI/CD pipeline references container images using immutable content-addressable SHA-256 digests (image@sha256:<hash>) rather than mutable tags (image:latest). Applies to base image references in Dockerfiles, Kubernetes manifests, Helm charts, and pull-through cache paths.",
+    "security_impact": "The Rego policy fires `layer_manifest_integrity_not_verified_in_transit` when `manifest_digest_pinning_enforced` is false AND either the transport protocol is HTTP or digest verification is absent. Without digest pinning, a mutable tag can be silently redirected to a different manifest by a registry compromise, proxy cache poisoning, or MITM attack. The `insecure_proxy_or_pull_through_cache_in_transit_path` rule also fires when a proxy is present and digest pinning is absent, because stale or attacker-injected cached manifests will be accepted without any integrity check.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Grep all Dockerfiles and Kubernetes manifests in the repository for image reference syntax to determine whether @sha256: digest pinning is consistently used.",
+        "command": "grep -rE 'image:\\s+[^@]+:[^@]+$' --include='*.yaml' --include='*.yml' --include='Dockerfile*' . | grep -v '@sha256:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output means all image references use digest pinning. Any lines returned indicate mutable tag references that are not digest-pinned."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect CI pipeline YAML files (GitHub Actions, GitLab CI, Tekton, etc.) for image references in job definitions, container fields, and 'uses' directives to confirm @sha256 syntax.",
+        "command": "find . -name '*.yml' -o -name '*.yaml' | xargs grep -l 'image:' | xargs grep -v '@sha256:' | head -20",
+        "file_path": ".github/workflows/*.yml, .gitlab-ci.yml, tekton/pipeline.yaml, .circleci/config.yml",
+        "navigation": null,
+        "expected_output": "Empty result indicates all image references in CI definitions are digest-pinned. Non-empty output reveals files with mutable tag references."
+      },
+      {
+        "type": "gui",
+        "instruction": "For OPA/Gatekeeper or Kyverno admission controller enforcement, navigate to the policy engine dashboard and inspect ClusterPolicy or ConstraintTemplate definitions for digest pinning rules.",
+        "command": "kubectl get clusterpolicy -o yaml | grep -A5 'digest\\|sha256\\|pinning' && kubectl get constrainttemplate -o yaml | grep -A5 'digest\\|sha256'",
+        "file_path": null,
+        "navigation": "Kyverno: kubectl get clusterpolicy; Gatekeeper: kubectl get constrainttemplate,constraint -A; Rancher UI: Policies > Admission",
+        "expected_output": "Policies containing 'match.*@sha256' or 'digest' validation rules indicate admission-layer enforcement is active."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Kubernetes admission webhook configurations to verify a validating webhook exists that enforces digest pinning before pod scheduling.",
+        "command": "kubectl get validatingwebhookconfigurations -o json | jq '.items[].webhooks[].rules[] | select(.resources[] | contains(\"pods\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output listing webhook rules targeting pod resources confirms an admission controller is intercepting pod creation for policy enforcement."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most pipelines use tag-based references by default)",
+      "true (hardened pipelines with Kyverno/Gatekeeper digest enforcement policies)"
+    ]
+  },
+  {
+    "option_name": "registry_transport_protocol",
+    "option_description": "Identifies the transport protocol used for all communication between the CI/CD pipeline and the container registry during image push and pull operations. Valid values are 'https' (TLS-encrypted), 'http' (plaintext), or 'unknown' when the configuration cannot be determined.",
+    "security_impact": "The Rego policy fires `layer_manifest_integrity_not_verified_in_transit` when `registry_transport_protocol` equals 'http' and manifest digest pinning is not enforced. Plaintext HTTP exposes image layer bytes, credentials, and manifest data to any network-path observer, enabling silent layer substitution, credential harvesting (MITRE T1040), and replay of captured push sessions. The `unencrypted_or_downgraded_registry_transport` rule independently triggers when TLS is not enforced, insecure registry flags are set, or CA validation is absent, all of which are downstream consequences of HTTP transport configuration.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the Docker daemon configuration and containerd config for insecure-registry entries that indicate HTTP is permitted for specific registries.",
+        "command": "cat /etc/docker/daemon.json | jq '.\"insecure-registries\"' 2>/dev/null; cat /etc/containerd/config.toml | grep -A3 'insecure\\|plain_http'",
+        "file_path": "/etc/docker/daemon.json, /etc/containerd/config.toml",
+        "navigation": null,
+        "expected_output": "Empty or null insecure-registries list and no plain_http=true entries confirms HTTPS-only transport. Any registry hostname in insecure-registries indicates HTTP is permitted for that endpoint."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Search CI/CD pipeline environment variable definitions and registry client configuration for http:// URL prefixes or DOCKER_HOST settings pointing to unencrypted endpoints.",
+        "command": "grep -rE '(REGISTRY_URL|DOCKER_REGISTRY|CI_REGISTRY|registry[_-]url).*http://' --include='*.yml' --include='*.yaml' --include='*.env' .",
+        "file_path": ".env, docker-compose.yml, .gitlab-ci.yml, .github/workflows/*.yml",
+        "navigation": null,
+        "expected_output": "No matches confirm all registry URL references use https://. Any http:// match identifies a pipeline stage using unencrypted transport."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a direct network probe against the registry endpoint to verify it responds on port 443 with a valid TLS certificate and rejects or redirects port 80 connections.",
+        "command": "curl -v --max-time 10 https://<registry-hostname>/v2/ 2>&1 | grep -E 'SSL|TLS|certificate|Connected|HTTP/'; curl -v --max-time 10 http://<registry-hostname>/v2/ 2>&1 | grep -E 'HTTP/|redirect|301|302'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTPS endpoint returns HTTP/2 200 or 401 with TLS handshake details. HTTP endpoint should return 301/302 redirect to HTTPS or connection refused. If HTTP returns 200, plaintext is accepted."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the registry's API endpoint directly to confirm TLS negotiation and retrieve the certificate subject to validate the registry hostname matches.",
+        "command": "openssl s_client -connect <registry-hostname>:443 -servername <registry-hostname> </dev/null 2>&1 | grep -E 'subject=|issuer=|Verify return code'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Subject line matching registry hostname and 'Verify return code: 0 (ok)' confirms valid HTTPS. Any certificate error or timeout on 443 with successful HTTP on 80 indicates protocol misconfiguration."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "https (standard for cloud registries: ECR, GCR, GHCR, Docker Hub)",
+      "http (found in air-gapped or developer environments with self-hosted registries lacking TLS configuration)",
+      "unknown (automated scans with incomplete network access)"
+    ]
+  },
+  {
+    "option_name": "signature_push_atomic_with_manifest",
+    "option_description": "Controls whether the CI/CD pipeline treats the cosign/Notary/ORAS signature push as an atomic unit with the manifest push, where a failure in the signature upload step causes the entire pipeline job to fail, roll back, or quarantine the manifest rather than silently succeeding with an unsigned image in the registry.",
+    "security_impact": "The Rego policy fires `cryptographic_signature_stripped_or_suppressed_in_transit` when `signature_push_atomic_with_manifest` is false and either post-push verification is absent, the signature policy enforcement is 'warn' or 'none', or TLS inspection is present. Because cosign and Notary push signatures as separate OCI registry API calls after the manifest, an on-path attacker or malfunctioning proxy can drop those calls. Without atomic failure handling, the pipeline marks the build successful while the registry stores an unsigned image, undermining SLSA supply chain guarantees and MITRE T1553.002 (Code Signing) defenses.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect CI pipeline job definitions for cosign or notation sign steps and verify that error handling (set -e, fail-fast, exit-on-error) is applied and that no '|| true' or '--no-progress' flags suppress signature push errors.",
+        "command": "grep -A10 -B2 'cosign sign\\|notation sign\\|oras push' .github/workflows/*.yml .gitlab-ci.yml Jenkinsfile 2>/dev/null | grep -E 'set -e|fail|error|exit|\\|\\| true|continue-on-error'",
+        "file_path": ".github/workflows/*.yml, .gitlab-ci.yml, Jenkinsfile, tekton/tasks/*.yaml",
+        "navigation": null,
+        "expected_output": "Presence of 'set -e' or absence of '|| true' after signature commands, combined with no 'continue-on-error: true', indicates atomic failure behavior. '|| true' or 'continue-on-error: true' on sign steps indicates non-atomic behavior."
+      },
+      {
+        "type": "command",
+        "instruction": "Search pipeline scripts for explicit error-handling logic that deletes or quarantines the manifest reference if the signature push step returns a non-zero exit code.",
+        "command": "grep -rn 'cosign sign\\|notation sign' --include='*.sh' --include='*.yml' --include='*.yaml' . | xargs -I{} sh -c 'grep -A5 \"{}\" 2>/dev/null' | grep -E 'if.*fail\\|rollback\\|delete\\|untag\\|quarantine'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines containing rollback, delete, untag, or quarantine logic following signature commands indicate atomic pipeline behavior. Absence of such logic indicates the push is non-atomic."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the CI/CD platform team or review the signing runbook to determine whether a deliberate architectural decision was made to treat signature push failures as blocking versus advisory events.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review Confluence/Notion runbooks for 'image signing', 'cosign', or 'supply chain' pages. Check Jira tickets or ADRs related to signing pipeline design.",
+        "expected_output": "Documentation explicitly stating 'signature push failure fails the pipeline build' confirms atomic behavior. Runbooks describing signing as a best-effort step indicate non-atomic configuration."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Examine past CI/CD build logs for instances where signature push steps failed but the overall pipeline job succeeded, indicating non-atomic behavior in production.",
+        "command": "# GitHub Actions example - search workflow run logs for sign step failures with overall success; for GitLab: gitlab-cli -g <group> jobs --status=success | grep -B5 'cosign.*failed\\|sign.*error'",
+        "file_path": null,
+        "navigation": "GitHub: Actions > Workflow Runs > filter by status=success, search log output for 'cosign' errors. GitLab: CI/CD > Pipelines > filter passed, inspect job logs for sign steps.",
+        "expected_output": "No build logs showing cosign/notation errors in otherwise successful pipelines confirms atomic enforcement. Any successful build with signing errors in logs reveals non-atomic configuration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default in most pipeline templates where signing is added as an optional post-build step without error propagation)",
+      "true (explicitly configured in hardened SLSA Level 2+ pipelines with strict error handling)"
+    ]
+  },
+  {
+    "option_name": "registry_signature_policy_enforcement",
+    "option_description": "Defines the enforcement mode for cryptographic signature presence applied at the registry push/pull layer or the Kubernetes admission controller. 'required' rejects images without valid attached signatures, 'warn' logs the absence but permits the operation, and 'none' performs no signature check.",
+    "security_impact": "The Rego policy fires `cryptographic_signature_stripped_or_suppressed_in_transit` when `registry_signature_policy_enforcement` is 'warn' or 'none' and `signature_push_atomic_with_manifest` is false. In these modes, a stripped signature (dropped by TLS inspection or on-path attacker per MITRE T1553.002) results in an unsigned image being admitted to the registry and subsequently deployed without any enforcement gate blocking it. Only 'required' mode creates a hard stop that forces operators to detect and remediate signature stripping, making it the only value that meaningfully defends against in-transit signature suppression.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check Kyverno ClusterPolicy resources for image verification rules and their action modes (Enforce vs Audit) to determine if signature absence blocks admission.",
+        "command": "kubectl get clusterpolicy -o json | jq '.items[] | select(.spec.rules[].verifyImages != null) | {name: .metadata.name, validationFailureAction: .spec.validationFailureAction, rules: [.spec.rules[].verifyImages[]?.attestors]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "validationFailureAction: Enforce with verifyImages rules present maps to 'required'. validationFailureAction: Audit maps to 'warn'. No matching policies maps to 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "Check OPA/Gatekeeper ConstraintTemplates and Constraints for signature verification policies and their enforcement actions.",
+        "command": "kubectl get constraints -A -o json | jq '.items[] | select(.spec.enforcementAction != null) | {name: .metadata.name, kind: .kind, action: .spec.enforcementAction}' | grep -A3 -i 'sign\\|cosign\\|notary'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "enforcementAction: deny with a signature-related constraint maps to 'required'. enforcementAction: warn maps to 'warn'. No matching constraints maps to 'none'."
+      },
+      {
+        "type": "gui",
+        "instruction": "For Harbor registry, navigate to the project configuration to inspect whether Content Trust or cosign signature verification is enabled and set to enforce.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Harbor UI: Projects > <project-name> > Configuration > Security > Enable content trust (checkbox state). Also check: Projects > <project-name> > Policy > Cosign. AWS ECR: Repositories > <repo> > Settings > Image scanning; check for signing policies via AWS Signer console.",
+        "expected_output": "'Enable content trust' checked and set to prevent pulling unsigned images maps to 'required'. Checked but only logging maps to 'warn'. Unchecked maps to 'none'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Harbor API or AWS ECR API to retrieve project/repository-level signature enforcement policy configuration programmatically.",
+        "command": "curl -s -u admin:<password> https://<harbor-host>/api/v2.0/projects/<project-name> | jq '.metadata.enable_content_trust, .metadata.prevent_vul'; aws ecr describe-registry-policy --region <region> 2>/dev/null | jq '.policyText | fromjson'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Harbor: enable_content_trust: 'true' with prevent_vul policies active maps to 'required'. AWS: ECR image signing policy with DENY effect on non-signed images maps to 'required'. Absent policies map to 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (default for most self-hosted and cloud registries without explicit policy configuration)",
+      "warn (common intermediate state during policy rollout phases)",
+      "required (mature supply chain security programs with full SLSA compliance)"
+    ]
+  },
+  {
+    "option_name": "tls_inspection_present_on_registry_path",
+    "option_description": "Indicates whether a TLS-terminating proxy, SSL inspection appliance, or network middlebox intercepts and re-encrypts traffic on the network path between the CI/CD pipeline agent and the container registry endpoint, breaking end-to-end TLS confidentiality and creating an interception point for on-path attacks.",
+    "security_impact": "The Rego policy fires `cryptographic_signature_stripped_or_suppressed_in_transit` when TLS inspection is present and both `signature_push_atomic_with_manifest` and `signature_presence_verified_post_push` are false, because the TLS inspection device can selectively drop signature push API calls while forwarding the manifest push. The `insecure_proxy_or_pull_through_cache_in_transit_path` rule also fires when a proxy with TLS inspection is combined with absent digest pinning, enabling manifest substitution. TLS inspection creates the attack surface for MITRE T1040 (Network Sniffing) against the decrypted traffic stream visible at the inspection point.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the TLS certificate chain presented by the registry connection from within a CI/CD runner to detect interception by checking for an intermediate CA that is not the registry's legitimate issuer.",
+        "command": "openssl s_client -connect <registry-hostname>:443 -servername <registry-hostname> -showcerts </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject -enddate; echo '---'; curl -vI https://<registry-hostname>/v2/ 2>&1 | grep -E 'issuer|subject|SSL|certificate'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Issuer matching a corporate proxy CA (e.g., 'Zscaler Root CA', 'Palo Alto Networks', 'BlueCoat') rather than the registry's legitimate CA (DigiCert, Let's Encrypt, Amazon Root CA) indicates TLS inspection. Matching issuer confirms no interception."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the Docker daemon, containerd, and CI runner configuration for injected custom CA certificates that indicate a TLS inspection proxy has been configured as a trusted CA.",
+        "command": "ls /etc/docker/certs.d/; cat /usr/local/share/ca-certificates/*.crt 2>/dev/null | openssl x509 -noout -subject -issuer 2>/dev/null | grep -v 'Let.s Encrypt\\|DigiCert\\|Amazon\\|GlobalSign'; docker info 2>/dev/null | grep -i 'insecure\\|ca\\|proxy'",
+        "file_path": "/etc/docker/certs.d/, /etc/containerd/certs.d/, /usr/local/share/ca-certificates/, /etc/ssl/certs/",
+        "navigation": null,
+        "expected_output": "Custom CA certificates with corporate or vendor names in the system trust store indicate a TLS inspection proxy CA has been installed. Only standard public CA roots indicates no inspection."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a traceroute or connection trace from the CI/CD build agent network to the registry to identify proxy hops and cross-reference with firewall or proxy configuration documentation.",
+        "command": "traceroute -T -p 443 <registry-hostname> 2>/dev/null || tracert <registry-hostname>; curl -v --proxy '' https://<registry-hostname>/v2/ 2>&1 | grep -E 'proxy|CONNECT|tunnel'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CONNECT tunnel responses or additional hops between the runner and registry in traceroute indicate a proxy is in the path. Direct connection with no CONNECT handshake indicates no proxy interception."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the network security or platform engineering team to confirm whether SSL/TLS inspection policies apply to build agent network segments and whether registry hostnames are excluded from inspection.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review Palo Alto/Zscaler/Bluecoat SSL inspection policy documentation. Check network team wiki for 'CI/CD agent network zone' or 'build runner subnet' firewall policy pages. Look for registry hostname exemptions in inspection bypass lists.",
+        "expected_output": "Documented exemption of registry FQDN from TLS inspection, or confirmation that build agent subnets are outside inspection policy scope, indicates tls_inspection_present_on_registry_path = false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common in enterprise environments with Zscaler, Palo Alto NGFW, or BlueCoat SSL inspection applied to all outbound HTTPS)",
+      "false (cloud-native pipelines running in VPCs with direct peering to registry endpoints, or pipelines with documented inspection exemptions)"
+    ]
+  },
+  {
+    "option_name": "signature_presence_verified_post_push",
+    "option_description": "Controls whether the CI/CD pipeline executes a dedicated verification step after completing the manifest and signature push that actively queries the registry to confirm the signature or attestation blob is retrievable, valid, and cryptographically bound to the pushed manifest digest before marking the build as successful.",
+    "security_impact": "The Rego policy fires `cryptographic_signature_stripped_or_suppressed_in_transit` when both `signature_push_atomic_with_manifest` and `signature_presence_verified_post_push` are false, and additionally when TLS inspection is present without either of these controls. Post-push verification acts as a compensating control for non-atomic signature pushes by detecting when signatures were dropped in transit (MITRE T1553.002). Without this step, a pipeline reports a successful signed build while the registry stores an unsigned image, which will fail signature verification at deploy time only if admission controls are set to 'required'—and that failure may occur hours or days later in a different environment.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search CI/CD pipeline definitions for post-push cosign verify, notation verify, or ORAS manifest fetch steps that run after the sign step and treat non-zero exit codes as build failures.",
+        "command": "grep -A5 -B2 'cosign verify\\|notation verify\\|oras manifest' .github/workflows/*.yml .gitlab-ci.yml tekton/pipeline.yaml Jenkinsfile 2>/dev/null | grep -v '#'",
+        "file_path": ".github/workflows/*.yml, .gitlab-ci.yml, Jenkinsfile, .circleci/config.yml, tekton/tasks/*.yaml",
+        "navigation": null,
+        "expected_output": "A pipeline step containing 'cosign verify --key <key> <registry>/<image>@sha256:<digest>' or 'notation verify <image>@<digest>' placed after the sign step confirms post-push verification. Absence of any verify step after signing indicates this control is missing."
+      },
+      {
+        "type": "command",
+        "instruction": "Execute a manual cosign or notation verify command against a recently pushed image in the registry to validate that the signature is retrievable and valid, simulating what a post-push step would do.",
+        "command": "cosign verify --key cosign.pub <registry>/<image>@sha256:<digest> 2>&1 | jq .; notation verify <registry>/<image>@sha256:<digest> 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "cosign: JSON output with 'verified: true' and matching digest confirms signature is present and valid in registry. Error 'no signatures found' or 'verification failed' confirms signature was stripped. notation: 'Successfully verified signature for...' is the success indicator."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review past CI/CD build logs to confirm whether a verification step was executed after signing and whether it ever detected missing signatures, which would validate the control is effective.",
+        "command": "# GitHub Actions: use gh CLI to fetch recent workflow run logs gh run list --workflow=<workflow.yml> --limit=10 | awk '{print $7}' | xargs -I{} gh run view {} --log | grep -E 'cosign verify|notation verify|no signatures|verified'",
+        "file_path": null,
+        "navigation": "GitHub: Actions > Workflows > select workflow > recent runs > view job logs, search for 'verify' steps. GitLab: CI/CD > Pipelines > select recent pipeline > expand 'sign' or 'verify' job stage.",
+        "expected_output": "Log lines showing 'cosign verify' or 'notation verify' executing and returning exit code 0 after the push step confirm the control is active. Absence of any verify log lines after signing indicates the step is not implemented."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the signing runbook and pipeline design documentation to determine if post-push verification was intentionally included or excluded from the pipeline design, and whether the rationale is documented.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Search internal wiki or ADR repository for 'cosign post-push', 'signature verification step', or 'supply chain pipeline'. Review pipeline template repositories for standard signing job templates.",
+        "expected_output": "ADR or runbook explicitly documenting a post-push verification step as mandatory confirms the control is designed-in. Absence of any mention, or documentation stating verification is deferred to deployment, indicates the control is missing at push time."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (majority of pipelines that have signing added stop at the sign step without a verification step)",
+      "true (SLSA Level 2+ or SOC2-compliant pipelines with explicit supply chain integrity requirements)"
+    ]
+  },
+  {
+    "option_name": "push_request_replay_protection_enabled",
+    "option_description": "Indicates whether the container registry's push API enforces request-level replay protection mechanisms including cryptographic nonces, short-lived JWT claims with unique jti identifiers, timestamp-based expiry windows, or monotonic sequence numbers that prevent a captured authenticated push request from being retransmitted to republish a superseded image.",
+    "security_impact": "The Rego policy fires `replay_attack_on_manifest_or_layer_push` when `push_request_replay_protection_enabled` is false in all three conditions: standalone absence, absence combined with long-lived tokens (>3600s), and absence combined with disabled tag immutability. A replayed push request reuses a legitimately captured authenticated token to silently overwrite a current image tag with an older vulnerable version (MITRE T1601.001 - Patch System Image), effectively rolling back security patches. When tag immutability is also absent, the replay succeeds without any registry-level rejection.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Inspect the JWT token structure returned by the registry authentication endpoint to determine if short-lived tokens with jti claims and exp timestamps are issued, indicating replay protection is designed into the auth flow.",
+        "command": "curl -s 'https://<registry-hostname>/v2/token?service=<service>&scope=repository:<repo>:push' -u <user>:<password> | jq '.token' | cut -d. -f2 | base64 -d 2>/dev/null | jq '{exp, iat, jti, nbf}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Token payload containing 'jti' (unique token ID), 'exp' within 300-3600 seconds of 'iat', and 'nbf' claims indicates replay protection via short-lived JWT. Missing 'jti' or 'exp' values more than 3600s in the future indicate weak replay protection."
+      },
+      {
+        "type": "gui",
+        "instruction": "Check AWS ECR push authorization token validity settings and signed request expiry configuration in the AWS Console or ECR service documentation.",
+        "command": "aws ecr get-authorization-token --region <region> | jq '.authorizationData[].expiresAt'; aws ecr describe-registry-policy --region <region> 2>/dev/null | jq .",
+        "file_path": null,
+        "navigation": "AWS Console: ECR > Registries > <registry> > Permissions. AWS ECR authorization tokens are 12-hour tokens by default—check whether shorter-lived credentials via OIDC federation are configured. Harbor: Admin > Configuration > Security > Token Expiration.",
+        "expected_output": "ECR: expiresAt within 12 hours is default (limited replay window). Harbor: token_expiration setting under 60 minutes indicates stricter replay protection. Artifactory: check 'Access Token Expiry' settings in security configuration."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the registry server configuration for nonce requirements, request signing policies, or timestamp validation settings in Harbor, Artifactory, or Nexus configuration files.",
+        "command": "# Harbor: grep -r 'token_expiration\\|csrf\\|nonce\\|replay' /etc/harbor/ 2>/dev/null; # Artifactory: grep -r 'token.expiry\\|request.replay\\|nonce' /var/opt/jfrog/artifactory/etc/ 2>/dev/null",
+        "file_path": "/etc/harbor/harbor.yml, /var/opt/jfrog/artifactory/etc/artifactory.system.properties, /etc/nexus/nexus.properties",
+        "navigation": null,
+        "expected_output": "Harbor token_expiration < 60 (minutes) with CSRF protection enabled indicates replay protection measures are configured. Artifactory: access.token.max.expiry.secs < 3600 with request signing enabled indicates replay protection."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review API security documentation for the specific registry product in use to determine if replay protection is a built-in feature or requires explicit configuration, then verify whether it has been enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Review registry vendor documentation: Harbor Security Guide > API Authentication; AWS ECR API Reference > GetAuthorizationToken; Artifactory > User Guide > Authentication. Cross-reference with internal security architecture documentation.",
+        "expected_output": "Vendor documentation confirming built-in nonce or jti-based replay protection that is enabled by default or explicitly configured, combined with internal confirmation of that configuration, maps to push_request_replay_protection_enabled = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most self-hosted registry deployments rely solely on TLS without explicit replay protection at the API layer)",
+      "true (AWS ECR with OIDC-federated short-lived credentials, or Harbor with token expiration configured to < 15 minutes and CSRF protection enabled)"
+    ]
+  },
+  {
+    "option_name": "tag_immutability_enforced",
+    "option_description": "Controls whether the container registry enforces immutable tag policies that prevent an existing image tag from being overwritten by a push of a different image digest, ensuring that once a tag is published it cannot be silently replaced with different content by any subsequent push operation.",
+    "security_impact": "The Rego policy fires `replay_attack_on_manifest_or_layer_push` when both `push_request_replay_protection_enabled` is false and `tag_immutability_enforced` is false, because without immutability a replayed authenticated push request can silently replace a current tagged image with an older vulnerable version under the same tag (MITRE T1601.001). Tag immutability acts as a last-resort registry-side control that rejects overwrite attempts regardless of whether the push request was replayed or otherwise unauthorized, making it a critical defense-in-depth layer complementing replay protection.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the AWS ECR repository configuration to check the imageTagMutability setting, which directly maps to tag immutability enforcement.",
+        "command": "aws ecr describe-repositories --region <region> --query 'repositories[*].{name:repositoryName,tagMutability:imageTagMutability}' --output table; aws ecr describe-repositories --repository-names <repo-name> --region <region> | jq '.repositories[].imageTagMutability'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'IMMUTABLE' value confirms tag immutability is enforced for that repository. 'MUTABLE' (the default) means tags can be overwritten and immutability is not enforced."
+      },
+      {
+        "type": "gui",
+        "instruction": "Check Harbor project-level Immutable Tags rules that define which tag patterns are protected from overwrite operations.",
+        "command": "curl -s -u admin:<password> 'https://<harbor-host>/api/v2.0/projects/<project-name>/immutabletagrules' | jq '.[] | {id, disabled, scope_selectors, tag_selectors}'",
+        "file_path": null,
+        "navigation": "Harbor UI: Projects > <project-name> > Policy > Immutable Tags. Verify rules exist and are enabled (not disabled). Artifactory: Application > Artifactory > Repositories > <repo> > Basic > Forbid Overwrite (checkbox). Docker Hub: Repository > Settings > check for tag protection rules.",
+        "expected_output": "Harbor: At least one active (disabled: false) immutable tag rule covering the relevant tag patterns confirms enforcement. Artifactory: 'Forbid overwrite' checked confirms immutability. AWS ECR: IMMUTABLE status confirms enforcement."
+      },
+      {
+        "type": "command",
+        "instruction": "Attempt a test push of a different digest to an existing tag in a non-production repository to empirically verify whether the registry rejects the overwrite operation.",
+        "command": "# Pull existing image, retag it to simulate a different digest push, then attempt to push to same tag: docker pull <registry>/<repo>:<tag>; docker tag <registry>/<repo>:<tag> <registry>/<repo>:<tag>-test; docker push <registry>/<repo>:<tag>-test 2>&1 | grep -E 'denied|immutable|already exists|error'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Push rejection with 'tag already exists and is immutable' or '400 Bad Request' error confirms immutability is enforced. Successful push with a new digest under the same tag confirms immutability is NOT enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For self-hosted registries (Nexus, Artifactory, Harbor deployed via Helm), inspect the Helm chart values or configuration files for tag immutability settings applied at deployment time.",
+        "command": "helm get values harbor -n harbor 2>/dev/null | grep -i 'immut\\|overwrite'; kubectl get configmap -n harbor -o yaml | grep -i 'immut'; grep -r 'forbidOverwrite\\|immutableTags\\|prevent_overwrite' /var/opt/jfrog/artifactory/etc/ 2>/dev/null",
+        "file_path": "/var/opt/jfrog/artifactory/etc/artifactory.config.xml, harbor/values.yaml, /etc/harbor/harbor.yml",
+        "navigation": null,
+        "expected_output": "Helm values showing immutableTags policies or Artifactory XML with forbidOverwrite=true confirms tag immutability is configured at the infrastructure level. Absence of these settings indicates reliance on per-project UI configuration which may not be consistently applied."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default for most registries including AWS ECR MUTABLE default, Docker Hub, and self-hosted Harbor without explicit policy configuration)",
+      "true (AWS ECR repositories with IMMUTABLE setting explicitly set, Harbor projects with active immutable tag rules covering all tags, Artifactory repos with Forbid Overwrite enabled)"
+    ]
+  },
+  {
+    "option_name": "push_token_max_validity_seconds",
+    "option_description": "Controls the maximum lifetime in seconds of authentication tokens or credentials accepted for registry push operations. A value of 0 or null indicates non-expiring tokens, while values above 3600 seconds represent an elevated replay window.",
+    "security_impact": "The Rego policy flags replay_attack_on_manifest_or_layer_push when push_token_max_validity_seconds exceeds 3600, combined with absent replay protection. Long-lived tokens expand the window during which a captured push request can be replayed to re-publish a previously valid but vulnerable image version under the same tag, rolling back security fixes.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Decode the JWT bearer token used by the CI/CD runner and inspect the 'exp' and 'iat' claims to calculate token lifetime.",
+        "command": "echo $REGISTRY_TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | python3 -c \"import sys,json; d=json.load(sys.stdin); print('Issued:', d.get('iat'), 'Expires:', d.get('exp'), 'Lifetime:', d.get('exp',0)-d.get('iat',0), 'seconds')\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows token lifetime in seconds; values above 3600 indicate elevated replay risk; null 'exp' indicates a non-expiring token."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Docker Registry v2 token endpoint to observe the token_type and expires_in fields returned for push scope tokens.",
+        "command": "curl -s -u $CI_REGISTRY_USER:$CI_REGISTRY_PASSWORD 'https://<registry-host>/v2/token?service=<registry-service>&scope=repository:<image-name>:push' | python3 -m json.tool | grep -E 'expires_in|token_type|issued_at'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response containing 'expires_in' field in seconds; absence of this field or a value of 0 indicates non-expiring token."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Harbor registry, navigate to Administration > Configuration > Authentication to review token expiration settings, or for robot accounts navigate to Project > Robot Accounts and inspect the token duration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Harbor UI > Administration > Configuration > Authentication > Token Expiration (minutes) | Harbor UI > <Project> > Robot Accounts > [Account] > Token Duration",
+        "expected_output": "Token expiration field showing lifetime value; default Harbor value is 30 minutes (1800 seconds)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For GitLab CI/CD, inspect the CI_JOB_TOKEN expiry or registry auth token settings in the GitLab instance configuration.",
+        "command": "grep -rE 'token_expire|jwt_exp|access_token_expire' /etc/gitlab/gitlab.rb /etc/harbor/harbor.yml /etc/registry/config.yml 2>/dev/null",
+        "file_path": "/etc/gitlab/gitlab.rb, /etc/harbor/harbor.yml, /etc/registry/config.yml",
+        "navigation": null,
+        "expected_output": "Configuration entries showing token expiry duration; absence indicates reliance on defaults."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "900",
+      "1800",
+      "3600",
+      "7200",
+      "86400",
+      "0 (non-expiring)"
+    ]
+  },
+  {
+    "option_name": "dnssec_validation_enabled",
+    "option_description": "Controls whether the pipeline runner's DNS resolver enforces DNSSEC validation when resolving the container registry hostname, preventing DNS spoofing or cache poisoning attacks that could redirect push traffic to a rogue registry.",
+    "security_impact": "The Rego policy flags dns_or_bgp_route_hijacking_to_rogue_registry when both dnssec_validation_enabled is false and registry_certificate_pinning_configured is false, or when dnssec_validation_enabled is false and registry_endpoint_uses_static_ip_or_verified_hostname is false. Without DNSSEC, a poisoned DNS response can silently redirect the pipeline to push signed artifacts to an attacker-controlled registry.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the systemd-resolved configuration on the CI/CD runner for DNSSEC enforcement status.",
+        "command": "systemd-resolve --status | grep -i dnssec; resolvectl status | grep -i dnssec; cat /etc/systemd/resolved.conf | grep -i dnssec",
+        "file_path": "/etc/systemd/resolved.conf",
+        "navigation": null,
+        "expected_output": "Output showing 'DNSSEC: yes' or 'DNSSEC setting: yes'; a value of 'no' or 'allow-downgrade' indicates DNSSEC validation is disabled or not enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect BIND or dnsmasq configuration files on the runner or its DNS server for DNSSEC validation directives.",
+        "command": "grep -E 'dnssec-enable|dnssec-validation|dnssec-lookaside' /etc/bind/named.conf /etc/bind/named.conf.options /etc/dnsmasq.conf /etc/dnsmasq.d/*.conf 2>/dev/null",
+        "file_path": "/etc/bind/named.conf.options, /etc/dnsmasq.conf",
+        "navigation": null,
+        "expected_output": "'dnssec-enable yes' and 'dnssec-validation yes' confirm DNSSEC is active; absence or 'no' values indicate it is disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Test DNSSEC validation against the registry hostname from the CI/CD runner to determine if the resolver rejects invalid DNSSEC signatures.",
+        "command": "dig +dnssec +multi <registry-hostname> A; dig +dnssec @127.0.0.1 <registry-hostname> | grep -E 'RRSIG|NSEC|ad|SERVFAIL'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of 'ad' (authenticated data) flag in the response header confirms DNSSEC validation; SERVFAIL on a tampered zone indicates validation is enforced."
+      },
+      {
+        "type": "gui",
+        "instruction": "For cloud-hosted CI/CD runners (e.g., AWS CodeBuild, GCP Cloud Build), inspect the VPC DNS resolver settings in the cloud console for DNSSEC enablement.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > Route 53 > Hosted Zones > DNSSEC signing | GCP Console > Cloud DNS > Zones > DNSSEC | Azure Portal > DNS Zones > DNSSEC",
+        "expected_output": "DNSSEC status showing 'Enabled' or 'Active'; cloud resolvers vary in DNSSEC validation support and may require explicit enablement."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most common default)",
+      "true"
+    ]
+  },
+  {
+    "option_name": "registry_certificate_pinning_configured",
+    "option_description": "Controls whether the CI/CD pipeline enforces certificate pinning or a constrained trust anchor (pinned CA or leaf certificate) for TLS connections to the container registry, preventing acceptance of certificates issued by a compromised or rogue CA.",
+    "security_impact": "The Rego policy references this attribute in two rules: dns_or_bgp_route_hijacking_to_rogue_registry triggers when both dnssec_validation_enabled and registry_certificate_pinning_configured are false; tls_certificate_pinning_absent_allowing_mitm_via_rogue_ca triggers when registry_certificate_pinning_configured is false and registry_tls_ca_scope is 'system' or 'none'. Without pinning, a fraudulent certificate from any trusted CA can enable silent MITM interception of the push channel.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect Docker daemon configuration and CI/CD pipeline YAML files for TLS certificate pinning flags and custom CA bundle references.",
+        "command": "cat /etc/docker/daemon.json | python3 -m json.tool | grep -E 'tls|cert|ca|pin'; grep -rE 'tlscacert|cert-dir|tls-verify|--cert|ca-file|pinned' ~/.docker/ /etc/containers/registries.conf /etc/containers/certs.d/ 2>/dev/null",
+        "file_path": "/etc/docker/daemon.json, /etc/containers/registries.conf, /etc/containers/certs.d/",
+        "navigation": null,
+        "expected_output": "Presence of custom 'tlscacert' or dedicated cert-dir entries pointing to a specific CA rather than system defaults; absence indicates reliance on system CA store."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for per-registry certificate directories used by Docker or Podman that contain pinned CA or client certificates.",
+        "command": "ls -la /etc/docker/certs.d/<registry-hostname>/ 2>/dev/null; ls -la /etc/containers/certs.d/<registry-hostname>/ 2>/dev/null; find /etc/docker/certs.d /etc/containers/certs.d -name '*.crt' -o -name '*.cert' 2>/dev/null",
+        "file_path": "/etc/docker/certs.d/<registry-hostname>/, /etc/containers/certs.d/<registry-hostname>/",
+        "navigation": null,
+        "expected_output": "Directory containing 'ca.crt' or '<hostname>.cert' files confirms certificate pinning is configured; empty directory or no directory indicates no pinning."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review CI/CD pipeline YAML files (GitHub Actions, GitLab CI, Jenkinsfile) for Crane, Skopeo, or Docker push commands with explicit certificate flags.",
+        "command": "grep -rE '\\-\\-cert|\\-\\-tls-verify|\\-\\-src-cert|\\-\\-dest-cert|\\-\\-registries-conf|DOCKER_CERT_PATH' .github/ .gitlab-ci.yml Jenkinsfile Makefile 2>/dev/null",
+        "file_path": ".github/workflows/*.yml, .gitlab-ci.yml, Jenkinsfile",
+        "navigation": null,
+        "expected_output": "Flags like '--cert-dir /path/to/certs' or 'DOCKER_CERT_PATH' environment variable set to a specific path indicate pinning is configured."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to connect to the registry using a certificate from an alternative trusted CA to verify whether the pipeline client enforces pinning.",
+        "command": "openssl s_client -connect <registry-hostname>:443 -CAfile /etc/ssl/certs/ca-certificates.crt -verify 5 2>&1 | grep -E 'Verify|subject|issuer|Certificate chain'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If pinning is enforced, connections using certificates from CAs outside the pinned set should fail; success with any system-trusted CA indicates pinning is absent."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most common default)",
+      "true"
+    ]
+  },
+  {
+    "option_name": "registry_endpoint_uses_static_ip_or_verified_hostname",
+    "option_description": "Controls whether the pipeline connects to the container registry via a static IP address or an internally verified hostname (e.g., private DNS zone, /etc/hosts override) rather than a publicly resolvable hostname susceptible to BGP or DNS hijacking.",
+    "security_impact": "The Rego policy triggers dns_or_bgp_route_hijacking_to_rogue_registry when dnssec_validation_enabled is false and registry_endpoint_uses_static_ip_or_verified_hostname is false. Without a static or internally-anchored endpoint, DNS poisoning or BGP route hijacking can silently redirect the pipeline to push artifacts to an attacker-controlled registry that serves tampered images.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Review CI/CD pipeline configuration files and Dockerfiles for the registry endpoint definition to determine if it uses a static IP, private DNS name, or public hostname.",
+        "command": "grep -rE 'REGISTRY|registry|docker\\.io|ghcr\\.io|gcr\\.io|ecr\\.aws|push' .github/ .gitlab-ci.yml Jenkinsfile docker-compose.yml .env 2>/dev/null | grep -v '^Binary'",
+        "file_path": ".github/workflows/*.yml, .gitlab-ci.yml, Jenkinsfile, docker-compose.yml",
+        "navigation": null,
+        "expected_output": "Endpoint defined as a private IP (10.x.x.x, 172.16.x.x, 192.168.x.x), internal hostname (.internal, .local, .corp), or fully qualified internal domain indicates static/verified endpoint; public hostnames without DNSSEC indicate vulnerability."
+      },
+      {
+        "type": "command",
+        "instruction": "Check /etc/hosts on the CI/CD runner for static registry endpoint overrides and inspect the resolver configuration for internal DNS zones.",
+        "command": "grep -i 'registry\\|harbor\\|ecr\\|gcr\\|ghcr' /etc/hosts; cat /etc/resolv.conf; systemd-resolve --status | grep -E 'DNS Domain|DNS Server'",
+        "file_path": "/etc/hosts, /etc/resolv.conf",
+        "navigation": null,
+        "expected_output": "/etc/hosts entries mapping registry hostnames to IPs confirm static resolution; internal search domains or private DNS servers confirm internally-anchored resolution."
+      },
+      {
+        "type": "command",
+        "instruction": "Resolve the configured registry hostname from the CI/CD runner and verify whether it resolves to a private/internal IP address range.",
+        "command": "getent hosts <registry-hostname>; dig <registry-hostname> +short; nslookup <registry-hostname> | grep -E 'Address|Server'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Resolution to RFC 1918 private IP space (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) or internal IP range confirms a verified hostname; public IP resolution without DNSSEC indicates susceptibility to hijacking."
+      },
+      {
+        "type": "gui",
+        "instruction": "In cloud provider consoles (AWS, GCP, Azure), verify whether the registry endpoint is a VPC-internal endpoint rather than a public endpoint.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console > ECR > Repositories > View push commands (check endpoint) | AWS Console > VPC > Endpoints > ECR endpoint | GCP Console > Artifact Registry > Repository > Setup instructions | Azure Portal > Container Registry > Networking > Private endpoint connections",
+        "expected_output": "Private endpoint or VPC endpoint configured for registry access confirms internally-anchored routing; absence indicates public DNS resolution."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most common in public cloud pipelines)",
+      "true (private/internal registries)"
+    ]
+  },
+  {
+    "option_name": "registry_push_rate_limiting_enabled",
+    "option_description": "Controls whether the container registry or its ingress layer enforces rate limiting on push requests (layer blob uploads, manifest pushes) per client or credential, preventing storage exhaustion attacks and layer digest enumeration through repeated push probes.",
+    "security_impact": "The Rego policy flags absent_rate_limiting_enabling_layer_flood_or_enumeration when registry_push_rate_limiting_enabled is false and either registry_push_connection_throttling_enabled is false or push_credential_scope_restriction is false. Without rate limiting, an attacker with push credentials can flood the registry with oversized blobs or enumerate existing layer digests to map the private image artifact graph.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Harbor registry, navigate to Administration > Configuration > Rate Limiting or inspect project-level push quota settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Harbor UI > Administration > Configuration > Rate Limiting | Harbor UI > <Project> > Configuration > Storage Quota | Harbor UI > Administration > Quotas",
+        "expected_output": "Rate limiting policy showing requests-per-second or push count limits per user/robot account; absence of these settings confirms rate limiting is not configured."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect nginx ingress controller annotations or ConfigMap for push endpoint rate limiting configuration in Kubernetes-hosted registries.",
+        "command": "kubectl get ingress -A -o yaml | grep -E 'limit-rps|limit-connections|rate-limit|nginx.ingress.kubernetes.io/limit'; kubectl get configmap -n ingress-nginx nginx-configuration -o yaml | grep -E 'limit'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Annotations like 'nginx.ingress.kubernetes.io/limit-rps: \"10\"' confirm rate limiting is configured; absence of these annotations indicates no rate limiting."
+      },
+      {
+        "type": "api",
+        "instruction": "Query cloud provider APIs (ECR, GCR, ACR) to check for configured service quotas or throttle policies on push operations.",
+        "command": "aws ecr describe-registry --query 'replicationConfiguration' 2>/dev/null; aws service-quotas list-applied-quotas-by-service --service-code ecr --query 'Quotas[?contains(QuotaName, `push`) || contains(QuotaName, `Push`)]' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Service quota entries showing push operation limits per second or per minute; AWS ECR default quotas apply but custom per-credential rate limits typically require ingress-layer configuration."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Envoy proxy or API gateway configuration files for rate limit policies applied to the registry push endpoints (OCI upload paths).",
+        "command": "grep -rE 'rate_limit|ratelimit|limit_rps|pushes_per' /etc/envoy/ /etc/nginx/ /etc/haproxy/ /etc/traefik/ 2>/dev/null | grep -i 'registry\\|v2\\|upload\\|blob'",
+        "file_path": "/etc/envoy/envoy.yaml, /etc/nginx/nginx.conf, /etc/traefik/traefik.yml",
+        "navigation": null,
+        "expected_output": "Rate limit filter configuration targeting '/v2/*/blobs/uploads/' or '/v2/*/manifests/' paths confirms rate limiting is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most common default)",
+      "true (enterprise/hardened deployments)"
+    ]
+  },
+  {
+    "option_name": "registry_push_connection_throttling_enabled",
+    "option_description": "Controls whether concurrent connection limits or bandwidth throttling are enforced on registry push endpoints to prevent bulk blob flooding attacks that could cause storage exhaustion or service disruption.",
+    "security_impact": "The Rego policy triggers absent_rate_limiting_enabling_layer_flood_or_enumeration when both registry_push_rate_limiting_enabled and registry_push_connection_throttling_enabled are false. Without connection throttling, an attacker with push credentials can open many simultaneous upload connections to exhaust storage or compute resources, causing denial of service for legitimate pipeline operations.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect nginx ingress or reverse proxy configuration for connection limit directives applied to the registry upload path.",
+        "command": "grep -E 'limit_conn|limit_conn_zone|worker_connections|MaxKeepAliveRequests|MaxClients' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/* 2>/dev/null; grep -rE 'limit_conn' /etc/nginx/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf, /etc/nginx/conf.d/*.conf",
+        "navigation": null,
+        "expected_output": "'limit_conn' directives targeting the registry location block confirm connection throttling; absence indicates no concurrent connection limits."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Kubernetes ingress annotations and Envoy circuit breaker settings for connection throttling on the registry service.",
+        "command": "kubectl get ingress -A -o yaml | grep -E 'limit-connections|limit-rps|upstream-vhost|circuit-breaker'; kubectl get envoyfilter -A -o yaml 2>/dev/null | grep -E 'max_connections|pending_requests|max_requests'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Annotations like 'nginx.ingress.kubernetes.io/limit-connections: \"5\"' or Envoy circuit breaker thresholds confirm throttling is active."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the cloud load balancer or API gateway for connection throttling policies applied to the registry backend service.",
+        "command": "aws elbv2 describe-target-groups --query 'TargetGroups[?contains(TargetGroupName,`registry`)]' 2>/dev/null; aws wafv2 list-web-acls --scope REGIONAL 2>/dev/null | python3 -m json.tool | grep -A5 -i 'registry\\|rate'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "WAF rules or load balancer target group connection limits targeting the registry confirm throttling; absence indicates reliance on default cloud provider limits only."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Harbor, check the project-level storage quota and upload concurrency settings; for ECR/GCR check load balancer backend service connection limits in the cloud console.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Harbor UI > Administration > Quotas > [Project] > Storage | AWS Console > EC2 > Load Balancers > [Registry LB] > Target Groups > Attributes | GCP Console > Load Balancing > Backend Services > [Registry Backend] > Connection draining",
+        "expected_output": "Storage quota limits and connection settings configured; complete absence of connection-level throttling indicates the control is not in place."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most common default)",
+      "true (enterprise/hardened deployments)"
+    ]
+  },
+  {
+    "option_name": "push_credential_scope_restriction",
+    "option_description": "Controls whether push credentials (tokens, service account keys, robot accounts) are scoped to specific repositories rather than granted registry-wide push access, limiting the blast radius if credentials are compromised.",
+    "security_impact": "The Rego policy references push_credential_scope_restriction in absent_rate_limiting_enabling_layer_flood_or_enumeration: the rule fires when registry_push_rate_limiting_enabled is false and push_credential_scope_restriction is false. Without scope restriction, a single compromised push credential grants write access to all repositories, enabling an attacker to push malicious images across the entire registry rather than a single project.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Harbor, inspect robot account permissions to verify they are scoped to specific projects and repositories rather than system-wide.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Harbor UI > <Project> > Robot Accounts > [Account] > Permissions (verify project-scoped, not system-scoped) | Harbor UI > Administration > Robot Accounts (system-wide accounts are red flags)",
+        "expected_output": "Robot account showing permissions limited to specific project(s) and 'push' action only on named repositories confirms scope restriction; system-wide or wildcard permissions indicate over-privileged credentials."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS ECR, review IAM policies attached to CI/CD service roles to verify repository-level ARN restrictions on ecr:PutImage and related actions.",
+        "command": "aws iam list-attached-role-policies --role-name <ci-cd-role> 2>/dev/null; aws iam get-role-policy --role-name <ci-cd-role> --policy-name <policy-name> 2>/dev/null | python3 -m json.tool | grep -A10 -E 'ecr:Put|ecr:Upload|ecr:Batch|Resource'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IAM policy Resource field showing specific ECR repository ARNs (arn:aws:ecr:region:account:repository/specific-repo) confirms scope restriction; wildcard '*' Resources indicate over-privileged credentials."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Harbor's API to list robot accounts and inspect their access scopes for push permissions.",
+        "command": "curl -s -u admin:$HARBOR_ADMIN_PASS 'https://<harbor-host>/api/v2.0/robots?page=1&page_size=100' | python3 -m json.tool | python3 -c \"import sys,json; robots=json.load(sys.stdin); [print(r['name'], r.get('permissions','N/A')) for r in robots]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each robot account showing permissions array limited to specific project names and 'push' action; absence of project scoping or presence of wildcard resource names indicates insufficient scope restriction."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review CI/CD pipeline environment variables and secret definitions for credential scope annotations or token audience claims that indicate repository-level restriction.",
+        "command": "grep -rE 'REGISTRY_TOKEN|DOCKER_PASSWORD|CI_REGISTRY_PASSWORD|HARBOR_TOKEN|ECR_TOKEN|scope|repository' .github/workflows/ .gitlab-ci.yml Jenkinsfile 2>/dev/null | grep -v '^Binary'; cat /etc/docker/config.json 2>/dev/null | python3 -m json.tool | grep -E 'auth|credsStore|auths'",
+        "file_path": ".github/workflows/*.yml, .gitlab-ci.yml, /etc/docker/config.json",
+        "navigation": null,
+        "expected_output": "Credentials referencing specific repository scopes (e.g., scope=repository:myorg/myimage:push) confirm restriction; generic or organization-wide tokens indicate over-provisioned access."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in self-managed pipelines)",
+      "true (Harbor robot accounts, ECR per-repo IAM)"
+    ]
+  },
+  {
+    "option_name": "registry_auth_method",
+    "option_description": "Identifies the authentication mechanism used by the CI/CD pipeline to authenticate to the container registry when pushing images, ranging from no authentication through static tokens, basic auth, OIDC workload identity, to mutual TLS client certificates.",
+    "security_impact": "The Rego policy directly triggers weak_or_reused_registry_push_credentials_over_network when registry_auth_method is 'static_token', 'basic_auth', or 'none'. These methods are susceptible to credential harvesting via TLS inspection proxies, logging middleware, or network taps that capture request headers. Compromised static credentials grant persistent unauthorized push access without requiring further network compromise.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect CI/CD pipeline YAML files and environment variable definitions to identify the authentication method used for registry push operations.",
+        "command": "grep -rE 'docker login|skopeo copy|crane push|REGISTRY_USER|REGISTRY_PASSWORD|OIDC|workload.identity|id_token|CLIENT_ID|AZURE_CLIENT|AWS_ROLE_ARN|SERVICE_ACCOUNT' .github/workflows/ .gitlab-ci.yml Jenkinsfile .circleci/ 2>/dev/null | grep -v '^Binary'",
+        "file_path": ".github/workflows/*.yml, .gitlab-ci.yml, Jenkinsfile",
+        "navigation": null,
+        "expected_output": "'docker login -u $USER -p $PASSWORD' indicates basic_auth or static_token; OIDC token exchange steps (aws sts, gcloud auth, azure login with federated credentials) indicate oidc_workload_identity; mTLS client cert references indicate mtls_client_certificate; no auth step indicates none."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the Docker credential store and config.json on the CI/CD runner to determine if static credentials are cached.",
+        "command": "cat ~/.docker/config.json 2>/dev/null | python3 -m json.tool; cat /root/.docker/config.json 2>/dev/null | python3 -m json.tool; ls -la ~/.docker/; echo $DOCKER_AUTH_CONFIG 2>/dev/null | base64 -d 2>/dev/null | python3 -m json.tool",
+        "file_path": "~/.docker/config.json, /root/.docker/config.json",
+        "navigation": null,
+        "expected_output": "Hardcoded base64 auth strings in auths section indicate basic_auth; 'credsStore' pointing to external helper may indicate OIDC/dynamic credentials; empty auths with credHelpers pointing to cloud providers indicates workload identity."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review CI/CD platform secret management to determine how registry credentials are stored and the credential type.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub > Repository > Settings > Secrets and variables > Actions (look for REGISTRY_TOKEN vs OIDC configuration) | GitLab > Project > Settings > CI/CD > Variables (look for masked static tokens vs OIDC JWT vars) | Jenkins > Manage Jenkins > Credentials (check credential type: Username/Password vs Secret text vs Certificate)",
+        "expected_output": "Static username/password or token secrets stored as CI/CD variables indicate static_token or basic_auth; OIDC provider configuration with no stored credentials indicates oidc_workload_identity; certificate credential type indicates mtls_client_certificate."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the CI/CD platform team or review platform documentation to determine whether workload identity federation (GitHub OIDC, GCP Workload Identity, AWS IRSA) has been configured for registry authentication.",
+        "command": "aws sts get-caller-identity 2>/dev/null; gcloud config list account 2>/dev/null; az account show 2>/dev/null; printenv | grep -E 'OIDC|WORKLOAD|IDENTITY|AWS_WEB_IDENTITY|GOOGLE_APPLICATION_CREDENTIALS|AZURE_FEDERATED'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "AWS_WEB_IDENTITY_TOKEN_FILE set, GOOGLE_APPLICATION_CREDENTIALS pointing to workload identity file, or AZURE_FEDERATED_TOKEN_FILE set confirms oidc_workload_identity; static AWS_ACCESS_KEY_ID or hardcoded credentials confirm static_token."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "static_token",
+      "basic_auth",
+      "oidc_workload_identity",
+      "mtls_client_certificate",
+      "none"
+    ]
+  },
+  {
+    "option_name": "credential_shared_across_pipeline_stages",
+    "option_description": "Controls whether a single registry credential (static token or password) is injected into all CI/CD pipeline stages rather than issuing scoped, per-stage credentials or using OIDC workload-identity token exchange. When true, a credential captured from any one stage grants push access across the entire pipeline.",
+    "security_impact": "The Rego policy fires `weak_or_reused_registry_push_credentials_over_network` when `credential_shared_across_pipeline_stages == true` AND either `credential_rotation_days > 90` or `credential_rotation_days == 0`. A shared credential widens the blast radius of a single interception event: any stage log, debug artifact, or TLS-inspection proxy that captures the token immediately grants persistent, broad push access. Combined with a long or absent rotation cycle, this satisfies two of the three policy trigger conditions independently.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the CI/CD pipeline definition file (GitHub Actions workflow, GitLab CI YAML, Jenkinsfile, or equivalent) for environment variable injection patterns. Look for a single REGISTRY_TOKEN, DOCKER_PASSWORD, or CI_REGISTRY_PASSWORD secret referenced at the top-level `env:` block or exported globally rather than scoped to individual job steps.",
+        "command": "grep -rE '(REGISTRY_TOKEN|DOCKER_PASSWORD|CI_REGISTRY_PASSWORD|REGISTRY_PASS)' .github/workflows/ .gitlab-ci.yml Jenkinsfile 2>/dev/null",
+        "file_path": ".github/workflows/*.yml | .gitlab-ci.yml | Jenkinsfile | .circleci/config.yml",
+        "navigation": null,
+        "expected_output": "If the same secret name appears in more than one distinct job/stage block without per-stage OIDC exchange, credential_shared_across_pipeline_stages = true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In GitHub Actions, navigate to Repository → Settings → Secrets and variables → Actions. Check whether a single secret (e.g., REGISTRY_TOKEN) is referenced by multiple jobs. In GitLab CI, navigate to Project → Settings → CI/CD → Variables and check if a single variable with no environment scope is used across all stages.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub: Settings → Secrets and variables → Actions → Repository secrets | GitLab: Project → Settings → CI/CD → Variables",
+        "expected_output": "A single unscoped secret referenced by build, test, scan, and push jobs indicates credential_shared_across_pipeline_stages = true."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the GitHub Actions API to list workflow secrets and compare secret names against job-level vs. workflow-level scoping, or query the GitLab API for CI variable scopes to determine if credentials are environment-scoped or globally applied.",
+        "command": "gh api repos/{owner}/{repo}/actions/secrets | jq '.secrets[].name' # GitHub; gitlab API: curl --header 'PRIVATE-TOKEN: <token>' 'https://gitlab.example.com/api/v4/projects/<id>/variables' | jq '.[].key'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Secrets with `protected: false` and no environment scope that match registry credential naming patterns indicate global sharing across stages."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the pipeline maintainer or review onboarding documentation to determine whether OIDC workload identity (GitHub OIDC → AWS ECR, GCP Artifact Registry, etc.) is configured per-job, or whether a single static service account token was created once and shared in pipeline configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation of a single static token without per-stage scoping or OIDC federation confirms credential_shared_across_pipeline_stages = true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "credential_rotation_days",
+    "option_description": "Specifies the maximum number of days between mandatory rotations of the registry push credential. A value of 0 indicates the token or password has no expiry and no automated rotation policy is in place. Higher values mean a compromised credential remains valid for longer before being invalidated.",
+    "security_impact": "The Rego policy triggers `weak_or_reused_registry_push_credentials_over_network` when `credential_shared_across_pipeline_stages == true` and `credential_rotation_days > 90`, or when `credential_rotation_days == 0` (no rotation at all). Long-lived or perpetual credentials intercepted via TLS inspection proxies, pipeline logs, or network capture remain exploitable indefinitely, enabling persistent unauthorized pushes of malicious images without re-compromise.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "For cloud-managed registries, check the service account or token configuration in the cloud console. In AWS ECR, review IAM access key age via IAM Console → Users → Security credentials. In GCP Artifact Registry, inspect the service account key creation date under IAM & Admin → Service Accounts → Keys. In Docker Hub, check Settings → Security → Access Tokens for expiry settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS: IAM Console → Users → Security credentials → Access keys (age column) | GCP: IAM & Admin → Service Accounts → [account] → Keys | Docker Hub: Account Settings → Security → Access Tokens",
+        "expected_output": "Tokens with no expiry date or creation dates older than 90 days without evidence of rotation indicate credential_rotation_days = 0 or > 90."
+      },
+      {
+        "type": "command",
+        "instruction": "For AWS IAM credentials used to push to ECR, query the access key last rotation date. For GCP service account keys, list key creation timestamps. For HashiCorp Vault-managed registry credentials, check the lease TTL configuration.",
+        "command": "aws iam list-access-keys --user-name <ci-user> --query 'AccessKeyMetadata[*].[AccessKeyId,CreateDate,Status]' --output table; # GCP: gcloud iam service-accounts keys list --iam-account=<sa>@<project>.iam.gserviceaccount.com --format='table(name,validAfterTime,validBeforeTime)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Keys with `validBeforeTime` set to a future date within 90 days indicate active rotation; keys with no expiry or very old `validAfterTime` indicate credential_rotation_days = 0."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the CI/CD secret manager or pipeline configuration for TTL or rotation policy definitions. For GitHub Actions, rotation is not automatic—check if a scheduled workflow rotates the secret. For GitLab, check if a secret management integration (Vault, AWS SM) has a rotation schedule configured.",
+        "command": "cat .github/workflows/*.yml | grep -A5 -B5 'rotation\\|rotate\\|ttl\\|expir'; vault read auth/aws/role/<role-name> | grep -i ttl",
+        "file_path": ".github/workflows/*.yml | .gitlab-ci.yml | vault policy files",
+        "navigation": null,
+        "expected_output": "Presence of a scheduled rotation job or Vault lease TTL of ≤ 90 days indicates an active rotation policy; absence means credential_rotation_days = 0."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's credential management runbook or ticketing system for the last rotation date of the registry push token. Ask the pipeline team whether rotation is manual (ad-hoc) or automated, and obtain the date of the most recent rotation to calculate the effective rotation interval.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented rotation schedule with evidence of recent rotation within the defined period confirms an active policy; absence of documentation or rotation events indicates credential_rotation_days = 0."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "30",
+      "90",
+      "180",
+      "365"
+    ]
+  },
+  {
+    "option_name": "registry_tls_ca_scope",
+    "option_description": "Defines which Certificate Authority certificates the registry client trusts when validating the registry server's TLS certificate during the push handshake. 'system' uses the full OS trust store (trusting hundreds of public CAs). 'custom_restricted' limits trust to an organization-controlled CA only. 'none' disables TLS certificate verification entirely.",
+    "security_impact": "The Rego policy triggers `tls_certificate_pinning_absent_allowing_mitm_via_rogue_ca` when `registry_tls_ca_scope == 'system'` and no certificate pinning is configured, because any of the hundreds of trusted public CAs could issue a fraudulent certificate for the registry hostname. When `registry_tls_ca_scope == 'none'`, the policy fires unconditionally since TLS verification is entirely absent, enabling trivial MITM interception of image layer and manifest data.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For Docker clients, inspect the per-registry CA certificate configuration directory. A custom CA present here indicates 'custom_restricted' scope. Absence means the system trust store ('system') is used. Check daemon.json for 'insecure-registries' entries that indicate 'none'.",
+        "command": "ls /etc/docker/certs.d/<registry-hostname>/; cat /etc/docker/daemon.json | jq '.\"insecure-registries\"'",
+        "file_path": "/etc/docker/certs.d/<registry>/ | /etc/docker/daemon.json",
+        "navigation": null,
+        "expected_output": "A `ca.crt` file present under `/etc/docker/certs.d/<registry>/` indicates 'custom_restricted'. Its absence with no insecure-registries entry indicates 'system'. An entry in insecure-registries for the registry host indicates 'none'."
+      },
+      {
+        "type": "command",
+        "instruction": "For Skopeo and Buildah used in CI/CD pipelines, check push commands for --tls-verify=false (indicates 'none') or --cert-dir flags pointing to a custom CA bundle (indicates 'custom_restricted'). Parse CI/CD pipeline YAML for these flags.",
+        "command": "grep -rE '(--tls-verify|--cert-dir|DOCKER_TLS_VERIFY|tls.verify)' .github/workflows/ .gitlab-ci.yml Jenkinsfile scripts/ 2>/dev/null",
+        "file_path": ".github/workflows/*.yml | .gitlab-ci.yml | Jenkinsfile",
+        "navigation": null,
+        "expected_output": "--tls-verify=false or DOCKER_TLS_VERIFY=0 indicates 'none'; --cert-dir pointing to a restricted bundle indicates 'custom_restricted'; absence of flags with default trust store in use indicates 'system'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For containerd-based environments (Kubernetes nodes, containerd runtime), inspect the containerd hosts.toml configuration for the registry to determine CA scope.",
+        "command": "cat /etc/containerd/certs.d/<registry-hostname>/hosts.toml; grep -r 'ca\\|skip_verify\\|insecure' /etc/containerd/certs.d/",
+        "file_path": "/etc/containerd/certs.d/<registry>/hosts.toml",
+        "navigation": null,
+        "expected_output": "A `ca` field pointing to an internal CA file indicates 'custom_restricted'; `skip_verify = true` indicates 'none'; no ca field indicates 'system' trust store."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a TLS handshake test from the CI/CD runner to the registry to observe which CA signed the presented certificate and whether the client accepts certificates from public CAs or only from an internal CA.",
+        "command": "openssl s_client -connect <registry-hostname>:443 -showcerts 2>/dev/null | openssl x509 -noout -issuer -subject; curl -v --cacert /etc/docker/certs.d/<registry>/ca.crt https://<registry>/v2/ 2>&1 | grep -E '(SSL|TLS|certificate|issuer)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An issuer showing an internal/private CA and a successful connection only with that CA confirms 'custom_restricted'; a public CA issuer with no custom config confirms 'system'; a connection error with TLS disabled flags confirms 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "system",
+      "custom_restricted",
+      "none"
+    ]
+  },
+  {
+    "option_name": "registry_hostname_verified",
+    "option_description": "Indicates whether the CI/CD pipeline's registry client enforces TLS hostname verification—validating that the server certificate's CN or SAN matches the registry hostname and that the certificate chains to a trusted CA. When false, flags such as --insecure-skip-tls-verify, DOCKER_TLS_VERIFY=0, or 'insecure-registries' entries are present, disabling these checks.",
+    "security_impact": "The Rego policy unconditionally triggers `tls_certificate_pinning_absent_allowing_mitm_via_rogue_ca` when `registry_hostname_verified` is false (i.e., `not input.registry_hostname_verified`). Disabling hostname verification means the client will accept any certificate—including self-signed or attacker-generated ones—from any host claiming to be the registry, making MITM interception of image push traffic trivial. This is a critical misconfiguration that renders TLS encryption meaningless for authentication of the registry endpoint.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Search all CI/CD pipeline definitions, Dockerfiles, and push scripts for flags that disable TLS hostname verification. These include Docker's --insecure flag, Skopeo/Buildah's --tls-verify=false, environment variable DOCKER_TLS_VERIFY=0, and Helm/crane equivalent insecure flags.",
+        "command": "grep -rEn '(--insecure[^-]|--insecure-skip-tls-verify|DOCKER_TLS_VERIFY=0|tls.verify.*false|tls-verify.*false|insecureSkipVerify)' .github/workflows/ .gitlab-ci.yml Jenkinsfile scripts/ Dockerfile* 2>/dev/null",
+        "file_path": ".github/workflows/*.yml | .gitlab-ci.yml | Jenkinsfile | scripts/*.sh",
+        "navigation": null,
+        "expected_output": "Any match for these patterns indicates registry_hostname_verified = false. No matches suggest hostname verification is enabled (true)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Docker daemon configuration file for 'insecure-registries' entries that cover the target registry hostname or IP range. An entry here disables TLS verification for that registry.",
+        "command": "cat /etc/docker/daemon.json | python3 -c \"import json,sys; d=json.load(sys.stdin); print(d.get('insecure-registries', []))\"",
+        "file_path": "/etc/docker/daemon.json | ~/.docker/daemon.json",
+        "navigation": null,
+        "expected_output": "An empty list or absence of the 'insecure-registries' key indicates verification is enforced (true). The target registry hostname appearing in the list indicates registry_hostname_verified = false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For containerd environments, check the registry hosts configuration for skip_verify settings that bypass hostname/certificate validation.",
+        "command": "grep -r 'skip_verify\\|insecure\\|tls.*false' /etc/containerd/certs.d/ /etc/containerd/config.toml 2>/dev/null",
+        "file_path": "/etc/containerd/certs.d/<registry>/hosts.toml | /etc/containerd/config.toml",
+        "navigation": null,
+        "expected_output": "`skip_verify = true` in the registry's hosts.toml file indicates registry_hostname_verified = false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a registry connection from the CI/CD runner using a certificate with a mismatched hostname to verify whether the client rejects it. A successful connection indicates hostname verification is disabled.",
+        "command": "curl -v --resolve fake.registry.test:443:$(dig +short <registry-hostname>) https://fake.registry.test/v2/ 2>&1 | grep -E '(SSL certificate|hostname|verification|curl: \\(60\\))'; docker -H tcp://... pull fake.registry.test/test:latest 2>&1 | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A `curl: (60) SSL certificate problem` or equivalent error confirms hostname verification is active (true). A successful response or 401 without SSL error indicates registry_hostname_verified = false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "chunk_digest_verification_enabled",
+    "option_description": "Controls whether the registry validates the SHA-256 digest of each individual PATCH chunk during a chunked (resumable) OCI blob upload, before the chunks are assembled into the final blob. When false, only the assembled blob's digest is checked at the final POST step—leaving a window where individual chunks can be tampered with in transit.",
+    "security_impact": "The Rego policy triggers `chunked_upload_resumption_without_integrity_checkpoint` when both `chunk_digest_verification_enabled` is false AND either `final_digest_recheck_enforced` is false OR `mutual_tls_enforced` is absent. Without per-chunk verification, an on-path attacker can corrupt or replace a middle PATCH chunk while the upload is in progress. The registry assembles tampered chunks into a stored layer blob whose content differs from what the pipeline intended to push, potentially injecting malicious code into a container image layer without detection until (or unless) the final assembled digest is checked.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For self-hosted registries (Harbor, Quay, Distribution/registry:2, Nexus), inspect the registry server configuration for chunked upload validation settings. For Harbor, check the configuration YAML or database settings related to blob upload verification.",
+        "command": "grep -rE '(chunk.*digest|digest.*chunk|patch.*verify|upload.*integrity|blob.*verify)' /etc/docker/registry/config.yml /etc/harbor/harbor.yml /etc/quay/config.yaml 2>/dev/null",
+        "file_path": "/etc/docker/registry/config.yml | /etc/harbor/harbor.yml | /etc/quay/config.yaml",
+        "navigation": null,
+        "expected_output": "An explicit setting enabling chunk digest validation indicates true. Absence of such configuration typically indicates the default (false) is in effect."
+      },
+      {
+        "type": "api",
+        "instruction": "Test the registry's OCI Distribution API behavior by initiating a chunked upload and sending a PATCH request with an intentionally incorrect Content-Digest header. A registry enforcing per-chunk verification will reject the PATCH with a 400 error; one without will accept it.",
+        "command": "# Initiate upload: curl -X POST -v 'https://<registry>/v2/<repo>/blobs/uploads/' -H 'Authorization: Bearer <token>'; # Send bad-digest PATCH: curl -X PATCH -v '<upload-url>' -H 'Content-Range: 0-3' -H 'Content-Digest: sha256:0000000000000000000000000000000000000000000000000000000000000000' --data-binary 'test' 2>&1 | grep -E '(HTTP|400|digest)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 400 with a digest mismatch error on the PATCH response indicates chunk_digest_verification_enabled = true. HTTP 202 Accepted on the PATCH despite the wrong Content-Digest indicates false."
+      },
+      {
+        "type": "gui",
+        "instruction": "For managed registries such as AWS ECR, GCP Artifact Registry, or Azure ACR, consult the official documentation and service configuration panels for blob upload integrity settings. These are typically not user-configurable but the current behavior can be confirmed via the service's security documentation or support.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS ECR: ECR Console → Repositories → [repo] → Settings | GCP Artifact Registry: Artifact Registry Console → [repo] → Settings | Azure ACR: Portal → Container Registry → [registry] → Properties",
+        "expected_output": "Public cloud managed registries (ECR, GCR, ACR) typically do not expose per-chunk digest verification as a configurable option; the behavior follows service defaults documented in their security whitepapers."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the registry vendor's release notes, security documentation, or OCI distribution-spec compliance test results to determine if per-chunk Content-Digest validation on PATCH requests is implemented. For open-source registries, review the source code or issue tracker.",
+        "command": "# For distribution/registry: grep -r 'Content-Digest\\|chunk.*digest\\|patchUpload' $(go env GOPATH)/pkg/mod/github.com/distribution/distribution*/registry/handlers/ 2>/dev/null | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Source code or documentation confirming Content-Digest header validation on PATCH handlers indicates chunk_digest_verification_enabled = true capability; absence indicates false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "final_digest_recheck_enforced",
+    "option_description": "Controls whether the registry server performs a server-side verification of the assembled blob's SHA-256 digest against the digest referenced in the image manifest before making the blob available for pull or use. When false, the registry trusts the client-supplied digest parameter on the final POST request without independently validating the assembled content matches manifest references.",
+    "security_impact": "The Rego policy triggers `chunked_upload_resumption_without_integrity_checkpoint` when both `chunk_digest_verification_enabled` and `final_digest_recheck_enforced` are false. Without a final server-side recheck, if an attacker corrupts chunks during transit, the assembled blob is stored with incorrect content but the registry marks it as successfully uploaded. When this blob is subsequently referenced in a manifest and served to a container runtime, the runtime may not independently re-verify the digest, allowing malicious content to execute. The combination of no per-chunk and no final verification creates a complete integrity gap across the entire upload lifecycle.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Test the registry's final POST completion behavior by uploading a blob via chunked PATCH requests, then completing with a POST that supplies an incorrect digest parameter. A registry enforcing final digest recheck will reject the POST; one that trusts the client-supplied digest will accept it and store tampered content.",
+        "command": "# After PATCH upload chunks, complete with wrong digest: curl -X POST -v '<upload-url>&digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' -H 'Authorization: Bearer <token>' -H 'Content-Length: 0' 2>&1 | grep -E '(HTTP|400|digest|error)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 400 with a digest mismatch error on the POST completion request indicates final_digest_recheck_enforced = true. HTTP 201 Created despite an incorrect digest parameter indicates false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For self-hosted Distribution (registry:2) or Harbor, inspect the registry storage driver and middleware configuration for digest validation settings on upload completion. Harbor may have additional vulnerability or content trust settings that influence post-upload validation.",
+        "command": "grep -rE '(digest.*verify|verify.*digest|manifest.*recheck|blob.*recheck|content.*trust|validation)' /etc/docker/registry/config.yml /etc/harbor/harbor.yml 2>/dev/null; cat /etc/docker/registry/config.yml | python3 -c \"import yaml,sys; c=yaml.safe_load(sys.stdin); print(c.get('validation', {}), c.get('storage', {}))\"",
+        "file_path": "/etc/docker/registry/config.yml | /etc/harbor/harbor.yml",
+        "navigation": null,
+        "expected_output": "A `validation` block with enabled manifest or blob validation settings indicates recheck capability. Default Distribution configuration does perform final digest verification on blob upload completion by spec compliance."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Harbor, navigate to the registry configuration and check Content Trust and Vulnerability Scanning settings which may influence post-upload integrity enforcement. In Quay, review repository settings for push validation policies.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Harbor: Administration → Configuration → Security | Quay: Repository → Settings → Repository Visibility and Security",
+        "expected_output": "Content trust enforcement settings that validate digest integrity after upload completion indicate final_digest_recheck_enforced = true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the OCI Distribution Specification compliance documentation for the registry in use. OCI-compliant registries are required to validate the digest on the final POST completion step. Non-compliant or custom registries may skip this. Review CVEs or security advisories for the specific registry version regarding upload digest validation bypasses.",
+        "command": "# Check registry version for known digest validation issues: docker exec <registry-container> registry --version; curl -s https://<registry>/v2/ -I | grep -E '(Server|Docker-Distribution-Api-Version)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "OCI Distribution API version 2 compliant registries should enforce final digest verification by specification. Custom or older registries may report false for this check."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "proxy_in_registry_transit_path",
+    "option_description": "Indicates whether an HTTP/HTTPS proxy, pull-through cache, or artifact repository proxy (such as a corporate proxy, Nexus pull-through, Artifactory remote repository, or Harbor proxy cache) is inserted in the network path between the CI/CD pipeline runner and the upstream container registry. When true, registry traffic transits an intermediate system that may terminate TLS, cache manifests, or modify headers.",
+    "security_impact": "The Rego policy triggers `insecure_proxy_or_pull_through_cache_in_transit_path` when `proxy_in_registry_transit_path == true` regardless of whether TLS inspection is present, unless `manifest_digest_pinning_enforced` is also true. A proxy in the path can terminate TLS and serve stale or attacker-injected manifest content without the pipeline detecting substitution. Even without active TLS inspection, a pull-through cache may serve a cached manifest pointing to a previously vulnerable image layer if cache revalidation is not enforced. Without end-to-end digest pinning, the pipeline cannot distinguish a fresh authoritative manifest from a stale cached one.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the CI/CD runner environment for HTTP proxy environment variables that would route registry traffic through an intermediate proxy. Check both the pipeline execution environment and the Docker daemon configuration.",
+        "command": "printenv | grep -iE '(http_proxy|https_proxy|no_proxy|REGISTRY_PROXY|DOCKER.*PROXY)'; docker info 2>/dev/null | grep -iE '(proxy|http|https)'; systemctl show docker --property=Environment | grep -i proxy",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP_PROXY or HTTPS_PROXY environment variables set to a non-null value, or Docker daemon proxy settings present, indicate proxy_in_registry_transit_path = true for matching registry destinations."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Docker daemon configuration and containerd configuration for registry mirror or proxy settings that would route pushes through an intermediate cache or proxy server.",
+        "command": "cat /etc/docker/daemon.json | python3 -c \"import json,sys; d=json.load(sys.stdin); print('mirrors:', d.get('registry-mirrors',[])); print('proxies:', d.get('proxies',{}))\"; grep -rE '(registry-mirrors|endpoint.*mirror|proxy.*url)' /etc/containerd/config.toml /etc/containerd/certs.d/ 2>/dev/null",
+        "file_path": "/etc/docker/daemon.json | /etc/containerd/config.toml | /etc/systemd/system/docker.service.d/http-proxy.conf",
+        "navigation": null,
+        "expected_output": "Non-empty `registry-mirrors` array or `proxies` configuration in daemon.json, or mirror endpoints in containerd config, indicate proxy_in_registry_transit_path = true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Perform a traceroute or TCP path trace from the CI/CD runner to the registry endpoint to identify intermediate hops that may represent proxy or cache infrastructure between the runner and the registry.",
+        "command": "traceroute -T -p 443 <registry-hostname> 2>/dev/null || tracepath <registry-hostname>; curl -v https://<registry-hostname>/v2/ 2>&1 | grep -E '(Via|X-Forwarded|X-Cache|Age:|Server:)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Intermediate hops in traceroute output, or Via/X-Forwarded-For/X-Cache/Age headers in the registry response, indicate a proxy or cache is present in the transit path (proxy_in_registry_transit_path = true)."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review the corporate network architecture documentation and check artifact management platforms (Nexus, Artifactory, Harbor) for configured proxy or pull-through cache repositories that include the upstream registry. In Artifactory, navigate to Administration → Repositories → Remote Repositories to see if the upstream registry is proxied.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Repositories → Remote Repositories | Nexus: Administration → Repository → Repositories → [proxy type] | Harbor: Administration → Registries → [proxy cache projects]",
+        "expected_output": "A configured remote/proxy repository pointing to the target upstream registry (e.g., Docker Hub, ECR, GCR) confirms proxy_in_registry_transit_path = true for traffic routed through that platform."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  }
+]

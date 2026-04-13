@@ -22,7 +22,8 @@ _unauthenticated_dynamic_routing_protocol_def := {
             "name": "DHCP Spoofing",
             "relevance": "Lack of authentication in dynamic routing protocols is analogous to spoofing-based AitM techniques where an attacker injects malicious routing information to redirect network traffic."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 unauthenticated_dynamic_routing_protocol[_unauthenticated_dynamic_routing_protocol_def] if {
@@ -68,7 +69,8 @@ _weak_bgp_session_authentication_def := {
             "name": "Network Sniffing",
             "relevance": "Weak BGP authentication may expose session credentials and routing data to network sniffing attacks."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 weak_bgp_session_authentication[_weak_bgp_session_authentication_def] if {
@@ -114,7 +116,8 @@ _unrestricted_management_plane_access_def := {
             "name": "Credential Stuffing",
             "relevance": "Open management plane access enables credential stuffing attacks using previously compromised credentials against management interfaces."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unrestricted_management_plane_access[_unrestricted_management_plane_access_def] if {
@@ -162,7 +165,8 @@ _cleartext_management_protocol_enabled_def := {
             "name": "Network Device Configuration Dump",
             "relevance": "Cleartext protocols allow attackers to capture and extract full device configurations transmitted in plaintext."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 cleartext_management_protocol_enabled[_cleartext_management_protocol_enabled_def] if {
@@ -214,7 +218,8 @@ _default_or_weak_device_credentials_def := {
             "name": "Password Cracking",
             "relevance": "Weak or default passwords are easily cracked offline if hashed credentials are obtained from the device configuration."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 default_or_weak_device_credentials[_default_or_weak_device_credentials_def] if {
@@ -259,7 +264,8 @@ _missing_route_filtering_prefix_lists_def := {
             "name": "Hide Infrastructure",
             "relevance": "Absent route filtering can allow adversaries to inject routes that obscure or hide malicious infrastructure within the routing domain."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 missing_route_filtering_prefix_lists[_missing_route_filtering_prefix_lists_def] if {
@@ -293,7 +299,8 @@ _excessive_privilege_on_operator_accounts_def := {
             "name": "Account Manipulation",
             "relevance": "Excessive privileges allow an attacker who gains access to manipulate accounts and maintain or escalate their access on the device."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 excessive_privilege_on_operator_accounts[_excessive_privilege_on_operator_accounts_def] if {
@@ -330,7 +337,8 @@ _insufficient_routing_change_logging_def := {
             "name": "Clear Network Connection History and Configurations",
             "relevance": "Lack of routing change logs mirrors the impact of an attacker clearing network history, leaving no audit trail for unauthorized routing modifications."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_routing_change_logging[_insufficient_routing_change_logging_def] if {
@@ -386,7 +394,8 @@ _unpatched_routing_software_or_firmware_def := {
             "name": "Exploitation for Privilege Escalation",
             "relevance": "Known vulnerabilities in unpatched routing software can be exploited to gain elevated privileges on the device."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unpatched_routing_software_or_firmware[_unpatched_routing_software_or_firmware_def] if {
@@ -435,7 +444,8 @@ _snmp_community_string_exposure_def := {
             "name": "Network Sniffing",
             "relevance": "Cleartext SNMP community strings can be captured via network sniffing, providing attackers with credentials for further exploitation."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 snmp_community_string_exposure[_snmp_community_string_exposure_def] if {
@@ -477,7 +487,8 @@ _missing_control_plane_policing_def := {
             "name": "Endpoint Denial of Service",
             "relevance": "Missing control plane policing leaves network devices vulnerable to denial-of-service attacks targeting the control plane processor."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_control_plane_policing[_missing_control_plane_policing_def] if {
@@ -518,7 +529,8 @@ _hardcoded_routing_credentials_in_config_def := {
             "name": "Private Keys",
             "relevance": "Hardcoded credentials may include private keys or shared secrets embedded in configuration files that can be extracted and reused by attackers."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 hardcoded_routing_credentials_in_config[_hardcoded_routing_credentials_in_config_def] if {
@@ -555,7 +567,8 @@ _ip_source_routing_enabled_def := {
             "name": "Multi-hop Proxy",
             "relevance": "IP source routing can be abused to force packets through attacker-controlled hops, effectively creating a multi-hop proxy for traffic redirection."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 ip_source_routing_enabled[_ip_source_routing_enabled_def] if {
@@ -594,7 +607,8 @@ _icmp_redirect_messages_enabled_def := {
             "name": "Multi-hop Proxy",
             "relevance": "Malicious ICMP redirects can force traffic through additional hops controlled by an attacker, functioning as a network-layer proxy mechanism."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 icmp_redirect_messages_enabled[_icmp_redirect_messages_enabled_def] if {
@@ -633,7 +647,8 @@ _ntp_unauthenticated_synchronization_def := {
             "name": "System Time Discovery",
             "relevance": "Unauthenticated NTP exposes time synchronization data and can be abused to discover or manipulate system time for further attacks."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 ntp_unauthenticated_synchronization[_ntp_unauthenticated_synchronization_def] if {

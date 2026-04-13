@@ -1,0 +1,117 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1213.003",
+      "name": "Code Repositories",
+      "relevance": "Plaintext git protocol exposes repository data in transit, enabling unauthorized access to code repositories."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1048",
+      "name": "Exfiltration Over Alternative Protocol",
+      "relevance": "Unencrypted git protocol can be intercepted to exfiltrate source code over an alternative, insecure protocol channel."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1562.010",
+      "name": "Downgrade Attack",
+      "relevance": "Directly describes forcing a connection to use a weaker TLS version, which is the core concern of this vector."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1557",
+      "name": "Adversary-in-the-Middle",
+      "relevance": "A TLS downgrade attack typically requires an adversary-in-the-middle position to intercept and manipulate the TLS handshake."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1567.004",
+      "name": "Exfiltration Over Webhook",
+      "relevance": "Unauthenticated webhook delivery can be abused to receive or exfiltrate data without proper identity verification."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1195.001",
+      "name": "Compromise Software Dependencies and Development Tools",
+      "relevance": "Unauthenticated webhooks in CI/CD pipelines can allow attackers to inject malicious events into development toolchains."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1649",
+      "name": "Steal or Forge Authentication Certificates",
+      "relevance": "Absence of mutual TLS means certificates are not required for both sides, enabling forged or stolen certificates to impersonate legitimate endpoints."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1563.001",
+      "name": "SSH Hijacking",
+      "relevance": "Bypassing SSH host key verification allows an attacker to hijack SSH sessions by impersonating the legitimate server."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1021.004",
+      "name": "SSH",
+      "relevance": "SSH host key verification bypass directly undermines the authentication mechanism of the SSH remote access protocol."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1606",
+      "name": "Forge Web Credentials",
+      "relevance": "Without timestamp validation, previously captured webhook payloads can be replayed as if they were freshly forged legitimate requests."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1497.003",
+      "name": "Time Based Checks",
+      "relevance": "Absence of timestamp validation is the failure of time-based checks that would otherwise prevent replay attacks."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1553.006",
+      "name": "Code Signing Policy Modification",
+      "relevance": "Lack of commit integrity verification in transit mirrors weaknesses in code signing policies that allow unsigned or tampered code to pass."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1600",
+      "name": "Weaken Encryption",
+      "relevance": "Negotiating weak cipher suites directly weakens the encryption protecting git traffic in transit."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1600.001",
+      "name": "Reduce Key Space",
+      "relevance": "Weak cipher suites typically involve reduced key spaces, making encrypted git traffic vulnerable to brute-force decryption."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1187",
+      "name": "Forced Authentication",
+      "relevance": "Unauthenticated LFS endpoints can be abused to force authentication credential capture from clients connecting to a rogue LFS server."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1213",
+      "name": "Data from Information Repositories",
+      "relevance": "SSRF via untrusted webhook targets can be used to access internal information repositories not otherwise reachable."
+    }
+  ],
+  "respondsWith": []
+}

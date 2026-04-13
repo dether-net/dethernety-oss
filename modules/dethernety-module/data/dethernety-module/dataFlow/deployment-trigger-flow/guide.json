@@ -1,0 +1,1206 @@
+[
+  {
+    "option_name": "mtls_enforced",
+    "option_description": "Controls whether the Kubernetes API server requires a valid client certificate from the CI/CD pipeline engine for all inbound connections, enforcing mutual TLS rather than server-side-only TLS. This applies to both direct pipeline connections and any proxy intermediaries in the data path.",
+    "security_impact": "The Rego policy fires `missing_mutual_tls_authentication` whenever `mtls_enforced` is false, regardless of any other setting. This is a primary gate: without mTLS, an attacker positioned on the network can submit deployment manifests without a valid pipeline client certificate, enabling arbitrary workload injection (MITRE T1649). A second Rego condition also triggers the finding when `mtls_enforced` is true but `certificate_pinning_enabled` is false and `client_certificate_validation_mode` is not 'required', meaning mTLS alone is insufficient without the complementary controls.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the kube-apiserver process flags for the --client-ca-file argument, which is the prerequisite for client certificate enforcement. An absent or empty value confirms mTLS is not configured.",
+        "command": "ps aux | grep kube-apiserver | tr ' ' '\n' | grep -E '\\-\\-client-ca-file|\\-\\-tls-cert-file|\\-\\-tls-private-key-file'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "--client-ca-file=/etc/kubernetes/pki/ca.crt along with both --tls-cert-file and --tls-private-key-file present"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the kube-apiserver static pod manifest or configuration file for client-ca-file, requestheader-client-ca-file, and verify that anonymous-auth is disabled. On kubeadm clusters, this file is typically at /etc/kubernetes/manifests/kube-apiserver.yaml.",
+        "command": "grep -E 'client-ca-file|anonymous-auth|requestheader' /etc/kubernetes/manifests/kube-apiserver.yaml",
+        "file_path": "/etc/kubernetes/manifests/kube-apiserver.yaml",
+        "navigation": null,
+        "expected_output": "client-ca-file: /etc/kubernetes/pki/ca.crt and anonymous-auth: 'false' present in the command args section"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt a connection to the API server without providing a client certificate and confirm the connection is rejected. A successful rejection (SSL handshake error or 401/403) confirms mTLS is enforced.",
+        "command": "curl -v --cacert /etc/kubernetes/pki/ca.crt https://<API_SERVER>:6443/api/v1/namespaces 2>&1 | grep -E 'SSL|certificate|error|HTTP'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SSL handshake failure or HTTP 401 Unauthorized; a 200 response without a client cert means mTLS is NOT enforced"
+      },
+      {
+        "type": "api",
+        "instruction": "Use kubectl with an explicit kubeconfig that has no client certificate configured and verify the API server rejects the connection at the transport layer.",
+        "command": "kubectl --insecure-skip-tls-verify --token='' --server=https://<API_SERVER>:6443 get pods 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Error from server (Forbidden) or x509 certificate error; a successful listing confirms mTLS is not enforced"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (hardened clusters with mTLS enforced)",
+      "false (default out-of-the-box or misconfigured clusters using only bearer tokens)"
+    ]
+  },
+  {
+    "option_name": "client_certificate_validation_mode",
+    "option_description": "Specifies the strictness with which the Kubernetes API server validates client certificates presented by the CI/CD pipeline. 'required' means every connection must present a valid client cert signed by the configured CA; 'optional' means the cert is checked only if presented but the connection proceeds without one; 'none' means no client certificate is evaluated at all.",
+    "security_impact": "The Rego rule `missing_mutual_tls_authentication` fires if this value is 'optional' or 'none', because neither mode cryptographically binds the pipeline identity to the connection. An attacker who can route traffic to the API server endpoint can submit manifests without a valid certificate in both modes. Even when `mtls_enforced` is true, a mode of anything other than 'required' triggers a secondary Rego condition, confirming that the boolean flag alone does not guarantee strict enforcement.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check whether --client-ca-file is set (indicates 'required' or 'optional' mode) and cross-reference with --anonymous-auth and any RBAC/webhook admission policies to determine actual enforcement level.",
+        "command": "kubectl -n kube-system get pod -l component=kube-apiserver -o jsonpath='{.items[*].spec.containers[*].command}' | tr ',' '\n' | grep -E 'client-ca|anonymous'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "--client-ca-file=/etc/kubernetes/pki/ca.crt with no --anonymous-auth=true flag indicates 'required' mode"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the API server configuration file or static pod manifest. Presence of client-ca-file without additional webhook enforcement maps to 'optional'; presence combined with --anonymous-auth=false and no alternative auth mechanisms maps to 'required'.",
+        "command": "cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep -A 50 'command:' | grep -E 'client-ca|anonymous-auth|requestheader-allowed-names'",
+        "file_path": "/etc/kubernetes/manifests/kube-apiserver.yaml",
+        "navigation": null,
+        "expected_output": "client-ca-file present and anonymous-auth=false confirms 'required'; absence of client-ca-file confirms 'none'"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the API server with a connection that presents no client certificate and observe the response code. HTTP 200 means 'none' or 'optional'; SSL handshake rejection or HTTP 401 means 'required'.",
+        "command": "openssl s_client -connect <API_SERVER>:6443 -CAfile /etc/kubernetes/pki/ca.crt </dev/null 2>&1 | grep -E 'Verify|error|return code'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verify return code: 0 (ok) with no Requested Certificate in server hello indicates optional/none; 'CERTIFICATE_REQUIRED' alert in the TLS handshake indicates required"
+      },
+      {
+        "type": "gui",
+        "instruction": "In cloud-managed Kubernetes (GKE, EKS, AKS), navigate to the cluster security settings in the cloud console and check the client authentication mode or authorized networks configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GKE: Cloud Console → Kubernetes Engine → Clusters → <cluster> → Security → Master Authorized Networks and Client Certificate; EKS: EKS → Clusters → <cluster> → Configuration → Networking → Public/Private API endpoint settings",
+        "expected_output": "Client certificate authentication enabled with no anonymous access allowed indicates 'required' mode"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (default for many managed clusters using OIDC/bearer tokens)",
+      "required (hardened on-premises clusters)",
+      "optional (transitional configurations during migration to mTLS)"
+    ]
+  },
+  {
+    "option_name": "certificate_pinning_enabled",
+    "option_description": "Controls whether the CI/CD pipeline engine pins the Kubernetes API server's certificate or its issuing CA certificate, ensuring the pipeline refuses to connect to any endpoint presenting a certificate not matching the pinned value — even if that certificate is signed by a trusted CA in the system trust store.",
+    "security_impact": "The Rego rule `missing_mutual_tls_authentication` has a condition that fires when `mtls_enforced` is true, `certificate_pinning_enabled` is false, and `client_certificate_validation_mode` is not 'required' — illustrating that mTLS without pinning is incomplete. The `bgp_or_dns_route_hijacking_redirecting_api_traffic` rule fires unconditionally when `api_server_endpoint_type` is 'dns_hostname' and `certificate_pinning_enabled` is false, because DNS poisoning or BGP hijacking can redirect the pipeline to an adversary-controlled endpoint that presents a certificate from a different (but trusted) CA, which pinning prevents (MITRE T1584.002).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the kubeconfig used by the pipeline service account for the certificate-authority-data or certificate-authority field. Presence of a specific CA bundle (not a reference to system roots) indicates pinning. Confirm insecure-skip-tls-verify is absent or false.",
+        "command": "kubectl config view --raw --kubeconfig=/path/to/pipeline-kubeconfig.yaml | grep -E 'certificate-authority|insecure-skip-tls-verify|server'",
+        "file_path": "/path/to/pipeline-kubeconfig.yaml",
+        "navigation": null,
+        "expected_output": "certificate-authority-data: <base64-encoded-CA-cert> with no insecure-skip-tls-verify: true indicates pinning is enabled"
+      },
+      {
+        "type": "command",
+        "instruction": "Decode the certificate-authority-data field from the pipeline kubeconfig and compare its fingerprint against the API server's actual serving certificate to confirm the pinned CA matches.",
+        "command": "kubectl config view --raw --kubeconfig=/path/to/pipeline-kubeconfig.yaml -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d | openssl x509 -noout -fingerprint -sha256",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SHA256 fingerprint that matches the output of: openssl s_client -connect <API_SERVER>:6443 </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For pipeline engines like Argo CD, Flux, or Tekton, inspect the pipeline engine's own configuration for explicit CA certificate references rather than reliance on system trust stores.",
+        "command": "grep -r 'certificate-authority\\|caFile\\|caBundle\\|tlsClientConfig\\|insecureSkipTLSVerify' /etc/argocd/ /etc/flux/ 2>/dev/null || cat ~/.kube/config | python3 -c \"import sys,yaml; cfg=yaml.safe_load(sys.stdin); [print(c['cluster'].get('certificate-authority-data','MISSING')) for c in cfg['clusters']]\"",
+        "file_path": "/etc/argocd/argocd-cm.yaml",
+        "navigation": null,
+        "expected_output": "Explicit certificate-authority-data or caFile path present; absence or insecureSkipTLSVerify: true indicates pinning is disabled"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform or DevOps team to determine whether kubeconfigs distributed to the CI/CD pipeline are generated with explicit CA pinning (e.g., via `kubectl config set-cluster --certificate-authority=` or kubeadm-generated configs) rather than using system trust stores or self-service tokens.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation that kubeconfigs are generated with --embed-certs=true and a specific cluster CA, not relying on system root stores"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (kubeadm-generated kubeconfigs with embedded CA cert)",
+      "false (pipelines using system trust store or OIDC with no explicit CA pin)",
+      "false (cloud-managed clusters with externally issued certificates and no pinning configured)"
+    ]
+  },
+  {
+    "option_name": "tls_certificate_validation_enforced",
+    "option_description": "Indicates whether the CI/CD pipeline engine strictly validates the Kubernetes API server's TLS certificate chain (issuer chain to a trusted root), hostname (CN/SAN matching the configured server address), and certificate expiry when establishing the deployment channel. When disabled, the pipeline may connect to and trust any endpoint, including adversary-controlled servers.",
+    "security_impact": "The Rego rule `weak_or_expired_tls_certificate_validation` fires unconditionally when `tls_certificate_validation_enforced` is false, making this one of the most critical boolean attributes in the schema. A secondary Rego condition also fires when `api_server_certificate_issuer_type` is 'unknown' and this attribute is false, compounding the risk. Without validation, an on-path attacker can present any TLS certificate and the pipeline engine will accept it, allowing decryption of deployment manifests, exfiltration of image references, and injection of modified payloads (MITRE T1596.003, T1649).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Check all kubeconfig files used by the pipeline for insecure-skip-tls-verify: true, which directly sets this attribute to false. Also check environment variables that override TLS validation in kubectl or pipeline SDK clients.",
+        "command": "grep -r 'insecure-skip-tls-verify\\|KUBERNETES_SKIP_TLS\\|GIT_SSL_NO_VERIFY\\|NODE_TLS_REJECT_UNAUTHORIZED' /home/ci-runner/ /etc/pipeline/ /var/lib/jenkins/ ~/.kube/ 2>/dev/null",
+        "file_path": "~/.kube/config",
+        "navigation": null,
+        "expected_output": "No matches found, or all matches show insecure-skip-tls-verify: false — any true value means validation is disabled"
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect the pipeline engine's active kubeconfig to verify that the server address matches the certificate SAN and that the CA bundle is populated, confirming hostname and chain validation are possible.",
+        "command": "kubectl config view --raw --kubeconfig=/path/to/pipeline-kubeconfig.yaml -o json | python3 -c \"import sys,json,base64,subprocess; cfg=json.load(sys.stdin); [print('insecure:', c['cluster'].get('insecure-skip-tls-verify', False)) for c in cfg['clusters']]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "insecure: False for all cluster entries; True means TLS certificate validation is not enforced"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Simulate the pipeline's TLS connection using openssl s_client and verify the certificate chain validates, the hostname matches, and the certificate is not expired.",
+        "command": "openssl s_client -connect <API_SERVER_HOSTNAME>:6443 -CAfile /etc/kubernetes/pki/ca.crt -verify_hostname <API_SERVER_HOSTNAME> </dev/null 2>&1 | grep -E 'Verify return code|error|depth|notAfter'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Verify return code: 0 (ok) with no error messages; any non-zero return code indicates a validation failure that should also be caught by the pipeline"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review CI/CD pipeline execution logs for TLS warning messages such as 'certificate signed by unknown authority', 'x509', or 'InsecureSkipVerify' which indicate the pipeline is bypassing or encountering validation failures.",
+        "command": "journalctl -u jenkins -u gitlab-runner -u argocd-application-controller 2>/dev/null | grep -iE 'x509|tls|certificate|insecure|skip.verify' | tail -50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No TLS/x509 warnings; presence of 'InsecureSkipVerify=true' or certificate errors being ignored confirms validation is not enforced"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (properly configured pipeline kubeconfigs with embedded CA)",
+      "false (development or legacy pipelines with insecure-skip-tls-verify: true)",
+      "false (pipelines using self-signed certs without configuring the CA bundle)"
+    ]
+  },
+  {
+    "option_name": "self_signed_certificate_pinning_configured",
+    "option_description": "Indicates whether the CI/CD pipeline engine explicitly pins the API server's self-signed certificate or private CA certificate when connecting to a Kubernetes API server that does not use a publicly trusted certificate authority. Pinning ensures the pipeline rejects connections to any endpoint presenting a different certificate, even if it is also self-signed.",
+    "security_impact": "The Rego rule `weak_or_expired_tls_certificate_validation` fires specifically when `api_server_certificate_issuer_type` is 'self_signed' and `self_signed_certificate_pinning_configured` is false. Self-signed certificates are not verifiable against any public root of trust, so without pinning, any attacker-controlled endpoint with a self-signed certificate would be accepted by the pipeline engine. This creates an on-path attack surface where the attacker can intercept and modify deployment manifests in transit (MITRE T1596.003).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "First confirm the API server is using a self-signed certificate, then check whether the pipeline kubeconfig has that specific certificate's CA embedded rather than relying on system trust stores.",
+        "command": "openssl s_client -connect <API_SERVER>:6443 </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject 2>/dev/null | awk '{print}' && echo '---' && kubectl config view --raw --kubeconfig=/path/to/pipeline.kubeconfig -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d | openssl x509 -noout -issuer -subject",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Issuer and Subject match (confirming self-signed); both outputs show the same certificate details, confirming the self-signed cert is pinned in the kubeconfig"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the pipeline kubeconfig for certificate-authority-data containing the self-signed certificate's CA. If the field is absent and insecure-skip-tls-verify is not set, the pipeline would fail to connect — confirming the need for explicit pinning.",
+        "command": "python3 -c \"\nimport sys, yaml, base64, subprocess\nwith open('/path/to/pipeline.kubeconfig') as f:\n    cfg = yaml.safe_load(f)\nfor cluster in cfg['clusters']:\n    ca_data = cluster['cluster'].get('certificate-authority-data')\n    skip = cluster['cluster'].get('insecure-skip-tls-verify', False)\n    print(f'CA pinned: {bool(ca_data)}, Skip verify: {skip}')\n\"",
+        "file_path": "/path/to/pipeline.kubeconfig",
+        "navigation": null,
+        "expected_output": "CA pinned: True, Skip verify: False — confirms self-signed cert is pinned; CA pinned: False with Skip verify: True means pinning is absent"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Verify the pipeline can connect to the API server only with the pinned CA and fails with any other CA, confirming pinning is active and effective.",
+        "command": "curl --cacert /path/to/pinned-api-ca.crt https://<API_SERVER>:6443/healthz && echo 'Pinned CA works' ; curl --cacert /etc/ssl/certs/ca-certificates.crt https://<API_SERVER>:6443/healthz 2>&1 | grep -E 'error|failed|certificate'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "First command returns 'ok'; second command returns a certificate error — confirming pinning is effective"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the procedure used to distribute kubeconfigs to the CI/CD pipeline and confirm that self-signed CA certificates are explicitly embedded rather than instructing operators to use insecure-skip-tls-verify as a workaround.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented process shows kubeconfig generation with --embed-certs=true and the self-signed CA certificate explicitly included; absence of insecure-skip-tls-verify workarounds"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (on-premises clusters where the kubeconfig is generated by kubeadm and embeds the cluster CA)",
+      "false (pipelines misconfigured with insecure-skip-tls-verify: true as a workaround for self-signed certs)",
+      "false (pipelines that inherit system trust stores which do not include private CAs)"
+    ]
+  },
+  {
+    "option_name": "api_server_certificate_issuer_type",
+    "option_description": "Classifies the type of certificate authority that issued the Kubernetes API server's TLS certificate used on the deployment channel. The classification determines which validation and pinning controls are required: 'public_trusted_ca' (e.g., Let's Encrypt, DigiCert), 'private_ca' (internal PKI), 'self_signed' (no CA hierarchy), or 'unknown' (not yet determined).",
+    "security_impact": "The Rego rule `weak_or_expired_tls_certificate_validation` has two conditions that depend on this attribute: it fires when the value is 'self_signed' and `self_signed_certificate_pinning_configured` is false (because self-signed certs require explicit pinning to be verifiable), and it also fires when the value is 'unknown' and `tls_certificate_validation_enforced` is false (because an unknown issuer type combined with disabled validation is a definitive misconfiguration). This attribute drives which remediation path is required: public CA allows standard chain validation, while private CA and self-signed require explicit CA distribution and pinning.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Connect to the API server and inspect the TLS certificate's issuer field to determine whether it is self-signed (issuer equals subject), issued by a known public CA, or issued by a private/internal CA.",
+        "command": "openssl s_client -connect <API_SERVER_HOSTNAME>:6443 -servername <API_SERVER_HOSTNAME> </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject -dates -text 2>/dev/null | grep -E 'Issuer|Subject|notAfter|CA Issuers|OCSP'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Issuer == Subject → self_signed; Issuer contains 'Let's Encrypt', 'DigiCert', 'GlobalSign' → public_trusted_ca; Issuer contains internal hostname or organization name different from subject → private_ca"
+      },
+      {
+        "type": "command",
+        "instruction": "Use kubectl to retrieve the API server's certificate and check the full certificate chain to determine issuer hierarchy and CA type.",
+        "command": "true | openssl s_client -connect <API_SERVER>:6443 -showcerts 2>/dev/null | awk '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/' | openssl x509 -noout -issuer -subject -text | grep -E 'CA:TRUE|Issuer|Subject|O =|CN ='",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Multiple certificates in chain with CA:TRUE in extensions indicates a CA-issued cert; single self-signed cert shows CA:TRUE with matching Issuer/Subject"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test whether the API server certificate validates against the system's public trust store to distinguish public_trusted_ca from private_ca or self_signed.",
+        "command": "curl --verbose https://<API_SERVER>:6443/healthz 2>&1 | grep -E 'SSL|certificate|issuer|error|expire'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SSL certificate verify ok → public_trusted_ca; 'certificate signed by unknown authority' or 'self signed certificate' → private_ca or self_signed"
+      },
+      {
+        "type": "gui",
+        "instruction": "In cloud-managed Kubernetes environments, check the cluster details page in the cloud console to identify the certificate issuer type, or inspect the certificate in a browser by navigating to the API server URL.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Browser: Navigate to https://<API_SERVER>:6443 → Click padlock icon → View Certificate → Check Issued By field; GKE Console: Kubernetes Engine → Clusters → <cluster> → Endpoint → view certificate details",
+        "expected_output": "Issued By field shows a recognized public CA (public_trusted_ca), an internal corporate CA name (private_ca), or matches the Issued To field (self_signed)"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "private_ca (most on-premises kubeadm clusters use a self-generated cluster CA)",
+      "self_signed (single-node or development clusters)",
+      "public_trusted_ca (cloud-managed clusters like GKE, EKS with ACM/Let's Encrypt)",
+      "unknown (pipelines where the CA has not been documented or inspected)"
+    ]
+  },
+  {
+    "option_name": "minimum_tls_version",
+    "option_description": "Specifies the lowest TLS protocol version that the Kubernetes API server (and the pipeline client) will accept on the pipeline-to-API-server deployment channel. Older versions (TLS 1.0, TLS 1.1) contain known cryptographic vulnerabilities; only TLS 1.2 and TLS 1.3 are considered secure for protecting deployment manifests and authentication tokens.",
+    "security_impact": "The Rego rule `deprecated_tls_protocol_or_weak_cipher_suite` fires unconditionally when this value is 'TLS_1_0' or 'TLS_1_1'. Both versions are vulnerable to POODLE, BEAST, and SWEET32 attacks, enabling an attacker who captures the pipeline-to-API-server traffic to decrypt deployment manifests and recover bearer tokens through cryptanalytic attacks (MITRE T1600, T1573.001). The Kubernetes API server's `--tls-min-version` flag directly controls this, and its absence or permissive configuration is a common finding in legacy clusters.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the kube-apiserver process flags for the --tls-min-version argument to determine the configured minimum TLS version.",
+        "command": "ps aux | grep kube-apiserver | tr ' ' '\n' | grep 'tls-min-version' ; kubectl -n kube-system get pod -l component=kube-apiserver -o jsonpath='{.items[0].spec.containers[0].command}' 2>/dev/null | tr ',' '\n' | grep 'tls-min'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "--tls-min-version=VersionTLS12 or --tls-min-version=VersionTLS13 is secure; absent flag means Kubernetes default (TLS 1.2 for modern versions but must be verified); VersionTLS10 or VersionTLS11 is a finding"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the kube-apiserver static pod manifest or the API server configuration file for the tls-min-version setting.",
+        "command": "grep -r 'tls-min-version\\|TLSMinVersion\\|MinVersion' /etc/kubernetes/manifests/ /etc/kubernetes/apiserver.conf 2>/dev/null",
+        "file_path": "/etc/kubernetes/manifests/kube-apiserver.yaml",
+        "navigation": null,
+        "expected_output": "tls-min-version: VersionTLS12 or VersionTLS13 in the command args; absence means default which should be verified empirically"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Probe the API server to determine which TLS versions it actually accepts by attempting connections with specific protocol versions.",
+        "command": "for ver in ssl3 tls1 tls1_1 tls1_2 tls1_3; do result=$(openssl s_client -connect <API_SERVER>:6443 -$ver </dev/null 2>&1 | grep -E 'Protocol|handshake failure|error'); echo \"$ver: $result\"; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "tls1: handshake failure (GOOD — TLS 1.0 rejected); tls1_2: Protocol: TLSv1.2 with no error (expected); tls1_3: Protocol: TLSv1.3 (ideal). TLSv1.0 or TLSv1.1 succeeding is a critical finding"
+      },
+      {
+        "type": "api",
+        "instruction": "For cloud-managed clusters (EKS, GKE, AKS), query the cluster configuration via the cloud provider API to retrieve the configured TLS policy or security policy name.",
+        "command": "aws eks describe-cluster --name <CLUSTER_NAME> --query 'cluster.resourcesVpcConfig' --output json 2>/dev/null ; gcloud container clusters describe <CLUSTER_NAME> --format='json' 2>/dev/null | python3 -c \"import sys,json; c=json.load(sys.stdin); print(c.get('masterAuthorizedNetworksConfig',{}))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy name indicating TLS 1.2+ enforcement; for GKE/EKS, the default managed policy typically enforces TLS 1.2 minimum"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "TLS_1_2 (Kubernetes default for versions 1.20+)",
+      "TLS_1_3 (hardened clusters with explicit configuration)",
+      "TLS_1_0 or TLS_1_1 (legacy on-premises clusters that have not been updated, or clusters where the flag was explicitly set for backward compatibility)"
+    ]
+  },
+  {
+    "option_name": "enabled_cipher_suites",
+    "option_description": "The explicit list of TLS cipher suites enabled on the pipeline-to-API-server channel, covering both the kube-apiserver's --tls-cipher-suites configuration and the pipeline engine client's TLS settings. This controls which cryptographic algorithms are available for key exchange, authentication, and data encryption during the mTLS handshake and data transfer.",
+    "security_impact": "The Rego rule `deprecated_tls_protocol_or_weak_cipher_suite` fires when 'RC4' appears in the enabled cipher suites list, as RC4 is a stream cipher with known statistical biases that allow plaintext recovery of deployment manifests and authentication tokens (MITRE T1600). A third Rego condition fires when `weak_cipher_suites_explicitly_restricted` is not set, indicating that even the absence of an explicit allowlist is treated as a risk. Weak or non-AEAD cipher suites (NULL, EXPORT, DES, 3DES, anon) allow cryptanalytic attacks, downgrade attacks, and forward secrecy failures that expose the deployment channel to passive decryption.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve the kube-apiserver's configured cipher suite list from the process arguments or static pod manifest.",
+        "command": "ps aux | grep kube-apiserver | tr ' ' '\n' | grep 'tls-cipher-suites' ; kubectl -n kube-system get pod -l component=kube-apiserver -o jsonpath='{.items[0].spec.containers[0].command}' 2>/dev/null | tr ',' '\n' | grep cipher",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,... — only AEAD/ECDHE suites should be present; absence of the flag means Kubernetes default suite selection is used"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the kube-apiserver static pod manifest for the tls-cipher-suites argument and cross-reference against NIST SP 800-52r2 approved suites.",
+        "command": "grep 'cipher-suites' /etc/kubernetes/manifests/kube-apiserver.yaml | tr ',' '\n'",
+        "file_path": "/etc/kubernetes/manifests/kube-apiserver.yaml",
+        "navigation": null,
+        "expected_output": "List of cipher names; flag each suite containing RC4, NULL, EXPORT, DES, 3DES, anon, MD5, or lacking GCM/CHACHA20 as a finding"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap's ssl-enum-ciphers script or testssl.sh to enumerate all cipher suites actually accepted by the API server and identify any weak or deprecated suites in active use.",
+        "command": "nmap --script ssl-enum-ciphers -p 6443 <API_SERVER> 2>/dev/null || docker run --rm drwetter/testssl.sh --cipher-per-proto --severity MEDIUM <API_SERVER>:6443 2>/dev/null | grep -E 'WARN|FAIL|NOT ok|RC4|DES|NULL|EXPORT|weak'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All listed ciphers rated A or B by testssl.sh with no WARN/FAIL entries; any RC4, DES, NULL, EXPORT, or pre-TLS1.2 cipher listed is a critical finding"
+      },
+      {
+        "type": "command",
+        "instruction": "Check the pipeline engine client's TLS configuration (e.g., Go TLS config in Argo CD or Tekton) to identify the cipher suites configured on the client side of the mTLS connection.",
+        "command": "kubectl -n argocd get cm argocd-cm -o yaml 2>/dev/null | grep -i cipher ; kubectl -n flux-system get deploy -o yaml 2>/dev/null | grep -i 'cipher\\|tls' ; grep -r 'tls-cipher\\|CipherSuites\\|cipher_suites' /etc/pipeline/ /var/lib/jenkins/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Explicit AEAD cipher suite list (AES-GCM, CHACHA20-POLY1305) without RC4, CBC-mode, or NULL suites; absence of configuration means the client defaults to its SDK's built-in list, which should be verified against the SDK version"
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256', 'TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384', 'TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256'] (hardened configuration)",
+      "[] (empty — Kubernetes default suite list, which excludes weak ciphers in versions 1.20+ but should be verified)",
+      "['TLS_RSA_WITH_RC4_128_SHA', 'TLS_RSA_WITH_3DES_EDE_CBC_SHA', ...] (legacy or misconfigured cluster with weak suites enabled)",
+      "['TLS_AES_128_GCM_SHA256', 'TLS_AES_256_GCM_SHA384', 'TLS_CHACHA20_POLY1305_SHA256'] (TLS 1.3 only suite list — ideal)"
+    ]
+  },
+  {
+    "option_name": "weak_cipher_suites_explicitly_restricted",
+    "option_description": "Controls whether the Kubernetes API server and CI/CD pipeline TLS configuration explicitly denies non-AEAD, export-grade, and RC4 cipher suites via an allow-list, rather than relying on runtime defaults that may include weak algorithms.",
+    "security_impact": "The Rego rule `deprecated_tls_protocol_or_weak_cipher_suite` fires when `input.weak_cipher_suites_explicitly_restricted` is false (absent or not set). Without an explicit deny-list, TLS negotiation may fall back to weak suites—RC4, CBC-mode, or export-grade—allowing cryptanalytic attacks against captured traffic that could expose deployment manifests and bearer tokens. This is a high-criticality finding (score 8) mapped to MITRE T1600 (Weaken Encryption).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the kube-apiserver process flags for the --tls-cipher-suites argument; its absence means defaults apply and this attribute must be set to false.",
+        "command": "ps aux | grep kube-apiserver | tr ' ' '\n' | grep -E 'tls-cipher-suites|tls-min-version'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "--tls-cipher-suites=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 (AEAD suites only; flag absent = false)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check the kube-apiserver static pod manifest or kubeadm configuration for the tls-cipher-suites field.",
+        "command": "grep -A5 'tls-cipher-suites' /etc/kubernetes/manifests/kube-apiserver.yaml",
+        "file_path": "/etc/kubernetes/manifests/kube-apiserver.yaml",
+        "navigation": null,
+        "expected_output": "A comma-separated list of cipher suite names; verify all are AEAD (GCM or CHACHA20 suffix). If line is absent, attribute is false."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap's ssl-enum-ciphers script against the API server port to detect which cipher suites are actually negotiated, regardless of configured flags.",
+        "command": "nmap --script ssl-enum-ciphers -p 6443 <api-server-ip> 2>/dev/null | grep -E 'TLS_|cipher'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All listed ciphers should be AEAD (AES-GCM or CHACHA20). Presence of RC4, CBC, or EXPORT ciphers indicates the attribute should be false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the OpenSSL s_client output to enumerate accepted cipher suites from the pipeline host toward the API server.",
+        "command": "openssl s_client -connect <api-server-ip>:6443 -tls1_2 -cipher 'RC4' 2>&1 | grep -E 'Cipher|alert'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection should fail with 'handshake failure' if RC4 is restricted. Successful connection means the attribute is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (hardened environments with explicit allow-list)",
+      "false (default, relying on Go TLS library defaults which may include non-AEAD suites)"
+    ]
+  },
+  {
+    "option_name": "replay_protection_mechanism",
+    "option_description": "Indicates the mechanism used to prevent replay of captured deployment requests to the Kubernetes API server—options include none, timestamp_only, nonce, sequence_number, or combined (nonce + timestamp or similar multi-factor protection).",
+    "security_impact": "The Rego rule `deployment_manifest_replay_attack` fires immediately when this value is `none`, and also fires when it is `timestamp_only` combined with a token TTL exceeding 3600 seconds. A third condition fires when the value is not in ['nonce', 'sequence_number', 'combined'] and no admission webhook replay validation is enabled. Without replay protection, a captured valid deployment request can be re-submitted verbatim to downgrade image versions or re-deploy deprecated workloads—a high-criticality risk (score 8) tied to MITRE T1610 (Deploy Container).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Review admission webhook configurations for policies that embed nonce or sequence-number enforcement in deployment payloads.",
+        "command": "kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o json | jq '.items[].metadata.name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Webhook names referencing 'replay', 'nonce', 'idempotency', or policy engines like gatekeeper/kyverno that may enforce uniqueness checks."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect OPA/Gatekeeper ConstraintTemplates or Kyverno ClusterPolicies for rules that validate unique request identifiers or manifest digests.",
+        "command": "kubectl get constrainttemplate,clusterpolicy -A -o yaml 2>/dev/null | grep -iE 'nonce|replay|digest|unique|sequence'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy YAML containing logic that tracks and rejects duplicate request identifiers. If no output, mechanism is likely 'none'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the CI/CD pipeline team to determine whether deployment pipeline steps inject a nonce, sequence number, or request-unique header (e.g., X-Request-ID with server-side uniqueness enforcement) into Kubernetes API calls.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation or pipeline YAML showing explicit nonce generation and server-side validation steps. Absence implies 'none' or 'timestamp_only'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Examine the CI/CD pipeline definition files (Jenkinsfile, .gitlab-ci.yml, GitHub Actions workflows) for nonce injection or replay-prevention middleware in kubectl/helm invocation steps.",
+        "command": "grep -rE 'nonce|X-Request-ID|sequence|replay|idempotency' .github/workflows/ Jenkinsfile .gitlab-ci.yml 2>/dev/null",
+        "file_path": ".github/workflows/ or Jenkinsfile or .gitlab-ci.yml",
+        "navigation": null,
+        "expected_output": "References to nonce generation functions or idempotency-key headers. Absence typically means 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (most common default; no explicit protection)",
+      "timestamp_only (JWT iat/exp used but no nonce)",
+      "nonce (OPA/Kyverno with unique-ID enforcement)",
+      "combined (nonce + short-lived token; hardened environments)"
+    ]
+  },
+  {
+    "option_name": "deployment_token_max_ttl_seconds",
+    "option_description": "Specifies the maximum lifetime in seconds of the authentication token (ServiceAccount token, OIDC token, or short-lived kubectl credential) used by the CI/CD pipeline to submit deployment requests to the Kubernetes API server. Shorter TTLs reduce the window during which a captured token can be replayed.",
+    "security_impact": "The Rego rule `deployment_manifest_replay_attack` fires when `replay_protection_mechanism` is `timestamp_only` AND this value exceeds 3600 seconds (1 hour). A long-lived token combined with only timestamp-based protection provides a wide replay window—an attacker who captures the token before expiry can replay it repeatedly. This is a high-criticality risk (score 8) tied to MITRE T1550.001 (Application Access Token).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the TokenRequest API call or ServiceAccount token projection in the CI/CD pipeline's Kubernetes manifests to find the configured expirationSeconds.",
+        "command": "kubectl get serviceaccount <pipeline-sa-name> -n <namespace> -o json | jq '.'; kubectl get secret -n <namespace> -o json | jq '.items[] | select(.type==\"kubernetes.io/service-account-token\") | .metadata.annotations'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Token expirationSeconds value. Values above 3600 are considered excessive. Projected tokens typically show 'expirationSeconds' in the pod spec volume."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review pod or deployment specs used by the CI/CD pipeline agent for projected ServiceAccount token volumes with expirationSeconds.",
+        "command": "kubectl get pods -n <cicd-namespace> -o yaml | grep -A3 'expirationSeconds'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "expirationSeconds: <value>. Values ≤ 3600 are acceptable; values such as 86400 or 3153600000 (default long-lived tokens) are high-risk."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review CI/CD platform OIDC/JWT issuer configuration (e.g., GitHub Actions OIDC, GitLab CI JWT, Jenkins Kubernetes plugin) to determine the configured token expiry in pipeline authentication settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub: Settings > Actions > General (review OIDC token duration); GitLab: Settings > CI/CD > Token Access; Jenkins: Manage Jenkins > Cloud > Kubernetes > ServiceAccount token TTL",
+        "expected_output": "A documented token lifetime value in seconds. Values above 3600 should be flagged."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the TokenReview API to inspect a live pipeline token's expiration claim by decoding the JWT payload.",
+        "command": "TOKEN=$(kubectl exec -n <cicd-namespace> <pipeline-pod> -- cat /var/run/secrets/kubernetes.io/serviceaccount/token); echo $TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | python3 -c \"import sys,json; d=json.load(sys.stdin); print('exp:', d.get('exp'), 'iat:', d.get('iat'), 'TTL:', d.get('exp',0)-d.get('iat',0), 'seconds')\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TTL value in seconds printed. Values ≤ 3600 are acceptable; > 3600 means this attribute exceeds the safe threshold."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "900 (15 min; recommended for hardened pipelines)",
+      "3600 (1 hour; acceptable boundary)",
+      "86400 (24 hours; common default, excessive)",
+      "31536000 (1 year; legacy static tokens, critical risk)"
+    ]
+  },
+  {
+    "option_name": "admission_webhook_replay_validation_enabled",
+    "option_description": "Controls whether a validating admission webhook or policy engine (OPA/Gatekeeper, Kyverno, or custom webhook) is deployed and configured to reject duplicate or replayed deployment requests by tracking unique request identifiers or manifest content digests.",
+    "security_impact": "The Rego rule `deployment_manifest_replay_attack` fires when `replay_protection_mechanism` is not in ['nonce', 'sequence_number', 'combined'] AND this attribute is false. Without a webhook enforcing replay uniqueness at the API server admission layer, a recorded valid manifest can be re-submitted by any caller with a valid (or captured) credential, re-triggering previously authorized deployments. This is a high-criticality finding (score 8) tied to MITRE T1610 (Deploy Container).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all ValidatingWebhookConfigurations and examine their rules to find any that operate on CREATE/UPDATE operations targeting Deployment, Pod, or related resources with replay-prevention logic.",
+        "command": "kubectl get validatingwebhookconfigurations -o json | jq '.items[] | {name: .metadata.name, rules: .webhooks[].rules, failurePolicy: .webhooks[].failurePolicy}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Webhook definitions with rules matching 'apps/*/deployments' or 'batch/*/jobs'. Webhooks with names or annotations referencing 'replay', 'idempotency', or 'digest' indicate this is enabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Check Kyverno ClusterPolicies for rules that validate manifest content digest uniqueness or reject repeated submissions.",
+        "command": "kubectl get clusterpolicies -o yaml 2>/dev/null | grep -A10 -iE 'replay|digest|unique|idempotent|seen'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy rules containing deny conditions based on request UID, annotation-based nonce validation, or stored digest history. No output means the attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Check OPA/Gatekeeper ConstraintTemplates for policies enforcing uniqueness of deployment submissions.",
+        "command": "kubectl get constrainttemplate -o json | jq '.items[].spec.crd.spec.names.kind'; kubectl get constraints -A -o yaml 2>/dev/null | grep -iE 'replay|nonce|digest|unique'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ConstraintTemplate or Constraint objects that reference replay/nonce/digest validation. No matching output means the attribute should be set to false."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Rancher, OpenShift Console, or Lens IDE, navigate to the admission webhook section and review configured webhooks for replay or idempotency enforcement policies.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Rancher: Cluster > Security > Admission Webhooks; OpenShift: Administration > ValidatingWebhookConfigurations; Lens: Cluster > Config > ValidatingWebhookConfigurations",
+        "expected_output": "A webhook entry with documentation or naming indicating replay/idempotency validation. Absence of any such webhook means the attribute is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default; most clusters have no replay-specific admission control)",
+      "true (hardened pipelines using Kyverno or OPA/Gatekeeper with custom idempotency policies)"
+    ]
+  },
+  {
+    "option_name": "tls_termination_at_proxy_without_reencryption",
+    "option_description": "Indicates whether an intermediate proxy (nginx, HAProxy, Envoy, cloud load balancer) terminates TLS from the CI/CD pipeline engine but then forwards traffic to the Kubernetes API server over plaintext HTTP or a weaker TLS session, creating a cleartext segment in the data path that exposes bearer tokens and manifests.",
+    "security_impact": "The Rego rule `bearer_token_interception_over_insufficiently_protected_channel` fires immediately when this attribute is true. A proxy that strips TLS but does not re-encrypt to the API server creates a cleartext segment where bearer tokens, ServiceAccount JWTs, and deployment manifests can be captured by anyone with access to the internal network. This is a medium-criticality finding (score 5) tied to MITRE T1528 (Steal Application Access Token).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect nginx proxy configuration files for proxy_pass directives targeting the Kubernetes API server to determine if they use http:// (plaintext) vs https:// (re-encrypted).",
+        "command": "grep -rE 'proxy_pass\\s+http[s]?://' /etc/nginx/conf.d/ /etc/nginx/sites-enabled/ 2>/dev/null | grep -E '6443|kube|api-server'",
+        "file_path": "/etc/nginx/conf.d/ or /etc/nginx/sites-enabled/",
+        "navigation": null,
+        "expected_output": "proxy_pass https://<api-server>:6443 indicates re-encryption (attribute false); proxy_pass http://<api-server>:6443 indicates plaintext forwarding (attribute true)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review HAProxy or Envoy configuration for backend definitions that connect to the Kubernetes API server without TLS.",
+        "command": "grep -A5 -B2 '6443\\|kube-apiserver\\|api-server' /etc/haproxy/haproxy.cfg 2>/dev/null; grep -rE 'tls_context|transport_socket' /etc/envoy/ 2>/dev/null | grep -A5 '6443'",
+        "file_path": "/etc/haproxy/haproxy.cfg or /etc/envoy/",
+        "navigation": null,
+        "expected_output": "HAProxy 'server' lines using 'ssl' keyword indicate re-encryption. Absence of 'ssl' on backend server lines means plaintext (attribute true). Envoy backends should show tls_context."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From the proxy host, attempt a direct TCP connection to the API server and capture the initial bytes to determine if traffic is plaintext or TLS.",
+        "command": "tcpdump -i any -nn -A -c 20 'dst port 6443' 2>/dev/null | head -50",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS ClientHello bytes (0x16 0x03) indicate re-encryption. HTTP method strings (GET/POST) or ASCII-readable content indicate cleartext forwarding (attribute true)."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review network architecture diagrams and interview infrastructure teams to identify any load balancer, API gateway, or service mesh sidecar positioned between the CI/CD pipeline and the API server, and confirm whether it performs SSL passthrough or termination-then-forwarding.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Architecture documentation showing 'SSL Passthrough' (attribute false) or 'TLS Termination + HTTP backend' (attribute true). Absence of documentation is itself a risk indicator."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (correct; SSL passthrough or re-encryption to API server)",
+      "true (misconfiguration; common in legacy ingress setups using HTTP backends for internal 'trusted' networks)"
+    ]
+  },
+  {
+    "option_name": "bearer_token_in_url_query_params",
+    "option_description": "Controls whether the CI/CD pipeline engine appends bearer tokens, ServiceAccount JWTs, or other credentials as URL query parameters (e.g., ?token=, ?access_token=) in requests to the Kubernetes API server, rather than transmitting them in the Authorization HTTP header where they are not logged by default network infrastructure.",
+    "security_impact": "The Rego rule `bearer_token_interception_over_insufficiently_protected_channel` fires immediately when this attribute is true. URL query parameters are logged by web servers, reverse proxies, load balancers, CDN edge nodes, and browser history. A token appearing in a URL is trivially extractable from any access log in the pipeline's network path, enabling token theft without requiring network-level interception. This is a medium-criticality finding (score 5) tied to MITRE T1528 (Steal Application Access Token).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Scan CI/CD pipeline definition files for kubectl, curl, or HTTP client invocations that pass tokens as query parameters to the Kubernetes API server.",
+        "command": "grep -rE '\\?token=|\\?access_token=|\\?authorization=|\\?Bearer' .github/workflows/ .gitlab-ci.yml Jenkinsfile pipelines/ scripts/ 2>/dev/null",
+        "file_path": ".github/workflows/ or .gitlab-ci.yml or Jenkinsfile",
+        "navigation": null,
+        "expected_output": "No output indicates tokens are passed via headers (attribute false). Any match with ?token= or similar patterns confirms the attribute is true."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review API server access logs or proxy access logs for GET/POST requests to /apis/ endpoints containing token-like query parameters.",
+        "command": "grep -E '\\?token=|\\?access_token=|\\?authorization=' /var/log/kube-apiserver/audit.log 2>/dev/null | head -20",
+        "file_path": "/var/log/kube-apiserver/audit.log",
+        "navigation": null,
+        "expected_output": "No matching log lines means tokens are header-based (attribute false). Matching lines with token values in URLs confirm the attribute is true."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect environment variables and configuration files used by the CI/CD agent pod for API client configuration that might indicate query-param token usage.",
+        "command": "kubectl exec -n <cicd-namespace> <pipeline-agent-pod> -- env | grep -iE 'KUBE|TOKEN|API_URL'; kubectl exec -n <cicd-namespace> <pipeline-agent-pod> -- cat ~/.kube/config 2>/dev/null | grep server",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "KUBECONFIG server URL should not contain credential parameters. The kubeconfig should use 'token' in the user credentials block, not in the server URL."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Capture HTTP traffic from the CI/CD pipeline agent during a test deployment and inspect request URIs for credential exposure in query strings.",
+        "command": "kubectl sniff <pipeline-agent-pod> -n <cicd-namespace> -f 'port 6443' -o /tmp/capture.pcap 2>/dev/null; tshark -r /tmp/capture.pcap -Y http -T fields -e http.request.uri 2>/dev/null | grep -E 'token|auth'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Request URIs should contain only resource paths (e.g., /apis/apps/v1/namespaces/default/deployments) without credential query parameters. Any ?token= in URIs confirms the attribute is true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (correct default; standard kubectl and API clients use Authorization headers)",
+      "true (misconfiguration; sometimes seen with legacy scripts using curl -G or poorly configured HTTP clients)"
+    ]
+  },
+  {
+    "option_name": "manifest_payload_signing_enabled",
+    "option_description": "Controls whether deployment manifests are cryptographically signed at the application layer—using tools such as Sigstore/cosign for image attestations, HMAC-SHA256 over the manifest body, or in-toto attestations—before transmission to the Kubernetes API server, providing integrity protection independent of TLS transport security.",
+    "security_impact": "The Rego rule `in_transit_manifest_tampering_without_payload_signing` fires when this attribute is false AND either `tls_inspection_or_proxy_present` is true OR `admission_controller_attestation_validation` is not set. A TLS-inspecting proxy or compromised intermediary can silently modify image tags, resource limits, security contexts, or namespace targets in transit. Application-layer signing detects such tampering at the API server admission layer. This is a medium-criticality finding (score 5) tied to MITRE T1553.003 (SIP and Trust Provider Hijacking).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search CI/CD pipeline definitions for cosign sign, cosign attest, or HMAC generation steps applied to manifest files before kubectl apply.",
+        "command": "grep -rE 'cosign sign|cosign attest|hmac|sha256.*manifest|in-toto|slsa' .github/workflows/ .gitlab-ci.yml Jenkinsfile 2>/dev/null",
+        "file_path": ".github/workflows/ or .gitlab-ci.yml or Jenkinsfile",
+        "navigation": null,
+        "expected_output": "References to cosign, HMAC, or in-toto attestation generation steps prior to deployment steps indicate the attribute is true. No output means the attribute is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Check admission webhook configurations for policies that verify cosign or Sigstore attestations before allowing image or manifest deployment.",
+        "command": "kubectl get clusterpolicies,constrainttemplate -A -o yaml 2>/dev/null | grep -iE 'cosign|sigstore|attestation|verify.*image|keyless'; kubectl get imagepolicy,clusterimagepolicy -A 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Kyverno ClusterPolicies with 'verifyImages' rules or OPA policies with signature verification logic indicate signing is enforced (attribute true). No output means false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Sigstore/cosign transparency log (Rekor) for recent entries corresponding to the organization's deployment manifest digests to verify active signing.",
+        "command": "cosign search --certificate-identity-regexp '.*@<your-org>.*' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' 2>/dev/null | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Recent Rekor log entries matching your pipeline identity indicate active manifest or image signing (attribute true). No entries mean signing is not configured (false)."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the pipeline engineering team and review deployment runbooks for documented manifest signing procedures, key management practices, and admission controller signature verification configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented signing workflow covering: key generation/storage (KMS or keyless OIDC), signing step in pipeline, verification at admission controller. Absence of documentation means the attribute is false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default; most organizations rely solely on TLS for manifest integrity)",
+      "true (mature supply-chain security programs using Sigstore/cosign with Kyverno or Connaisseur admission controllers)"
+    ]
+  },
+  {
+    "option_name": "tls_inspection_or_proxy_present",
+    "option_description": "Indicates whether a TLS-terminating proxy, corporate DLP appliance, network inspection device, service mesh with TLS termination, or load balancer sits in the network path between the CI/CD pipeline engine and the Kubernetes API server and has the capability to decrypt, read, modify, and re-encrypt traffic passing through it.",
+    "security_impact": "The Rego rule `in_transit_manifest_tampering_without_payload_signing` fires when this attribute is true AND `manifest_payload_signing_enabled` is false. A TLS-inspecting intermediary that can decrypt and re-encrypt traffic is a potential point of manifest tampering—it can modify image references, inject environment variables, or alter resource limits undetected unless application-layer signing is in place. This attribute is also context for `bearer_token_interception` and is a medium-criticality risk (score 5) tied to MITRE T1588.004 (Digital Certificates).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Perform a TLS handshake from the CI/CD pipeline host to the Kubernetes API server and inspect the presented certificate chain to detect unexpected intermediate certificates that indicate a TLS-inspecting proxy.",
+        "command": "openssl s_client -connect <api-server-ip>:6443 -showcerts 2>/dev/null | openssl x509 -noout -issuer -subject -dates | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Certificate chain should terminate at the known Kubernetes CA. Unexpected intermediate CAs (e.g., corporate proxy CA, Zscaler, Palo Alto NGFW CA) indicate a TLS-inspecting proxy is present (attribute true)."
+      },
+      {
+        "type": "command",
+        "instruction": "Compare the API server certificate fingerprint observed from the pipeline host with the known API server certificate fingerprint obtained directly from the control plane.",
+        "command": "echo | openssl s_client -connect <api-server-ip>:6443 2>/dev/null | openssl x509 -fingerprint -sha256 -noout; kubectl config view --raw | grep certificate-authority-data | base64 -d | openssl x509 -fingerprint -sha256 -noout",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Matching fingerprints indicate no TLS interception (attribute false). Differing fingerprints indicate a proxy is substituting its own certificate (attribute true)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review infrastructure-as-code (Terraform, CloudFormation, Helm charts) for load balancer or WAF resources provisioned between the CI/CD tier and the Kubernetes control plane with TLS termination enabled.",
+        "command": "grep -rE 'ssl_policy|ssl_certificate|tls_termination|inspection|decryption|forward_proxy' infra/ terraform/ helm/ 2>/dev/null | grep -iE 'kube|api|control.plane'",
+        "file_path": "infra/ or terraform/ or helm/",
+        "navigation": null,
+        "expected_output": "Resources with TLS termination properties pointing toward the Kubernetes API server indicate the attribute is true. SSL passthrough configurations indicate false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review network architecture diagrams and consult with network/security teams to identify any corporate firewall, DLP system, or cloud security gateway configured for HTTPS inspection on internal traffic paths used by the CI/CD pipeline.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Cloud console: AWS > EC2 > Load Balancers > Listeners (check for HTTPS termination); GCP > Cloud Load Balancing > Frontend configuration; Azure > Application Gateway > Listeners",
+        "expected_output": "Network diagram annotated with 'TLS Inspection', 'SSL Decryption', or 'HTTPS Forward Proxy' on the CI/CD to API server path confirms the attribute is true. SSL passthrough or direct connectivity means false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (direct mTLS connection; recommended and common in well-architected Kubernetes environments)",
+      "true (common in enterprise environments with corporate firewall inspection, cloud WAFs, or service meshes performing TLS termination)"
+    ]
+  },
+  {
+    "option_name": "admission_controller_attestation_validation",
+    "option_description": "Controls whether a Kubernetes admission controller (Kyverno, OPA/Gatekeeper, or Sigstore policy-controller) is configured to reject incoming deployment manifests that lack valid application-layer signatures or cosign attestations before they are persisted by the API server.",
+    "security_impact": "The Rego policy triggers the 'in_transit_manifest_tampering_without_payload_signing' exposure when admission_controller_attestation_validation is false AND manifest_payload_signing_enabled is also absent. Even over TLS, a compromised TLS-terminating proxy can silently alter image tags or security contexts; without this admission gate, tampered manifests reach the API server undetected. Setting this to true provides a last line of defence that validates cryptographic proof of manifest provenance at cluster ingress.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all ValidatingWebhookConfigurations and MutatingWebhookConfigurations to identify admission controllers that perform attestation checks.",
+        "command": "kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o wide && kubectl get clusterpolicies.kyverno.io -o yaml 2>/dev/null || echo 'Kyverno not found'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "At least one webhook or ClusterPolicy referencing cosign/sigstore verification rules (e.g., 'verifyImages' in Kyverno, or a 'constraint' referencing signature validation in OPA/Gatekeeper)."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for Sigstore policy-controller ClusterImagePolicy resources, which are the primary mechanism for cosign attestation enforcement.",
+        "command": "kubectl get clusterimagepolicies.policy.sigstore.dev -o yaml 2>/dev/null && kubectl get imagepolicies.policy.sigstore.dev -A -o yaml 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more ClusterImagePolicy objects with 'authorities' sections specifying keyless or key-based cosign verification."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If using Kyverno, inspect the ClusterPolicy YAML files stored in the GitOps policy repository for 'verifyImages' blocks that mandate signature verification.",
+        "command": "grep -r 'verifyImages\\|attestations\\|cosign\\|sigstore' /path/to/policy-repo/ --include='*.yaml' -l",
+        "file_path": "/path/to/policy-repo/",
+        "navigation": null,
+        "expected_output": "Files containing 'verifyImages' entries with non-empty 'attestors' arrays, confirming policies are defined and committed."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Rancher or OpenShift console, navigate to Policies > Admission Policies and filter by type 'Image Verification' or 'Signature' to confirm active enforcement policies exist.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Rancher UI → Cluster → Policies → Admission Policies → filter by 'signature' or 'verifyImages'. OpenShift: Administrator → Operators → Installed Operators → search 'Cosign' or 'Kyverno'.",
+        "expected_output": "One or more active policies in 'Enforce' mode targeting the pipeline deployment namespace."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most clusters lack attestation validation by default)",
+      "true (hardened clusters with Kyverno verifyImages or Sigstore policy-controller)"
+    ]
+  },
+  {
+    "option_name": "api_server_rate_limiting_enabled",
+    "option_description": "Controls whether the Kubernetes API server enforces request throttling on deployment operations from the CI/CD pipeline channel using --max-requests-inflight, --max-mutating-requests-inflight flags, or an upstream API gateway/admission webhook throttle policy targeting the pipeline service account.",
+    "security_impact": "The Rego policy fires the 'absence_of_api_rate_limiting_enabling_deployment_flood' exposure when both api_server_rate_limiting_enabled and pipeline_service_account_quota_enforced are false. Without this control, a compromised pipeline engine or stolen service account token can flood the Kubernetes control plane with deployment requests, exhausting API server memory and triggering scheduler degradation. This maps to MITRE T1499.002 (Service Exhaustion Flood) and T1059.009 (Cloud API abuse).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the kube-apiserver static pod manifest for the --max-requests-inflight and --max-mutating-requests-inflight flag values.",
+        "command": "kubectl get pod -n kube-system -l component=kube-apiserver -o jsonpath='{.items[0].spec.containers[0].command}' | tr ',' '\n' | grep -E 'max-requests|max-mutating'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines such as '--max-requests-inflight=400' and '--max-mutating-requests-inflight=200' indicating non-zero, non-default-unlimited values."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Read the kube-apiserver static pod manifest directly on the control-plane node to check rate-limiting flags.",
+        "command": "sudo grep -E 'max-requests-inflight|max-mutating-requests-inflight' /etc/kubernetes/manifests/kube-apiserver.yaml",
+        "file_path": "/etc/kubernetes/manifests/kube-apiserver.yaml",
+        "navigation": null,
+        "expected_output": "Both flags present with values greater than 0. Absence of these flags means the compiled-in default (400/200) applies, which may be insufficient for pipeline-specific throttling."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the API server's /metrics endpoint for apiserver_current_inflight_requests to determine current inflight request limits in effect.",
+        "command": "kubectl get --raw /metrics | grep apiserver_current_inflight_requests",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Gauge metrics showing current inflight request counts split by 'mutating' and 'readOnly', confirming limits are being tracked."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for API gateway or admission webhook throttle policies applied to the pipeline service account namespace (e.g., via priority and fairness FlowSchema objects).",
+        "command": "kubectl get flowschemas,prioritylevelconfigurations -o yaml | grep -A10 -B5 'pipeline\\|ci-cd\\|deploy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "FlowSchema objects matching the pipeline service account with an associated PriorityLevelConfiguration that has a non-zero 'assuredConcurrencyShares' value."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (most clusters have compiled-in defaults; explicit tuning for pipeline accounts is rare)",
+      "false (managed clusters such as EKS/GKE may not expose these flags directly, requiring API gateway-level throttling)"
+    ]
+  },
+  {
+    "option_name": "pipeline_service_account_quota_enforced",
+    "option_description": "Controls whether a Kubernetes ResourceQuota or LimitRange scoped to the pipeline service account's namespace caps the number of concurrent or total Deployments, Pods, or ReplicaSets that the pipeline can create, acting as a secondary flood-prevention control independent of API-server-level rate limiting.",
+    "security_impact": "The Rego rule 'absence_of_api_rate_limiting_enabling_deployment_flood' requires that at least one of api_server_rate_limiting_enabled or pipeline_service_account_quota_enforced is true; if both are false, the exposure fires. ResourceQuotas provide a namespace-scoped hard ceiling on object counts, preventing a compromised pipeline from spinning up unbounded workloads that starve the control plane and bypass scheduling security policies during degraded states.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all ResourceQuota objects in the namespace(s) used by the pipeline service account and examine their hard limits for deployment-related resources.",
+        "command": "kubectl get resourcequota -n <pipeline-namespace> -o yaml && kubectl describe resourcequota -n <pipeline-namespace>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ResourceQuota objects with 'hard' constraints on 'count/deployments.apps', 'count/pods', 'count/replicasets.apps', or 'count/statefulsets.apps'."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for LimitRange objects in the pipeline namespace to identify per-object resource ceilings complementing quota enforcement.",
+        "command": "kubectl get limitrange -n <pipeline-namespace> -o yaml",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "LimitRange entries with 'max' CPU/memory constraints, reducing the blast radius of any single oversized deployment."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If namespaces are provisioned via GitOps, inspect the namespace configuration files for embedded ResourceQuota manifests.",
+        "command": "find /path/to/gitops-repo -name '*.yaml' | xargs grep -l 'ResourceQuota' | xargs grep -A20 'ResourceQuota' | grep -E 'count/deployments|count/pods|count/replicasets'",
+        "file_path": "/path/to/gitops-repo/",
+        "navigation": null,
+        "expected_output": "YAML blocks confirming quota objects exist for pipeline namespaces with deployment-count hard limits."
+      },
+      {
+        "type": "gui",
+        "instruction": "In the Kubernetes Dashboard or OpenShift console, navigate to the pipeline namespace and check the ResourceQuotas section.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Kubernetes Dashboard → Namespace: <pipeline-namespace> → Resource Quotas. OpenShift: Administrator → Home → Projects → <pipeline-project> → Details → Resource Quotas.",
+        "expected_output": "A quota table showing 'Used' vs 'Hard' limits for pod and deployment counts, confirming a quota is enforced."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (ResourceQuotas are often omitted in pipeline namespaces unless explicitly required by org policy)",
+      "true (PCI-DSS or CIS-benchmarked clusters typically mandate namespace quotas)"
+    ]
+  },
+  {
+    "option_name": "insecure_port_enabled",
+    "option_description": "Controls whether the Kubernetes API server binds to the legacy insecure HTTP port (historically port 8080) via the --insecure-port flag, which accepts unauthenticated, unencrypted traffic from any client that can reach that socket.",
+    "security_impact": "The Rego rule 'unencrypted_or_cleartext_fallback_channel' fires immediately when insecure_port_enabled is true. Any deployment manifest, bearer token, or pipeline credential transmitted over this port is fully exposed to passive network capture and active injection. Because the insecure port bypasses all authentication and authorization plugins, a compromised network segment gives an attacker direct write access to the Kubernetes API without credentials, enabling arbitrary workload injection (T1071.001, T1048).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Query the kube-apiserver pod spec for the --insecure-port flag value. A value of 0 means disabled; any non-zero value means enabled.",
+        "command": "kubectl get pod -n kube-system -l component=kube-apiserver -o jsonpath='{.items[0].spec.containers[0].command}' | tr ',' '\n' | grep 'insecure-port'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'--insecure-port=0' indicates the port is disabled (secure). Absence of the flag or '--insecure-port=8080' indicates it is enabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the kube-apiserver static pod manifest on the control-plane node directly.",
+        "command": "sudo grep -E 'insecure-port|insecure-bind-address' /etc/kubernetes/manifests/kube-apiserver.yaml",
+        "file_path": "/etc/kubernetes/manifests/kube-apiserver.yaml",
+        "navigation": null,
+        "expected_output": "'--insecure-port=0' or no insecure-port flag present. Any non-zero value is a critical finding."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt an unauthenticated HTTP connection to port 8080 on the API server from within the cluster network to confirm whether the insecure port responds.",
+        "command": "curl -s --max-time 5 http://<api-server-ip>:8080/healthz && echo 'INSECURE PORT OPEN' || echo 'Insecure port not responding'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'Insecure port not responding' or connection refused. Any 'ok' response from /healthz over HTTP port 8080 confirms the port is open."
+      },
+      {
+        "type": "api",
+        "instruction": "For managed Kubernetes services (EKS, GKE, AKS), query the cluster API configuration to check if the insecure port is exposed.",
+        "command": "aws eks describe-cluster --name <cluster-name> --query 'cluster.resourcesVpcConfig' 2>/dev/null || gcloud container clusters describe <cluster-name> --format='json' | jq '.masterAuth'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Managed clusters should not expose the insecure port; verify the response shows no port 8080 endpoint binding in the cluster's API server configuration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (all modern kubeadm clusters default to --insecure-port=0; Kubernetes 1.20+ deprecated this flag)",
+      "true (legacy clusters pre-1.20, custom bare-metal builds, or misconfigured kubeadm configs may still have it enabled)"
+    ]
+  },
+  {
+    "option_name": "api_server_scheme",
+    "option_description": "Controls the URL scheme (http or https) used by the CI/CD pipeline engine when constructing connections to the Kubernetes API server endpoint as defined in the kubeconfig 'server' field. This determines whether all pipeline-to-API-server communication is encrypted in transit.",
+    "security_impact": "The Rego rule 'unencrypted_or_cleartext_fallback_channel' triggers on input.api_server_scheme == 'http' or when the scheme is absent entirely. An HTTP scheme exposes deployment manifests, image references, bearer tokens, and service account JWTs in plaintext across the network, enabling passive eavesdropping (T1071.001) and active injection. The default 'https' value is required; this attribute explicitly validates that the pipeline's kubeconfig has not been misconfigured to use plaintext.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Extract the server URL from the kubeconfig used by the pipeline engine and confirm it uses the https:// scheme.",
+        "command": "kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.server}' && cat $KUBECONFIG | grep 'server:'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output beginning with 'https://' followed by the API server hostname or IP. Any 'http://' prefix is a critical finding."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the kubeconfig file used by the pipeline agent or CI runner directly, checking every cluster context for the server URL scheme.",
+        "command": "grep -E '^\\s*server:' /home/<pipeline-user>/.kube/config /etc/pipeline/kubeconfig /var/lib/ci-runner/.kube/config 2>/dev/null",
+        "file_path": "/home/<pipeline-user>/.kube/config",
+        "navigation": null,
+        "expected_output": "All 'server:' entries begin with 'https://'. Any 'http://' entry must be remediated immediately."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check pipeline tool configuration files (ArgoCD, FluxCD, Helm) for the API server endpoint URL to confirm HTTPS is used throughout.",
+        "command": "grep -rE 'server:|apiServer:|kubeContext:|http://' /etc/argocd/ /etc/fluxcd/ ~/.config/helm/ --include='*.yaml' --include='*.json' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Only 'https://' URLs appear in server/apiServer fields. No 'http://' references should be present."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Confirm the API server does not respond to HTTP requests on port 80 or 8080 from the pipeline network segment.",
+        "command": "curl -sv --max-time 5 http://<api-server-hostname>:443/ 2>&1 | grep -E 'HTTP/|SSL|TLS|Connected'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TLS/SSL handshake is initiated, not a plain HTTP response. Port 443 should respond with a TLS ClientHello, not an HTTP 200/400."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "https (standard for all production clusters)",
+      "http (only in severely misconfigured legacy or test environments)"
+    ]
+  },
+  {
+    "option_name": "tls_skip_verify_enabled",
+    "option_description": "Controls whether the CI/CD pipeline engine is configured to bypass TLS certificate chain and hostname validation when connecting to the Kubernetes API server, typically via 'insecure-skip-tls-verify: true' in the kubeconfig or equivalent environment variable flags in Helm, ArgoCD, or FluxCD.",
+    "security_impact": "The Rego rule 'unencrypted_or_cleartext_fallback_channel' fires when tls_skip_verify_enabled is true, treating it as equivalent to cleartext because the encryption channel cannot be trusted. Skipping TLS verification allows any on-path device presenting any certificate to terminate the TLS session, enabling full manifest interception and injection without the pipeline detecting the attack. This also invalidates mTLS protections since the client will not reject a fraudulent server certificate (T1596.003, T1649).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Scan the kubeconfig file used by the pipeline agent for the 'insecure-skip-tls-verify' field set to true.",
+        "command": "grep -rn 'insecure-skip-tls-verify' /home/<pipeline-user>/.kube/config /etc/pipeline/kubeconfig /var/lib/ci-runner/.kube/config 2>/dev/null",
+        "file_path": "/home/<pipeline-user>/.kube/config",
+        "navigation": null,
+        "expected_output": "No matches, or all matches show 'insecure-skip-tls-verify: false'. Any 'true' value is a critical finding."
+      },
+      {
+        "type": "command",
+        "instruction": "Check pipeline environment variables for insecure TLS flags in the CI runner process environment.",
+        "command": "printenv | grep -iE 'INSECURE|SKIP_VERIFY|TLS_VERIFY|KUBECTL_INSECURE|K8S_SKIP' && ps aux | grep -E 'kubectl|helm|argocd|flux' | grep -i 'insecure\\|skip-tls'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No environment variables or process arguments containing insecure TLS flags. Any hit indicates TLS verification is being bypassed."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect ArgoCD application controller and repo server configurations for TLS verification settings.",
+        "command": "kubectl get configmap argocd-cmd-params-cm -n argocd -o yaml | grep -E 'insecure|tls|skip' && kubectl get secret argocd-repo-server-tls -n argocd -o yaml 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No 'insecure: true' or 'skip-tls: true' entries in ArgoCD parameters ConfigMap. The repo server TLS secret should be present and valid."
+      },
+      {
+        "type": "command",
+        "instruction": "For FluxCD, check Kustomization and GitRepository resources for insecure TLS flags.",
+        "command": "kubectl get gitrepositories,kustomizations -A -o yaml | grep -E 'insecure|skipTLSVerify|certSecretRef'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'skipTLSVerify: false' or absence of the field entirely. 'certSecretRef' present indicates a CA bundle is configured for proper verification."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (correct default; should be enforced via policy)",
+      "true (often set during initial cluster setup or when using self-signed certs without proper CA distribution; frequently forgotten and left in production)"
+    ]
+  },
+  {
+    "option_name": "dnssec_validation_enforced",
+    "option_description": "Controls whether the DNS resolver used by the CI/CD pipeline engine or its hosting pod/node enforces DNSSEC validation (checking the Authenticated Data (AD) bit and verifying RRSIG records) when resolving the Kubernetes API server hostname, preventing DNS cache poisoning or spoofing from redirecting pipeline traffic.",
+    "security_impact": "The Rego rule 'bgp_or_dns_route_hijacking_redirecting_api_traffic' fires when api_server_endpoint_type is 'dns_hostname' and certificate_pinning_enabled is false — regardless of dnssec_validation_enforced. However, dnssec_validation_enforced acts as the primary mitigation when certificate pinning is not available. Without DNSSEC, a poisoned DNS response can direct the pipeline to an attacker-controlled API server; if TLS certificate pinning is also absent, the pipeline completes the handshake and delivers manifests and credentials to the attacker (T1584.002).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the DNS resolver configuration on the pipeline agent host or Kubernetes node to determine if DNSSEC validation is enabled.",
+        "command": "cat /etc/resolv.conf && systemd-resolve --status 2>/dev/null | grep -E 'DNSSEC|DNS Servers' && resolvectl status 2>/dev/null | grep DNSSEC",
+        "file_path": "/etc/resolv.conf",
+        "navigation": null,
+        "expected_output": "Output showing 'DNSSEC: yes' or 'DNSSEC setting: yes' from systemd-resolved. A plain resolv.conf with upstream DNS IPs requires separate DNSSEC validation confirmation."
+      },
+      {
+        "type": "command",
+        "instruction": "Test DNSSEC validation behaviour by querying the API server's DNS name with DNSSEC checking enabled using dig.",
+        "command": "dig +dnssec +cd <api-server-hostname> A && dig +dnssec <api-server-hostname> A | grep -E 'ad|RRSIG|NSEC'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The 'ad' flag (Authenticated Data) present in the flags section of the response header, and RRSIG records returned. Absence of 'ad' means the resolver did not validate DNSSEC."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For pipeline pods running in Kubernetes, inspect the CoreDNS ConfigMap to determine if DNSSEC validation is configured in the cluster DNS resolver.",
+        "command": "kubectl get configmap coredns -n kube-system -o yaml | grep -E 'dnssec|unbound|forward|options'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CoreDNS Corefile with a 'dnssec' plugin block or 'forward' directives pointing to DNSSEC-validating resolvers (e.g., 1.1.1.1, 8.8.8.8 with validation). Note: CoreDNS requires the 'unbound' or 'dnssec' plugin for full validation."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Verify the upstream DNS resolver used by the pipeline enforces DNSSEC by testing resolution of a known DNSSEC-signed domain and a deliberately broken domain.",
+        "command": "dig @<resolver-ip> sigok.verteiltesysteme.net A +dnssec | grep -E 'NOERROR|ad' && dig @<resolver-ip> sigfail.verteiltesysteme.net A | grep -E 'SERVFAIL|ad'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "First query returns NOERROR with 'ad' flag; second query returns SERVFAIL, confirming the resolver rejects broken DNSSEC chains."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (DNSSEC validation is rarely enforced in Kubernetes cluster DNS by default; CoreDNS does not validate DNSSEC natively without additional plugins)",
+      "true (hardened environments using systemd-resolved with DNSSEC=yes, or pipeline agents behind enterprise DNSSEC-validating resolvers)"
+    ]
+  },
+  {
+    "option_name": "api_server_endpoint_type",
+    "option_description": "Describes how the CI/CD pipeline engine resolves and addresses the Kubernetes API server: via a DNS hostname resolved at connection time (dns_hostname), a hardcoded IP address in the kubeconfig bypassing DNS entirely (static_ip), or through a service mesh sidecar (e.g., Istio, Linkerd) that provides independent certificate validation and mTLS (service_mesh).",
+    "security_impact": "The Rego rule 'bgp_or_dns_route_hijacking_redirecting_api_traffic' fires specifically when api_server_endpoint_type is 'dns_hostname' and certificate_pinning_enabled is false. DNS-based resolution introduces a DNS poisoning attack surface (T1584.002) that can redirect the pipeline to an attacker's endpoint. Using static_ip eliminates DNS hijacking risk but does not protect against BGP route hijacking. Using service_mesh provides independent mTLS validation by the sidecar proxy, offering the strongest protection against both DNS and route hijacking.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the kubeconfig server field used by the pipeline engine and determine whether it contains a hostname or a raw IP address.",
+        "command": "kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' | grep -oP '(?<=://)([^:/]+)' | grep -E '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$' && echo 'static_ip' || echo 'dns_hostname'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'static_ip' if a raw IPv4/IPv6 address is printed; 'dns_hostname' if a hostname is returned. Note the full server URL for further analysis."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether the pipeline agent pod has a service mesh sidecar injected (Istio envoy proxy or Linkerd proxy) that would handle API server connectivity.",
+        "command": "kubectl get pod <pipeline-agent-pod> -n <pipeline-namespace> -o jsonpath='{.spec.containers[*].name}' | tr ' ' '\n' | grep -E 'istio-proxy|linkerd-proxy|envoy' && kubectl get pod <pipeline-agent-pod> -n <pipeline-namespace> -o jsonpath='{.metadata.annotations}' | grep -E 'sidecar.istio.io|linkerd.io'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'istio-proxy' or 'linkerd-proxy' container name present, and corresponding injection annotations confirmed. This indicates service_mesh endpoint type."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For ArgoCD or FluxCD deployments, check the destination server configuration in Application manifests for hostname vs. IP-based API server references.",
+        "command": "kubectl get applications -n argocd -o jsonpath='{.items[*].spec.destination.server}' 2>/dev/null | tr ' ' '\n' | sort -u",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Each destination server URL: 'https://kubernetes.default.svc' (in-cluster service_mesh/static context), 'https://<hostname>' (dns_hostname), or 'https://<IP>' (static_ip)."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform engineering team to confirm whether the pipeline's network path to the API server traverses a service mesh or uses certificate pinning to compensate for DNS-based resolution risk.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Ask: (1) Is the pipeline agent injected with an Istio/Linkerd sidecar? (2) Is the kubeconfig server field a hostname or IP? (3) Is certificate pinning configured in the pipeline tool? (4) Are there NetworkPolicies restricting the pipeline agent's DNS resolution to a specific trusted resolver?",
+        "expected_output": "Documented confirmation of endpoint type with evidence (kubeconfig excerpt, sidecar injection label, or certificate pinning configuration snippet)."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "dns_hostname (most common; kubeconfig generated by kubeadm or cloud providers typically uses the API server FQDN)",
+      "static_ip (common in bare-metal clusters with fixed control-plane IPs or when DNS infrastructure is not trusted)",
+      "service_mesh (used in Istio/Linkerd environments where the sidecar terminates and re-establishes mTLS to the API server)"
+    ]
+  },
+  {
+    "option_name": "certificate_revocation_mode",
+    "option_description": "Controls whether the CI/CD pipeline engine validates TLS certificates presented by the Kubernetes API server against revocation lists. Modes include 'none' (no revocation checking), 'ocsp' (Online Certificate Status Protocol only), 'crl' (Certificate Revocation List only), or 'ocsp_and_crl' (both enforced simultaneously).",
+    "security_impact": "The Rego rule 'absence_of_certificate_revocation_checking' fires when this value is 'none' or absent, creating a low-criticality (score 2) exposure. Without revocation checking, a compromised or stolen API server certificate that has been formally revoked by its CA will still be accepted as valid by the pipeline engine. This allows an attacker possessing a revoked certificate to impersonate the Kubernetes API server undetected, intercepting deployment manifests, image references, and pipeline credentials. Combined with T1649 (Steal or Forge Authentication Certificates), this creates a persistent impersonation window even after a known compromise is remediated.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the kubeconfig file used by the pipeline agent (commonly mounted as a secret or environment variable in the CI runner). Look for TLS-related stanzas; note that standard kubeconfig does not expose OCSP/CRL settings directly — these are controlled by the TLS library or wrapper configuration.",
+        "command": null,
+        "file_path": "~/.kube/config or /etc/ci-pipeline/kubeconfig or the path referenced by $KUBECONFIG",
+        "navigation": null,
+        "expected_output": "Presence or absence of tls-server-name, insecure-skip-tls-verify fields; absence of these fields does not confirm revocation checking is active."
+      },
+      {
+        "type": "command",
+        "instruction": "Search pipeline agent configuration files and environment for OCSP or CRL settings. Many Go-based tools (kubectl, Argo CD app controller) do not natively expose revocation config; check for wrapper scripts, Java pipeline agents (Jenkins), or custom TLS configurations that set revocation flags.",
+        "command": "grep -rEi 'ocsp|crl|revocation|stapling' /etc/ci-pipeline/ /opt/jenkins/ /opt/gitlab-runner/ /opt/tekton/ ~/.config/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any matched lines will reveal whether OCSP/CRL is referenced; no output indicates revocation checking is likely absent (default 'none')."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Jenkins-based pipelines, inspect the Java TLS configuration. Revocation checking in the JVM is controlled by system properties such as 'com.sun.net.ssl.checkRevocation' and 'ocsp.enable' in the java.security policy file.",
+        "command": "grep -E 'checkRevocation|ocsp\\.enable|com\\.sun\\.security\\.enableCRLDP' /etc/java-*/security/java.security /usr/lib/jvm/*/jre/lib/security/java.security 2>/dev/null",
+        "file_path": "/usr/lib/jvm/default/jre/lib/security/java.security",
+        "navigation": null,
+        "expected_output": "Lines like 'ocsp.enable=true' or 'com.sun.security.enableCRLDP=true' confirm revocation checking is active; missing or 'false' values indicate mode is 'none'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform engineering team to determine whether the TLS client library used by the pipeline (e.g., Go crypto/tls, Java JSSE, Python ssl) has been configured for revocation checking, and review any custom certificate validation wrappers or service mesh sidecar configurations (e.g., Envoy with OCSP stapling enabled) that may enforce revocation outside the pipeline agent itself.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented confirmation of which revocation mechanism (OCSP, CRL, both, or none) is active for the pipeline-to-API-server TLS connection."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none (most common — Go's crypto/tls does not perform OCSP/CRL by default)",
+      "ocsp (configured in Java-based pipelines or Envoy sidecars with OCSP stapling)",
+      "crl (enterprise PKI environments with internal CRL distribution points)",
+      "ocsp_and_crl (high-security or regulated environments requiring dual validation)"
+    ]
+  },
+  {
+    "option_name": "api_gateway_payload_limit_enforced",
+    "option_description": "Indicates whether an explicit maximum request body size limit is configured and actively enforced on the API gateway or load balancer sitting in front of the Kubernetes API server for the CI/CD pipeline traffic path. A value of 'true' means a payload ceiling is in effect; 'false' means no limit is enforced at the gateway layer.",
+    "security_impact": "The Rego rule 'oversized_manifest_payload_causing_control_plane_disruption' fires when both 'api_gateway_payload_limit_enforced' is false/zero AND 'admission_webhook_manifest_size_validation' is false — a low-criticality (score 2) exposure mapped to T1059.013 and T1027.009. Without a payload size ceiling, an attacker or malfunctioning pipeline can submit extremely large JSON/YAML manifests (e.g., manifests with embedded multi-megabyte ConfigMap data or deeply nested structures) that exhaust API server memory and parsing capacity. This can degrade control-plane availability, delay legitimate deployments, and in extreme cases force the API server into error states where admission controllers are bypassed.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "If Kong Gateway is used, query the Kong Admin API to list route or service plugins for the request-size-limiting plugin applied to the Kubernetes API server upstream.",
+        "command": "curl -s http://localhost:8001/routes | jq '.data[] | select(.name | test(\"kube|api-server\")) | .id' | xargs -I{} curl -s http://localhost:8001/routes/{}/plugins | jq '.data[] | select(.name == \"request-size-limiting\") | .config'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON object with 'allowed_payload_size' set to a non-zero value (e.g., 8 for 8MB); empty result or missing plugin indicates no limit is enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For NGINX-based API gateways or Ingress controllers, inspect the NGINX configuration for the 'client_max_body_size' directive in the server or location block handling API server traffic.",
+        "command": "grep -rn 'client_max_body_size' /etc/nginx/ /etc/ingress-controller/ 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf or /etc/nginx/conf.d/kube-apiserver.conf",
+        "navigation": null,
+        "expected_output": "A line such as 'client_max_body_size 8m;' confirms a limit; '0' or absence of the directive means unlimited body size."
+      },
+      {
+        "type": "command",
+        "instruction": "Check kube-apiserver flags for built-in inflight request limits and any max request body size flags. Inspect the running kube-apiserver process arguments directly.",
+        "command": "ps aux | grep kube-apiserver | tr ' ' '\\n' | grep -E 'max-request|max-mutating|max-inflight|request-timeout'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Flags like '--max-requests-inflight=400' confirm throttling; absence of body size flags means the API server itself imposes no explicit payload ceiling beyond Kubernetes defaults (~3MB for etcd objects)."
+      },
+      {
+        "type": "api",
+        "instruction": "For Envoy-based gateways (including Istio ingress), retrieve the route configuration from the Envoy admin API and check for per_route_config or http_filters with max_request_bytes set.",
+        "command": "curl -s http://localhost:15000/config_dump | jq '.. | objects | select(.max_request_bytes?) | {route: .name, max_bytes: .max_request_bytes}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An object with 'max_bytes' set to a positive integer confirms enforcement; no matching objects indicates the limit is not configured."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (most common — API gateways in front of kube-apiserver often omit explicit payload limits)",
+      "true (configured in regulated environments or where Kubernetes API is exposed beyond the cluster network)"
+    ]
+  },
+  {
+    "option_name": "admission_webhook_manifest_size_validation",
+    "option_description": "Indicates whether a validating admission webhook — such as an OPA Gatekeeper ConstraintTemplate or a Kyverno ClusterPolicy — is configured to inspect incoming manifest payloads and reject those exceeding a defined size threshold before the API server commits them to etcd processing.",
+    "security_impact": "The Rego rule 'oversized_manifest_payload_causing_control_plane_disruption' requires BOTH 'api_gateway_payload_limit_enforced' and 'admission_webhook_manifest_size_validation' to be false before firing, making this attribute a compensating control. When both are absent, oversized manifests reach full API server processing and etcd write paths. Admission webhook size validation provides a defense-in-depth layer that catches oversized payloads that bypass gateway controls — particularly important for T1027.009 (Embedded Payloads), where an attacker embeds large binary or encoded data within seemingly valid manifest fields like annotations or ConfigMap data sections.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "List all ValidatingWebhookConfigurations in the cluster and inspect their rules for size-related admission logic.",
+        "command": "kubectl get validatingwebhookconfigurations -o json | jq '.items[] | {name: .metadata.name, rules: .webhooks[].rules}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any webhook with rules matching 'CREATE'/'UPDATE' on '*' or specific resource types may include size validation; follow up by reviewing the webhook endpoint's policy logic."
+      },
+      {
+        "type": "command",
+        "instruction": "Query OPA Gatekeeper ConstraintTemplates for size-related Rego rules, and list active Constraints derived from them.",
+        "command": "kubectl get constrainttemplates -o json | jq '.items[].spec.targets[].rego' | grep -i 'size\\|length\\|byte\\|limit'; kubectl get constraints --all-namespaces 2>/dev/null | grep -i size",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Rego code referencing 'object_size', 'byte_length', or annotation size checks confirms size validation; no output suggests no size constraint is enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "Search Kyverno ClusterPolicies and Policies for rules that validate manifest payload size using JMESPath or pattern matching on resource sizes.",
+        "command": "kubectl get clusterpolicies,policies --all-namespaces -o json 2>/dev/null | jq '.items[] | select(.spec.rules[]?.validate?) | {name: .metadata.name, rules: [.spec.rules[] | select(.validate?) | {ruleName: .name, pattern: .validate.pattern, deny: .validate.deny}]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policies with deny conditions referencing annotation count, data field count, or explicit size thresholds confirm validation is active."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the Kubernetes API server's dry-run endpoint to submit a synthetically oversized manifest and observe whether an admission webhook rejects it with a size-related error message.",
+        "command": "kubectl apply --dry-run=server -f /dev/stdin <<'EOF'\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: size-test\n  namespace: default\n  annotations:\n    test: \"$(python3 -c 'print(\"A\"*1048576)')\"\ndata: {}\nEOF",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An error response from a webhook with a message referencing size limits confirms 'true'; successful dry-run application indicates no size admission control is active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default — most clusters do not ship size validation policies out of the box)",
+      "true (configured in security-hardened clusters using OPA Gatekeeper or Kyverno with custom size policies)"
+    ]
+  }
+]

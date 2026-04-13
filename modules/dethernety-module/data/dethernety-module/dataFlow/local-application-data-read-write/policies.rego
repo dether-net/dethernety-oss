@@ -9,7 +9,8 @@ _unencrypted_ipc_channel_data_exposure_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 unencrypted_ipc_channel_data_exposure[_unencrypted_ipc_channel_data_exposure_def] if {
@@ -35,7 +36,8 @@ _missing_integrity_verification_on_read_path_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 missing_integrity_verification_on_read_path[_missing_integrity_verification_on_read_path_def] if {
@@ -59,7 +61,8 @@ _shared_memory_segment_eavesdropping_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 shared_memory_segment_eavesdropping[_shared_memory_segment_eavesdropping_def] if {
@@ -85,7 +88,8 @@ _named_pipe_hijacking_via_race_condition_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 named_pipe_hijacking_via_race_condition[_named_pipe_hijacking_via_race_condition_def] if {
@@ -109,7 +113,8 @@ _kernel_buffer_cache_side_channel_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 kernel_buffer_cache_side_channel[_kernel_buffer_cache_side_channel_def] if {
@@ -135,7 +140,8 @@ _missing_mutual_authentication_on_abstract_socket_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 missing_mutual_authentication_on_abstract_socket[_missing_mutual_authentication_on_abstract_socket_def] if {
@@ -160,7 +166,8 @@ _replay_of_cached_filesystem_responses_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 replay_of_cached_filesystem_responses[_replay_of_cached_filesystem_responses_def] if {
@@ -184,7 +191,8 @@ _unthrottled_io_enabling_denial_of_service_via_transit_saturation_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 unthrottled_io_enabling_denial_of_service_via_transit_saturation[_unthrottled_io_enabling_denial_of_service_via_transit_saturation_def] if {
@@ -212,7 +220,8 @@ _fuse_filesystem_man_in_the_middle_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 fuse_filesystem_man_in_the_middle[_fuse_filesystem_man_in_the_middle_def] if {
@@ -242,7 +251,8 @@ _cleartext_data_in_kernel_audit_or_trace_transit_def := {
     "category": "host_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 cleartext_data_in_kernel_audit_or_trace_transit[_cleartext_data_in_kernel_audit_or_trace_transit_def] if {

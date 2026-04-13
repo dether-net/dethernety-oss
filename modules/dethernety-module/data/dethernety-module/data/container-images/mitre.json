@@ -1,0 +1,96 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.001",
+      "name": "Credentials In Files",
+      "relevance": "Secrets embedded in image layers are effectively credentials stored in files within the container image filesystem."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552",
+      "name": "Unsecured Credentials",
+      "relevance": "Embedding secrets in image layers represents unsecured credential storage that can be extracted by adversaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1525",
+      "name": "Implant Internal Image",
+      "relevance": "Container images with embedded secrets can be implanted or distributed internally, exposing credentials through image layer inspection."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1204.003",
+      "name": "Malicious Image",
+      "relevance": "Without classification label enforcement, malicious or unvetted images can be deployed as there is no policy gate to verify image integrity or classification."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1027.013",
+      "name": "Encrypted/Encoded File",
+      "relevance": "The lack of encryption for image layers at rest is the inverse of this technique, exposing stored data that should be protected with encryption."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1486",
+      "name": "Data Encrypted for Impact",
+      "relevance": "Unencrypted image layer storage highlights the absence of encryption controls that would otherwise protect data at rest from unauthorized access or ransomware impact."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1485.001",
+      "name": "Lifecycle-Triggered Deletion",
+      "relevance": "Absent retention and expiry policies directly relate to the lack of lifecycle-triggered deletion controls for image artifacts."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1213",
+      "name": "Data from Information Repositories",
+      "relevance": "Without expiry policies, stale images accumulate in repositories and can be accessed by adversaries to collect sensitive data from outdated artifacts."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1213.003",
+      "name": "Code Repositories",
+      "relevance": "Inadequate access control granularity for classified images in registries mirrors weak repository access controls that allow unauthorized data collection."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1537",
+      "name": "Transfer Data to Cloud Account",
+      "relevance": "Cross-border transfer of classified image data directly maps to transferring sensitive data to external or foreign cloud accounts."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1530",
+      "name": "Data from Cloud Storage",
+      "relevance": "Classified image data stored in cloud registries can be accessed and transferred across borders via cloud storage access."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1070.004",
+      "name": "File Deletion",
+      "relevance": "Improper disposal without purging layer blobs means residual data remains after deletion attempts, failing the secure file deletion requirement."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1070.009",
+      "name": "Clear Persistence",
+      "relevance": "Failure to purge layer blobs during image disposal leaves persistent artifacts that adversaries or auditors could recover."
+    }
+  ],
+  "respondsWith": []
+}

@@ -1,0 +1,2134 @@
+[
+  {
+    "option_name": "anonymous_access_enabled",
+    "option_description": "Controls whether the artifact repository accepts requests from unauthenticated clients — no username, password, or token required. When enabled, any network-reachable client can interact with the repository without presenting credentials.",
+    "security_impact": "The Rego policy fires unauthenticated_repository_access when anonymous_access_enabled is true AND either anonymous_access_scope includes write/read_write (any network) or the scope is read and repository_visibility is public. Anonymous write access enables direct injection of malicious artifacts; anonymous read on a public repository enables proprietary artifact exfiltration and package enumeration mapped to MITRE T1593.003 and T1213.003.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In JFrog Artifactory, navigate to Administration → Security → Settings and check the 'Allow Anonymous Access' checkbox state. In Nexus Repository Manager, navigate to Security → Anonymous Access and check the 'Allow anonymous users to access the server' toggle.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Security → Settings → Allow Anonymous Access | Nexus: Security → Anonymous Access",
+        "expected_output": "A checkbox or toggle indicating enabled or disabled state for anonymous access."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory REST API for the security configuration to retrieve the anonymous access setting programmatically.",
+        "command": "curl -u admin:password -X GET 'https://<artifactory-host>/artifactory/api/system/security' | python3 -m json.tool | grep -i anonymous",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON field 'anonAccessEnabled' with value true or false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Nexus Repository Manager REST API for the anonymous access configuration status.",
+        "command": "curl -u admin:password -X GET 'https://<nexus-host>/service/rest/v1/security/anonymous' -H 'Accept: application/json' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON response with 'enabled' field set to true or false and 'userId' indicating the anonymous user account."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On a self-hosted Nexus instance, inspect the orientdb or embedded database configuration, or review the nexus.properties file for anonymous access overrides. For Artifactory, inspect the artifactory.system.properties file.",
+        "command": "grep -i 'anonymous\\|anon' /opt/sonatype/nexus/etc/nexus.properties /var/opt/jfrog/artifactory/etc/artifactory/artifactory.system.properties 2>/dev/null",
+        "file_path": "/opt/sonatype/nexus/etc/nexus.properties",
+        "navigation": null,
+        "expected_output": "Property key-value pairs referencing anonymous access configuration; absence may indicate UI-only configuration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "anonymous_access_scope",
+    "option_description": "Defines the permission level granted to unauthenticated users when anonymous access is enabled. Possible scopes are none (anonymous login exists but has no permissions), read (download only), write (upload/deploy only), or read_write (both download and upload without credentials).",
+    "security_impact": "The Rego policy evaluates this in combination with anonymous_access_enabled. Write or read_write scope triggers the exposure regardless of network visibility because anonymous write access allows any actor to inject malicious packages. Read scope combined with public repository_visibility also triggers the exposure because unauthenticated read on a public endpoint allows unrestricted artifact enumeration and exfiltration (T1213.003). A scope of none or a null value when anonymous_access_enabled is false is the only safe configuration.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration → Security → Permissions and inspect the permission target assigned to the 'anonymous' user or 'readers' group to determine whether Deploy, Delete, Manage, or Read operations are checked. In Nexus, navigate to Security → Roles and inspect the 'nx-anonymous' role's assigned privileges.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Security → Permissions → [permission target] → Users/Groups tab | Nexus: Security → Roles → nx-anonymous",
+        "expected_output": "A list of privileges or permission checkboxes indicating read, deploy/write, or admin-level access for the anonymous principal."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the Artifactory permission target for the anonymous user to enumerate assigned operations.",
+        "command": "curl -u admin:password -X GET 'https://<artifactory-host>/artifactory/api/v2/security/permissions' -H 'Accept: application/json' | python3 -m json.tool | grep -A 20 '\"anonymous\"\\|\"readers\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON listing operations such as 'r' (read), 'd' (deploy/write), 'delete', 'm' (manage) assigned to the anonymous user or public group."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Nexus REST API for the privileges assigned to the anonymous role to determine effective scope.",
+        "command": "curl -u admin:password -X GET 'https://<nexus-host>/service/rest/v1/security/roles/nx-anonymous' -H 'Accept: application/json' | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON with 'privileges' array listing nx-repository-view-*-read and potentially nx-repository-view-*-add or nx-repository-view-*-edit entries."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the repository administrator to confirm whether any automation or legacy integration depends on anonymous write access and document the intended scope. Cross-reference with change management records for the last permission modification date.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented business justification and scope for anonymous access, or confirmation that it should be disabled."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "read",
+      "read_write"
+    ]
+  },
+  {
+    "option_name": "repository_visibility",
+    "option_description": "Describes the network boundary from which the repository's HTTP/HTTPS endpoints are reachable: public means the repository URL resolves and is accessible from the public internet, internal means it is only reachable from within a private network or VPN, and air_gapped means it has no external network connectivity whatsoever.",
+    "security_impact": "The Rego policy uses repository_visibility as a risk amplifier for anonymous read access — a repository with anonymous_access_scope of read is only flagged as exposed when repository_visibility is public. Public visibility combined with any anonymous access dramatically increases the exploitable attack surface for artifact exfiltration (T1213.003) and repository reconnaissance (T1593.003). Public visibility also elevates the risk of all other misconfigurations by making brute-force, exploitation, and dependency confusion attacks accessible from anywhere on the internet.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Attempt to resolve and connect to the repository URL from an external network (e.g., a cloud VM or mobile hotspot outside corporate network) to confirm whether the endpoint is publicly reachable.",
+        "command": "curl -I --max-time 10 https://<repository-host>/artifactory/ 2>&1 | head -5 ; dig +short <repository-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 200 or 401 response from an external network confirms public visibility; connection timeout or NXDOMAIN confirms internal-only."
+      },
+      {
+        "type": "command",
+        "instruction": "Query DNS from an external perspective using a public DNS resolver to determine if the repository hostname resolves to a public IP address.",
+        "command": "dig @8.8.8.8 +short <repository-host> ; curl -s https://ipinfo.io/$(dig @8.8.8.8 +short <repository-host> | head -1) | python3 -m json.tool | grep -E 'org|country|hostname'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If the IP resolves to a public internet address (not RFC1918 range 10.x, 172.16-31.x, 192.168.x), the repository is publicly visible."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review cloud provider network configuration (AWS Security Groups, GCP Firewall Rules, Azure NSGs) or on-premises firewall rules to confirm inbound rules on the repository's port (typically 443 or 8081). Check for 0.0.0.0/0 source ranges indicating public access.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS Console: EC2 → Security Groups → Inbound Rules | Azure Portal: Network Security Groups → Inbound Security Rules | GCP Console: VPC Network → Firewall",
+        "expected_output": "Source IP range of 0.0.0.0/0 or ::/0 on repository ports indicates public visibility; specific CIDR ranges indicate internal restriction."
+      },
+      {
+        "type": "api",
+        "instruction": "If using a cloud-hosted artifact service (e.g., JFrog Cloud, GitHub Packages), query the API for the repository's visibility setting.",
+        "command": "curl -u admin:password -X GET 'https://<artifactory-cloud-host>/artifactory/api/repositories/<repo-key>' | python3 -m json.tool | grep -i 'internal\\|external\\|public\\|access'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Repository configuration metadata indicating network exposure or access restriction settings."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "internal",
+      "public",
+      "air_gapped"
+    ]
+  },
+  {
+    "option_name": "proxy_resolution_order",
+    "option_description": "Determines the sequence in which a virtual or proxy repository queries its upstream sources when resolving a package name. When set to public_first, the repository queries public registries (npm, PyPI, Maven Central) before internal hosted repositories. internal_first reverses this order. public_only or undefined configurations indicate misconfigured or ambiguous resolution chains.",
+    "security_impact": "The Rego policy triggers dependency_confusion_via_proxy_routing directly when proxy_resolution_order is public_first, public_only, or undefined. When public registries are consulted first, an attacker can publish a package to npmjs.org, PyPI, or Maven Central with the same name as an internal package but a higher version number. The repository will resolve and cache the malicious public package instead of the internal one, directly enabling MITRE T1195.001 (Compromise Software Dependencies) and T1677 (Poisoned Pipeline Execution) without any other misconfiguration required.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration → Repositories → Virtual Repositories, select the target virtual repository, and inspect the 'Repositories' tab showing the ordered list of included local and remote repositories — order matters and top entries are queried first. In Nexus, navigate to Repository → Repositories, select the proxy/group repository, and inspect the 'Member Repositories' ordered list.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Repositories → Virtual → [repo] → Repositories (ordered list) | Nexus: Repository → Repositories → [group repo] → Group → Member Repositories",
+        "expected_output": "An ordered list of repositories where the position of remote/proxy repositories (pointing to public registries) relative to hosted (internal) repositories determines resolution order."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory API for a virtual repository's configuration to retrieve the ordered repository list.",
+        "command": "curl -u admin:password -X GET 'https://<artifactory-host>/artifactory/api/repositories/<virtual-repo-key>' | python3 -m json.tool | grep -A 30 'repositories\\|rclass\\|remoteUrl'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON field 'repositories' containing an ordered array — examine whether remote repository entries (proxying public registries) appear before local hosted entries."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Nexus API for a group repository's member list and ordering.",
+        "command": "curl -u admin:password -X GET 'https://<nexus-host>/service/rest/v1/repositories/<group-repo-name>' -H 'Accept: application/json' | python3 -m json.tool | grep -A 20 'group\\|member'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON 'group.memberNames' array — compare position of proxy repository members vs. hosted repository members to determine effective resolution order."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For devpi or pip-based proxy setups, inspect the devpi server configuration or pip.conf/pyproject.toml for index priority ordering.",
+        "command": "cat ~/.config/pip/pip.conf /etc/pip.conf 2>/dev/null ; cat devpi.conf 2>/dev/null | grep -E 'index|mirror|upstream'",
+        "file_path": "/etc/pip.conf",
+        "navigation": null,
+        "expected_output": "index-url and extra-index-url directives — if extra-index-url points to public PyPI and index-url is internal, public packages can shadow internal ones due to pip version preference behavior."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "public_first",
+      "internal_first",
+      "undefined",
+      "internal_only"
+    ]
+  },
+  {
+    "option_name": "internal_package_namespaces_scoped",
+    "option_description": "Indicates whether internal packages are protected by exclusive namespace controls — such as npm organization scopes (@mycompany/package), PyPI private index exclusivity enforced via --index-url without --extra-index-url, Artifactory include/exclude patterns on remote repositories, or explicit package name reservations on public registries — that prevent public registries from serving a package with the same name.",
+    "security_impact": "The Rego policy triggers dependency_confusion_via_proxy_routing when upstream_public_registries_included is true AND internal_package_namespaces_scoped is false AND version_pinning_enforced is false. Without namespace scoping, any internal package name is vulnerable to shadowing by a public registry package with a higher version number. Namespace scoping is a primary defense against dependency confusion attacks (T1195.001) because it makes it structurally impossible for a public registry to serve a package that matches an internal namespace.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For npm, inspect .npmrc files in project repositories and CI pipeline configurations to verify use of scoped package names and whether a private registry scope is enforced.",
+        "command": "find / -name '.npmrc' -not -path '*/node_modules/*' 2>/dev/null | xargs grep -l 'scope\\|registry' ; cat package.json | python3 -m json.tool | grep -E 'name|dependencies' | grep -c '@'",
+        "file_path": ".npmrc",
+        "navigation": null,
+        "expected_output": "@myorg scope prefix on all internal package names and a registry=<internal-url> mapping for that scope in .npmrc files."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration → Repositories → Remote Repositories, select the npm/PyPI/Maven remote repository, and inspect 'Inclusion Rules' and 'Exclusion Rules' under the Advanced tab to verify internal package names or namespaces are excluded from public proxy resolution.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Repositories → Remote → [public-proxy-repo] → Advanced → Inclusion/Exclusion Patterns",
+        "expected_output": "Exclusion patterns matching internal package naming conventions (e.g., '@mycompany/*' excluded from npm proxy) confirming namespace protection."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve Artifactory remote repository configuration to inspect include/exclude pattern enforcement.",
+        "command": "curl -u admin:password -X GET 'https://<artifactory-host>/artifactory/api/repositories/<remote-repo-key>' | python3 -m json.tool | grep -E 'includesPattern|excludesPattern|externalDependencies'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON fields 'includesPattern' and 'excludesPattern' — internal package namespaces should appear in excludesPattern for public proxy repositories."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the package naming conventions document and CI/CD pipeline configuration to confirm whether all internal packages use reserved scopes or namespaces that are also registered/claimed on relevant public registries to prevent squatting.",
+        "command": "grep -r 'index-url\\|extra-index-url\\|registry\\|mirror' ci/ .github/ Jenkinsfile Makefile 2>/dev/null | grep -v '#'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CI configurations using --index-url exclusively (without --extra-index-url for PyPI), or scoped npm registry mappings, confirming namespace isolation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "upstream_public_registries_included",
+    "option_description": "Indicates whether the virtual or proxy repository configuration includes at least one public upstream package registry (e.g., npmjs.org, pypi.org, repo.maven.apache.org, registry.npmjs.org, rubygems.org) as a resolution source alongside internal hosted repositories, enabling the repository to fetch packages not found locally from the public internet.",
+    "security_impact": "The Rego policy uses this as the entry condition for the dependency confusion branch — when upstream_public_registries_included is true and neither internal_package_namespaces_scoped nor version_pinning_enforced is set, the dependency_confusion_via_proxy_routing exposure fires. Including public registries in a proxy chain is the prerequisite for all dependency confusion attack paths (T1195.001, T1677). Even with internal_first resolution order, the proxy will fall back to public registries for package names not found internally, making every unscoped internal package name potentially confusable.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "List all remote repository configurations in Artifactory and filter for those pointing to known public registry URLs.",
+        "command": "curl -u admin:password -X GET 'https://<artifactory-host>/artifactory/api/repositories?type=remote' | python3 -m json.tool | grep -E 'key|url' | grep -i 'npmjs\\|pypi\\|maven\\|rubygems\\|nuget\\|golang\\|registry'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Remote repository entries with URLs matching public registry domains confirm that public upstreams are configured."
+      },
+      {
+        "type": "api",
+        "instruction": "Query Nexus for all proxy repository configurations and identify those targeting public registry URLs.",
+        "command": "curl -u admin:password -X GET 'https://<nexus-host>/service/rest/v1/repositories' -H 'Accept: application/json' | python3 -c \"import sys,json; repos=json.load(sys.stdin); [print(r['name'], r.get('proxy',{}).get('remoteUrl','')) for r in repos if r.get('type')=='proxy']\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of proxy repository names and their upstream URLs — entries showing public registry URLs (registry.npmjs.org, pypi.org, etc.) confirm public upstreams are included."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Nexus, navigate to Repository → Repositories and filter by type 'proxy'. For each proxy repository, click to view the Configuration tab and inspect the 'Remote Storage' URL field. In Artifactory, navigate to Administration → Repositories → Remote Repositories and review the URL column.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Nexus: Repository → Repositories → [filter type=proxy] → Configuration → Remote Storage | Artifactory: Administration → Repositories → Remote",
+        "expected_output": "Remote storage URLs — presence of npmjs.org, pypi.org, repo1.maven.org, registry.go.dev, or similar public registry URLs confirms public upstreams are included."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Helm repositories using ChartMuseum or similar, inspect the configuration for upstream repo references including public Helm registries.",
+        "command": "grep -r 'https://charts.helm.sh\\|https://kubernetes-charts\\|artifacthub.io\\|registry.npmjs.org\\|pypi.org' /etc/artifactory/ /etc/nexus/ /opt/chartmuseum/ ~/.helm/repositories.yaml 2>/dev/null",
+        "file_path": "~/.helm/repositories.yaml",
+        "navigation": null,
+        "expected_output": "Configuration entries referencing public Helm chart repositories or package registries confirm public upstream inclusion."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "version_pinning_enforced",
+    "option_description": "Indicates whether build pipelines and dependency resolution enforce exact version pinning with integrity hash verification for all dependencies, using mechanisms such as package-lock.json (npm), Pipfile.lock/requirements.txt with hashes (Python), go.sum (Go), or Gemfile.lock (Ruby) — preventing the build tooling from selecting a higher-versioned package from a public registry when one is available.",
+    "security_impact": "The Rego policy evaluates version_pinning_enforced as one of two mitigating controls in the dependency confusion branch — if upstream_public_registries_included is true and internal_package_namespaces_scoped is false, the absence of version_pinning_enforced triggers the dependency_confusion_via_proxy_routing exposure. Without pinned versions and hash verification, package managers following semver resolution may automatically select a higher-versioned malicious public package over the pinned internal one, directly enabling T1195.001. Lock files with hashes provide a cryptographic anchor that prevents substitution even if version numbers match.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect source repositories for the presence of lock files and verify they include integrity hashes rather than just version numbers. Check that lock files are committed to version control and not ignored.",
+        "command": "find . -name 'package-lock.json' -o -name 'Pipfile.lock' -o -name 'poetry.lock' -o -name 'go.sum' -o -name 'Gemfile.lock' -o -name 'yarn.lock' 2>/dev/null | head -20 ; grep -c 'integrity\\|sha512\\|sha256' package-lock.json 2>/dev/null",
+        "file_path": "package-lock.json",
+        "navigation": null,
+        "expected_output": "Lock files present with integrity/hash fields populated for every dependency entry; go.sum file containing h1: hash entries for all modules."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Python projects, check requirements.txt files for hash pinning syntax and verify pip is configured to require hashes.",
+        "command": "grep -E '==.*--hash=|@ .* sha256:' requirements*.txt 2>/dev/null | head -20 ; cat pip.conf setup.cfg pyproject.toml 2>/dev/null | grep -E 'require-hashes|hash-checking'",
+        "file_path": "requirements.txt",
+        "navigation": null,
+        "expected_output": "Requirements entries in format 'package==1.2.3 --hash=sha256:abc123' or pyproject.toml with require-hashes = true confirm hash-pinned version enforcement."
+      },
+      {
+        "type": "gui",
+        "instruction": "Review CI/CD pipeline definitions (GitHub Actions, GitLab CI, Jenkinsfile) to verify that dependency install steps use lock file flags (npm ci, pip install --require-hashes -r requirements.txt) rather than commands that allow version floating (npm install, pip install -r requirements.txt without hashes).",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub: Repository → .github/workflows/*.yml | GitLab: Repository → .gitlab-ci.yml | Jenkins: Repository → Jenkinsfile",
+        "expected_output": "CI pipeline install steps using 'npm ci' (not 'npm install'), 'pip install --require-hashes', or 'go mod verify' confirming lock-file-based pinning is enforced."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the development and security policy documentation for mandatory lock file usage and interview the DevOps team to confirm whether dependency updates require explicit review and lock file regeneration as part of the change process.",
+        "command": "find .github/ .gitlab/ ci/ -name '*.yml' -o -name '*.yaml' 2>/dev/null | xargs grep -l 'npm ci\\|require-hashes\\|pip-compile\\|pipenv sync\\|poetry install' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Policy documentation mandating lock files and CI configurations enforcing hash-verified installs across all package ecosystems used by the organization."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "signature_verification_enforced",
+    "option_description": "Controls whether the repository actively validates cryptographic signatures (GPG, PGP, Sigstore/Cosign, Notary v2) on artifacts at upload time, download time, or both. When enforced, unsigned artifacts or artifacts with invalid/unverifiable signatures are rejected rather than stored or served — applying to packages, Helm charts, binaries, and other non-OCI artifact types.",
+    "security_impact": "The Rego policy triggers artifact_signing_not_enforced whenever signature_verification_enforced is false or absent, across three independent rule branches: when signature verification is simply absent, when neither upload blocking nor verification is configured, and specifically when proxy_remote_repositories_configured is true without verification (covering the case where proxied artifacts from public registries could be tampered in transit or at the source). Without signature enforcement, the repository becomes a distribution point for unsigned or tampered binaries (T1036.001 Invalid Code Signature) and bypasses integrity gatekeeping (T1553.001 Gatekeeper Bypass). Helm charts, Maven JARs, and Python wheels require independent signing enforcement distinct from OCI container digest verification.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration → Xray → Policies or Administration → Security → Signature Verification to check if signature validation policies are active and applied to relevant repositories. In Harbor, navigate to Administration → Configuration → System Settings and check 'Enable Content Trust' for Cosign/Notary enforcement per project.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Xray → Policies → [policy] → Rules → Signature | Harbor: Administration → Configuration → System Settings → Content Trust | Nexus: IQ Server → Policy Management → Signing Requirements",
+        "expected_output": "An active policy or configuration toggle showing signature verification is required and enforced (not just advisory) for the repository or repositories under review."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory API to retrieve repository-level Xray configuration and check for signature enforcement settings.",
+        "command": "curl -u admin:password -X GET 'https://<artifactory-host>/artifactory/api/repositories/<repo-key>' | python3 -m json.tool | grep -E 'xray|sign|verify|trust' ; curl -u admin:password -X GET 'https://<artifactory-host>/xray/api/v2/policies' | python3 -m json.tool | grep -i 'sign'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Repository configuration or Xray policy showing xrayIndex enabled and signature verification rules in blocking (not advisory) mode."
+      },
+      {
+        "type": "command",
+        "instruction": "For Harbor, query the API to check content trust enforcement status per project.",
+        "command": "curl -u admin:password -X GET 'https://<harbor-host>/api/v2.0/projects/<project-name>' -H 'Accept: application/json' | python3 -m json.tool | grep -E 'enable_content_trust|cosign_vulnerability_severity_threshold|prevent_vul'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON field 'enable_content_trust: true' and 'enable_content_trust_cosign: true' confirming Notary/Cosign signature enforcement is active for the project."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review build pipeline scripts and artifact publication workflows to verify that signing steps (gpg --sign, cosign sign, helm package --sign) are present before artifact upload, and that the repository rejects artifacts failing signature checks in automated tests.",
+        "command": "grep -r 'cosign\\|gpg --sign\\|helm package.*--sign\\|sigstore\\|COSIGN_\\|GPG_KEY' .github/ .gitlab/ ci/ Makefile Jenkinsfile 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CI/CD pipeline steps executing artifact signing before upload, and repository webhook or policy configuration confirming rejection of unsigned artifacts."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "proxy_remote_repositories_configured",
+    "option_description": "Controls whether the artifact repository is configured with remote/proxy repository types that fetch and cache artifacts from external registries such as npm, PyPI, Maven Central, or Helm Hub. When enabled, the repository acts as a pass-through or caching layer for external packages.",
+    "security_impact": "Directly feeds the artifact_signing_not_enforced Rego rule: when proxy_remote_repositories_configured == true and signature_verification_enforced is absent, the exposure fires unconditionally. Proxying external registries without signature validation creates a dependency confusion attack surface — an attacker can publish a higher-versioned malicious package matching an internal package name on a public registry and have it resolved through the proxy. This is one of three independent conditions that trigger the artifact_signing_not_enforced exposure.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In JFrog Artifactory, navigate to Administration → Repositories → Repositories list. Filter by Type column — look for 'Remote' entries. Each remote repository entry confirms proxy configuration is active.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration → Repositories → Repositories → filter Type = Remote",
+        "expected_output": "One or more repository entries with Type = 'Remote' indicate proxy_remote_repositories_configured = true"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory REST API to list all repositories and filter for remote type repositories.",
+        "command": "curl -s -u admin:password https://artifactory.example.com/artifactory/api/repositories | jq '[.[] | select(.type==\"REMOTE\")] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A count greater than 0 indicates proxy repositories are configured; 0 means no remote repositories exist"
+      },
+      {
+        "type": "api",
+        "instruction": "In Sonatype Nexus Repository Manager, call the repositories API and filter for proxy type repositories.",
+        "command": "curl -s -u admin:password https://nexus.example.com/service/rest/v1/repositories | jq '[.[] | select(.type==\"proxy\")] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Count > 0 confirms proxy_remote_repositories_configured = true"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Sonatype Nexus, navigate to Administration → Repository → Repositories. In the Type column, look for entries labeled 'proxy'. Each proxy repository represents an external source being proxied.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration → Repository → Repositories → Type column = proxy",
+        "expected_output": "Any row with Type = 'proxy' confirms this attribute is true"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "unsigned_artifact_upload_blocked",
+    "option_description": "Controls whether the repository enforces a hard block on upload requests for artifacts that lack a valid cryptographic signature (GPG, PGP, Sigstore/Cosign). When true, unsigned artifacts are rejected at upload time. When false, the repository may warn or log but still accept unsigned artifacts.",
+    "security_impact": "This attribute is evaluated in two Rego conditions within the artifact_signing_not_enforced rule. The second condition fires when both unsigned_artifact_upload_blocked and signature_verification_enforced are absent/false — meaning even without proxy repositories configured, a repository that merely warns rather than blocks unsigned uploads is flagged. The distinction between 'warn' and 'block' mode is critical: warn mode provides no actual supply chain protection against malicious artifact injection.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Harbor, navigate to the target Project → Configuration tab. Under 'Deployment Security', check if 'Prevent vulnerable images from running' or 'Content Trust' is set to 'Enabled' and the enforcement mode is 'Enforce' rather than 'Audit'. For Cosign specifically, verify the project policy requires signed content.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Harbor → Projects → [Project Name] → Configuration → Content Trust / Deployment Security",
+        "expected_output": "Enforcement mode set to 'Enforce'/'Block' = true; 'Audit'/'Warn'/'Disabled' = false"
+      },
+      {
+        "type": "api",
+        "instruction": "Query Harbor's project API to check the content_trust and prevent_vul settings for a specific project.",
+        "command": "curl -s -u admin:password https://harbor.example.com/api/v2.0/projects/PROJECT_ID | jq '.metadata | {content_trust, prevent_vul, enable_content_trust}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "enable_content_trust = 'true' and content_trust enforcement active = unsigned_artifact_upload_blocked true"
+      },
+      {
+        "type": "command",
+        "instruction": "Test enforcement by attempting to upload a deliberately unsigned artifact to the repository and observe whether the upload is rejected (HTTP 403/400) or accepted (HTTP 200/201).",
+        "command": "curl -s -o /dev/null -w '%{http_code}' -X PUT -u ci_token:password https://artifactory.example.com/artifactory/libs-release-local/test/unsigned-test-1.0.0.jar -T /tmp/unsigned-test.jar",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 403 or 400 = blocking enforced (true); HTTP 200 or 201 = upload accepted despite missing signature (false)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Nexus with a content selector or GPG validation plugin, inspect the repository policy configuration file for enforcement mode settings.",
+        "command": "grep -r 'signature\\|enforce\\|block\\|warn' /opt/sonatype/nexus/etc/fabric/ /opt/sonatype/nexus/etc/nexus.properties",
+        "file_path": "/opt/sonatype/nexus/etc/nexus.properties",
+        "navigation": null,
+        "expected_output": "Lines referencing signature enforcement in 'enforce' or 'block' mode confirm true; 'warn', 'audit', or absent = false"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "service_account_permission_scope",
+    "option_description": "Defines the breadth of write and administrative permissions granted to the CI/CD pipeline service account or API token within the artifact repository. The four tiers are: global_admin (full instance-level control), repository_wide_write (write access across all repositories), scoped_write (write access limited to explicitly named repositories), and read_only (no write permissions).",
+    "security_impact": "Three distinct Rego conditions in overprivileged_service_account_credentials trigger based on this attribute: global_admin and repository_wide_write both unconditionally fire the exposure regardless of other settings. scoped_write triggers the exposure when combined with permission_grant_uses_wildcard == true, meaning even nominally scoped access becomes effectively broad when wildcards are used. A compromised pipeline token with global_admin scope can overwrite artifacts across all namespaces and teams.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In JFrog Artifactory, navigate to Administration → Identity and Access → Users (or Service Accounts). Select the CI/CD service account and review the Permission Targets assigned. Check whether targets cover specific repository names or use 'ANY'/'*' patterns.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration → Identity and Access → Users → [CI Service Account] → Permission Targets",
+        "expected_output": "Specific named repos = scoped_write; 'ANY' or '*' targets = repository_wide_write or global_admin; admin checkbox = global_admin"
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the Artifactory user details via API to inspect permission targets and admin flag for the CI service account.",
+        "command": "curl -s -u admin:password https://artifactory.example.com/artifactory/api/security/users/ci-service-account | jq '{admin: .admin, groups: .groups, realmAttributes: .realmAttributes}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "admin: true = global_admin; admin: false with broad groups = repository_wide_write; named repo permissions = scoped_write"
+      },
+      {
+        "type": "api",
+        "instruction": "In Nexus Repository Manager, query the roles assigned to the CI service account and inspect their privilege scope.",
+        "command": "curl -s -u admin:password https://nexus.example.com/service/rest/v1/security/users/ci-service-account | jq '.roles'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Roles containing 'nx-admin' or wildcard repository targets = global_admin or repository_wide_write; named repository privileges = scoped_write"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the CI/CD pipeline configuration files (Jenkinsfile, .gitlab-ci.yml, GitHub Actions workflows) to identify which credential/token variable is used for artifact operations, then trace that credential back to its permission assignment in the repository.",
+        "command": "grep -r 'ARTIFACTORY_TOKEN\\|NEXUS_PASSWORD\\|REPO_CREDENTIALS\\|DEPLOY_TOKEN' .github/workflows/ Jenkinsfile .gitlab-ci.yml",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Identify the credential name; cross-reference with the repository's IAM to determine the permission scope tier"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "global_admin",
+      "repository_wide_write",
+      "scoped_write",
+      "read_only"
+    ]
+  },
+  {
+    "option_name": "pipeline_token_can_overwrite_artifacts",
+    "option_description": "Indicates whether the CI/CD pipeline's API token or service account has DELETE, OVERWRITE, or REDEPLOY permissions that allow replacing or deleting existing artifact versions in the repository, including artifacts published by other teams, namespaces, or pipelines.",
+    "security_impact": "Used in the fourth Rego condition of overprivileged_service_account_credentials: when pipeline_token_can_overwrite_artifacts == true AND permission_grant_uses_wildcard == true, the exposure fires. This combination is particularly dangerous because wildcard-scoped overwrite permissions mean a compromised pipeline token can silently replace any artifact version across all repositories — enabling a silent supply chain backdoor without changing version numbers, which is the attack described in the unrestricted_artifact_overwrite exposure.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration → Identity and Access → Permissions. Open the permission target assigned to the CI service account. In the permission matrix, check whether 'Delete/Overwrite' or 'Deploy/Cache' checkboxes are enabled for shared or cross-team repositories.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration → Identity and Access → Permissions → [Permission Target] → permission matrix",
+        "expected_output": "'Delete/Overwrite' or 'Deploy/Cache' checked = true; only 'Read' checked = false"
+      },
+      {
+        "type": "api",
+        "instruction": "List Artifactory permission targets for the CI user and check for DELETE or DEPLOY permissions on repositories not exclusively owned by that team.",
+        "command": "curl -s -u admin:password https://artifactory.example.com/artifactory/api/v2/security/permissions | jq '.[] | select(.principals.users | has(\"ci-service-account\")) | {name: .name, actions: .principals.users[\"ci-service-account\"]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Actions containing 'd' (delete) or 'w' (write/deploy) on non-owned repos = true; only 'r' = false"
+      },
+      {
+        "type": "api",
+        "instruction": "In Nexus, retrieve the privileges associated with the CI service account role and look for DELETE or UPDATE privileges on artifact repositories.",
+        "command": "curl -s -u admin:password https://nexus.example.com/service/rest/v1/security/privileges | jq '.[] | select(.actions[] | contains(\"DELETE\", \"EDIT\")) | {name: .name, actions: .actions, pattern: .format}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Privileges with DELETE or EDIT actions on repository patterns = true; absent = false"
+      },
+      {
+        "type": "command",
+        "instruction": "Test empirically by attempting to overwrite an existing artifact using the CI token and observing whether the operation succeeds or is rejected.",
+        "command": "curl -s -o /dev/null -w '%{http_code}' -X PUT -H 'X-Checksum-Sha1: $(sha1sum /tmp/test.jar | cut -d' ' -f1)' -u ci_token:password https://artifactory.example.com/artifactory/libs-release-local/existing/artifact/1.0.0/artifact-1.0.0.jar -T /tmp/test.jar",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 200/201 = overwrite permitted (true); HTTP 403 = overwrite blocked (false)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "permission_grant_uses_wildcard",
+    "option_description": "Indicates whether the service account or API token's permission grant uses wildcard characters (such as '*', 'ANY', '.*', or regex patterns) to match repository names rather than explicitly enumerating specific repository names. Wildcard grants effectively extend permissions to all current and future repositories matching the pattern.",
+    "security_impact": "Acts as an amplifier in the overprivileged_service_account_credentials Rego rule. Even a nominally scoped_write service account becomes overprivileged when permission_grant_uses_wildcard == true, because the wildcard eliminates the intended scope restriction. Additionally, wildcard combined with pipeline_token_can_overwrite_artifacts == true is an independent trigger for the exposure. Wildcards also silently extend permissions to newly created repositories, meaning scope creep happens automatically without explicit permission changes.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query Artifactory permission targets for the CI service account and inspect the 'include-patterns' or repository target fields for wildcard characters.",
+        "command": "curl -s -u admin:password https://artifactory.example.com/artifactory/api/security/permissions | jq '.[] | select(.principals.users | has(\"ci-service-account\")) | {name: .name, repositories: .repositories, includePattern: .\"include-patterns\"}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "repositories containing '**', 'ANY', or '.*' = wildcard in use (true); explicit named repositories only = false"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, go to Administration → Identity and Access → Permissions. Open each permission target associated with the CI service account. Check the 'Repositories' field — if it shows 'ANY' or 'Any Remote', or the Include Patterns show '**', wildcards are in use.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration → Identity and Access → Permissions → [Permission] → Repositories field",
+        "expected_output": "'ANY', 'Any Remote', or '**' in the repositories field = true; explicit named repositories = false"
+      },
+      {
+        "type": "api",
+        "instruction": "In Nexus, list privileges assigned to the CI service account's role and check the 'format' or 'repository' field in each privilege definition for wildcard values.",
+        "command": "curl -s -u admin:password 'https://nexus.example.com/service/rest/v1/security/privileges?type=repository-content-selector' | jq '.[] | select(.repository == \"*\") | {name: .name, repository: .repository, actions: .actions}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Privileges with repository = '*' = wildcard in use (true); named repositories only = false"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review role definition files exported from the repository or stored in infrastructure-as-code (Terraform, Ansible) for wildcard repository patterns in permission grants.",
+        "command": "grep -rE '\"\\*\"|ANY|\\.\\.\\*|wildcard|repository.*\\*' terraform/ ansible/ roles/ artifactory-config/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of wildcard patterns in repository permission definitions = true; no wildcards = false"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "repository_url_scheme",
+    "option_description": "Identifies the URL scheme (http or https) used by clients — including CI/CD pipelines, build tools, and developer workstations — to communicate with the artifact repository for artifact uploads, downloads, and API calls. This reflects the actual transport protocol in use, not merely what is configured on the server.",
+    "security_impact": "Directly triggers the unencrypted_artifact_transport Rego exposure: when repository_url_scheme == 'http', the exposure fires unconditionally regardless of other settings. Plain HTTP transport exposes artifact downloads and uploads to man-in-the-middle attacks, allowing an adversary with network access to intercept and substitute artifacts in transit. This is especially dangerous in CI/CD pipelines where artifacts flow from repository to build environment, as tampered dependencies are compiled into production software.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect build tool configuration files in the project repository for the repository URL scheme. Check Maven settings.xml, pip.conf, .npmrc, and Helm repository configuration.",
+        "command": "grep -rE 'http://|https://' ~/.m2/settings.xml ~/.config/pip/pip.conf ~/.npmrc $(helm env HELM_REPOSITORY_CACHE) .npmrc pip.conf pom.xml build.gradle",
+        "file_path": "~/.m2/settings.xml",
+        "navigation": null,
+        "expected_output": "URLs beginning with 'http://' = scheme is http; 'https://' = scheme is https"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check CI/CD pipeline definition files for hardcoded repository URLs used in artifact operations.",
+        "command": "grep -rE 'ARTIFACTORY_URL|NEXUS_URL|REPO_URL|registry.*http' .github/workflows/ Jenkinsfile .gitlab-ci.yml .circleci/config.yml",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "http:// in URL values = scheme is http (insecure); https:// = scheme is https (secure)"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test whether the artifact repository responds on both HTTP and HTTPS ports, and whether HTTP redirects to HTTPS or serves content directly.",
+        "command": "curl -v --max-time 10 http://artifactory.example.com/artifactory/api/system/ping 2>&1 | grep -E 'HTTP/|Location:|Connected to'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 200 on http:// = plain HTTP active (value = http); HTTP 301/302 redirect to https:// = redirected but clients may still use http initially"
+      },
+      {
+        "type": "command",
+        "instruction": "Check Helm repository list and chart museum configuration for the URL scheme used.",
+        "command": "helm repo list -o json | jq '.[].url' && cat ~/.config/helm/repositories.yaml | grep -E 'url:|http'",
+        "file_path": "~/.config/helm/repositories.yaml",
+        "navigation": null,
+        "expected_output": "URLs with 'http://' = http scheme; 'https://' = https scheme"
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "https",
+      "http"
+    ]
+  },
+  {
+    "option_name": "tls_certificate_validation_enabled",
+    "option_description": "Indicates whether TLS/SSL certificate validation is actively enforced in client-side configurations when connecting to the artifact repository. When false, clients explicitly disable certificate verification using flags like --insecure, ssl_verify=false, strict-ssl=false, or skipTLSVerify=true, meaning self-signed or invalid certificates are accepted without error.",
+    "security_impact": "The second independent trigger in the unencrypted_artifact_transport Rego rule: 'not input.tls_certificate_validation_enabled' fires the exposure even when HTTPS is used. Disabling TLS validation is functionally equivalent to plaintext transport for security purposes — an adversary performing a MITM attack can present any certificate and intercept the encrypted channel. This pattern is extremely common in organizations using self-signed certificates on internal repositories, where developers disable validation as a workaround rather than properly distributing the CA certificate.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Search CI/CD pipeline definitions and build tool configurations for flags or settings that disable TLS certificate validation.",
+        "command": "grep -rE 'insecure|ssl.verify|strict.ssl|skipTLSVerify|ssl_verify.*[Ff]alse|--insecure|wagon\\.ssl|CURL_SSL_BACKEND|NODE_TLS_REJECT_UNAUTHORIZED' .github/workflows/ Jenkinsfile .gitlab-ci.yml ~/.m2/settings.xml ~/.npmrc ~/.config/pip/ /etc/pip.conf",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Presence of insecure flags or ssl_verify=false = tls_certificate_validation_enabled is false; absence = likely true"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check npm, pip, Maven, and Helm client configuration files for SSL/TLS verification settings.",
+        "command": "echo '=== npm ===' && cat ~/.npmrc | grep -E 'strict-ssl|cafile|cert'; echo '=== pip ===' && cat ~/.config/pip/pip.conf /etc/pip.conf | grep -E 'verify|trusted-host|cert'; echo '=== helm ===' && grep -r 'insecure-skip-tls-verify' ~/.config/helm/",
+        "file_path": "~/.npmrc",
+        "navigation": null,
+        "expected_output": "strict-ssl=false, trusted-host entries, or insecure-skip-tls-verify=true = validation disabled (false); absent or set to true/strict = validation enabled (true)"
+      },
+      {
+        "type": "command",
+        "instruction": "Check Maven wagon configuration in settings.xml for SSL insecure settings used by the CI service account.",
+        "command": "grep -A5 -B5 'ssl\\|https\\|insecure\\|verify' /var/lib/jenkins/.m2/settings.xml /home/runner/.m2/settings.xml 2>/dev/null | grep -iE 'ssl|insecure|wagon'",
+        "file_path": "/var/lib/jenkins/.m2/settings.xml",
+        "navigation": null,
+        "expected_output": "wagon.ssl.insecure=true or equivalent = false; absent = true"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Test whether the CI/CD environment rejects connections when presented with an invalid/self-signed certificate, or silently accepts them.",
+        "command": "curl --cacert /dev/null -s -o /dev/null -w '%{http_code}' https://artifactory.example.com/artifactory/api/system/ping 2>&1 | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SSL certificate error/curl error 60 = validation is enforced (true); HTTP 200 with invalid CA = validation disabled (false)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "storage_encryption_enabled",
+    "option_description": "Indicates whether the underlying storage backend used to persist artifact blobs, metadata, and index data has encryption at rest enabled. This covers both cloud-backed storage (S3, GCS, Azure Blob with KMS/CMEK) and on-premises filesystem or object storage encryption (LUKS, encrypted EBS volumes, Minio with SSE).",
+    "security_impact": "Triggers the storage_at_rest_encryption_disabled Rego exposure via 'not input.storage_encryption_enabled'. Without encryption at rest, physical or logical access to storage volumes — through cloud storage misconfiguration, backup theft, datacenter access, or storage snapshot exposure — directly exposes all artifact content including proprietary binaries, embedded credentials in POM files, and Helm chart values. A second Rego condition also fires when storage_encryption_enabled == true but encryption_key_management == 'none', capturing the case where platform-managed encryption provides minimal additional protection.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "For AWS-backed Artifactory or Nexus using S3 storage, check the S3 bucket encryption configuration via AWS CLI.",
+        "command": "aws s3api get-bucket-encryption --bucket artifactory-artifacts-bucket 2>&1 | jq '.ServerSideEncryptionConfiguration.Rules[].ApplyServerSideEncryptionByDefault'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "SSEAlgorithm = 'aws:kms' or 'AES256' = encryption enabled (true); NoSuchEncryptionConfiguration error = disabled (false)"
+      },
+      {
+        "type": "gui",
+        "instruction": "In JFrog Artifactory, navigate to Administration → Artifactory → Storage. Review the Binary Provider configuration to identify the storage type (filesystem, S3, GCS) and whether server-side encryption is indicated. For cloud providers, cross-reference in the cloud console.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Administration → Artifactory → Storage → Binary Providers",
+        "expected_output": "Storage type with SSE/KMS indicated = true; filesystem storage without OS-level encryption noted = requires further investigation"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Artifactory binarystore.xml configuration file to identify storage provider and encryption parameters.",
+        "command": "grep -E 'kmsKeyId|sseAlgorithm|encryptionKey|encryption|sse|kms' /var/opt/jfrog/artifactory/etc/artifactory/binarystore.xml /opt/sonatype/nexus/etc/fabric/nexus-store.properties 2>/dev/null",
+        "file_path": "/var/opt/jfrog/artifactory/etc/artifactory/binarystore.xml",
+        "navigation": null,
+        "expected_output": "kmsKeyId or sseAlgorithm present with values = encryption enabled (true); absent = disabled (false) or requires platform-level verification"
+      },
+      {
+        "type": "command",
+        "instruction": "For on-premises deployments, check whether the filesystem or block device hosting artifact storage is encrypted using LUKS or encrypted volume mounts.",
+        "command": "lsblk -o NAME,TYPE,MOUNTPOINT,SIZE && dmsetup ls --target crypt 2>/dev/null && df -h /var/opt/jfrog/artifactory/data/ | awk 'NR==2{print $1}' | xargs -I{} bash -c 'lsblk -no TYPE {} 2>/dev/null'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "dmsetup output showing crypt devices, or lsblk showing 'crypt' type = encryption enabled (true); no crypt entries for the artifact storage volume = likely disabled (false)"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "encryption_key_management",
+    "option_description": "Controls the key management approach used for encrypting artifact storage at rest — whether keys are externally managed by a customer KMS (AWS KMS, HashiCorp Vault, HSM), managed internally by the platform, or absent entirely.",
+    "security_impact": "The Rego policy flags 'storage_at_rest_encryption_disabled' when storage_encryption_enabled is true but encryption_key_management is 'none', treating platform-encryption-without-key-management as equivalent to no encryption. Customer-managed KMS ensures that even if the repository platform is compromised, the storage layer cannot be decrypted without the external key. Without encryption key management, physical or logical access to storage volumes exposes proprietary binaries, internal packages, and credential-embedded artifacts to MITRE T1530 (Data from Cloud Storage) and T1555.006 (Cloud Secrets Management Stores).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In JFrog Artifactory: Navigate to Administration > Security > Encryption. Check the 'Encryption Key' section to determine if a customer KMS ARN or Vault path is configured, or if the platform uses its own managed key. In Nexus Repository Manager: Navigate to Administration > System > Encryption and inspect the configured encryption provider.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Security → Encryption | Nexus: Administration → System → Encryption",
+        "expected_output": "A KMS ARN (e.g., arn:aws:kms:us-east-1:123456789:key/...) or Vault path for customer_managed_kms; 'Platform managed' or built-in key indicator for platform_managed; no entry or 'disabled' for none."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory system configuration API to inspect the encryption configuration block.",
+        "command": "curl -s -H 'Authorization: Bearer $ARTIFACTORY_TOKEN' https://<artifactory-host>/artifactory/api/system/configuration | grep -A 10 'encryption'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "XML or JSON block showing encryption provider type and key reference (KMS ARN, Vault URL, or empty)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "On self-hosted Artifactory, inspect the artifactory.system.properties or artifactory.config.xml for encryption settings. On Nexus, inspect nexus.properties for encryption provider configuration.",
+        "command": "grep -E 'encryption|kms|vault|hsm' /var/opt/jfrog/artifactory/etc/artifactory.system.properties /opt/sonatype/nexus3/etc/nexus.properties 2>/dev/null",
+        "file_path": "/var/opt/jfrog/artifactory/etc/artifactory.system.properties",
+        "navigation": null,
+        "expected_output": "Lines referencing aws.kms.key.arn, vault.transit.path, or encryption.provider indicating the key management type."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform administrator to confirm whether a formal key rotation policy exists and whether the encryption key is stored in a dedicated secrets manager (AWS KMS, Azure Key Vault, GCP KMS, HashiCorp Vault) outside the repository platform's control boundary.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation of key management provider, rotation schedule, and evidence of external key custody."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "platform_managed",
+      "none",
+      "customer_managed_kms"
+    ]
+  },
+  {
+    "option_name": "immutable_artifacts_enforced",
+    "option_description": "Controls whether the repository prevents overwriting of already-published artifact versions, ensuring that once a version (e.g., mylib-1.2.3.jar) is published it cannot be silently replaced with a different binary under the same version identifier.",
+    "security_impact": "The Rego policy 'unrestricted_artifact_overwrite' fires unconditionally when immutable_artifacts_enforced is false, and also fires when write_access_scope is broader than cicd_only and artifact signing is not verified. Without immutability, an attacker with write access can replace a production artifact version with a backdoored one without changing the version number, directly enabling MITRE T1554 (Compromise Host Software Binary) and T1195.001 (Compromise Software Dependencies and Development Tools). Immutability is the primary control preventing silent artifact substitution.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In JFrog Artifactory: Navigate to Administration > Repositories, select the target local repository, and check the 'Allow Content Deletion' checkbox state and the 'Immutable' flag under Advanced settings. In Nexus Repository Manager: Navigate to Repository > Repositories, select the repository, go to 'Hosted' settings, and check the 'Deployment Policy' dropdown — 'Disable Redeploy' enforces immutability.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Repositories → [repo] → Advanced → Allow Content Deletion | Nexus: Repository → Repositories → [repo] → Hosted → Deployment Policy",
+        "expected_output": "Artifactory: 'Allow Content Deletion' unchecked and Immutable enabled = true. Nexus: Deployment Policy = 'Disable Redeploy' = true."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory REST API to retrieve the repository configuration and inspect the xrayIndex, contentSynchronisation, and allowContentDeletion fields, or use the Nexus REST API to retrieve repository configuration.",
+        "command": "curl -s -H 'Authorization: Bearer $ARTIFACTORY_TOKEN' https://<artifactory-host>/artifactory/api/repositories/<repo-key> | python3 -m json.tool | grep -E 'allowContentDeletion|immutable|deploymentPolicy'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON field 'allowContentDeletion': false and 'immutable': true for Artifactory; 'deploymentPolicy': 'DISALLOW_REDEPLOY' for Nexus."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the JFrog CLI to retrieve the repository configuration and check immutability settings.",
+        "command": "jf rt repo-get <repo-key> --server-id=<server-id> | jq '{allowContentDeletion: .allowContentDeletion, repoType: .rclass}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output shows 'allowContentDeletion': false for immutable-enforced repositories."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "write_access_scope",
+    "option_description": "Controls which principals have write (deploy/push) access to the repository — whether restricted exclusively to CI/CD service accounts, extended to internal developer users, or open to external parties or anonymous access.",
+    "security_impact": "The Rego policy 'unrestricted_artifact_overwrite' fires when write_access_scope is 'internal_users' or 'external_or_anonymous' combined with artifact signing not verified and immutability not enforced. Broad write access means any compromised developer credential or external principal can push artifacts, enabling MITRE T1195.001 (Compromise Software Dependencies) and T1554 (Compromise Host Software Binary). Restricting write access to dedicated CI/CD service accounts limits the blast radius of credential compromise and prevents unauthorized artifact injection.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In JFrog Artifactory: Navigate to Administration > Identity and Access > Permissions, filter for the target repository, and enumerate all principals (users, groups, service accounts) with 'Deploy/Cache' or 'Delete' permissions. In Nexus: Navigate to Administration > Security > Roles, inspect roles assigned to the repository and their privilege sets.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Identity and Access → Permissions → [repo] → Filter by Deploy permission | Nexus: Administration → Security → Roles → [repository role]",
+        "expected_output": "A list of principals with write access. cicd_only if only named service accounts (e.g., jenkins-svc, github-actions-deploy) appear; internal_users if developer AD groups are present; external_or_anonymous if anonymous or external groups appear."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory Permissions API to retrieve all permission targets for the repository and enumerate principals with deploy rights.",
+        "command": "curl -s -H 'Authorization: Bearer $ARTIFACTORY_TOKEN' https://<artifactory-host>/artifactory/api/v2/security/permissions | jq '[.[] | select(.repositories[] == \"<repo-key>\") | {name: .name, principals: .principals}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON listing permission targets for the repo with user/group assignments and their permission bits (DEPLOY=d, DELETE=m)."
+      },
+      {
+        "type": "api",
+        "instruction": "For Nexus, enumerate repository privileges and role memberships via the REST security API.",
+        "command": "curl -s -u admin:$NEXUS_PASSWORD https://<nexus-host>/service/rest/v1/security/roles | jq '[.[] | select(.privileges[] | contains(\"<repo-name>\")) | {id: .id, members: .roles}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Roles that grant nx-repository-view-<format>-<repo>-edit or nx-repository-view-*-*-edit privileges, and the groups/users assigned to those roles."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the CI/CD pipeline configurations (Jenkinsfiles, GitHub Actions workflows, GitLab CI YAML) to identify which service account tokens are used for artifact publishing, and confirm these are dedicated non-human service accounts not shared with developer users.",
+        "command": "grep -rE '(ARTIFACTORY_TOKEN|NEXUS_PASSWORD|JFROG_API_KEY|NPM_TOKEN)' .github/workflows/ Jenkinsfile .gitlab-ci.yml 2>/dev/null | grep -v '#'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "References to dedicated secret names (not personal tokens) indicating CI/CD-scoped service accounts."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "internal_users",
+      "cicd_only",
+      "external_or_anonymous"
+    ]
+  },
+  {
+    "option_name": "artifact_signing_verified_on_publish",
+    "option_description": "Controls whether the repository enforces cryptographic signature verification at publish time, rejecting artifact uploads that are unsigned or carry an invalid signature (e.g., PGP/GPG for Maven/Helm, cosign/Sigstore for OCI, npm's package integrity).",
+    "security_impact": "The Rego policy 'unrestricted_artifact_overwrite' fires when write_access_scope is broad and artifact_signing_verified_on_publish is false alongside immutable_artifacts_enforced being false. The separate 'artifact_signing_not_enforced' rule fires when signature_verification_enforced is absent. Without publish-time signature verification, any principal with write access can upload unsigned or tampered binaries, enabling MITRE T1036.001 (Invalid Code Signature) and T1553.001 (Gatekeeper Bypass). Enforcing signing at publish time creates a cryptographic chain of custody for every stored artifact.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In JFrog Artifactory: Navigate to Administration > Security > PGP Keypair and check if a GPG key is configured for signing enforcement. For Helm repos, check the chart repository settings for signature policy. In Nexus: Navigate to Repository > Repositories > [repo] > Hosted settings and look for signature validation policy fields (available in Nexus Pro for some formats).",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Security → PGP Keypair | Artifactory: Administration → Repositories → [Helm repo] → Signature Policy",
+        "expected_output": "A configured signing key and 'Signature Verification Required' set to true/enforced; or 'not configured' indicating false."
+      },
+      {
+        "type": "api",
+        "instruction": "Retrieve the repository configuration via the Artifactory REST API and inspect signature enforcement fields.",
+        "command": "curl -s -H 'Authorization: Bearer $ARTIFACTORY_TOKEN' https://<artifactory-host>/artifactory/api/repositories/<repo-key> | jq '{repoType: .rclass, packageType: .packageType, signatureVerification: .signatureVerification, gpgVerification: .gpgVerification}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Fields 'signatureVerification' or 'gpgVerification' set to true/required indicate enforcement is active."
+      },
+      {
+        "type": "command",
+        "instruction": "Attempt to publish an unsigned test artifact to the repository and observe if it is rejected. This tests enforcement behavior directly.",
+        "command": "curl -s -w '%{http_code}' -u $CICD_USER:$CICD_PASS -T unsigned-test-artifact.jar https://<artifactory-host>/artifactory/<repo-key>/com/test/unsigned-test/1.0/unsigned-test-1.0.jar | tail -1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 403 or 400 with a message about missing signature = enforcement active (true). HTTP 201 = no enforcement (false)."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review CI/CD pipeline configurations and repository policies to confirm whether a signing step (e.g., 'gpg --detach-sign', 'cosign sign', Helm chart signing via 'helm package --sign') is mandatory before artifact upload, and whether the repository rejects uploads lacking signature attachments.",
+        "command": "grep -rE '(gpg|cosign|helm.*sign|sigstore|sign.*artifact)' .github/workflows/ Jenkinsfile .gitlab-ci.yml 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Signing commands present in all publish pipelines, combined with repository rejection of unsigned uploads."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "proxy_allow_list_enabled",
+    "option_description": "Controls whether the remote proxy repository has a domain or package-name allow list configured, restricting which external packages can be downloaded through the internal proxy to an explicit approved set.",
+    "security_impact": "The Rego policy 'insufficiently_scoped_proxy_allow_list' fires when proxy_allow_list_enabled is false and upstream_url_restricted is also false, or when proxy_allow_list_enabled is false and the proxy type is npm, pypi, go, or nuget — ecosystems with high typosquatting and malicious package prevalence. Without an allow list, any package name resolvable from the upstream registry can be downloaded through the internal proxy, enabling MITRE T1090.002 (External Proxy) abuse and allowing developers or compromised build scripts to pull typosquatted or malicious packages directly through the trusted internal repository.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In JFrog Artifactory: Navigate to Administration > Repositories, select the remote (proxy) repository, and check the 'Includes Patterns' and 'Excludes Patterns' fields under the Basic tab, or look for 'Package Name Filtering' in Pro/Enterprise. In Nexus: Navigate to Repository > Repositories > [remote repo] > Routing Rules and check if a routing rule with an allow-list mode is assigned.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Repositories → [remote repo] → Basic → Includes/Excludes Patterns | Nexus: Repository → Repositories → [remote repo] → Routing Rule",
+        "expected_output": "Non-wildcard include patterns (e.g., 'com/myorg/**') or a Nexus routing rule in ALLOW mode with specific matchers = true. Wildcard '**' or no routing rule = false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory API to retrieve the remote repository configuration and inspect includesPattern and excludesPattern fields.",
+        "command": "curl -s -H 'Authorization: Bearer $ARTIFACTORY_TOKEN' https://<artifactory-host>/artifactory/api/repositories/<remote-repo-key> | jq '{includesPattern: .includesPattern, excludesPattern: .excludesPattern, allowListEnabled: (.includesPattern != \"**/*\")}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "includesPattern not equal to '**/*' and containing specific paths/packages indicates allow list active (true); '**/*' or empty indicates no restriction (false)."
+      },
+      {
+        "type": "api",
+        "instruction": "For Nexus, query the routing rules API to determine if an allow-mode routing rule is assigned to the proxy repository.",
+        "command": "curl -s -u admin:$NEXUS_PASSWORD https://<nexus-host>/service/rest/v1/repositories/<repo-name> | jq '{routingRuleName: .routingRuleName}'; curl -s -u admin:$NEXUS_PASSWORD https://<nexus-host>/service/rest/v1/routing-rules | jq '[.[] | {name: .name, mode: .mode, matchers: .matchers}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A routing rule in ALLOW mode with specific package matchers assigned to the proxy repository = true. No routing rule or BLOCK mode rule = false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's approved package list policy documentation and confirm whether the repository team maintains and enforces a curated list of permitted external packages in proxy configuration.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented approved package list with evidence of its enforcement in repository configuration."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "false"
+    ]
+  },
+  {
+    "option_name": "proxy_repository_type",
+    "option_description": "Identifies the package ecosystem or external registry format that the proxy repository fronts (e.g., npm, PyPI, Maven, Helm, Go modules, NuGet), which determines the applicable security controls, allow-list requirements, and dependency confusion risk profile.",
+    "security_impact": "The Rego policy 'insufficiently_scoped_proxy_allow_list' specifically calls out npm, pypi, go, and nuget as high-risk proxy types that trigger findings even without checking upstream_url_restricted, because these ecosystems have flat public namespaces making them highest-risk for dependency confusion and typosquatting (MITRE T1195.001). The proxy_repository_type drives which mitigations are mandatory — npm requires scope-based namespace isolation, PyPI requires exact package name matching, Maven benefits from groupId filtering, and Helm requires chart name allow-listing. This attribute is essential for contextualizing all other proxy controls.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In JFrog Artifactory: Navigate to Administration > Repositories and view the 'Package Type' column in the repository list, or open the remote repository and read the 'Package Type' field at the top of the configuration form. In Nexus: Navigate to Repository > Repositories and view the 'Format' column, or open the repository to see its format/recipe.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Repositories → [repo list: Package Type column] | Nexus: Repository → Repositories → [Format column]",
+        "expected_output": "A specific format label: npm, PyPI, Maven 2, Helm, Go, NuGet, Raw, Docker, etc."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory repository API to retrieve the packageType field for all remote repositories.",
+        "command": "curl -s -H 'Authorization: Bearer $ARTIFACTORY_TOKEN' 'https://<artifactory-host>/artifactory/api/repositories?type=remote' | jq '[.[] | {key: .key, packageType: .packageType, url: .url}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array with each remote repository's key and packageType (e.g., 'npm', 'pypi', 'maven', 'helm', 'go', 'nuget')."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Nexus REST API to list all remote repositories with their format (recipe).",
+        "command": "curl -s -u admin:$NEXUS_PASSWORD 'https://<nexus-host>/service/rest/v1/repositories' | jq '[.[] | select(.type == \"proxy\") | {name: .name, format: .format, url: .attributes.proxy.remoteUrl}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array listing each proxy repository with its format field (npm, pypi, maven2, helm, go, nuget, raw, docker)."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the JFrog CLI to enumerate all remote repositories and their package types.",
+        "command": "jf rt curl '/api/repositories?type=remote' --server-id=<server-id> | python3 -c \"import sys,json; [print(f\\\"{r['key']}: {r['packageType']}\\\") for r in json.load(sys.stdin)]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines like 'npm-remote: npm', 'pypi-proxy: pypi', 'maven-central: maven' indicating each proxy repository's type."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "npm",
+      "maven",
+      "pypi",
+      "helm",
+      "nuget"
+    ]
+  },
+  {
+    "option_name": "upstream_url_restricted",
+    "option_description": "Controls whether the proxy repository's upstream URL points to a specific, organization-approved external registry (e.g., registry.npmjs.org, pypi.org, repo1.maven.org) rather than an arbitrary, wildcard, or custom upstream that could route to untrusted sources.",
+    "security_impact": "The Rego policy 'insufficiently_scoped_proxy_allow_list' fires when both proxy_allow_list_enabled is false and upstream_url_restricted is false — these are treated as complementary controls where at least one must be active. An unrestricted upstream URL allows the proxy to be reconfigured (by a misconfiguration or attacker with admin access) to point to a malicious registry serving backdoored packages, or to an internal server spoofing a public registry. Restricting the upstream URL to known-good registries prevents MITRE T1090.002/T1090.003 proxy chain abuse and ensures the trust anchor for external packages is verifiable.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In JFrog Artifactory: Navigate to Administration > Repositories, select the remote repository, and check the 'URL' field on the Basic tab. Verify it matches an approved registry URL from your organization's allowlist (e.g., https://registry.npmjs.org, https://pypi.org, https://repo1.maven.org/maven2). In Nexus: Navigate to Repository > Repositories > [remote repo] > Remote Storage and inspect the URL field.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Repositories → [remote repo] → Basic → URL | Nexus: Repository → Repositories → [remote repo] → Remote Storage → Remote Storage URL",
+        "expected_output": "URL exactly matches an approved registry domain (true); URL is a custom domain, IP address, or broad wildcard upstream (false)."
+      },
+      {
+        "type": "api",
+        "instruction": "Query all remote repositories and extract their upstream URLs, then compare against your organization's approved registry list.",
+        "command": "curl -s -H 'Authorization: Bearer $ARTIFACTORY_TOKEN' 'https://<artifactory-host>/artifactory/api/repositories?type=remote' | jq '[.[] | {key: .key, url: .url, packageType: .packageType}]' | grep -E '(key|url|packageType)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "URLs matching expected values: registry.npmjs.org for npm, pypi.org for pypi, repo1.maven.org for maven. Custom or unexpected domains indicate upstream_url_restricted = false."
+      },
+      {
+        "type": "command",
+        "instruction": "Extract and validate all proxy upstream URLs against a known-good registry list using a comparison script.",
+        "command": "curl -s -H 'Authorization: Bearer $ARTIFACTORY_TOKEN' 'https://<artifactory-host>/artifactory/api/repositories?type=remote' | jq -r '.[] | \"\\(.key): \\(.url)\"' | while read line; do echo \"$line\" | grep -qE '(registry\\.npmjs\\.org|pypi\\.org|repo1\\.maven\\.org|registry\\.go\\.dev|api\\.nuget\\.org|charts\\.helm\\.sh)' && echo \"APPROVED: $line\" || echo \"REVIEW NEEDED: $line\"; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines prefixed 'APPROVED' for known registries (true); lines prefixed 'REVIEW NEEDED' for unknown upstream URLs (false)."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's approved external registry list policy and compare it against the current proxy upstream URLs. Confirm a change control process exists that requires approval before modifying proxy upstream URLs.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documented approved registry list, evidence of last review date, and change control records for upstream URL modifications."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "secret_scanning_enabled",
+    "option_description": "Controls whether the artifact repository has secret and credential scanning enabled for uploaded metadata files including POM files, Helm chart values.yaml, package.json, build metadata descriptors, and other artifact-accompanying files that may inadvertently contain API keys, passwords, tokens, or connection strings.",
+    "security_impact": "The Rego policy 'secrets_embedded_in_artifact_metadata' fires when detected_secret_patterns_in_metadata is non-empty and secret_scanning_enabled is false, or when metadata is anonymously readable and secrets are detected. Without scanning, developers who accidentally commit secrets to artifact metadata (e.g., database URLs in pom.xml properties, API keys in Helm values.yaml, credentials in pyproject.toml) create a persistent, indexed exposure accessible to all users with read access. This directly enables MITRE T1552 (Unsecured Credentials) and T1213.003 (Code Repositories) — credentials embedded in metadata are retrievable by any internal user and potentially anonymous external users if the repository is public-facing.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In JFrog Artifactory with JFrog Security (Xray): Navigate to Xray > Policies and Rules and check for any policy with a 'Secrets' violation type configured. Then navigate to Xray > Watches and verify the watch includes the target repository with the secrets policy applied. In Nexus IQ integration: Navigate to Administration > IQ Server and check if secret scanning policies are configured and scoped to the repository.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory/Xray: Xray → Policies → [policy name] → Rules → Secrets violation type | Nexus: Administration → IQ Server → Policy configuration",
+        "expected_output": "A Secrets-type rule in an active policy applied via a Watch covering the repository = true. No secrets policy or Watch coverage = false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the JFrog Xray API to check for existing policies with secrets scanning rules.",
+        "command": "curl -s -H 'Authorization: Bearer $ARTIFACTORY_TOKEN' https://<artifactory-host>/xray/api/v2/policies | jq '[.[] | select(.rules[].criteria.exposures.secrets == true) | {name: .name, type: .type, active: .active}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array with policies that have secrets exposure rules active = scanning enabled (true). Empty array = not configured (false)."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for installed third-party secret scanning plugins or hooks by inspecting the repository manager's plugin directory and examining configured pre-receive or post-receive hooks.",
+        "command": "ls -la /var/opt/jfrog/artifactory/etc/plugins/ 2>/dev/null | grep -iE '(secret|credential|trufflehog|detect-secrets|gitleaks)'; ls -la /opt/sonatype/nexus3/deploy/ 2>/dev/null | grep -iE '(secret|credential|scan)'",
+        "file_path": "/var/opt/jfrog/artifactory/etc/plugins/",
+        "navigation": null,
+        "expected_output": "Plugin files matching secret-scanning tool names present = scanning potentially enabled. Empty output requires validation of alternative scanning mechanisms."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the CI/CD pipeline and repository onboarding process to determine if secret scanning (e.g., truffleHog, detect-secrets, git-secrets, Semgrep) is run against artifact metadata files before upload as a pipeline gate, as an alternative or complement to repository-native scanning.",
+        "command": "grep -rE '(trufflehog|detect-secrets|gitleaks|semgrep|secret.*scan|credential.*scan)' .github/workflows/ Jenkinsfile .gitlab-ci.yml 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "References to secret scanning tools in pre-publish pipeline stages indicate compensating control. Absence of both pipeline scanning and repository-native scanning = secret_scanning_enabled: false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "false"
+    ]
+  },
+  {
+    "option_name": "metadata_read_access_scope",
+    "option_description": "Controls which users can read artifact metadata files stored in the repository, including POM files, Helm chart values.yaml, package descriptors, and build manifests. Governs whether metadata is accessible to anonymous users, any authenticated user, or only users in specific roles or groups.",
+    "security_impact": "The Rego policy for secrets_embedded_in_artifact_metadata fires when detected_secret_patterns_in_metadata is non-empty AND metadata_read_access_scope is 'anonymous' or 'authenticated_users'. An overly broad read scope means any user — or no user at all — can retrieve metadata files that may contain embedded API keys, database credentials, or tokens. Restricting to 'restricted_roles' limits the blast radius if secrets are inadvertently committed to metadata.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory REST API to inspect repository configuration and determine the configured access scope for metadata endpoints.",
+        "command": "curl -s -u admin:password https://<artifactory-host>/artifactory/api/repositories/<repo-key> | jq '.repoLayoutRef, .handleSnapshots, .suppressPomConsistencyChecks'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON object containing repository configuration fields; cross-reference with security settings and any anonymous_access_enabled or includePatterns fields."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration > Repositories > select repository > Security tab. In Nexus Repository Manager, go to Administration > Repositories > select repository > Security settings. Review the 'Deployment Policy' and 'User Access' sections.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Admin → Repositories → [repo] → Security | Nexus: Administration → Repositories → [repo] → Security",
+        "expected_output": "A clearly indicated access policy showing whether anonymous, authenticated, or role-restricted users can read metadata."
+      },
+      {
+        "type": "api",
+        "instruction": "For Nexus Repository Manager, query the REST API to retrieve repository security configuration including privilege assignments.",
+        "command": "curl -s -u admin:password https://<nexus-host>/service/rest/v1/repositories/<repo-name> | jq '.name, .format, .type, .online'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Repository details; then cross-reference with /service/rest/v1/security/privileges to confirm metadata read privileges are scoped."
+      },
+      {
+        "type": "command",
+        "instruction": "For self-hosted Artifactory, inspect the repository's security descriptor in the database export or configuration backup YAML to identify the effective read access level.",
+        "command": "curl -s -u admin:password https://<artifactory-host>/artifactory/api/security/permissions | jq '.[] | select(.repositories[] == \"<repo-key>\") | {name, principals}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Permission target listing showing which principals (users/groups) have read access, indicating whether it is open to all authenticated users or restricted to specific groups."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "authenticated_users",
+      "restricted_roles",
+      "anonymous"
+    ]
+  },
+  {
+    "option_name": "detected_secret_patterns_in_metadata",
+    "option_description": "A list of secret pattern categories identified by scanning stored artifact metadata files such as Maven POM files, Helm chart values.yaml, npm package.json, or Python setup.cfg. Pattern categories include api_key, db_credential, private_key, and oauth_token.",
+    "security_impact": "The Rego policy triggers the secrets_embedded_in_artifact_metadata exposure whenever this array is non-empty, particularly when combined with a broad metadata_read_access_scope. If secrets are present in metadata and the repository is readable by anonymous or all authenticated users, those credentials are effectively exposed to any user who can access the repository, enabling credential theft via T1552 (Unsecured Credentials) and T1213.003 (Code Repositories).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run truffleHog against the artifact repository's exported metadata directory to detect embedded secrets across POM files, values.yaml, and package descriptors.",
+        "command": "trufflehog filesystem /path/to/metadata-export/ --json | jq '{file: .SourceMetadata.Data.Filesystem.file, detector: .DetectorName, secret_type: .DetectorType}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output listing files containing detected secrets and their pattern categories (e.g., AWS, GitHub, generic API key)."
+      },
+      {
+        "type": "command",
+        "instruction": "Use gitleaks to scan a cloned or exported artifact metadata directory for hardcoded secrets across all metadata file types.",
+        "command": "gitleaks detect --source /path/to/metadata-export/ --report-format json --report-path /tmp/gitleaks-report.json && cat /tmp/gitleaks-report.json | jq '[.[] | {file: .File, rule: .RuleID, secret_type: .Tags}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array of findings with rule ID and file path; each entry maps to a secret pattern category to populate the attribute array."
+      },
+      {
+        "type": "api",
+        "instruction": "If Artifactory Xray is configured, query its secrets scan results via the Xray REST API to retrieve detected secret patterns across indexed repository artifacts.",
+        "command": "curl -s -u admin:password https://<artifactory-host>/xray/api/v1/scanArtifact -H 'Content-Type: application/json' -d '{\"componentId\": \"<component-id>\"}' | jq '.secrets'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Array of secret findings including pattern type and location within the artifact metadata."
+      },
+      {
+        "type": "gui",
+        "instruction": "In GitHub Advanced Security or a GitLab secret detection pipeline, configure a job to export and scan artifact metadata files. Review the Security > Secret Scanning findings dashboard for pattern matches.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitHub: Security → Secret scanning → View findings | GitLab: Security & Compliance → Vulnerability Report → filter by Secret Detection",
+        "expected_output": "List of detected secret pattern types with severity and file location to populate the attribute values."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[]",
+      "['api_key']",
+      "['db_credential', 'oauth_token']",
+      "['private_key', 'api_key', 'db_credential']"
+    ]
+  },
+  {
+    "option_name": "audit_logging_enabled",
+    "option_description": "Determines whether the artifact repository is configured to produce audit log records for lifecycle events including artifact uploads, downloads, deletions, and permission or configuration changes. This is the master switch that gates all audit logging functionality.",
+    "security_impact": "The Rego policy fires missing_or_incomplete_audit_logging immediately when audit_logging_enabled is false, regardless of other settings. It also influences the unrestricted_artifact_overwrite rule, where overwrite events must be captured to detect silent artifact replacement attacks (T1554 Compromise Host Software Binary). Without audit logging, there is no forensic trail to detect unauthorized access, data exfiltration (T1602), or artifact tampering.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration > General > Audit Log to confirm whether audit logging is active. In Nexus Repository Manager, check Administration > Support > Logging and review whether the audit log appender is active.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Admin → General → Audit Log | Nexus: Administration → Support → Logging → Audit Logger status",
+        "expected_output": "Audit log page shows logging is active with recent entries, or the logging configuration shows audit appender enabled."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory system configuration API to inspect whether audit logging is enabled in the global configuration.",
+        "command": "curl -s -u admin:password https://<artifactory-host>/artifactory/api/system/configuration | grep -A5 '<auditLog>'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "XML block showing <auditLog><enabled>true</enabled></auditLog> if logging is active."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Nexus Repository Manager configuration file or logback configuration to determine whether the audit log appender is enabled.",
+        "command": "grep -i 'audit' /opt/nexus/etc/logback/logback.xml",
+        "file_path": "/opt/nexus/etc/logback/logback.xml",
+        "navigation": null,
+        "expected_output": "An active appender definition referencing the audit log file with level INFO or DEBUG, not commented out."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Verify audit logging is active by checking for the presence of recent audit log entries in the expected log file location for the repository platform.",
+        "command": "ls -lh /var/log/artifactory/artifactory-audit.log 2>/dev/null || ls -lh /opt/nexus/log/audit/ 2>/dev/null",
+        "file_path": "/var/log/artifactory/artifactory-audit.log",
+        "navigation": null,
+        "expected_output": "Log file exists with recent modification timestamp and non-zero size, confirming active audit logging."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "audit_log_event_coverage",
+    "option_description": "Enumerates the specific event types captured by the repository audit logging system. Expected values include 'upload', 'download', 'delete', and 'permission_change'. Incomplete coverage leaves gaps in the audit trail for key artifact lifecycle operations.",
+    "security_impact": "The Rego policy for missing_or_incomplete_audit_logging fires separately for each missing required event type: upload, delete, and permission_change must all be present in this array when audit_logging_enabled is true. Missing 'delete' coverage prevents detection of artifact removal attacks; missing 'permission_change' coverage allows privilege escalation to go undetected; missing 'upload' coverage allows malicious artifact injection without trace. This maps to T1654 (Log Enumeration) and T1602 (Data from Configuration Repository).",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Retrieve the Artifactory audit log configuration via the system configuration API and extract which event categories are included.",
+        "command": "curl -s -u admin:password https://<artifactory-host>/artifactory/api/system/configuration | xmllint --xpath '//auditLog/events/event/text()' - 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of enabled event type strings such as 'ARTIFACT_UPLOADED', 'ARTIFACT_DELETED', 'PERMISSION_CHANGED'."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration > General > Audit Log and review the Events Configuration section listing which event types are checked. In Nexus, review Administration > Support > Logging for audit event categories.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Admin → General → Audit Log → Events Configuration",
+        "expected_output": "Checklist or list showing upload, download, delete, and permission_change events individually enabled or disabled."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Grep recent audit log entries to empirically verify which event types are actually being captured by sampling recent log content.",
+        "command": "grep -o 'event_type=[A-Z_]*' /var/log/artifactory/artifactory-audit.log | sort -u | head -20",
+        "file_path": "/var/log/artifactory/artifactory-audit.log",
+        "navigation": null,
+        "expected_output": "Unique list of event types seen in log file; compare against required set {upload, download, delete, permission_change}."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Nexus Repository Manager audit log configuration in the logback XML to identify which audit event categories are routed to the audit appender.",
+        "command": "grep -A3 'audit' /opt/nexus/etc/logback/logback.xml | grep -i 'level\\|name\\|logger'",
+        "file_path": "/opt/nexus/etc/logback/logback.xml",
+        "navigation": null,
+        "expected_output": "Logger entries showing audit categories mapped to the audit appender at appropriate logging levels."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "['upload', 'download', 'delete', 'permission_change']",
+      "['upload', 'download']",
+      "['upload']",
+      "[]"
+    ]
+  },
+  {
+    "option_name": "siem_forwarding_configured",
+    "option_description": "Indicates whether audit logs from the artifact repository are actively forwarded to a Security Information and Event Management (SIEM) system or centralized log management platform such as Splunk, Elastic SIEM, or IBM QRadar. This enables real-time correlation and alerting on repository security events.",
+    "security_impact": "The Rego policy fires missing_or_incomplete_audit_logging when audit_logging_enabled is true but siem_forwarding_configured is false. Local-only audit logs are vulnerable to tampering, deletion, or unavailability during incidents. Without SIEM forwarding, security operations teams cannot detect and correlate artifact exfiltration events (T1602) or log manipulation (T1654) in real time. Centralized forwarding ensures logs are preserved independently of the repository host.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Fluentd, Logstash, or Filebeat configuration file responsible for shipping repository logs to confirm the artifact log path is included and the SIEM output destination is defined.",
+        "command": "grep -r 'artifactory\\|nexus' /etc/fluentd/conf.d/ /etc/logstash/conf.d/ /etc/filebeat/ 2>/dev/null | grep -i 'path\\|output\\|host'",
+        "file_path": "/etc/fluentd/conf.d/",
+        "navigation": null,
+        "expected_output": "Configuration entries showing the audit log file path as input and a SIEM endpoint (Splunk HEC URL, Elasticsearch host, or syslog destination) as output."
+      },
+      {
+        "type": "api",
+        "instruction": "In Artifactory, query the configured webhook or syslog integration settings to verify audit events are being forwarded to an external system.",
+        "command": "curl -s -u admin:password https://<artifactory-host>/artifactory/api/system/configuration | xmllint --xpath '//syslog' - 2>/dev/null || curl -s -u admin:password https://<artifactory-host>/artifactory/api/v2/webhooks | jq '.webhooks[] | {name, url, status}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Syslog configuration block with host/port defined, or webhook entries pointing to a SIEM ingestion endpoint with active status."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration > Artifactory > General > Log Forwarding or Administration > Artifactory > Webhooks. In Splunk or Elastic, verify an active data input or index receiving events from the repository host.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Admin → General → Log Forwarding | Splunk: Settings → Data Inputs → filter by repository host source",
+        "expected_output": "Active log forwarding configuration or SIEM data input showing recent events from the repository."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the security operations or platform engineering team to confirm whether a log shipping agent is deployed on the repository host and actively forwarding to the SIEM. Request evidence such as a recent SIEM search showing repository audit events.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation that a named SIEM (e.g., Splunk, Elastic) receives repository audit logs, with a sample query or dashboard demonstrating recent ingestion."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "version_has_known_cve",
+    "option_description": "Records whether the currently installed version of the artifact repository software has one or more publicly disclosed CVEs in vulnerability databases such as NVD or OSV. Particularly relevant for CVEs affecting dependency resolution engines, metadata parsers, or REST API endpoints which are core to artifact repository operation.",
+    "security_impact": "The Rego policy fires repository_software_not_patched when version_has_known_cve is true AND either patch_available is true or days_since_last_patch exceeds 30. Known CVEs in artifact repositories frequently target REST API endpoints (T1190 Exploit Public-Facing Application) or the dependency resolution engine (T1195.001 Compromise Software Dependencies and Development Tools), which can enable remote code execution, authentication bypass, or artifact poisoning without credentials.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve the installed Artifactory or Nexus version and query the NVD API for known CVEs affecting that specific version.",
+        "command": "REPO_VERSION=$(curl -s https://<artifactory-host>/artifactory/api/system/version | jq -r '.version'); curl -s \"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=Artifactory+${REPO_VERSION}&resultsPerPage=10\" | jq '.vulnerabilities[].cve | {id: .id, description: .descriptions[0].value, severity: .metrics.cvssMetricV31[0].cvssData.baseSeverity}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON list of CVEs matching the installed version with severity scores; non-empty result indicates version_has_known_cve should be true."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the OSV (Open Source Vulnerabilities) API to check the installed repository software version against the OSV database for known vulnerabilities.",
+        "command": "curl -s -X POST https://api.osv.dev/v1/query -H 'Content-Type: application/json' -d '{\"version\": \"<repo-version>\", \"package\": {\"name\": \"artifactory\", \"ecosystem\": \"Maven\"}}' | jq '.vulns[] | {id, summary, severity}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Array of vulnerability records for the installed version; empty array means no known CVEs in OSV."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory version endpoint to get the exact version string, then cross-reference with the vendor's security advisories page.",
+        "command": "curl -s -u admin:password https://<artifactory-host>/artifactory/api/system/version | jq '{version, revision, addons}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Exact version string (e.g., 7.55.2) to use when checking JFrog Security Advisories at https://jfrog.com/security-advisories/"
+      },
+      {
+        "type": "gui",
+        "instruction": "Visit the vendor security advisory page for JFrog (https://jfrog.com/security-advisories/) or Sonatype (https://support.sonatype.com/hc/en-us/sections/203012558) and search for advisories affecting the installed version number.",
+        "command": null,
+        "file_path": null,
+        "navigation": "JFrog: https://jfrog.com/security-advisories/ | Sonatype: https://support.sonatype.com/hc/en-us → Security Advisories",
+        "expected_output": "Advisory listings filtered to the installed version; presence of any advisory confirms version_has_known_cve is true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "days_since_last_patch",
+    "option_description": "Measures the elapsed time in days between the most recent software update or security patch applied to the artifact repository and the current assessment date. Used to quantify patch currency and identify repositories running stale software regardless of whether specific CVEs are known.",
+    "security_impact": "The Rego policy fires repository_software_not_patched when version_has_known_cve is true AND days_since_last_patch exceeds 30. A high value in combination with known CVEs directly represents an exploitable window for T1190 (Exploit Public-Facing Application) and T1195.001 (Compromise Software Dependencies). Even without known CVEs, repositories unpatched for extended periods are likely missing security hardening updates to dependency resolution engines and metadata parsers.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve the artifact repository container image's creation timestamp or the package installation date to calculate days since last patch.",
+        "command": "docker inspect <artifactory-container-name> --format '{{.Created}}' | xargs -I{} bash -c 'echo \"Image created: {}\"; echo \"Days since: $(( ($(date +%s) - $(date -d \"{}\" +%s)) / 86400 ))\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Container creation timestamp and calculated days elapsed; a value over 30 in combination with known CVEs triggers the policy."
+      },
+      {
+        "type": "command",
+        "instruction": "For package-manager-installed Nexus or Artifactory, retrieve the installation or last-upgrade date from the package manager history.",
+        "command": "rpm -qi artifactory 2>/dev/null | grep 'Install Date' || dpkg -l artifactory 2>/dev/null | awk 'NR>2 {print $3}' || yum history list artifactory 2>/dev/null | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Installation date string; calculate difference from today: echo $(( ($(date +%s) - $(date -d '<install-date>' +%s)) / 86400 ))"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory system information endpoint to retrieve the version and cross-reference the release date with JFrog's release notes to calculate patch age.",
+        "command": "curl -s -u admin:password https://<artifactory-host>/artifactory/api/system/version | jq -r '.version' | xargs -I{} bash -c 'echo \"Installed version: {}\"; echo \"Check release date at: https://jfrog.com/help/r/jfrog-release-information/artifactory-release-notes\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Installed version string; release date lookup on vendor site provides the reference date for calculating days_since_last_patch."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check container image labels or the application's VERSION file for build or release timestamps embedded in the deployment artifact.",
+        "command": "docker inspect <repo-container> --format '{{json .Config.Labels}}' | jq '{build_date: .\"build-date\", version: .\"version\", created: .\"org.opencontainers.image.created\"}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "OCI image labels including 'org.opencontainers.image.created' timestamp or 'build-date' label from which days elapsed can be computed."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "7",
+      "30",
+      "90",
+      "180",
+      "365"
+    ]
+  },
+  {
+    "option_name": "patch_available",
+    "option_description": "Indicates whether the software vendor has published a patched release of the artifact repository software that addresses the specific CVEs present in the currently installed version. A true value means remediation is available and failure to apply constitutes an unacceptable risk.",
+    "security_impact": "The Rego policy fires repository_software_not_patched specifically when version_has_known_cve is true AND patch_available is true. This combination represents the most actionable and indefensible risk state: known vulnerabilities exist, a fix is available, and it has not been applied. This directly enables T1190 (Exploit Public-Facing Application) and T1195.001 (Compromise Software Dependencies), where attackers can exploit published PoC exploits for CVEs that the vendor has already patched in newer releases.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the JFrog releases API or Sonatype release feed to determine whether a version newer than the installed one exists that addresses known CVEs.",
+        "command": "INSTALLED=$(curl -s -u admin:password https://<artifactory-host>/artifactory/api/system/version | jq -r '.version'); curl -s https://api.github.com/repos/jfrog/artifactory-oss/releases/latest | jq -r '.tag_name' | xargs -I{} bash -c 'echo \"Installed: $INSTALLED\"; echo \"Latest: {}\"; [ \"$INSTALLED\" != \"{}\" ] && echo \"Patch available: true\" || echo \"Patch available: false\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Comparison of installed version against latest release version; a mismatch where latest is newer indicates patch_available is true."
+      },
+      {
+        "type": "gui",
+        "instruction": "Visit the vendor's official release notes and security advisory pages to confirm whether a version addressing the identified CVEs has been released.",
+        "command": null,
+        "file_path": null,
+        "navigation": "JFrog Artifactory: https://jfrog.com/help/r/jfrog-release-information/artifactory-release-notes | Sonatype Nexus: https://help.sonatype.com/repomanager3/product-information/release-notes",
+        "expected_output": "Release notes entry for a version newer than installed that lists a security fix referencing the CVE IDs affecting the current installation."
+      },
+      {
+        "type": "command",
+        "instruction": "Check the CVE entry in the NVD for the identified CVE to confirm whether the vendor has issued a fix and what version resolves it.",
+        "command": "curl -s \"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=<CVE-ID>\" | jq '.vulnerabilities[].cve.configurations[].nodes[].cpeMatch[] | select(.vulnerable==false) | .versionEndIncluding'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Version string representing the fixed version (versionEndIncluding or versionStartIncluding with vulnerable=false); if the installed version is lower, patch_available is true."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review the organization's patch management tracking system or ITSM tool (e.g., ServiceNow, Jira) to determine whether a patch ticket exists for the artifact repository, its current status, and whether the vendor has been confirmed to have released a fix.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Open or resolved patch ticket referencing the specific CVEs with vendor confirmation that a patched version is available for installation."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "network_exposure_scope",
+    "option_description": "Identifies the network segment on which the artifact repository admin interface and artifact API are reachable — public internet, a flat internal network with broad host visibility, or a properly segmented/private network zone accessible only to authorized hosts.",
+    "security_impact": "The Rego policy fires 'Network Exposure Without Segmentation' when network_exposure_scope is 'public_internet' or 'flat_internal' and neither ip_allowlist_enforced nor vpn_or_bastion_required is true. Public or flat exposure dramatically enlarges the attack surface for credential brute-forcing, CVE exploitation of the repository software itself, and unauthenticated artifact retrieval if anonymous access is misconfigured.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Attempt to reach the repository admin port (default 8081 for Nexus, 8080/8443 for Artifactory, 80/443 for Harbor) from an external IP or a host in a different network segment using curl or nmap.",
+        "command": "nmap -sV -p 8080,8081,8443,443 <repository-hostname-or-ip> && curl -o /dev/null -s -w '%{http_code}' https://<repository-hostname>/api/v1/status",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "If ports are closed or filtered from public IPs and unrelated internal subnets, scope is 'segmented_private'. Open and responsive from public IPs indicates 'public_internet'."
+      },
+      {
+        "type": "command",
+        "instruction": "Query cloud provider security groups or firewall rules to determine which source CIDRs can reach the repository ports.",
+        "command": "aws ec2 describe-security-groups --filters Name=group-id,Values=<sg-id> --query 'SecurityGroups[*].IpPermissions' --output json | jq '.[] | select(.FromPort <= 8080 and .ToPort >= 8080)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "IpRanges containing '0.0.0.0/0' indicates public_internet exposure. Broad RFC1918 ranges without subnet restriction indicate flat_internal."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration → Security → Network. In Harbor, navigate to Administration → Configuration → System Settings. Review any listed allowed IP ranges or proxy settings that indicate network placement.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Security → Network | Harbor: Administration → Configuration → System Settings | Nexus: Administration → System → Network",
+        "expected_output": "Presence of restricted CIDR allowlists or VPN-only notation indicates segmented_private; absence with broad access confirms flat_internal or public_internet."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review the reverse proxy (nginx/HAProxy/Traefik) configuration fronting the repository to identify upstream listener addresses and any source IP ACLs applied.",
+        "command": "grep -E 'allow|deny|listen|server_name|proxy_pass' /etc/nginx/sites-enabled/artifactory.conf",
+        "file_path": "/etc/nginx/sites-enabled/artifactory.conf",
+        "navigation": null,
+        "expected_output": "Lines with 'allow 0.0.0.0/0' or no 'allow'/'deny' directives indicate unrestricted exposure; explicit CIDR allow lists followed by 'deny all' indicate segmented access."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "public_internet",
+      "flat_internal",
+      "segmented_private"
+    ]
+  },
+  {
+    "option_name": "ip_allowlist_enforced",
+    "option_description": "Indicates whether an IP allowlist or CIDR-based restriction is actively configured and enforced on the repository admin interface and artifact API endpoints, ensuring only approved source addresses can connect.",
+    "security_impact": "The Rego rule 'Network Exposure Without Segmentation' requires that when network_exposure_scope is 'public_internet' or 'flat_internal', at least one of ip_allowlist_enforced or vpn_or_bastion_required must be true to avoid triggering. Without an IP allowlist on a publicly or broadly reachable repository, any internet host can attempt authentication, exploit unpatched CVEs, or abuse misconfigured anonymous access. Default is false, meaning allowlisting must be explicitly verified.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration → Security → Network and inspect the 'Allowed IP Ranges' field. In Nexus Repository Manager, navigate to Administration → System → Network and check 'HTTP Request Settings' for IP filtering. In Harbor, check Administration → Configuration → Allowlist.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Security → Network → Allowed IP Ranges | Nexus: Administration → System → Network | Harbor: Administration → Configuration",
+        "expected_output": "A populated list of CIDRs with a default-deny posture confirms ip_allowlist_enforced = true; an empty field or 'all' indicates false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory REST API for the current network configuration and inspect the allowedIPRanges field.",
+        "command": "curl -s -u admin:<password> https://<artifactory-host>/artifactory/api/system/configuration | xmllint --xpath '//security/accessClientConfig/allowedOrigins/text()' -",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Populated CIDR values indicate enforcement is configured. Empty output indicates no IP restriction."
+      },
+      {
+        "type": "command",
+        "instruction": "Check cloud provider security group or WAF rules to determine if source IP restrictions are applied at the infrastructure layer independent of the application.",
+        "command": "aws wafv2 get-web-acl --name <waf-acl-name> --scope REGIONAL --id <acl-id> | jq '.WebACL.Rules[] | select(.Name | test(\"ip-allowlist\"))'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A matching WAF rule with an IPSet condition referencing specific CIDRs confirms network-layer enforcement even if app-level config is absent."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect firewall or reverse-proxy configuration files for explicit source IP restrictions applied to repository ports.",
+        "command": "grep -E '^(allow|deny|acl|RequireIPs)' /etc/nginx/conf.d/nexus.conf /etc/haproxy/haproxy.cfg 2>/dev/null",
+        "file_path": "/etc/nginx/conf.d/nexus.conf",
+        "navigation": null,
+        "expected_output": "Lines such as 'allow 10.0.0.0/8; deny all;' confirm ip_allowlist_enforced = true. Only 'allow all' or no directives confirms false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "vpn_or_bastion_required",
+    "option_description": "Indicates whether all access to the artifact repository admin interface and artifact API is routed through a VPN tunnel or bastion/jump host, preventing any direct network path from external or flat-network hosts to the repository.",
+    "security_impact": "The Rego 'Network Exposure Without Segmentation' rule checks that when the repository is on 'public_internet' or 'flat_internal' segments, either ip_allowlist_enforced or vpn_or_bastion_required is true. A VPN or bastion requirement means even if the repository software has an exploitable vulnerability, attackers without VPN credentials cannot reach it. Default is false, so this must be actively confirmed through topology review.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Disconnect from the corporate VPN and attempt to reach the repository admin interface and API from an external network. A successful connection without VPN indicates vpn_or_bastion_required = false.",
+        "command": "curl -v --max-time 10 https://<repository-host>/api/v1/status 2>&1 | grep -E 'Connected|refused|timed out|SSL'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection timeout or TCP RST when off-VPN confirms vpn_or_bastion_required = true. Successful TLS handshake from external network indicates false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform or network engineering team to confirm whether the repository DNS name resolves to a private IP only accessible via VPN, or whether a split-horizon DNS forces VPN-only resolution.",
+        "command": "dig +short <repository-hostname> && dig +short <repository-hostname> @8.8.8.8",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Internal DNS resolves to RFC1918 address while public DNS returns NXDOMAIN or no answer, confirming VPN-only reachability."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review VPN gateway or zero-trust network access (ZTNA) policy configuration to confirm the repository CIDR or hostname is in the protected resource list.",
+        "command": "grep -r '<repository-hostname\\|repository-cidr>' /etc/wireguard/ /etc/openvpn/ /etc/strongswan/ 2>/dev/null",
+        "file_path": "/etc/wireguard/wg0.conf",
+        "navigation": null,
+        "expected_output": "Repository IP or hostname present in AllowedIPs or protected resource policy confirms VPN routing is enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the cloud provider's VPC routing tables and internet gateway associations to confirm whether the repository subnet has a direct internet route or only routes to a transit/VPN gateway.",
+        "command": "aws ec2 describe-route-tables --filters Name=association.subnet-id,Values=<repo-subnet-id> --query 'RouteTables[*].Routes[?GatewayId!=`local`]' --output json",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Routes pointing to a VGW or TGW (vpn/transit gateway) instead of an IGW (internet gateway) confirm VPN-enforced access."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "repository_permission_scopes_count",
+    "option_description": "The total count of distinct permission scopes, roles, or access control groups defined across all artifact repositories. A value of 1 means a single permission scope governs all repositories regardless of their sensitivity level.",
+    "security_impact": "The Rego rule 'Inadequate Repository Permission Segmentation' triggers when repository_permission_scopes_count equals 1 and sensitivity_tiers_represented has more than one entry. A single permission scope means a developer with access to a low-sensitivity dev repository inherits the same rights over production release artifacts, enabling lateral privilege abuse or accidental overwrites of release artifacts. Default is 1, representing the most common misconfiguration.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory REST API to enumerate all defined permission targets and count distinct scopes.",
+        "command": "curl -s -u admin:<password> https://<artifactory-host>/artifactory/api/v2/security/permissions | jq '[.[] | .name] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer representing the total number of permission targets. A value of 1 indicates a single shared scope."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Nexus Repository Manager, navigate to Administration → Security → Roles to count distinct repository-scoped roles. In Artifactory, navigate to Administration → Security → Permissions. In Harbor, navigate to Administration → Projects and review each project's member roles.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Security → Permissions | Nexus: Administration → Security → Roles | Harbor: Administration → Projects → Members",
+        "expected_output": "A list of permission groups. Count the distinct repository-scoped groups; multiple groups named by repository type (release, dev, proxy) confirm segmentation."
+      },
+      {
+        "type": "command",
+        "instruction": "For Nexus, query the REST API to list all roles and count those with repository-specific privilege assignments.",
+        "command": "curl -s -u admin:<password> http://<nexus-host>:8081/service/rest/v1/security/roles | jq '[.[] | select(.privileges[]? | test(\"repository\"))] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer output. Values greater than 1 indicate multiple scoped roles. A value of 1 indicates a single role covering all repositories."
+      },
+      {
+        "type": "config_file",
+        "instruction": "If using Nexus with external config export or Artifactory with configuration-as-code (YAML backup), inspect the exported permissions/roles configuration file.",
+        "command": "curl -s -u admin:<password> https://<artifactory-host>/artifactory/api/system/configuration | xmllint --xpath 'count(//permissions/permission)' -",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Integer count of permission elements. Count of 1 confirms a single global permission scope."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "1",
+      "2",
+      "3",
+      "5"
+    ]
+  },
+  {
+    "option_name": "sensitivity_tiers_represented",
+    "option_description": "The list of sensitivity classifications assigned to the artifact repositories in use, such as 'release', 'internal-dev', 'third-party-proxy', or 'staging'. Used to determine whether multiple sensitivity tiers coexist that warrant distinct permission scopes.",
+    "security_impact": "The Rego rule 'Inadequate Repository Permission Segmentation' evaluates whether count(sensitivity_tiers_represented) > 1, and if so, requires that repository_permission_scopes_count is not 1 and cross_tier_write_access_permitted is false. When multiple tiers exist — for example both 'release' and 'internal-dev' — but share a single permission scope, a compromised developer credential gains write access to production release artifacts, enabling silent artifact replacement attacks.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Navigate to the repository list in the artifact manager (Artifactory: Administration → Repositories → Repositories; Nexus: Administration → Repository → Repositories; Harbor: Projects list). Review repository names, descriptions, and tags to classify each by sensitivity tier.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Repositories → Repositories | Nexus: Administration → Repository → Repositories | Harbor: Projects (main navigation)",
+        "expected_output": "A list of repositories with names or labels indicating their purpose, e.g., 'libs-release-local', 'libs-snapshot-local', 'pypi-proxy', 'helm-staging'. Classify each into tiers: release, internal-dev, third-party-proxy, staging."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory repository list API and group results by repository type (local, remote, virtual) and package type to derive sensitivity tiers.",
+        "command": "curl -s -u admin:<password> https://<artifactory-host>/artifactory/api/repositories | jq 'group_by(.type) | map({type: .[0].type, repos: [.[].key]})'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON grouped by local (internal), remote (proxy), and virtual (aggregated) types. Presence of both local release repos and remote proxy repos indicates multiple sensitivity tiers."
+      },
+      {
+        "type": "command",
+        "instruction": "For Nexus, query the repository list API and extract repository names and formats to classify tiers.",
+        "command": "curl -s -u admin:<password> http://<nexus-host>:8081/service/rest/v1/repositories | jq '[.[] | {name: .name, format: .format, type: .type}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Array of repositories with format (maven2, npm, pypi) and type (hosted, proxy, group). Hosted repositories typically represent internal/release tiers; proxy repositories represent third-party-proxy tier."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the DevOps or platform engineering team and request the repository inventory documentation showing each repository's intended purpose and sensitivity classification.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented inventory classifying each repository. The set of unique sensitivity classes present constitutes the sensitivity_tiers_represented value."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "[\"release\"]",
+      "[\"release\", \"internal-dev\"]",
+      "[\"release\", \"internal-dev\", \"third-party-proxy\", \"staging\"]"
+    ]
+  },
+  {
+    "option_name": "cross_tier_write_access_permitted",
+    "option_description": "Indicates whether any user, role, or service account that holds write permissions on a lower-sensitivity repository (e.g., internal-dev, staging) also holds write permissions on a higher-sensitivity repository (e.g., release) under the same or overlapping permission scope.",
+    "security_impact": "The Rego 'Inadequate Repository Permission Segmentation' rule triggers when cross_tier_write_access_permitted is true and multiple sensitivity tiers exist. Cross-tier write access means a compromised developer account or CI token can overwrite production release artifacts without requiring escalation, enabling silent supply chain poisoning. This is the most direct path to artifact injection attacks in multi-tier repository environments.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "For Artifactory, list all permission targets and check if any single group has deploy (write) privileges on both release-local and dev/snapshot-local repositories.",
+        "command": "curl -s -u admin:<password> https://<artifactory-host>/artifactory/api/v2/security/permissions | jq '.[] | select(.repositories[]? | test(\"release\")) | select(.repositories[]? | test(\"snapshot|dev\")) | .name'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-empty output (permission target names) indicates a single permission scope grants write to both release and dev repositories, confirming cross_tier_write_access_permitted = true."
+      },
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration → Security → Permissions. For each permission target, inspect the repositories listed and the privileges (Deploy, Delete) granted. Check whether any group appears with write access across both release and snapshot/dev repositories.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Security → Permissions → [select each permission] → Repositories tab",
+        "expected_output": "If any permission target shows both 'libs-release-local' and 'libs-snapshot-local' in its repository list with Deploy privilege, cross_tier_write_access_permitted = true."
+      },
+      {
+        "type": "command",
+        "instruction": "For Nexus, query the REST API to retrieve all role privilege assignments and identify roles that have 'nx-repository-view-*-add' or 'nx-repository-view-*-edit' on both hosted-release and hosted-snapshot repositories.",
+        "command": "curl -s -u admin:<password> http://<nexus-host>:8081/service/rest/v1/security/roles | jq '[.[] | select(.privileges | map(test(\"release\")) | any) | select(.privileges | map(test(\"snapshot\")) | any) | .id]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Array of role IDs with cross-tier write privileges. Empty array confirms cross_tier_write_access_permitted = false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request a user-to-repository permission matrix from the platform team and verify whether any CI/CD service accounts or developer roles are listed with write access on both release and development repository columns.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Matrix showing no overlap between write-access principals on release vs. dev tiers confirms cross_tier_write_access_permitted = false. Any overlap confirms true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "checksum_validation_enabled",
+    "option_description": "Controls whether the proxy cache repository validates artifact checksums (SHA-256, MD5) against the upstream registry's published checksum values before caching and serving the artifact to internal clients.",
+    "security_impact": "The Rego rule 'Checksum Validation Disabled On Proxy Cache' triggers when proxy_cache_enabled is true and checksum_validation_enabled is not true. Without checksum validation, a cached artifact could be silently corrupted in transit, replaced via a cache poisoning attack, or tampered with on the storage backend, and clients would receive the modified artifact without any integrity signal. This is particularly dangerous for binary distributions and Helm charts where digest-based verification is not inherent in the protocol.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration → Repositories → Remote Repositories, select each proxy repository, and under the 'Advanced' tab verify the 'Retrieve Checksums and Validate' option is enabled. In Nexus, navigate to Administration → Repository → Repositories, select a proxy repository, and confirm 'Content Validation' is set to 'Strict' under the 'Proxy' tab.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Repositories → Remote Repositories → [repo] → Advanced → Retrieve Checksums and Validate | Nexus: Administration → Repository → Repositories → [proxy repo] → Proxy → Content Validation",
+        "expected_output": "Checkbox enabled or dropdown set to 'Strict' confirms checksum_validation_enabled = true."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory REST API for a specific remote repository configuration and inspect the 'retrieveChecksumAndValidate' field.",
+        "command": "curl -s -u admin:<password> https://<artifactory-host>/artifactory/api/repositories/<remote-repo-key> | jq '{repo: .key, checksumValidation: .retrieveChecksumAndValidate}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'checksumValidation: true' confirms validation is enabled. 'false' or field absent confirms disabled."
+      },
+      {
+        "type": "api",
+        "instruction": "For Nexus Repository Manager, query the REST API for each proxy repository and inspect the remoteStorage contentMaxAge and negative cache settings that affect validation behavior, then check the validation attribute.",
+        "command": "curl -s -u admin:<password> http://<nexus-host>:8081/service/rest/v1/repositories/<repo-name> | jq '{name: .name, format: .format, strictContentValidation: .storage.strictContentTypeValidation}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'strictContentValidation: true' indicates content validation is active for cached proxy artifacts."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Nexus installations with a config export, inspect the repository XML configuration for the proxy repository's checksum policy attribute.",
+        "command": "find /opt/sonatype-work/nexus3/etc -name '*.json' | xargs grep -l 'checksumPolicy\\|strictContentTypeValidation' | head -5",
+        "file_path": "/opt/sonatype-work/nexus3/etc/fabric/nexus-store.properties",
+        "navigation": null,
+        "expected_output": "JSON or properties file containing 'checksumPolicy: STRICT' or 'strictContentTypeValidation: true' confirms validation is enabled."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "proxy_cache_enabled",
+    "option_description": "Indicates whether the repository is configured as a proxy, remote, or virtual/group repository type that fetches and caches artifacts from an upstream external registry, as opposed to a pure local hosted repository.",
+    "security_impact": "The Rego rule 'Checksum Validation Disabled On Proxy Cache' only evaluates checksum validation when proxy_cache_enabled is true, because proxy caching introduces a distinct integrity attack surface. When this is true, the repository acts as a trust intermediary — artifacts flow from external registries through the cache to internal consumers. This intermediary position creates risk of dependency confusion, cache poisoning, and serving of tampered artifacts if checksum validation and proxy allow lists are not independently enforced. A proxy repository set to 'public_first' resolution order is also the precondition for the 'Dependency Confusion Via Proxy Routing' exposure.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration → Repositories and check the 'Type' column. Repositories listed as 'Remote' or 'Virtual' with remote members are proxy caches. In Nexus, navigate to Administration → Repository → Repositories and check the 'Type' column for 'proxy' or 'group' entries.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration → Repositories → Repositories → Type column (Remote = proxy cache) | Nexus: Administration → Repository → Repositories → Type column (proxy = proxy cache)",
+        "expected_output": "Repositories of type 'Remote' (Artifactory) or 'proxy' (Nexus) confirm proxy_cache_enabled = true. 'Local' or 'hosted' only repositories confirm false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory API to list all repositories and filter for type 'REMOTE', which represents proxy cache configurations.",
+        "command": "curl -s -u admin:<password> https://<artifactory-host>/artifactory/api/repositories?type=remote | jq '[.[] | {key: .key, type: .type, url: .url}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array of remote repositories. Non-empty array confirms at least one proxy cache is active. Empty array means no proxy repositories are configured."
+      },
+      {
+        "type": "command",
+        "instruction": "For Nexus, query the REST API and filter for repositories of type 'proxy' to identify all active proxy cache repositories.",
+        "command": "curl -s -u admin:<password> http://<nexus-host>:8081/service/rest/v1/repositories | jq '[.[] | select(.type == \"proxy\") | {name: .name, format: .format, url: .url}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Array of proxy-type repositories with their upstream URLs. Presence of entries confirms proxy_cache_enabled = true for those repositories."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Harbor, inspect the registry configuration files for proxy cache project settings, which are configured at the project level with a 'proxy cache' flag.",
+        "command": "curl -s -u admin:<password> https://<harbor-host>/api/v2.0/projects?page_size=50 | jq '[.[] | select(.registry_id != null) | {name: .name, registry_id: .registry_id}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Projects with a non-null registry_id are proxy cache projects in Harbor, confirming proxy_cache_enabled = true for those projects."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "cleanup_policies_configured",
+    "option_description": "Controls whether artifact retention or cleanup policies are defined and active for the repository, governing automatic removal of stale, outdated, or deprecated artifact versions based on age, count, or last-downloaded criteria.",
+    "security_impact": "The Rego policy flags 'excessive_retention_without_cleanup_policies' when cleanup_policies_configured is false, meaning unbounded accumulation of old artifact versions — including those with known vulnerabilities — remains accessible to build pipelines. Stale artifacts may be silently re-consumed by CI/CD jobs without security review, and excessive retention can also obscure malicious artifacts hidden among legitimate historical versions.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Nexus Repository Manager, navigate to Administration > Repository > Cleanup Policies and verify that at least one policy exists and is assigned to the target repository. In Artifactory, go to Administration > Artifact Cleanup and check for configured rules. In Harbor, navigate to the project, select Tag Retention, and verify rules are defined and enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Nexus: Administration > Repository > Cleanup Policies | Artifactory: Administration > Artifact Cleanup | Harbor: Project > Tag Retention",
+        "expected_output": "At least one active cleanup or retention policy visible and assigned to the repository"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Nexus REST API to list all cleanup policies and verify one is attached to the target repository.",
+        "command": "curl -s -u admin:password https://<nexus-host>/service/rest/v1/cleanup-policies | jq '.items[] | {name, notes, criteria}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON array with at least one cleanup policy entry showing criteria such as lastBlobUpdated or lastDownloaded thresholds"
+      },
+      {
+        "type": "api",
+        "instruction": "Query Artifactory to retrieve artifact cleanup policy configuration via the API.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://<artifactory-host>/artifactory/api/system/configuration' | grep -A 10 'cleanup'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Configuration block showing defined cleanup job schedules and criteria"
+      },
+      {
+        "type": "config_file",
+        "instruction": "For self-hosted Nexus, inspect the nexus configuration database or exported repository configuration YAML for cleanup policy assignments.",
+        "command": "grep -r 'cleanupPolicies' /nexus-data/etc/ /nexus-data/db/ 2>/dev/null",
+        "file_path": "/nexus-data/etc/nexus.properties",
+        "navigation": null,
+        "expected_output": "References to at least one named cleanup policy linked to repository definitions"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (commonly unconfigured in dev/staging environments)",
+      "true (expected in mature production deployments with defined retention SLAs)"
+    ]
+  },
+  {
+    "option_name": "oldest_artifact_age_days",
+    "option_description": "Represents the age in days of the oldest artifact version currently retained in the repository, computed from the artifact's creation or upload timestamp to the current date. Indicates how long artifacts accumulate without removal when no retention policy exists.",
+    "security_impact": "The Rego policy for 'excessive_retention_without_cleanup_policies' escalates concern when cleanup_policies_configured is false AND oldest_artifact_age_days exceeds 365, confirming that artifacts are accumulating over extended periods. Artifacts older than one year are likely vulnerable versions, obsolete dependencies, or forgotten binaries that build pipelines could inadvertently consume, increasing supply chain risk.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the Nexus REST API to find the oldest artifact in the repository by sorting components by creation date and returning the earliest timestamp.",
+        "command": "curl -s -u admin:password 'https://<nexus-host>/service/rest/v1/search?repository=<repo-name>&sort=version&direction=asc&limit=1' | jq '.items[0].assets[0].lastModified'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ISO 8601 timestamp of the oldest artifact; compute difference from current date to get age in days"
+      },
+      {
+        "type": "command",
+        "instruction": "Use the Artifactory REST API to search for the artifact with the earliest created date and compute age from today.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://<artifactory-host>/artifactory/api/search/creation?from=0&repos=<repo-name>' | jq '.results | sort_by(.created) | .[0].created'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Epoch millisecond or ISO timestamp of the oldest artifact in the repository"
+      },
+      {
+        "type": "command",
+        "instruction": "For Harbor, use the Harbor API to list all tags across all repositories within a project, sorted by push time, to identify the oldest artifact.",
+        "command": "curl -s -u admin:password 'https://<harbor-host>/api/v2.0/projects/<project>/repositories' | jq '.[].name' | xargs -I{} curl -s -u admin:password 'https://<harbor-host>/api/v2.0/projects/<project>/repositories/{}/artifacts?sort=push_time&page_size=1' | jq '.[0].push_time'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Push time of the oldest artifact; compare to today's date using: echo $(( ($(date +%s) - $(date -d '<push_time>' +%s)) / 86400 )) days"
+      },
+      {
+        "type": "gui",
+        "instruction": "In Nexus, browse the repository via Administration > Repositories > Browse, sort by Created date ascending, and note the timestamp of the first entry. In Artifactory, use the Artifacts panel with a search sorted by Created date. Compute the difference manually or with a date calculator.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Nexus: Browse > <repository> > Sort by Created ASC | Artifactory: Artifacts > Search > Sort by Created ASC",
+        "expected_output": "Oldest artifact creation date visible at the top of the sorted artifact list"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "30-180 (actively managed repositories with cleanup policies)",
+      "365-2000+ (unmanaged repositories without retention policies)",
+      "0 (newly created or recently purged repository)"
+    ]
+  },
+  {
+    "option_name": "cert_expiry_monitoring_enabled",
+    "option_description": "Controls whether automated monitoring or alerting is configured to track TLS certificate expiry for repository HTTPS endpoints, ensuring timely renewal before certificates expire and cause service disruption or insecure client fallback.",
+    "security_impact": "The Rego policy 'tls_certificate_expiry_not_monitored' triggers when cert_expiry_monitoring_enabled is false AND either the certificate expires within 30 days OR client TLS verification is disabled. Without monitoring, an expired certificate goes undetected until clients begin failing or — worse — silently falling back to insecure modes such as insecureSkipTLSVerify, exposing artifact downloads to interception and tampering in transit.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the operations or platform engineering team to determine whether a certificate monitoring tool (e.g., Prometheus blackbox_exporter, Datadog TLS check, Nagios ssl_cert plugin, or Grafana alerting) is configured with probes targeting repository HTTPS endpoints.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation of a named monitoring tool with an active probe configured against the repository HTTPS URL, including an alert threshold (e.g., alert when <30 days remain)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Prometheus blackbox exporter configuration to verify an HTTPS probe targets the repository endpoint with TLS expiry checking enabled.",
+        "command": "grep -A 5 'https' /etc/prometheus/blackbox.yml && grep '<repository-host>' /etc/prometheus/prometheus.yml",
+        "file_path": "/etc/prometheus/blackbox.yml",
+        "navigation": null,
+        "expected_output": "A module entry with 'prober: http' and 'tls_config' targeting the repository hostname, plus a scrape config referencing that module"
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether a cron job or monitoring script is scheduled to test certificate expiry for the repository endpoint.",
+        "command": "crontab -l | grep -i 'ssl\\|cert\\|tls\\|openssl' ; grep -r '<repository-host>' /etc/cron* /var/spool/cron/ 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A scheduled cron entry invoking an ssl_cert check script against the repository hostname"
+      },
+      {
+        "type": "api",
+        "instruction": "Check Datadog, PagerDuty, or alerting platform APIs for synthetic monitors or checks targeting the repository HTTPS endpoint for TLS validity.",
+        "command": "curl -s -H 'DD-API-KEY: <key>' -H 'DD-APPLICATION-KEY: <appkey>' 'https://api.datadoghq.com/api/v1/synthetics/tests' | jq '.tests[] | select(.config.request.url | contains(\"<repository-host>\")) | {name, status, type}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A synthetic test of type 'ssl' or 'api' targeting the repository URL with an active status and alert configured"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in self-hosted or legacy deployments without dedicated monitoring infrastructure)",
+      "true (expected in environments with Prometheus, Datadog, or Nagios managing infrastructure certificates)"
+    ]
+  },
+  {
+    "option_name": "days_until_cert_expiry",
+    "option_description": "Represents the number of days remaining before the TLS certificate serving the repository HTTPS endpoint expires. A value of 0 indicates the certificate is already expired, meaning clients will receive certificate errors and may fall back to insecure behavior.",
+    "security_impact": "The Rego policy 'tls_certificate_expiry_not_monitored' triggers when days_until_cert_expiry is 30 or fewer and cert_expiry_monitoring_enabled is false, identifying the compounded risk of imminent expiry with no automated alerting. An expired certificate can cause clients configured with insecureSkipTLSVerify or ssl_verify=false to silently bypass TLS validation entirely, enabling man-in-the-middle interception of artifact downloads.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use openssl to connect to the repository HTTPS endpoint and extract the certificate expiry date, then compute the number of days remaining.",
+        "command": "echo | openssl s_client -connect <repository-host>:443 -servername <repository-host> 2>/dev/null | openssl x509 -noout -dates && echo \"Days remaining: $(( ($(date -d \"$(echo | openssl s_client -connect <repository-host>:443 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2)\" +%s) - $(date +%s)) / 86400 ))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "notAfter field showing expiry date, followed by computed days remaining as a positive integer (or 0 if expired)"
+      },
+      {
+        "type": "command",
+        "instruction": "Use curl to retrieve and display TLS certificate validity information for the repository endpoint.",
+        "command": "curl -vI --max-time 10 https://<repository-host>/ 2>&1 | grep -E 'expire|SSL|certificate|issuer|subject'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines showing SSL certificate subject, issuer, and expiry date in the curl verbose output"
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap with SSL scripts to enumerate certificate expiry details from the repository HTTPS port.",
+        "command": "nmap --script ssl-cert -p 443 <repository-host> | grep -E 'not valid after|subject|issuer'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'not valid after' field showing the certificate expiry date; compute days from today manually or with date arithmetic"
+      },
+      {
+        "type": "api",
+        "instruction": "If using cert-manager in Kubernetes to manage the repository TLS certificate, query the certificate resource for its expiry status.",
+        "command": "kubectl get certificate -n <namespace> <cert-name> -o jsonpath='{.status.notAfter}' && kubectl get certificaterequest -n <namespace> -o wide",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ISO 8601 notAfter timestamp from the certificate status; compute remaining days with date arithmetic"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "365 (certificates issued with standard 1-year validity, recently renewed)",
+      "30-90 (certificates approaching renewal window)",
+      "0 (expired certificate — immediate remediation required)",
+      "730 (2-year certificates common with some internal CAs)"
+    ]
+  },
+  {
+    "option_name": "client_tls_verification_disabled",
+    "option_description": "Indicates whether any repository client configurations — such as Helm, pip, conda, Maven, npm, or artifact downloader scripts — have TLS certificate verification explicitly disabled, allowing those clients to connect to the repository even when its certificate is invalid, expired, or self-signed.",
+    "security_impact": "The Rego policy 'tls_certificate_expiry_not_monitored' triggers when client_tls_verification_disabled is true and cert_expiry_monitoring_enabled is false. Disabling TLS verification means clients cannot detect certificate substitution by a man-in-the-middle attacker, enabling interception and modification of artifact payloads in transit without any client-visible error. This is particularly dangerous in CI/CD pipelines where build tools pull dependencies automatically.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect Helm repository configuration files for insecureSkipTLSVerify flags, pip configuration for ssl_verify settings, and conda configuration for ssl_verify options across pipeline agent home directories and CI/CD runner environments.",
+        "command": "grep -r 'insecureSkipTLSVerify\\|ssl_verify\\s*=\\s*false\\|verify_ssl\\s*=\\s*false\\|--insecure' /home /etc /root /opt /var/lib/jenkins /var/lib/gitlab-runner 2>/dev/null | grep -v '.pyc'",
+        "file_path": "~/.config/helm/repositories.yaml, ~/.pip/pip.conf, ~/.condarc, /etc/pip.conf",
+        "navigation": null,
+        "expected_output": "Any match indicates TLS verification is disabled; no output means verification is likely enabled across client configurations"
+      },
+      {
+        "type": "command",
+        "instruction": "Search CI/CD pipeline definition files (GitLab CI, GitHub Actions, Jenkinsfiles) for flags that disable TLS verification in artifact download or Helm commands.",
+        "command": "grep -rE '\\-\\-insecure|ssl.verify.*false|CURL_CA_BUNDLE.*\"\"\\s*|GIT_SSL_NO_VERIFY|NODE_TLS_REJECT_UNAUTHORIZED.*0' .gitlab-ci.yml .github/ Jenkinsfile pipeline/ ci/ 2>/dev/null",
+        "file_path": ".gitlab-ci.yml, .github/workflows/*.yml, Jenkinsfile",
+        "navigation": null,
+        "expected_output": "Any matching line confirms TLS verification is suppressed in pipeline artifact operations"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Maven settings.xml and Gradle build files for properties that disable SSL hostname verification when connecting to artifact repositories.",
+        "command": "grep -r 'ssl\\|tls\\|verify\\|insecure\\|trust' ~/.m2/settings.xml /etc/maven/ build.gradle gradle.properties 2>/dev/null",
+        "file_path": "~/.m2/settings.xml, build.gradle, gradle.properties",
+        "navigation": null,
+        "expected_output": "Entries such as <checkLatestSnapshots>false</checkLatestSnapshots> or custom SSLContext disabling validation"
+      },
+      {
+        "type": "command",
+        "instruction": "Audit npm configuration for strict-ssl disabled flags across user and project-level .npmrc files.",
+        "command": "find /home /root /opt /var/lib -name '.npmrc' 2>/dev/null | xargs grep -l 'strict-ssl\\s*=\\s*false' 2>/dev/null",
+        "file_path": "~/.npmrc, /project/.npmrc",
+        "navigation": null,
+        "expected_output": "File paths where strict-ssl=false is configured, confirming TLS verification is disabled for npm artifact operations"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (expected secure default — TLS verification enabled)",
+      "true (common workaround for self-signed certs in dev/staging environments, dangerously propagated to production)"
+    ]
+  },
+  {
+    "option_name": "backup_enabled",
+    "option_description": "Controls whether automated backups are configured for the artifact repository storage layer, including scheduled snapshots of artifact blobs and metadata, storage volume replication, or backup jobs that produce recoverable copies of repository data.",
+    "security_impact": "The Rego policy 'backup_and_recovery_not_configured' triggers immediately when backup_enabled is false, representing a single point of failure where ransomware encryption, accidental deletion, or storage hardware failure results in permanent loss of all build artifacts. Without backups, software delivery pipelines cannot be restored and release artifacts needed for rollback operations are unrecoverable, directly supporting the adversarial goal of inhibiting system recovery (MITRE T1490).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Nexus Repository Manager, navigate to Administration > System > Tasks and look for tasks of type 'Export databases for backup' or 'Backup blob store'. Verify the task is enabled and has a scheduled cron expression. In Artifactory, navigate to Administration > General > Backups and confirm at least one backup configuration is active with a defined schedule.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Nexus: Administration > System > Tasks | Artifactory: Administration > General > Backups",
+        "expected_output": "An active scheduled backup task with a valid cron expression and an enabled status indicator"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Nexus REST API to list all scheduled tasks and filter for backup-related tasks.",
+        "command": "curl -s -u admin:password https://<nexus-host>/service/rest/v1/tasks | jq '.items[] | select(.type | test(\"backup|export\"; \"i\")) | {id, name, type, enabled, nextRun}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON entries showing backup tasks with 'enabled: true' and a nextRun timestamp in the future"
+      },
+      {
+        "type": "command",
+        "instruction": "Check for backup-related cron jobs or systemd timers on the host running the artifact repository that invoke snapshot, rsync, or cloud storage backup operations.",
+        "command": "crontab -l 2>/dev/null | grep -iE 'backup|snapshot|rsync|aws s3|gsutil|azcopy'; systemctl list-timers | grep -iE 'backup|snapshot'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active cron or systemd timer entries invoking a backup mechanism for repository storage"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect Artifactory's system configuration file for backup definitions, or review Harbor's backup operator or Velero configuration if deployed on Kubernetes.",
+        "command": "cat /etc/artifactory/artifactory.config.import.xml | grep -A 10 '<backups>' ; kubectl get schedule -n <namespace> 2>/dev/null | grep -i 'harbor\\|artifact'",
+        "file_path": "/etc/artifactory/artifactory.config.import.xml, /var/opt/jfrog/artifactory/etc/artifactory.system.properties",
+        "navigation": null,
+        "expected_output": "A <backups> block with at least one enabled backup entry, or a Velero Schedule resource targeting the repository namespace"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in ephemeral dev environments or newly deployed repositories without operational runbooks)",
+      "true (required in production environments with defined RTO/RPO objectives)"
+    ]
+  },
+  {
+    "option_name": "backup_restoration_tested",
+    "option_description": "Indicates whether backup restoration from artifact repository backups has been successfully performed and validated within the current review period, confirming that backup data is intact, complete, and actually recoverable — not just that backup jobs are running.",
+    "security_impact": "The Rego policy 'backup_and_recovery_not_configured' triggers when backup_enabled is true but backup_restoration_tested is false, recognizing that an untested backup provides false confidence. In the event of ransomware (T1485 Data Destruction) or storage failure, a backup that has never been verified may fail to restore due to corruption, incomplete data, or incompatible repository versions, resulting in permanent loss of production artifacts and making recovery as ineffective as having no backup at all.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the operations or platform engineering team to determine whether a documented restore drill has been performed within the past review period (typically 90 days or the last quarter). Request evidence such as a change management ticket, disaster recovery test report, or runbook execution log.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A dated record (ticket, report, or runbook execution log) confirming a successful end-to-end restore from backup to a test environment, with validation that artifacts were accessible post-restore"
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review backup tool logs or restore operation logs for evidence of a test restore. Check Nexus backup task execution history, Artifactory backup logs, or cloud storage restore operations.",
+        "command": "grep -iE 'restore|recovered|recovery test|backup test' /var/log/nexus/*.log /var/log/artifactory/*.log /opt/sonatype/sonatype-work/nexus3/log/tasks/*.log 2>/dev/null | tail -50",
+        "file_path": "/var/log/nexus/nexus.log, /var/log/artifactory/artifactory.log",
+        "navigation": null,
+        "expected_output": "Log entries indicating a restore operation was performed, completed successfully, and artifacts were validated"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check for documented disaster recovery runbooks or restore procedure scripts in the team's operational documentation repository, and verify the last execution date recorded in the script or runbook.",
+        "command": "find /opt /etc /home -name '*restore*' -o -name '*recovery*' -o -name '*dr-test*' 2>/dev/null | xargs ls -la 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Script or documentation file with a modification date within the review period, indicating recent execution of a restore procedure"
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Review change management system (Jira, ServiceNow, PagerDuty post-mortems) for DR test tickets or restoration validation tasks associated with the artifact repository component.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Jira: Search for issues with labels 'DR-test', 'backup-validation', or 'restore-drill' associated with the repository project | ServiceNow: Search change records for artifact repository backup testing",
+        "expected_output": "A closed or resolved ticket with resolution notes confirming successful restoration test and artifact accessibility validation"
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (extremely common — backup jobs run but restoration is rarely tested in practice)",
+      "true (present in organizations with formal DR programs, SOC 2 or ISO 27001 compliance requirements)"
+    ]
+  },
+  {
+    "option_name": "backup_retention_days",
+    "option_description": "Specifies the number of days that backup copies of artifact repository data are retained before automatic deletion. A value of 0 indicates no retention policy is set, meaning backups may be overwritten immediately or retained indefinitely without lifecycle management.",
+    "security_impact": "The Rego policy 'backup_and_recovery_not_configured' triggers when backup_enabled is true but backup_retention_days equals 0, indicating that even though backup jobs run, no retention window is defined. Without a retention period, a ransomware attack (T1485) that encrypts repository data may corrupt all backup copies before the attack is detected, leaving no clean restore point. Conversely, indefinite retention without a policy wastes storage and may retain backup copies long enough to include artifacts with embedded secrets or deprecated vulnerable versions.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Artifactory, navigate to Administration > General > Backups and review the 'Retention Period (days)' field for each backup configuration. In Nexus, check the backup task configuration for retention parameters. In Harbor with Velero, check the Schedule resource TTL setting.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Artifactory: Administration > General > Backups > [Backup Name] > Retention Period | Nexus: Administration > System > Tasks > [Backup Task] > Task properties",
+        "expected_output": "A numeric retention value in days (e.g., 30, 60, 90); a value of 0 or blank indicates no retention policy is set"
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Artifactory system configuration API and extract backup retention settings.",
+        "command": "curl -s -H 'Authorization: Bearer <token>' 'https://<artifactory-host>/artifactory/api/system/configuration' | python3 -c \"import sys,re; c=sys.stdin.read(); print(re.findall(r'<retentionPeriodHours>(.*?)</retentionPeriodHours>', c))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Retention period in hours extracted from the system configuration; divide by 24 to convert to days (e.g., 720 hours = 30 days; 0 = no retention)"
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect cloud storage lifecycle policy configurations (AWS S3, GCS, Azure Blob) that govern backup object retention for the repository backup bucket.",
+        "command": "aws s3api get-bucket-lifecycle-configuration --bucket <backup-bucket-name> | jq '.Rules[] | {id: .ID, status: .Status, expiration: .Expiration}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A lifecycle rule with 'Status: Enabled' and an 'Expiration' block specifying 'Days' (e.g., 30); no rules or Days=0 confirms no retention policy"
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes-based deployments using Velero, inspect the Schedule resource TTL to determine backup retention duration.",
+        "command": "kubectl get schedule -n velero -o json | jq '.items[] | select(.metadata.name | test(\"artifact|nexus|harbor|jfrog\"; \"i\")) | {name: .metadata.name, ttl: .spec.template.ttl, schedule: .spec.schedule}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "TTL field showing the backup retention duration in Go duration format (e.g., '720h0m0s' = 30 days); empty or missing TTL indicates no retention limit is configured"
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (default — no retention policy defined, common in misconfigured environments)",
+      "30 (minimum recommended for incident detection window)",
+      "60-90 (typical enterprise standard aligned with audit and compliance requirements)",
+      "365 (extended retention for regulated industries with long-term artifact provenance requirements)"
+    ]
+  }
+]

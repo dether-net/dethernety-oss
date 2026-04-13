@@ -35,7 +35,8 @@ _overly_broad_access_controls_on_confidential_documents_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 overly_broad_access_controls_on_confidential_documents[_overly_broad_access_controls_on_confidential_documents_def] if {
@@ -64,7 +65,8 @@ _encryption_not_enforced_at_rest_for_confidential_documents_def := {
     "category": "physical_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 encryption_not_enforced_at_rest_for_confidential_documents[_encryption_not_enforced_at_rest_for_confidential_documents_def] if {
@@ -125,7 +127,8 @@ _inadequate_disposal_and_sanitization_procedures_def := {
     "category": "physical_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 inadequate_disposal_and_sanitization_procedures[_inadequate_disposal_and_sanitization_procedures_def] if {
@@ -175,7 +178,8 @@ _absence_of_anonymization_or_masking_in_shared_document_copies_def := {
     "category": "host_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 absence_of_anonymization_or_masking_in_shared_document_copies[_absence_of_anonymization_or_masking_in_shared_document_copies_def] if {

@@ -9,7 +9,8 @@ _default_or_weak_admin_credentials_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 default_or_weak_admin_credentials[_default_or_weak_admin_credentials_def] if {
@@ -32,7 +33,8 @@ _unauthenticated_or_guest_share_access_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 unauthenticated_or_guest_share_access[_unauthenticated_or_guest_share_access_def] if {
@@ -61,7 +63,8 @@ _unencrypted_data_at_rest_def := {
     "category": "physical_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 unencrypted_data_at_rest[_unencrypted_data_at_rest_def] if {
@@ -83,7 +86,8 @@ _unencrypted_backup_streams_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 unencrypted_backup_streams[_unencrypted_backup_streams_def] if {
@@ -112,7 +116,8 @@ _insecure_management_interface_exposure_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 insecure_management_interface_exposure[_insecure_management_interface_exposure_def] if {
@@ -139,7 +144,8 @@ _unpatched_firmware_and_os_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 unpatched_firmware_and_os[_unpatched_firmware_and_os_def] if {
@@ -162,7 +168,8 @@ _overly_permissive_share_acls_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 overly_permissive_share_acls[_overly_permissive_share_acls_def] if {
@@ -186,7 +193,8 @@ _insecure_legacy_protocol_enablement_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 insecure_legacy_protocol_enablement[_insecure_legacy_protocol_enablement_def] if {
@@ -224,7 +232,8 @@ _missing_or_disabled_audit_logging_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "UNSPECIFIED"
 }
 
 missing_or_disabled_audit_logging[_missing_or_disabled_audit_logging_def] if {
@@ -259,7 +268,8 @@ _snapshot_and_backup_misconfiguration_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "UNSPECIFIED"
 }
 
 snapshot_and_backup_misconfiguration[_snapshot_and_backup_misconfiguration_def] if {
@@ -287,7 +297,8 @@ _excessive_privileged_local_accounts_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "UNSPECIFIED"
 }
 
 excessive_privileged_local_accounts[_excessive_privileged_local_accounts_def] if {
@@ -313,7 +324,8 @@ _hardcoded_or_plaintext_stored_credentials_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 hardcoded_or_plaintext_stored_credentials[_hardcoded_or_plaintext_stored_credentials_def] if {
@@ -339,7 +351,8 @@ _unrestricted_nfs_exports_by_host_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 unrestricted_nfs_exports_by_host[_unrestricted_nfs_exports_by_host_def] if {
@@ -370,7 +383,8 @@ _missing_multi_factor_authentication_on_management_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 missing_multi_factor_authentication_on_management[_missing_multi_factor_authentication_on_management_def] if {
@@ -395,7 +409,8 @@ _network_binding_to_untrusted_interfaces_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 network_binding_to_untrusted_interfaces[_network_binding_to_untrusted_interfaces_def] if {
@@ -427,7 +442,8 @@ _physical_access_without_disk_lock_or_chassis_security_def := {
     "category": "physical_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 physical_access_without_disk_lock_or_chassis_security[_physical_access_without_disk_lock_or_chassis_security_def] if {
@@ -451,7 +467,8 @@ _absence_of_failed_login_lockout_or_rate_limiting_def := {
     "category": "network_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 absence_of_failed_login_lockout_or_rate_limiting[_absence_of_failed_login_lockout_or_rate_limiting_def] if {

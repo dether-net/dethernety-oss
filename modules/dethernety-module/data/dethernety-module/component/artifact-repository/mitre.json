@@ -1,0 +1,201 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1593.003",
+      "name": "Code Repositories",
+      "relevance": "Unauthenticated access allows adversaries to enumerate and access code repositories without credentials."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1213.003",
+      "name": "Code Repositories",
+      "relevance": "Lack of authentication enables direct data collection from code repositories."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1195.001",
+      "name": "Compromise Software Dependencies and Development Tools",
+      "relevance": "Dependency confusion attacks exploit proxy routing to substitute malicious packages for legitimate dependencies."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1677",
+      "name": "Poisoned Pipeline Execution",
+      "relevance": "Routing proxy misconfigurations can introduce poisoned dependencies into the build pipeline."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1036.001",
+      "name": "Invalid Code Signature",
+      "relevance": "Without enforced artifact signing, adversaries can distribute artifacts with invalid or missing signatures."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1553.001",
+      "name": "Gatekeeper Bypass",
+      "relevance": "Absence of signing enforcement allows bypassing trust controls that verify artifact authenticity."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1078.004",
+      "name": "Cloud Accounts",
+      "relevance": "Overprivileged service accounts provide attackers with excessive cloud access upon credential compromise."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1548.005",
+      "name": "Temporary Elevated Cloud Access",
+      "relevance": "Overprivileged service accounts may be abused to obtain or maintain elevated cloud access."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1550.001",
+      "name": "Application Access Token",
+      "relevance": "Compromised overprivileged service account tokens can be used directly for unauthorized access."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1048",
+      "name": "Exfiltration Over Alternative Protocol",
+      "relevance": "Unencrypted transport exposes artifacts to interception and exfiltration over unprotected channels."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1530",
+      "name": "Data from Cloud Storage",
+      "relevance": "Disabled encryption at rest makes cloud-stored artifacts directly readable if storage is accessed."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1555.006",
+      "name": "Cloud Secrets Management Stores",
+      "relevance": "Unencrypted storage may expose secrets and credentials stored alongside artifacts."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1554",
+      "name": "Compromise Host Software Binary",
+      "relevance": "Unrestricted overwrite allows adversaries to replace legitimate artifacts with malicious binaries."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1090.002",
+      "name": "External Proxy",
+      "relevance": "An overly broad proxy allow list can permit traffic routing through unauthorized external proxies."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1090.003",
+      "name": "Multi-hop Proxy",
+      "relevance": "Insufficient scoping allows adversaries to chain proxies to obscure malicious traffic."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552",
+      "name": "Unsecured Credentials",
+      "relevance": "Secrets embedded in artifact metadata represent unsecured credentials exposed to anyone accessing the artifact."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1654",
+      "name": "Log Enumeration",
+      "relevance": "Incomplete audit logging limits detection of adversarial log enumeration and tampering activities."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1602",
+      "name": "Data from Configuration Repository",
+      "relevance": "Without complete audit logs, unauthorized access to configuration repositories goes undetected."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1190",
+      "name": "Exploit Public-Facing Application",
+      "relevance": "Unpatched repository software contains known vulnerabilities that can be exploited by attackers."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1069.003",
+      "name": "Cloud Groups",
+      "relevance": "Adversaries can enumerate cloud permission groups to identify and exploit inadequate repository segmentation."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1069",
+      "name": "Permission Groups Discovery",
+      "relevance": "Insufficient permission segmentation enables discovery and abuse of overly permissive repository access groups."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1596.004",
+      "name": "CDNs",
+      "relevance": "Disabled checksum validation on proxy caches enables serving of tampered artifacts from cached/CDN content."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1485.001",
+      "name": "Lifecycle-Triggered Deletion",
+      "relevance": "Missing lifecycle/cleanup policies directly relate to uncontrolled artifact retention and deletion management."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1564",
+      "name": "Hide Artifacts",
+      "relevance": "Excessive retention without cleanup can allow stale or malicious artifacts to persist and remain hidden."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1588.004",
+      "name": "Digital Certificates",
+      "relevance": "Unmonitored certificate expiry creates opportunities for adversaries to exploit expired or substituted certificates."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1596.003",
+      "name": "Digital Certificates",
+      "relevance": "Expired TLS certificates can be identified and exploited by adversaries through reconnaissance of digital certificates."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1490",
+      "name": "Inhibit System Recovery",
+      "relevance": "Without backup and recovery configuration, adversaries can more effectively inhibit system recovery after an attack."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1485",
+      "name": "Data Destruction",
+      "relevance": "Absence of backup policies amplifies the impact of data destruction attacks against the repository."
+    }
+  ],
+  "respondsWith": []
+}

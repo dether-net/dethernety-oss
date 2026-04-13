@@ -7,7 +7,8 @@ _world_readable_sensitive_files_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 world_readable_sensitive_files[_world_readable_sensitive_files_def] if {
@@ -41,7 +42,8 @@ _world_writable_directories_or_files_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 world_writable_directories_or_files[_world_writable_directories_or_files_def] if {
@@ -63,7 +65,8 @@ _missing_encryption_at_rest_def := {
     "category": "physical_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 missing_encryption_at_rest[_missing_encryption_at_rest_def] if {
@@ -87,7 +90,8 @@ _unprotected_encryption_key_storage_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 unprotected_encryption_key_storage[_unprotected_encryption_key_storage_def] if {
@@ -113,7 +117,8 @@ _suid_sgid_bit_misconfiguration_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 suid_sgid_bit_misconfiguration[_suid_sgid_bit_misconfiguration_def] if {
@@ -140,7 +145,8 @@ _insufficient_filesystem_audit_logging_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_filesystem_audit_logging[_insufficient_filesystem_audit_logging_def] if {
@@ -171,7 +177,8 @@ _insecure_tmp_directory_configuration_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 insecure_tmp_directory_configuration[_insecure_tmp_directory_configuration_def] if {
@@ -209,7 +216,8 @@ _sensitive_data_in_unprotected_log_files_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 sensitive_data_in_unprotected_log_files[_sensitive_data_in_unprotected_log_files_def] if {
@@ -233,7 +241,8 @@ _missing_filesystem_integrity_monitoring_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 missing_filesystem_integrity_monitoring[_missing_filesystem_integrity_monitoring_def] if {
@@ -262,7 +271,8 @@ _unrestricted_mount_options_on_sensitive_partitions_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 unrestricted_mount_options_on_sensitive_partitions[_unrestricted_mount_options_on_sensitive_partitions_def] if {
@@ -288,7 +298,8 @@ _hardcoded_secrets_in_filesystem_plaintext_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 hardcoded_secrets_in_filesystem_plaintext[_hardcoded_secrets_in_filesystem_plaintext_def] if {
@@ -312,7 +323,8 @@ _excessive_root_owned_writable_paths_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 excessive_root_owned_writable_paths[_excessive_root_owned_writable_paths_def] if {
@@ -339,7 +351,8 @@ _no_disk_quota_enforcement_def := {
     "category": "host_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 no_disk_quota_enforcement[_no_disk_quota_enforcement_def] if {
@@ -362,7 +375,8 @@ _unpatched_filesystem_driver_or_kernel_vulnerabilities_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 unpatched_filesystem_driver_or_kernel_vulnerabilities[_unpatched_filesystem_driver_or_kernel_vulnerabilities_def] if {
@@ -386,7 +400,8 @@ _insecure_backup_file_permissions_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 insecure_backup_file_permissions[_insecure_backup_file_permissions_def] if {

@@ -3,173 +3,154 @@
     "name": "All Insecure",
     "description": "All attributes set to insecure values — maximum exposures should fire",
     "input": {
-      "network_policy_restricts_api_server_egress": false,
       "anonymous_auth_enabled": true,
-      "binding_scope": "cluster",
-      "bound_role_has_wildcard_or_admin": true,
-      "subject_type": "ServiceAccount",
-      "service_account_automounts_token": false,
-      "etcd_network_access_restricted_to_api_server": false,
+      "workload_to_apiserver_network_policy_enforced": false,
       "etcd_listen_address_scope": "all_interfaces",
-      "webhook_covered_operations": [],
-      "egress_network_policy_controls_control_plane_ports": false,
-      "webhook_server_zone": "workload_zone",
-      "webhook_failure_policy": "Ignore",
-      "control_plane_namespace_egress_networkpolicy_configured": false,
-      "cni_plugin_enforces_networkpolicy_in_control_plane_namespace": true,
-      "kubeconfig_privilege_level": "cluster_admin",
-      "workload_accessible_storage": true,
-      "kubeconfig_storage_locations": [
-        "item_0"
+      "firewall_restricts_etcd_to_control_plane": false,
+      "bound_subject_types": [
+        "ServiceAccount"
       ],
-      "audit_policy_configured": false,
-      "kubelet_credential_host_path_mount_present": true,
-      "ingress_controller_cluster_scoped_secret_access": true,
-      "ingress_controller_exposed_to_external_traffic": true,
-      "ingress_controller_automount_service_account_token": true,
-      "cross_namespace_rbac_bindings_present": true,
-      "api_server_firewall_ingress_restricted": false,
-      "api_server_exposed_to_internet": false,
+      "subject_namespace": "__outside__",
+      "granted_verbs": [
+        "*"
+      ],
+      "granted_resources": [
+        "*"
+      ],
+      "webhook_failure_policy": "Ignore",
+      "automount_service_account_token": true,
+      "service_account_has_elevated_rbac": true,
+      "foreign_namespace_subjects_in_rolebindings": true,
+      "high_privilege_kubeconfig_zones": [
+        "ci_cd_runner"
+      ],
+      "credential_scope": "cluster_admin",
+      "network_policy_restricts_control_plane_ingress": false,
+      "external_firewall_restricts_control_plane_ingress": false,
+      "audit_log_path_configured": true,
+      "audit_policy_file_present": true,
+      "audit_policy_sensitive_resources_log_level": "None",
+      "bind_address_non_loopback": true,
+      "authentication_disabled_on_endpoint": true,
+      "mutual_tls_enforced": false,
+      "api_server_insecure_port": 0,
       "etcd_client_cert_auth_enabled": false,
-      "webhook_covered_subresources": [
+      "namespace_selector_exempts_system_namespaces": false,
+      "webhook_match_policy": "Equivalent",
+      "uncovered_resource_types": [
         "default"
       ],
-      "webhook_namespace_selector_present": false,
-      "high_risk_api_groups_covered": false,
-      "webhook_ca_bundle_configured": false,
-      "webhook_operator_rbac_unrestricted": false,
-      "token_bound_to_audience": false,
-      "control_plane_components_run_as_static_pods_outside_cni": false,
-      "short_lived_credential_rotation_enabled": false,
-      "audit_policy_sensitive_verb_coverage": "none",
-      "audit_log_backend_enabled": false,
-      "node_certificate_file_permissions_world_readable": false,
-      "node_restriction_admission_plugin_enabled": false,
-      "ingress_controller_namespace_isolation_enforced": false,
-      "default_network_policy_present": false
+      "webhook_enforces_security_policy": false,
+      "workload_namespace_trust_zone": "unclassified",
+      "role_grants_cluster_scoped_resources": false,
+      "workload_zone_credential_store_accessible": false
     },
     "expectedExposures": [
-      "Kubeconfig Credential Isolation Failure",
-      "Node To Control Plane Impersonation Via Kubelet Credential Reuse",
-      "Admission Webhook Bypass Via Scope Gap",
-      "Api Server Unauthenticated Ingress Exposure",
-      "Etcd Direct Access Bypass Of Api Server Boundary",
-      "Ingress Controller Privilege Escalation To Control Plane",
-      "Namespace Boundary Non Enforcement In Multi Tenant Control Plane",
-      "Control Plane Audit Log Blind Spot In Lateral Movement Detection",
-      "Network Policy Enforcement Gap At Control Plane Egress",
-      "Service Account Token Cross Zone Exfiltration",
-      "Admission Webhook Server Trust Inversion"
+      "Kubeconfig Credential Not Isolated By Zone",
+      "Service Account Token Auto Mount Across Trust Zones",
+      "Unauthenticated Api Server Ingress",
+      "Overpermissive Rbac Cluster Role Binding",
+      "Admission Webhook Bypass Via Missing Coverage",
+      "Etcd Exposed Outside Control Plane Zone",
+      "Audit Log Gap At Control Plane Boundary",
+      "Scheduler And Controller Manager Unauthenticated Endpoints",
+      "Control Plane Ingress Not Restricted By Network Policy",
+      "Admission Webhook Failure Open Policy",
+      "Cross Tenant Namespace Rbac Propagation"
     ]
   },
   {
     "name": "All Secure",
     "description": "All attributes set to secure values — no exposures should fire",
     "input": {
-      "network_policy_restricts_api_server_egress": true,
-      "api_server_firewall_ingress_restricted": true,
-      "bound_role_has_wildcard_or_admin": false,
-      "etcd_network_access_restricted_to_api_server": true,
-      "etcd_client_cert_auth_enabled": true,
-      "webhook_covered_operations": [
-        "UPDATE"
-      ],
-      "webhook_covered_subresources": [
-        "pods/exec",
-        "pods/ephemeralcontainers"
-      ],
-      "webhook_namespace_selector_present": false,
-      "high_risk_api_groups_covered": true,
-      "egress_network_policy_controls_control_plane_ports": true,
-      "webhook_ca_bundle_configured": true,
-      "webhook_server_zone": "control_plane_zone",
-      "control_plane_namespace_egress_networkpolicy_configured": true,
-      "cni_plugin_enforces_networkpolicy_in_control_plane_namespace": true,
-      "control_plane_components_run_as_static_pods_outside_cni": false,
-      "workload_accessible_storage": false,
-      "audit_policy_configured": true,
-      "audit_log_backend_enabled": true,
-      "kubelet_credential_host_path_mount_present": false,
-      "node_certificate_file_permissions_world_readable": false,
-      "ingress_controller_cluster_scoped_secret_access": false,
-      "ingress_controller_namespace_isolation_enforced": true,
-      "default_network_policy_present": true,
-      "cross_namespace_rbac_bindings_present": false,
-      "anonymous_auth_enabled": true,
-      "api_server_exposed_to_internet": false,
-      "binding_scope": "cluster",
-      "subject_type": "ServiceAccount",
-      "service_account_automounts_token": true,
-      "etcd_listen_address_scope": "loopback_only",
+      "anonymous_auth_enabled": false,
+      "workload_to_apiserver_network_policy_enforced": true,
+      "firewall_restricts_etcd_to_control_plane": true,
+      "bound_subject_types": [],
       "webhook_failure_policy": "Fail",
-      "webhook_operator_rbac_unrestricted": false,
-      "token_bound_to_audience": false,
-      "kubeconfig_privilege_level": "cluster_admin",
-      "short_lived_credential_rotation_enabled": false,
-      "kubeconfig_storage_locations": [
+      "namespace_selector_exempts_system_namespaces": false,
+      "webhook_match_policy": "Equivalent",
+      "uncovered_resource_types": [],
+      "automount_service_account_token": false,
+      "foreign_namespace_subjects_in_rolebindings": false,
+      "role_grants_cluster_scoped_resources": false,
+      "high_privilege_kubeconfig_zones": [],
+      "workload_zone_credential_store_accessible": false,
+      "network_policy_restricts_control_plane_ingress": true,
+      "audit_log_path_configured": true,
+      "audit_policy_sensitive_resources_log_level": "Request",
+      "audit_policy_file_present": true,
+      "bind_address_non_loopback": false,
+      "mutual_tls_enforced": false,
+      "api_server_insecure_port": 0,
+      "etcd_listen_address_scope": "control_plane_only",
+      "etcd_client_cert_auth_enabled": false,
+      "granted_verbs": [
         "default"
       ],
-      "audit_policy_sensitive_verb_coverage": "full",
-      "node_restriction_admission_plugin_enabled": false,
-      "ingress_controller_exposed_to_external_traffic": true,
-      "ingress_controller_automount_service_account_token": true
-    }
+      "granted_resources": [
+        "default"
+      ],
+      "webhook_enforces_security_policy": false,
+      "service_account_has_elevated_rbac": false,
+      "workload_namespace_trust_zone": "unclassified",
+      "credential_scope": "cluster_admin",
+      "external_firewall_restricts_control_plane_ingress": false,
+      "authentication_disabled_on_endpoint": false
+    },
+    "expectedExposures": []
   },
   {
     "name": "Mixed Typical",
     "description": "Typical deployment: secure booleans, weak enum choices",
     "input": {
-      "anonymous_auth_enabled": true,
-      "api_server_firewall_ingress_restricted": true,
-      "network_policy_restricts_api_server_egress": true,
-      "api_server_exposed_to_internet": false,
-      "binding_scope": "cluster",
-      "bound_role_has_wildcard_or_admin": false,
-      "subject_type": "ServiceAccount",
-      "service_account_automounts_token": true,
-      "etcd_network_access_restricted_to_api_server": true,
-      "etcd_client_cert_auth_enabled": true,
+      "anonymous_auth_enabled": false,
+      "workload_to_apiserver_network_policy_enforced": true,
+      "mutual_tls_enforced": false,
+      "api_server_insecure_port": 0,
       "etcd_listen_address_scope": "all_interfaces",
-      "webhook_covered_operations": [
+      "firewall_restricts_etcd_to_control_plane": true,
+      "etcd_client_cert_auth_enabled": false,
+      "bound_subject_types": [
         "partial"
       ],
-      "webhook_covered_subresources": [
+      "granted_verbs": [
         "partial"
       ],
-      "webhook_namespace_selector_present": true,
-      "high_risk_api_groups_covered": true,
+      "granted_resources": [
+        "partial"
+      ],
+      "subject_namespace": "",
       "webhook_failure_policy": "Ignore",
-      "webhook_server_zone": "workload_zone",
-      "webhook_ca_bundle_configured": true,
-      "webhook_operator_rbac_unrestricted": false,
-      "egress_network_policy_controls_control_plane_ports": true,
-      "token_bound_to_audience": false,
-      "control_plane_namespace_egress_networkpolicy_configured": true,
-      "cni_plugin_enforces_networkpolicy_in_control_plane_namespace": true,
-      "control_plane_components_run_as_static_pods_outside_cni": false,
-      "kubeconfig_privilege_level": "cluster_admin",
-      "short_lived_credential_rotation_enabled": false,
-      "workload_accessible_storage": false,
-      "kubeconfig_storage_locations": [
+      "namespace_selector_exempts_system_namespaces": false,
+      "webhook_match_policy": "Equivalent",
+      "uncovered_resource_types": [
         "partial"
       ],
-      "audit_policy_configured": true,
-      "audit_policy_sensitive_verb_coverage": "none",
-      "audit_log_backend_enabled": true,
-      "kubelet_credential_host_path_mount_present": false,
-      "node_certificate_file_permissions_world_readable": false,
-      "node_restriction_admission_plugin_enabled": false,
-      "ingress_controller_cluster_scoped_secret_access": false,
-      "ingress_controller_namespace_isolation_enforced": true,
-      "ingress_controller_exposed_to_external_traffic": true,
-      "ingress_controller_automount_service_account_token": true,
-      "default_network_policy_present": true,
-      "cross_namespace_rbac_bindings_present": false
+      "webhook_enforces_security_policy": false,
+      "automount_service_account_token": false,
+      "service_account_has_elevated_rbac": false,
+      "workload_namespace_trust_zone": "unclassified",
+      "foreign_namespace_subjects_in_rolebindings": false,
+      "role_grants_cluster_scoped_resources": false,
+      "high_privilege_kubeconfig_zones": [
+        "partial"
+      ],
+      "workload_zone_credential_store_accessible": false,
+      "credential_scope": "cluster_admin",
+      "network_policy_restricts_control_plane_ingress": true,
+      "external_firewall_restricts_control_plane_ingress": false,
+      "audit_policy_sensitive_resources_log_level": "None",
+      "audit_log_path_configured": true,
+      "audit_policy_file_present": true,
+      "bind_address_non_loopback": false,
+      "authentication_disabled_on_endpoint": false
     },
     "expectedExposures": [
-      "Admission Webhook Bypass Via Scope Gap",
-      "Control Plane Audit Log Blind Spot In Lateral Movement Detection",
-      "Admission Webhook Server Trust Inversion"
+      "Admission Webhook Bypass Via Missing Coverage",
+      "Audit Log Gap At Control Plane Boundary",
+      "Admission Webhook Failure Open Policy",
+      "Cross Tenant Namespace Rbac Propagation"
     ]
   },
   {
@@ -177,13 +158,8 @@
     "description": "Empty input — tests default value handling",
     "input": {},
     "expectedExposures": [
-      "Admission Webhook Bypass Via Scope Gap",
-      "Api Server Unauthenticated Ingress Exposure",
-      "Etcd Direct Access Bypass Of Api Server Boundary",
-      "Namespace Boundary Non Enforcement In Multi Tenant Control Plane",
-      "Control Plane Audit Log Blind Spot In Lateral Movement Detection",
-      "Network Policy Enforcement Gap At Control Plane Egress",
-      "Service Account Token Cross Zone Exfiltration"
+      "Audit Log Gap At Control Plane Boundary",
+      "Control Plane Ingress Not Restricted By Network Policy"
     ]
   }
 ]

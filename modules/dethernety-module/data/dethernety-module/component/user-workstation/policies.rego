@@ -7,7 +7,8 @@ _disk_encryption_disabled_or_partial_def := {
     "category": "physical_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 disk_encryption_disabled_or_partial[_disk_encryption_disabled_or_partial_def] if {
@@ -34,7 +35,8 @@ _weak_or_absent_screen_lock_authentication_def := {
     "category": "physical_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 weak_or_absent_screen_lock_authentication[_weak_or_absent_screen_lock_authentication_def] if {
@@ -75,7 +77,8 @@ _local_administrator_privileges_granted_to_standard_users_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 local_administrator_privileges_granted_to_standard_users[_local_administrator_privileges_granted_to_standard_users_def] if {
@@ -94,7 +97,8 @@ _endpoint_protection_disabled_or_tampered_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 endpoint_protection_disabled_or_tampered[_endpoint_protection_disabled_or_tampered_def] if {
@@ -122,7 +126,8 @@ _os_and_firmware_patching_lag_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 os_and_firmware_patching_lag[_os_and_firmware_patching_lag_def] if {
@@ -147,7 +152,8 @@ _secure_boot_disabled_or_misconfigured_def := {
     "category": "physical_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 secure_boot_disabled_or_misconfigured[_secure_boot_disabled_or_misconfigured_def] if {
@@ -170,7 +176,8 @@ _unmanaged_byod_without_mdm_enrollment_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 unmanaged_byod_without_mdm_enrollment[_unmanaged_byod_without_mdm_enrollment_def] if {
@@ -194,7 +201,8 @@ _cleartext_credential_storage_on_device_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 cleartext_credential_storage_on_device[_cleartext_credential_storage_on_device_def] if {
@@ -220,7 +228,8 @@ _host_firewall_disabled_or_overly_permissive_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 host_firewall_disabled_or_overly_permissive[_host_firewall_disabled_or_overly_permissive_def] if {
@@ -243,7 +252,8 @@ _removable_media_unrestricted_def := {
     "category": "physical_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 removable_media_unrestricted[_removable_media_unrestricted_def] if {
@@ -270,7 +280,8 @@ _endpoint_logging_and_telemetry_not_forwarded_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 endpoint_logging_and_telemetry_not_forwarded[_endpoint_logging_and_telemetry_not_forwarded_def] if {
@@ -298,7 +309,8 @@ _automatic_wifi_association_with_untrusted_networks_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 automatic_wifi_association_with_untrusted_networks[_automatic_wifi_association_with_untrusted_networks_def] if {
@@ -322,7 +334,8 @@ _shadow_it_software_and_unvetted_application_installation_def := {
     "category": "supply_chain",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 shadow_it_software_and_unvetted_application_installation[_shadow_it_software_and_unvetted_application_installation_def] if {
@@ -349,7 +362,8 @@ _absence_of_device_compliance_check_before_resource_access_def := {
     "category": "network_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 absence_of_device_compliance_check_before_resource_access[_absence_of_device_compliance_check_before_resource_access_def] if {

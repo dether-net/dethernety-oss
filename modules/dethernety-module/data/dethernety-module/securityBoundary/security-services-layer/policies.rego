@@ -31,7 +31,8 @@ _bidirectional_log_ingestion_path_exploitation_def := {
             "name": "Multi-Stage Channels",
             "relevance": "A bidirectional ingestion path could serve as a covert multi-stage communication channel between attacker-controlled systems."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 bidirectional_log_ingestion_path_exploitation[_bidirectional_log_ingestion_path_exploitation_def] if {
@@ -82,7 +83,8 @@ _management_plane_shared_credential_trust_def := {
             "name": "Cloud Secrets Management Stores",
             "relevance": "Shared management plane credentials may grant access to cloud secrets stores, enabling credential harvesting across the environment."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 management_plane_shared_credential_trust[_management_plane_shared_credential_trust_def] if {
@@ -131,7 +133,8 @@ _overly_permissive_egress_from_security_zone_def := {
             "name": "Ingress Tool Transfer",
             "relevance": "Overly permissive egress also allows attackers to transfer tools and payloads into the environment from external sources."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 overly_permissive_egress_from_security_zone[_overly_permissive_egress_from_security_zone_def] if {
@@ -182,7 +185,8 @@ _trust_propagation_via_siem_action_channels_def := {
             "name": "Account Manipulation",
             "relevance": "Trust propagation through SIEM channels could be exploited to manipulate accounts or escalate privileges across integrated systems."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 trust_propagation_via_siem_action_channels[_trust_propagation_via_siem_action_channels_def] if {
@@ -230,7 +234,8 @@ _insufficient_micro_segmentation_within_security_layer_def := {
             "name": "Network Sniffing",
             "relevance": "Lack of micro-segmentation enables network sniffing across security layer traffic, exposing sensitive communications."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_micro_segmentation_within_security_layer[_insufficient_micro_segmentation_within_security_layer_def] if {
@@ -279,7 +284,8 @@ _monitoring_blind_spot_on_security_layer_own_traffic_def := {
             "name": "Network Sniffing",
             "relevance": "Unmonitored security layer traffic can be sniffed by an attacker with access to that network segment without detection."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 monitoring_blind_spot_on_security_layer_own_traffic[_monitoring_blind_spot_on_security_layer_own_traffic_def] if {
@@ -320,7 +326,8 @@ _api_gateway_boundary_bypass_for_siem_integration_def := {
             "name": "Cloud Application Integration",
             "relevance": "Exploiting SIEM integration through API gateway bypass aligns with abusing cloud application integration points."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 api_gateway_boundary_bypass_for_siem_integration[_api_gateway_boundary_bypass_for_siem_integration_def] if {
@@ -370,7 +377,8 @@ _zone_boundary_misconfiguration_during_deployment_updates_def := {
             "name": "Software Deployment Tools",
             "relevance": "Deployment tools are the mechanism through which zone boundary misconfigurations are introduced during update cycles."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 zone_boundary_misconfiguration_during_deployment_updates[_zone_boundary_misconfiguration_during_deployment_updates_def] if {
@@ -416,7 +424,8 @@ _out_of_band_management_network_boundary_gap_def := {
             "name": "Network Sniffing",
             "relevance": "A gap in out-of-band management network boundaries can allow an attacker to sniff sensitive management traffic."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 out_of_band_management_network_boundary_gap[_out_of_band_management_network_boundary_gap_def] if {

@@ -7,7 +7,8 @@ _unencrypted_data_at_rest_def := {
     "category": "physical_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 unencrypted_data_at_rest[_unencrypted_data_at_rest_def] if {
@@ -30,7 +31,8 @@ _weak_or_absent_encryption_in_transit_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 weak_or_absent_encryption_in_transit[_weak_or_absent_encryption_in_transit_def] if {
@@ -58,7 +60,8 @@ _customer_managed_key_mismanagement_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 customer_managed_key_mismanagement[_customer_managed_key_mismanagement_def] if {
@@ -85,7 +88,8 @@ _overly_permissive_access_control_policies_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 overly_permissive_access_control_policies[_overly_permissive_access_control_policies_def] if {
@@ -111,7 +115,8 @@ _publicly_exposed_storage_endpoints_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 publicly_exposed_storage_endpoints[_publicly_exposed_storage_endpoints_def] if {
@@ -138,7 +143,8 @@ _weak_authentication_for_storage_access_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 weak_authentication_for_storage_access[_weak_authentication_for_storage_access_def] if {
@@ -168,7 +174,8 @@ _hardcoded_or_plaintext_credentials_in_configuration_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 hardcoded_or_plaintext_credentials_in_configuration[_hardcoded_or_plaintext_credentials_in_configuration_def] if {
@@ -222,7 +229,8 @@ _unpatched_storage_host_operating_system_or_firmware_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 unpatched_storage_host_operating_system_or_firmware[_unpatched_storage_host_operating_system_or_firmware_def] if {
@@ -274,7 +282,8 @@ _unrestricted_management_interface_network_exposure_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 unrestricted_management_interface_network_exposure[_unrestricted_management_interface_network_exposure_def] if {
@@ -302,7 +311,8 @@ _insufficient_privilege_separation_for_storage_roles_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_privilege_separation_for_storage_roles[_insufficient_privilege_separation_for_storage_roles_def] if {
@@ -354,7 +364,8 @@ _cross_tenant_isolation_misconfiguration_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 cross_tenant_isolation_misconfiguration[_cross_tenant_isolation_misconfiguration_def] if {

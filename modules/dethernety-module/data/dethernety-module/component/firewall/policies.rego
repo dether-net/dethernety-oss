@@ -24,7 +24,8 @@ _overly_permissive_default_ruleset_def := {
             "name": "Protocol Tunneling",
             "relevance": "Permissive default rulesets may allow tunneling protocols that would otherwise be blocked, enabling covert communications."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 overly_permissive_default_ruleset[_overly_permissive_default_ruleset_def] if {
@@ -69,7 +70,8 @@ _management_interface_network_exposure_def := {
             "name": "Disable or Modify Network Device Firewall",
             "relevance": "Network-exposed management interfaces can be leveraged to disable or modify firewall rules on network devices."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 management_interface_network_exposure[_management_interface_network_exposure_def] if {
@@ -119,7 +121,8 @@ _weak_or_default_management_credentials_def := {
             "name": "Credential Stuffing",
             "relevance": "Default credentials are commonly included in credential stuffing lists, making devices with unchanged defaults easy targets."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 weak_or_default_management_credentials[_weak_or_default_management_credentials_def] if {
@@ -160,7 +163,8 @@ _missing_rule_logging_and_audit_trail_def := {
             "name": "Log Enumeration",
             "relevance": "The absence of rule logging means adversaries can operate without generating audit evidence that defenders could enumerate."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 missing_rule_logging_and_audit_trail[_missing_rule_logging_and_audit_trail_def] if {
@@ -204,7 +208,8 @@ _unencrypted_management_channel_def := {
             "name": "Exfiltration Over Alternative Protocol",
             "relevance": "Unencrypted management protocols can be abused or intercepted to facilitate data exfiltration over cleartext channels."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 unencrypted_management_channel[_unencrypted_management_channel_def] if {
@@ -249,7 +254,8 @@ _stale_firmware_or_software_version_def := {
             "name": "Patch System Image",
             "relevance": "Outdated firmware creates opportunities for attackers to replace or modify the system image with compromised versions."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 stale_firmware_or_software_version[_stale_firmware_or_software_version_def] if {
@@ -287,7 +293,8 @@ _rule_shadowing_and_redundant_rule_accumulation_def := {
             "name": "Traffic Signaling",
             "relevance": "Shadowed or redundant firewall rules may inadvertently allow traffic signaling techniques that would otherwise be blocked by correct rule ordering."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 rule_shadowing_and_redundant_rule_accumulation[_rule_shadowing_and_redundant_rule_accumulation_def] if {
@@ -335,7 +342,8 @@ _missing_egress_filtering_def := {
             "name": "Exfiltration Over Unencrypted Non-C2 Protocol",
             "relevance": "Absent egress filtering enables exfiltration over unencrypted protocols without interception or blocking."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_egress_filtering[_missing_egress_filtering_def] if {
@@ -380,7 +388,8 @@ _no_multi_factor_authentication_on_admin_access_def := {
             "name": "Multi-Factor Authentication Interception",
             "relevance": "When MFA is absent, attackers face no MFA interception challenge, making admin account compromise significantly easier."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 no_multi_factor_authentication_on_admin_access[_no_multi_factor_authentication_on_admin_access_def] if {
@@ -424,7 +433,8 @@ _unencrypted_or_unsigned_configuration_backups_def := {
             "name": "Private Keys",
             "relevance": "Unsigned and unencrypted backups may expose private keys stored in configuration files."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 unencrypted_or_unsigned_configuration_backups[_unencrypted_or_unsigned_configuration_backups_def] if {
@@ -472,7 +482,8 @@ _log_forwarding_misconfiguration_or_absence_def := {
             "name": "Log Enumeration",
             "relevance": "Without proper log forwarding, attackers can enumerate and manipulate local logs without centralized visibility catching the activity."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 log_forwarding_misconfiguration_or_absence[_log_forwarding_misconfiguration_or_absence_def] if {
@@ -521,7 +532,8 @@ _excessive_administrative_privilege_assignment_def := {
             "name": "Temporary Elevated Cloud Access",
             "relevance": "Excessive privilege assignment in cloud environments can be abused through temporary elevated access mechanisms."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 excessive_administrative_privilege_assignment[_excessive_administrative_privilege_assignment_def] if {
@@ -567,7 +579,8 @@ _missing_stateful_inspection_or_connection_tracking_disabled_def := {
             "name": "Traffic Signaling",
             "relevance": "Without stateful inspection, traffic signaling techniques like port knocking cannot be properly identified and blocked."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_stateful_inspection_or_connection_tracking_disabled[_missing_stateful_inspection_or_connection_tracking_disabled_def] if {
@@ -609,7 +622,8 @@ _no_high_availability_or_failover_configuration_def := {
             "name": "Network Boundary Bridging",
             "relevance": "A single point of failure in firewall configuration can allow attackers to bridge network boundaries when the primary device fails."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 no_high_availability_or_failover_configuration[_no_high_availability_or_failover_configuration_def] if {
@@ -659,7 +673,8 @@ _icmp_and_diagnostic_service_overexposure_def := {
             "name": "System Network Configuration Discovery",
             "relevance": "ICMP and diagnostic service overexposure enables attackers to discover network configuration and topology details."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 icmp_and_diagnostic_service_overexposure[_icmp_and_diagnostic_service_overexposure_def] if {

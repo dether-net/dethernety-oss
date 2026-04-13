@@ -1,0 +1,1721 @@
+[
+  {
+    "option_name": "anonymous_access_enabled",
+    "option_description": "Controls whether unauthenticated users can browse, clone, search, or otherwise interact with the Git service and its repositories without presenting any credentials. When enabled, the service's entire public-facing surface is accessible to anyone who can reach it over the network.",
+    "security_impact": "The Rego policy fires the 'anonymous_access_enabled' exposure whenever this is true and network_exposure is either 'internet' or 'internal'. Even internal anonymous access is flagged because any user on the corporate network — including compromised workstations or lateral-moving attackers — can silently clone repositories containing IaC, CI/CD definitions, and secrets without leaving authenticated audit trails (MITRE T1213.003, T1213). The blast radius scales directly with public_repository_count and sensitive_content_types_present.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Gitea, navigate to the Admin Panel (/-/admin), then go to Settings > Service. Look for 'Require Sign-In to View Pages' — if unchecked, anonymous access is enabled. In GitLab, go to Admin Area > Settings > General > Visibility and access controls and check whether 'Restricted visibility levels' includes 'Public'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Gitea: /-/admin > Settings > Service > Require Sign-In to View Pages | GitLab: Admin Area > Settings > General > Visibility and access controls",
+        "expected_output": "Checkbox state for 'Require Sign-In to View Pages' (Gitea) or presence of 'Public' in restricted visibility levels (GitLab)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Gitea or Gogs, inspect the app.ini configuration file and look for the [service] section. The key REQUIRE_SIGNIN_VIEW should be set to true to disable anonymous access. If the key is absent or set to false, anonymous access is enabled.",
+        "command": "grep -A 20 '\\[service\\]' /etc/gitea/app.ini | grep -i 'REQUIRE_SIGNIN_VIEW'",
+        "file_path": "/etc/gitea/app.ini",
+        "navigation": null,
+        "expected_output": "REQUIRE_SIGNIN_VIEW = true (secure); absent or false means anonymous access is enabled."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Make an unauthenticated HTTP GET request to the Git service's repository listing or explore endpoint. A 200 response with repository content confirms anonymous access is enabled; a 401 or redirect to login confirms it is disabled.",
+        "command": "curl -s -o /dev/null -w '%{http_code}' http://<gitea-host>:3000/explore/repos",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 200 with repository list = anonymous access enabled; HTTP 302 to /user/login = disabled."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Gitea API without an Authorization header to list public repositories. If results are returned, anonymous access is active.",
+        "command": "curl -s 'http://<gitea-host>:3000/api/v1/repos/search?limit=10' | python3 -m json.tool | grep -c '\"id\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A count greater than 0 indicates repositories are returned without authentication (anonymous access enabled)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "network_exposure",
+    "option_description": "Describes the network scope from which the Git service's web UI, API, and SSH interfaces are reachable. 'internet' means the service is directly accessible from public IP space; 'internal' means it is restricted to private RFC-1918 ranges or VPN; 'localhost' means it is bound only to the loopback interface.",
+    "security_impact": "The Rego policy uses network_exposure as a compound condition alongside anonymous_access_enabled and overly_permissive_repository_visibility_defaults. An 'internet' or 'internal' value combined with anonymous access triggers the anonymous_access_enabled exposure. The network_exposure_to_untrusted_segments rule separately checks whether binding scope is public without a network-layer control. Internet exposure maximizes attacker reach for exploitation of any authentication weakness (MITRE T1190, T1133).",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check which network interfaces the Git service process and SSH daemon are bound to. For Gitea, inspect the HTTP_ADDR and START_SSH_SERVER settings; for the OS SSH daemon, check ListenAddress in sshd_config.",
+        "command": "ss -tlnp | grep -E '(:3000|:22|:2222)' && grep -E 'HTTP_ADDR|SSH_LISTEN_HOST' /etc/gitea/app.ini",
+        "file_path": "/etc/gitea/app.ini",
+        "navigation": null,
+        "expected_output": "0.0.0.0 = internet/internal (depends on firewall); 127.0.0.1 = localhost; specific private IP = internal."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to reach the Git service's HTTP and SSH ports from an external IP address (e.g., a cloud VM or using a VPN split-tunnel exit). A successful connection from a public IP confirms 'internet' exposure.",
+        "command": "nc -zv <public-ip-of-git-host> 3000 2>&1; nc -zv <public-ip-of-git-host> 22 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection succeeded = internet exposure; Connection refused/timed out = internal or localhost only."
+      },
+      {
+        "type": "command",
+        "instruction": "Review cloud security group or firewall rules that govern inbound traffic to the Git host. For AWS, query security group rules attached to the instance.",
+        "command": "aws ec2 describe-security-groups --group-ids <sg-id> --query 'SecurityGroups[].IpPermissions' --output json | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "CidrIp 0.0.0.0/0 on ports 22/80/443/3000 = internet exposure; only private CIDR ranges = internal."
+      },
+      {
+        "type": "gui",
+        "instruction": "In cloud consoles (AWS/GCP/Azure), navigate to the network security group or firewall rules associated with the Git host and verify which source IP ranges are allowed for inbound traffic on the Git service ports.",
+        "command": null,
+        "file_path": null,
+        "navigation": "AWS: EC2 > Security Groups > Inbound rules | GCP: VPC > Firewall Rules | Azure: Network Security Groups > Inbound security rules",
+        "expected_output": "Source 0.0.0.0/0 or ::/0 = internet; RFC-1918 ranges only = internal; 127.0.0.1/32 = localhost."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "internet",
+      "internal",
+      "localhost"
+    ]
+  },
+  {
+    "option_name": "mfa_enforced_for_admins",
+    "option_description": "Indicates whether the Git service platform mandates multi-factor authentication for all accounts with administrative privileges. When false, admin accounts are protected only by a password, making them susceptible to credential theft, stuffing, or brute-force attacks.",
+    "security_impact": "The Rego policy fires the 'weak_or_missing_admin_authentication' exposure whenever mfa_enforced_for_admins is false (using 'not input.mfa_enforced_for_admins'). Admin account compromise yields full control over all repositories, webhooks, user accounts, and CI/CD integrations — effectively providing an attacker with a complete software supply chain takeover capability. This aligns with MITRE T1078 (Valid Accounts) and T1110.004 (Credential Stuffing), where weak authentication is the primary enabler.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In GitLab, navigate to Admin Area > Settings > Sign-in restrictions and check whether 'Two-factor authentication' is set to 'Enforced' (not 'Optional' or 'Disabled'). In Gitea, go to /-/admin/auths and check site-level 2FA enforcement settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab: Admin Area > Settings > Sign-in restrictions > Two-factor authentication | Gitea: /-/admin/users (check per-user 2FA) and site settings",
+        "expected_output": "GitLab: 'Two-factor authentication: Enforced' = true; Gitea: no platform-level enforcement available without additional config."
+      },
+      {
+        "type": "api",
+        "instruction": "For GitLab, query the application settings API to check the two_factor_grace_period and require_two_factor_authentication fields.",
+        "command": "curl -s 'https://<gitlab-host>/api/v4/application/settings' -H 'PRIVATE-TOKEN: <admin-token>' | python3 -c \"import sys,json; s=json.load(sys.stdin); print('MFA required:', s.get('require_two_factor_authentication')); print('Grace period:', s.get('two_factor_grace_period'))\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "require_two_factor_authentication: true and two_factor_grace_period: 0 = enforced; false = not enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "For Gitea, enumerate admin users via the API and check whether each has two-factor authentication enabled on their account. Platform-level enforcement may require checking per-admin-user 2FA status.",
+        "command": "curl -s 'http://<gitea-host>:3000/api/v1/admin/users?limit=50' -H 'Authorization: token <admin-token>' | python3 -c \"import sys,json; users=json.load(sys.stdin); admins=[u for u in users if u.get('is_admin')]; print(f'Admin users: {[u[\\\"login\\\"] for u in admins]}')\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "List of admin usernames; follow up by checking each user's security settings in the UI or admin panel."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Gitea deployments, check the app.ini for any TOTP or MFA-related security settings that enforce 2FA at the application level.",
+        "command": "grep -i -E '(MFA|TOTP|TWO_FACTOR|2FA)' /etc/gitea/app.ini",
+        "file_path": "/etc/gitea/app.ini",
+        "navigation": null,
+        "expected_output": "Relevant MFA enforcement directive present and set to true/enabled = enforced; absent = likely not enforced at platform level."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "default_credentials_changed",
+    "option_description": "Indicates whether the initial administrator account password (typically 'admin', 'root', or set during first-run wizard) has been changed from its factory-default value. Many self-hosted Git platforms ship with well-known default credentials that are documented in public installation guides.",
+    "security_impact": "The Rego policy fires 'weak_or_missing_admin_authentication' when 'not input.default_credentials_changed' evaluates to true. Default credentials are publicly known and indexed — automated scanners routinely attempt them against internet-exposed services. A successful login with defaults grants complete administrative control, enabling repository takeover, webhook manipulation, and CI/CD pipeline poisoning (MITRE T1078.001 Default Accounts, T1078 Valid Accounts). Internet-exposed instances with default credentials represent an immediately exploitable critical vulnerability.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Attempt to authenticate to the Git service's web interface or API using well-known default credentials for the specific platform. Record whether login succeeds.",
+        "command": "curl -s -c /tmp/gitea-cookies.txt -b /tmp/gitea-cookies.txt -X POST 'http://<gitea-host>:3000/user/login' -d '_csrf=&user_name=gitea&password=gitea' -w '%{http_code}' -o /dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 302 redirect to dashboard = login succeeded (default credentials unchanged); HTTP 200 return to login page = failed (credentials changed or different)."
+      },
+      {
+        "type": "api",
+        "instruction": "Attempt API authentication with common default credential pairs for the platform (gitea/gitea, admin/admin, root/root) and check for a 200 response indicating successful authentication.",
+        "command": "for cred in 'gitea:gitea' 'admin:admin' 'root:root' 'administrator:administrator'; do USER=$(echo $cred | cut -d: -f1); PASS=$(echo $cred | cut -d: -f2); CODE=$(curl -s -o /dev/null -w '%{http_code}' -u \"$USER:$PASS\" 'http://<gitea-host>:3000/api/v1/user'); echo \"$cred => HTTP $CODE\"; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 200 for any credential pair = default credentials unchanged; HTTP 401 for all = credentials have been changed."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the system administrator responsible for the Git service installation and request documentation of the initial setup process, specifically evidence that the default password was changed during or after the first-run wizard.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Written runbook, change management ticket, or verbal confirmation that the initial admin password was rotated post-installation."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review the Git service's application logs for first-run setup events or initial admin account creation timestamps, which can help determine whether the installation wizard's credential setup was completed properly.",
+        "command": "grep -i -E '(admin|setup|install|initial|first.run|password.changed)' /var/log/gitea/gitea.log | head -50",
+        "file_path": "/var/log/gitea/gitea.log",
+        "navigation": null,
+        "expected_output": "Log entries showing admin account creation and subsequent password change events confirm credentials were updated."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "admin_password_policy",
+    "option_description": "Describes the strength of the enforced password complexity policy for administrative accounts on the Git service. Classified as 'none' if no policy exists, 'weak' if only a minimum length below 12 characters is enforced without complexity requirements, or 'strong' if length is at least 12 characters with character class complexity requirements (uppercase, lowercase, digits, symbols).",
+    "security_impact": "The Rego policy fires 'weak_or_missing_admin_authentication' when admin_password_policy is in ['none', 'weak']. Weak or absent password policies leave admin accounts vulnerable to brute-force and credential-stuffing attacks (MITRE T1110.004). A compromised admin account provides full platform control including the ability to add backdoor SSH keys, modify CI/CD pipeline definitions, create persistent tokens, and exfiltrate all repository content. The policy is evaluated alongside MFA enforcement and default credential status, meaning any single failure triggers the exposure.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In GitLab, navigate to Admin Area > Settings > Sign-in restrictions > Password complexity requirements. Check minimum password length and which complexity options (uppercase, lowercase, digits, symbols) are required. In Gitea, navigate to /-/admin/config to view security settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab: Admin Area > Settings > Sign-in restrictions > Password complexity | Gitea: /-/admin/config (Security section)",
+        "expected_output": "Minimum length >= 12 with all character classes enforced = 'strong'; length-only or < 12 = 'weak'; no settings configured = 'none'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Gitea, inspect the [security] section of app.ini for MIN_PASSWORD_LENGTH and PASSWORD_COMPLEXITY settings. These control the platform-level password policy for all users.",
+        "command": "grep -A 20 '\\[security\\]' /etc/gitea/app.ini | grep -E '(MIN_PASSWORD_LENGTH|PASSWORD_COMPLEXITY)'",
+        "file_path": "/etc/gitea/app.ini",
+        "navigation": null,
+        "expected_output": "MIN_PASSWORD_LENGTH >= 12 and PASSWORD_COMPLEXITY = lower,upper,digit,spec = 'strong'; length < 12 only = 'weak'; settings absent = 'none'."
+      },
+      {
+        "type": "api",
+        "instruction": "For GitLab, query the application settings API to retrieve password complexity configuration fields including minimum_password_length and password complexity requirements.",
+        "command": "curl -s 'https://<gitlab-host>/api/v4/application/settings' -H 'PRIVATE-TOKEN: <admin-token>' | python3 -c \"import sys,json; s=json.load(sys.stdin); keys=['minimum_password_length','password_number_required','password_symbol_required','password_uppercase_required','password_lowercase_required']; [print(k,':', s.get(k)) for k in keys]\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "minimum_password_length >= 12 with all complexity flags true = 'strong'; partial = 'weak'; all false or absent = 'none'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Request the security baseline documentation or hardening guide used during platform deployment to determine whether password policy was configured as part of the installation process.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Documentation specifying minimum length >= 12 and complexity requirements = 'strong'; length-only or below threshold = 'weak'; no documented policy = 'none'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "none",
+      "weak",
+      "strong"
+    ]
+  },
+  {
+    "option_name": "password_authentication_enabled",
+    "option_description": "Controls whether the SSH daemon on the Git host accepts password-based authentication as a valid login mechanism, in addition to or instead of public-key authentication. When enabled, users and attackers can attempt to authenticate to SSH using a username and password rather than requiring a cryptographic key pair.",
+    "security_impact": "The Rego policy fires 'ssh_host_key_exposure_or_weak_configuration' whenever password_authentication_enabled is true. SSH password authentication exposes the Git host's clone and push surface to brute-force and credential-stuffing attacks against OS-level accounts (MITRE T1021.004, T1563.001). Unlike key-based authentication, password auth can be attacked remotely without physical key material. A successful compromise yields shell access to the Git host, enabling privilege escalation, host key theft, and direct manipulation of bare repository data on disk (MITRE T1552.004). Note: OpenSSH defaults to enabled when PasswordAuthentication is absent from sshd_config.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the main SSH daemon configuration file for the PasswordAuthentication directive. Note that an absent directive means OpenSSH defaults to enabled — treat absence as true.",
+        "command": "grep -i 'PasswordAuthentication' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null || echo 'Directive not found — defaults to enabled'",
+        "file_path": "/etc/ssh/sshd_config",
+        "navigation": null,
+        "expected_output": "PasswordAuthentication no = disabled (secure); PasswordAuthentication yes or absent = enabled (insecure default)."
+      },
+      {
+        "type": "command",
+        "instruction": "Use sshd's test mode to dump the effective running configuration, which resolves all include directives and shows the actual value being used by the daemon, not just what is in the config file.",
+        "command": "sshd -T 2>/dev/null | grep -i 'passwordauthentication'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "passwordauthentication no = disabled; passwordauthentication yes = enabled."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt an SSH connection using password authentication explicitly to confirm whether the server accepts or rejects it. Use ssh with PreferredAuthentications set to password only.",
+        "command": "ssh -o PreferredAuthentications=password -o PubkeyAuthentication=no -o BatchMode=no -p 22 testuser@<git-host> 2>&1 | head -5",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Prompt for password or 'Permission denied (password)' = password auth enabled; 'Permission denied (publickey)' without password prompt = disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Check systemd or process table for the running sshd instance and confirm which configuration file it loaded, then verify the effective PasswordAuthentication setting.",
+        "command": "systemctl cat sshd 2>/dev/null | grep -i 'ExecStart'; ps aux | grep sshd | grep -v grep",
+        "file_path": "/etc/ssh/sshd_config",
+        "navigation": null,
+        "expected_output": "Identify the config file path loaded by sshd; inspect that path for PasswordAuthentication directive to confirm effective setting."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "weak_algorithms_present",
+    "option_description": "Controls whether the SSH daemon on the Git host accepts deprecated or cryptographically weak key exchange algorithms (e.g., diffie-hellman-group1-sha1, diffie-hellman-group14-sha1), ciphers (e.g., arcfour, 3des-cbc), or MACs (e.g., hmac-md5, hmac-sha1-96) for incoming SSH connections used for Git clone/push operations.",
+    "security_impact": "The Rego policy fires the ssh_host_key_exposure_or_weak_configuration exposure when input.weak_algorithms_present == true. Weak algorithms expose Git SSH sessions to downgrade attacks, enabling interception of credentials or repository content in transit. Algorithms like diffie-hellman-group1-sha1 are vulnerable to Logjam; arcfour (RC4) is broken; hmac-md5 provides insufficient integrity. An attacker on a shared network path can exploit these to hijack or eavesdrop on Git operations, potentially intercepting commit pushes or authentication material (MITRE T1563.001 SSH Hijacking, T1021.004 SSH).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Read the sshd_config file and extract the KexAlgorithms, Ciphers, and MACs directive values, then search for known-weak identifiers.",
+        "command": "grep -iE '^(KexAlgorithms|Ciphers|MACs)' /etc/ssh/sshd_config",
+        "file_path": "/etc/ssh/sshd_config",
+        "navigation": null,
+        "expected_output": "If any line contains diffie-hellman-group1-sha1, diffie-hellman-group14-sha1, arcfour, arcfour128, arcfour256, 3des-cbc, hmac-md5, hmac-md5-96, or hmac-sha1-96, set attribute to true."
+      },
+      {
+        "type": "command",
+        "instruction": "Query the live SSH daemon for its negotiated algorithm lists using ssh -Q to enumerate compiled-in support, then cross-reference with sshd_config restrictions.",
+        "command": "ssh -Q kex && ssh -Q cipher && ssh -Q mac",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Compare output against the sshd_config overrides; if weak algorithms appear in sshd_config without explicit exclusion, they are active."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use nmap's ssh2-enum-algos script to remotely enumerate all algorithms advertised by the running sshd on the Git host port.",
+        "command": "nmap --script ssh2-enum-algos -p 22 <git-host>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output lists kex_algorithms, encryption_algorithms, mac_algorithms; flag true if any weak identifier appears (e.g., diffie-hellman-group1-sha1, arcfour*, 3des-cbc, hmac-md5*)."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "host_key_rotation_status",
+    "option_description": "Tracks whether the SSH host keys on the Git server have been regenerated following a known infrastructure migration event or confirmed compromise incident, ensuring that any previously exposed or potentially copied host keys are invalidated.",
+    "security_impact": "The Rego policy fires ssh_host_key_exposure_or_weak_configuration when host_key_rotation_status is 'not_rotated' or 'unknown'. SSH host keys authenticate the server to clients; if a host key is leaked or persists across a migration where the key material may have been copied, an attacker can impersonate the Git server (MITM), capturing credentials and injecting malicious content during git clone or push operations (MITRE T1552.004 Private Keys, T1563.001 SSH Hijacking). The 'unknown' state is treated as a risk because absence of records prevents ruling out compromise.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the creation timestamps of all SSH host private keys and compare against the date of the last known infrastructure migration or incident.",
+        "command": "stat /etc/ssh/ssh_host_*_key | grep -E '(File|Modify|Change)'",
+        "file_path": "/etc/ssh/ssh_host_*_key",
+        "navigation": null,
+        "expected_output": "If all key modification timestamps post-date the last migration/incident date, set 'rotated'. If any predate it, set 'not_rotated'. If no migration/incident is on record, set 'not_applicable'."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the infrastructure or security team to determine whether a formal host key rotation procedure was executed after the last server migration, cloud provider transfer, or security incident, and request documentation or a change ticket reference.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A change ticket, runbook entry, or written confirmation that host keys were regenerated and known_hosts updated on client systems post-event. Absence of records indicates 'unknown'."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search system logs or configuration management history for evidence of ssh-keygen execution or host key file updates around the migration/incident date.",
+        "command": "grep -r 'ssh-keygen\\|ssh_host' /var/log/syslog /var/log/messages /var/log/auth.log 2>/dev/null | tail -50",
+        "file_path": "/var/log/auth.log",
+        "navigation": null,
+        "expected_output": "Log entries showing ssh-keygen execution or file writes to /etc/ssh/ssh_host_* correlating with the migration timeframe confirm 'rotated'."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "unknown",
+      "not_rotated",
+      "rotated",
+      "not_applicable"
+    ]
+  },
+  {
+    "option_name": "https_enforced",
+    "option_description": "Controls whether the Git service's web interface and Git-over-HTTP transport actively redirects all plaintext HTTP requests to HTTPS and refuses to serve any content or accept Git operations over unencrypted port 80 connections.",
+    "security_impact": "The Rego policy fires tls_not_enforced_on_http_interface when 'not input.https_enforced' is true. Without HTTPS enforcement, Git credentials (username/password, OAuth tokens), session cookies, and repository content transmitted over HTTP are exposed in plaintext on the network, enabling credential theft and session hijacking. CI/CD systems, developer workstations, and automation scripts connecting over HTTP inadvertently expose tokens that could be used to inject malicious code into the supply chain (MITRE T1048 Exfiltration Over Alternative Protocol, T1572 Protocol Tunneling).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For Gitea, inspect app.ini for the [server] section PROTOCOL and REDIRECT_OTHER_PORT directives. For GitLab, inspect gitlab.rb for the nginx redirect setting.",
+        "command": "grep -A5 '\\[server\\]' /etc/gitea/app.ini | grep -iE 'PROTOCOL|REDIRECT_OTHER_PORT'",
+        "file_path": "/etc/gitea/app.ini",
+        "navigation": null,
+        "expected_output": "Gitea: PROTOCOL = https and REDIRECT_OTHER_PORT = true indicates enforced. GitLab: nginx['redirect_http_to_https'] = true in /etc/gitlab/gitlab.rb indicates enforced."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Send a plain HTTP request to the Git service on port 80 and verify it returns a 301 or 302 redirect to the HTTPS URL, or that port 80 is not bound at all.",
+        "command": "curl -vI http://<git-host>/ 2>&1 | grep -E 'HTTP/|Location:|< location'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 301/302 response with Location: https://<git-host>/ confirms enforcement. A 200 response or connection refused without redirect indicates not enforced."
+      },
+      {
+        "type": "gui",
+        "instruction": "For GitLab, navigate to Admin Area > Settings > General > Visibility and access controls and verify HTTPS is required. For Gitea, check the Site Administration > Configuration page for protocol settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab: Admin Area > Settings > General | Gitea: Site Administration > Server and Other Services Configuration",
+        "expected_output": "HTTPS-only mode enabled or HTTP redirect configured is visible in the UI or stated in the configuration summary."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "tls_min_version",
+    "option_description": "Specifies the lowest TLS protocol version that the Git service's HTTP interface will accept for encrypted connections, gating which clients and protocol versions can negotiate a session with the server.",
+    "security_impact": "The Rego policy fires tls_not_enforced_on_http_interface when tls_min_version is in ['none', 'tls1.0', 'tls1.1']. TLS 1.0 and 1.1 are deprecated by RFC 8996 and are vulnerable to POODLE, BEAST, and related downgrade attacks. A server accepting these versions can be coerced into weak session negotiation by a network adversary, enabling decryption of repository traffic containing secrets, tokens, and code. CI/CD tokens transmitted in headers over a downgraded TLS session give attackers persistent access to the supply chain (MITRE T1048, T1572).",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "For Gitea, check the TLS_MIN_VERSION value in app.ini [server]. For Nginx-fronted GitLab, check the ssl_protocols directive in the Nginx config. For GitLab Omnibus, check gitlab.rb nginx ssl_protocols.",
+        "command": "grep -iE 'TLS_MIN_VERSION|ssl_protocols' /etc/gitea/app.ini /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/gitlab/gitlab.rb 2>/dev/null",
+        "file_path": "/etc/gitea/app.ini",
+        "navigation": null,
+        "expected_output": "Values like 'TLSv1.2 TLSv1.3' or TLS_MIN_VERSION = tls1.2 indicate compliant configuration. Presence of TLSv1 or TLSv1.1 indicates risk."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use testssl.sh to enumerate all TLS protocol versions accepted by the Git service and identify the minimum negotiated version.",
+        "command": "testssl.sh --protocols https://<git-host>/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Report shows which protocol versions are offered; any 'offered' result for TLS 1.0 or TLS 1.1 sets the attribute to the corresponding lower value."
+      },
+      {
+        "type": "command",
+        "instruction": "Attempt a forced TLS 1.0 and TLS 1.1 handshake using OpenSSL s_client to confirm whether the server accepts these deprecated versions.",
+        "command": "echo | openssl s_client -connect <git-host>:443 -tls1 2>&1 | grep -E 'handshake|Protocol|alert'; echo | openssl s_client -connect <git-host>:443 -tls1_1 2>&1 | grep -E 'handshake|Protocol|alert'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A successful handshake (no 'handshake failure' alert) with TLS 1.0 or 1.1 confirms that version is accepted; set attribute accordingly."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "tls1.0",
+      "tls1.1",
+      "tls1.2",
+      "tls1.3"
+    ]
+  },
+  {
+    "option_name": "tls_certificate_expired",
+    "option_description": "Indicates whether the X.509 TLS certificate currently presented by the Git service's HTTPS interface has passed its notAfter validity date or has a notBefore date in the future, making it invalid for secure connection establishment.",
+    "security_impact": "The Rego policy fires tls_not_enforced_on_http_interface when tls_certificate_expired == true. An expired certificate causes client TLS stacks to display warnings or fail validation; users and automation that bypass certificate errors (e.g., -k flags in curl, git -c http.sslVerify=false) are silently exposed to MITM attacks. CI/CD pipelines configured to skip verification due to expired certificates may transmit tokens and secrets to an impersonator (MITRE T1048, T1572). Additionally, expired certificates may indicate a lapsed certificate management process, increasing risk of prolonged misconfiguration.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Connect to the Git service HTTPS endpoint and extract the certificate validity dates, then compare notAfter against the current date.",
+        "command": "echo | openssl s_client -connect <git-host>:443 -servername <git-host> 2>/dev/null | openssl x509 -noout -dates",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "notBefore and notAfter fields are returned; if notAfter is in the past or notBefore is in the future relative to today's date, set attribute to true."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Use curl with verbose output to check for TLS certificate validity errors reported during the HTTPS handshake with the Git service.",
+        "command": "curl -vI https://<git-host>/ 2>&1 | grep -iE 'expire|valid|SSL certificate|verify'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output containing 'SSL certificate problem: certificate has expired' or similar error confirms true. A clean handshake with no certificate warnings confirms false."
+      },
+      {
+        "type": "command",
+        "instruction": "Use openssl to extract the certificate and compute days remaining until expiry, flagging negative values as expired.",
+        "command": "echo | openssl s_client -connect <git-host>:443 -servername <git-host> 2>/dev/null | openssl x509 -noout -checkend 0; echo \"Exit code $? (0=valid, 1=expired)\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Exit code 1 from openssl x509 -checkend 0 means the certificate is already expired; set attribute to true."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "weak_cipher_suites_enabled",
+    "option_description": "Indicates whether the TLS configuration of the Git service's HTTPS interface permits negotiation of cryptographically weak cipher suites, including NULL encryption, EXPORT-grade, RC4, DES, 3DES, or anonymous (aNULL/eNULL) cipher suites.",
+    "security_impact": "The Rego policy fires tls_not_enforced_on_http_interface when weak_cipher_suites_enabled == true. Weak cipher suites allow an active attacker to downgrade TLS sessions to breakable encryption: RC4 has known statistical biases enabling plaintext recovery; EXPORT ciphers are vulnerable to FREAK and Logjam; 3DES is vulnerable to Sweet32; NULL ciphers provide no encryption. Repository content, authentication tokens, and CI/CD secrets transmitted under these cipher suites can be decrypted by network-positioned adversaries, enabling supply chain compromise (MITRE T1048, T1572).",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Run nmap's ssl-enum-ciphers script against the Git service HTTPS port and identify any cipher suites rated C or lower, or matching NULL/EXPORT/RC4/DES/3DES patterns.",
+        "command": "nmap --script ssl-enum-ciphers -p 443 <git-host> | grep -iE 'NULL|EXPORT|RC4|DES|3DES|\\sC$|\\sF$'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any cipher suite listed with grade C/F or containing NULL, EXPORT, RC4, DES, or 3DES in the name sets the attribute to true."
+      },
+      {
+        "type": "command",
+        "instruction": "Run testssl.sh with the cipher flag to enumerate all accepted cipher suites and check for weak or deprecated entries.",
+        "command": "testssl.sh --cipher-per-proto --color 0 https://<git-host>/ 2>&1 | grep -iE 'WEAK|LOW|NULL|EXPORT|RC4|DES|3DES|MEDIUM'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Any WEAK, LOW, or NULL-rated cipher in the output confirms true. A clean output with only HIGH-rated ciphers confirms false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Nginx ssl_ciphers directive (for GitLab or Nginx-fronted Gitea) or Gitea's TLS cipher configuration in app.ini for explicit weak cipher allowances.",
+        "command": "grep -iE 'ssl_ciphers|TLS_CIPHER' /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/gitea/app.ini /etc/gitlab/gitlab.rb 2>/dev/null",
+        "file_path": "/etc/nginx/nginx.conf",
+        "navigation": null,
+        "expected_output": "Cipher strings containing RC4, DES, 3DES, NULL, EXPORT, or aNULL/eNULL confirm true. Strings using ECDHE+AESGCM or TLS_AES_256_GCM_SHA384 only indicate false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "default_repository_visibility",
+    "option_description": "Controls the platform-wide default visibility applied to all newly created repositories when a developer does not explicitly specify a visibility level, determining whether new repos are automatically accessible to the public, all authenticated platform users, or only explicitly granted members.",
+    "security_impact": "The Rego policy fires overly_permissive_repository_visibility_defaults when default_repository_visibility == 'public', or when it is 'internal' and anonymous_access_enabled == true. A default of 'public' means any repository created without deliberate restriction is immediately exposed to the internet, including Dockerfiles, Terraform configs, Helm charts, CI/CD YAML files, and application code. Even 'internal' is hazardous when combined with anonymous access. Developers creating test repositories or scaffolding projects may inadvertently expose sensitive infrastructure definitions, enabling adversaries to enumerate the full infrastructure topology without authentication (MITRE T1213.003 Code Repositories, T1567.001 Exfiltration to Code Repository).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "For GitLab, navigate to Admin Area > Settings > General > Visibility and access controls and check the 'Default project visibility' value. For Gitea, navigate to the Admin Panel > Settings > Repository and check 'Default repository visibility'.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab: Admin Area > Settings > General > Visibility and access controls > Default project visibility | Gitea: Admin Panel > Settings > Repository > Default repository visibility",
+        "expected_output": "The current default is displayed as Public, Internal, or Private. Record the exact value shown."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the GitLab API for the application settings endpoint and extract the default_project_visibility field.",
+        "command": "curl -s --header 'PRIVATE-TOKEN: <admin-token>' https://<gitlab-host>/api/v4/application/settings | python3 -m json.tool | grep default_project_visibility",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returns JSON with \"default_project_visibility\": \"private\" (safe), \"internal\", or \"public\" (risky)."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For GitLab Omnibus, check gitlab.rb for the default_project_visibility setting. For Gitea, check app.ini under the [repository] section for DEFAULT_PRIVATE.",
+        "command": "grep -iE 'default_project_visibility|DEFAULT_PRIVATE' /etc/gitlab/gitlab.rb /etc/gitea/app.ini 2>/dev/null",
+        "file_path": "/etc/gitea/app.ini",
+        "navigation": null,
+        "expected_output": "Gitea: DEFAULT_PRIVATE = true indicates private default. GitLab: default_project_visibility = 'private' indicates safe configuration."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "private",
+      "internal",
+      "public"
+    ]
+  },
+  {
+    "option_name": "token_expiry_enforcement",
+    "option_description": "Controls whether the Git platform requires that all personal access tokens and deploy tokens be created with a mandatory expiration date, preventing the issuance of non-expiring tokens that could provide indefinite access if leaked or forgotten.",
+    "security_impact": "The Rego policy fires unrestricted_api_token_issuance when token_expiry_enforcement == 'not_enforced' combined with tokens_without_expiry_exist == true or missing token_scope_restriction_enforced. Non-expiring tokens that appear in repository commits, CI/CD logs, or leaked configuration files grant persistent, credential-independent access to all repositories and APIs accessible to the token owner. Unlike passwords, tokens are rarely rotated proactively, making long-lived tokens a durable attack vector for supply chain compromise (MITRE T1550.001 Application Access Token, T1528 Steal Application Access Token, T1134 Access Token Manipulation).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "For GitLab, navigate to Admin Area > Settings > General > Account and limit settings and check whether 'Require personal access token expiry' is enabled. For Gitea, check Admin Panel > Settings > Security for token expiry options.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab: Admin Area > Settings > General > Account and limit > Require personal access token expiry | Gitea: Admin Panel > Settings > Security",
+        "expected_output": "A checkbox or toggle labeled 'Require personal access token expiry' that is enabled indicates 'enforced'. If absent or disabled, set 'not_enforced'."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the GitLab application settings API to check the require_personal_access_token_expiry field programmatically.",
+        "command": "curl -s --header 'PRIVATE-TOKEN: <admin-token>' https://<gitlab-host>/api/v4/application/settings | python3 -m json.tool | grep -i 'token_expiry\\|require_personal'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "\"require_personal_access_token_expiry\": true indicates enforced. false or field absence indicates not_enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "Enumerate existing personal access tokens via the GitLab admin API and check for tokens with null or missing expiry dates to confirm whether non-expiring tokens exist.",
+        "command": "curl -s --header 'PRIVATE-TOKEN: <admin-token>' 'https://<gitlab-host>/api/v4/personal_access_tokens?per_page=100&state=active' | python3 -c \"import sys,json; tokens=json.load(sys.stdin); print([t['name'] for t in tokens if t.get('expires_at') is None])\"",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An empty list [] indicates all active tokens have expiry dates. Any token names returned indicate non-expiring tokens exist, supporting a 'not_enforced' classification."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "not_enforced",
+      "enforced"
+    ]
+  },
+  {
+    "option_name": "tokens_without_expiry_exist",
+    "option_description": "Indicates whether any active personal access tokens or deploy tokens on the platform have no expiration date set. A value of true means at least one non-expiring token is currently active in the system.",
+    "security_impact": "The Rego policy fires the unrestricted_api_token_issuance exposure when tokens_without_expiry_exist is true and either token_expiry_enforcement is not_enforced or token_scope_restriction_enforced is false. Non-expiring tokens represent persistent credential backdoors — if leaked in logs, CI output, or committed code, they remain valid indefinitely. An attacker obtaining a non-expiring api-scoped token gains durable, credential-independent access to clone repositories, read secrets, and interact with the full platform API.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the GitLab personal access tokens API as an admin to list all active tokens and check for null expiry dates.",
+        "command": "curl --silent --header 'PRIVATE-TOKEN: <admin_token>' 'https://<gitlab_host>/api/v4/personal_access_tokens?state=active&per_page=100' | jq '[.[] | select(.expires_at == null)] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A count of 0 means no non-expiring tokens exist. Any number greater than 0 indicates tokens_without_expiry_exist should be set to true."
+      },
+      {
+        "type": "api",
+        "instruction": "For Gitea/Forgejo, enumerate all users and then query each user's tokens for missing expiry fields using the admin API.",
+        "command": "curl --silent --header 'Authorization: token <admin_token>' 'https://<gitea_host>/api/v1/admin/users?limit=50' | jq -r '.[].login' | while read user; do curl --silent --header 'Authorization: token <admin_token>' \"https://<gitea_host>/api/v1/users/$user/tokens\" | jq --arg u \"$user\" '.[] | select(.expires_at == null or .expires_at == \"\") | {user: $u, token_name: .name}'; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "No output means all tokens have expiration dates. Any printed JSON objects indicate non-expiring tokens exist."
+      },
+      {
+        "type": "gui",
+        "instruction": "In GitLab, navigate to Admin Area > User Management, select individual users, and review their Personal Access Tokens tab for tokens with a blank or missing expiration date column.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab Admin Area > Overview > Users > [select user] > Personal Access Tokens tab > review 'Expires' column",
+        "expected_output": "All active tokens should show a future date in the Expires column. Blank entries indicate non-expiring tokens."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Search GitLab audit logs for token creation events and correlate with missing expiry fields to identify when non-expiring tokens were issued.",
+        "command": "grep 'token_created' /var/log/gitlab/gitlab-rails/audit_json.log | jq 'select(.details.expires_at == null or .details.expires_at == \"\")'",
+        "file_path": "/var/log/gitlab/gitlab-rails/audit_json.log",
+        "navigation": null,
+        "expected_output": "No matching lines indicates all tokens were created with expiry dates. Matches confirm non-expiring tokens were issued."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "token_scope_restriction_enforced",
+    "option_description": "Controls whether the platform enforces a policy that restricts personal access token scope selection, requiring administrator approval for broad or administrative scopes such as api or write_repository, or limiting the maximum scope any user can self-issue.",
+    "security_impact": "The Rego policy triggers unrestricted_api_token_issuance when token_expiry_enforcement is not_enforced and token_scope_restriction_enforced is false, or when tokens_without_expiry_exist is true and both token_scope_restriction_enforced and token_audit_logging_enabled are false. Without scope restrictions, any user can mint a full api-scope token granting complete repository read/write, webhook management, and CI/CD pipeline access. This eliminates least-privilege for programmatic access, making any token leak equivalent to full account compromise.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Check GitLab Admin Area network and token policy settings for any enforced token scope restrictions or approval workflows.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab Admin Area > Settings > General > Account and limit > expand 'Personal access token prefix' and token policy sections; also check Settings > Network for any token scope enforcement toggles",
+        "expected_output": "A configured scope restriction policy or approval requirement indicates true. Absence of any scope controls indicates false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For self-hosted GitLab, inspect the gitlab.rb configuration for token-related policy settings that may restrict scope issuance.",
+        "command": "grep -i 'token\\|scope\\|pat_' /etc/gitlab/gitlab.rb | grep -v '^#'",
+        "file_path": "/etc/gitlab/gitlab.rb",
+        "navigation": null,
+        "expected_output": "Lines referencing scope enforcement or PAT policies indicate restrictions are configured. An empty result suggests no scope restriction is enforced at the configuration level."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform administrator or review internal security policy documents to determine whether a formal process exists requiring approval before broad-scope tokens can be issued.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented and enforced approval workflow for api or write-scope tokens indicates true. No formal process indicates false."
+      },
+      {
+        "type": "api",
+        "instruction": "Attempt to create a test token with api scope as a non-admin user via the API to determine whether the platform blocks or warns about broad scopes.",
+        "command": "curl --request POST --header 'PRIVATE-TOKEN: <non_admin_token>' --header 'Content-Type: application/json' --data '{\"name\":\"scope-test\",\"scopes\":[\"api\"]}' 'https://<gitlab_host>/api/v4/users/<non_admin_user_id>/personal_access_tokens'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 403 Forbidden or policy rejection response indicates scope restriction is enforced. A 201 Created response means any user can self-issue api-scope tokens, indicating false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "token_audit_logging_enabled",
+    "option_description": "Determines whether the Git service captures and retains audit log entries for personal access token lifecycle events including creation, usage (API calls authenticated by token), and revocation. These logs are distinct from general application logs and must include structured event metadata.",
+    "security_impact": "The Rego policy includes token_audit_logging_enabled as a mitigating control: unrestricted_api_token_issuance fires when tokens_without_expiry_exist is true, token_scope_restriction_enforced is false, AND token_audit_logging_enabled is false simultaneously. Without token audit logs, there is no forensic trail to detect when a leaked token was used, which repositories were accessed, or when unauthorized tokens were created. This makes incident response blind and prevents timely detection of persistent credential abuse.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Verify GitLab audit event logging is enabled and confirm token lifecycle event types are captured in the admin audit events interface.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab Admin Area > Monitoring > Audit Events > filter by 'Token' event type; confirm token_created and token_destroyed events appear with timestamps and actor metadata",
+        "expected_output": "Presence of token_created and token_destroyed events in the audit log confirms logging is enabled. Empty results or absence of these event types indicates logging is not capturing token lifecycle."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Inspect the GitLab audit JSON log file directly to confirm token event types are being written with required metadata fields.",
+        "command": "grep -E '\"event_type\":\"token_(created|destroyed|impersonated)\"' /var/log/gitlab/gitlab-rails/audit_json.log | tail -5 | jq '{event_type, author_name, target_details, created_at}'",
+        "file_path": "/var/log/gitlab/gitlab-rails/audit_json.log",
+        "navigation": null,
+        "expected_output": "Structured JSON entries with event_type, author, and timestamp confirm audit logging is active. No output or file absence indicates audit logging is disabled or not writing token events."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Gitea/Forgejo, check the app.ini audit logging configuration section to determine whether audit events are enabled and which event categories are covered.",
+        "command": "grep -A 10 '\\[log\\]\\|\\[audit\\]' /etc/gitea/app.ini",
+        "file_path": "/etc/gitea/app.ini",
+        "navigation": null,
+        "expected_output": "An [audit] section with ENABLED = true and relevant event types listed confirms audit logging. Missing section or ENABLED = false indicates it is not configured."
+      },
+      {
+        "type": "api",
+        "instruction": "Create a test token and then query the audit events API to confirm the creation event was captured.",
+        "command": "curl --silent --header 'PRIVATE-TOKEN: <admin_token>' 'https://<gitlab_host>/api/v4/audit_events?entity_type=User&per_page=20' | jq '[.[] | select(.entity_type == \"User\" and (.details.custom_message // \"\" | test(\"token\"; \"i\")))]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Returned audit event entries for token creation confirm the logging pipeline is functional. An empty array indicates audit logging is not capturing token events."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "push_restrictions_enabled",
+    "option_description": "Controls whether the default branch (main/master) has a branch protection rule that restricts who can push commits directly to it, typically limiting direct pushes to maintainers only or requiring all changes to go through pull/merge requests.",
+    "security_impact": "The Rego policy triggers unprotected_default_branch_configuration when branch_protection_rule_exists is true but push_restrictions_enabled is false. Without push restrictions, any user with write access to the repository can bypass the code review process entirely and push directly to the production branch. This is a direct software supply chain attack vector: a compromised developer account, malicious insider, or attacker who gains write access can inject malicious code into Dockerfiles, Terraform configs, or CI/CD pipeline definitions without any review gate.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Review the branch protection rules for the default branch in the repository or organization settings to confirm push restriction rules are active.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab: Repository Settings > Repository > Protected Branches > find main/master entry > check 'Allowed to push' is set to 'No one' or 'Maintainers'. GitHub: Repository Settings > Branches > Branch protection rules > main > check 'Restrict who can push to matching branches'",
+        "expected_output": "A restriction limiting push access to Maintainers or No One (requiring PRs) indicates true. 'Developers+Maintainers' or unrestricted indicates false."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the GitLab protected branches API to retrieve push access level configuration for the default branch.",
+        "command": "curl --silent --header 'PRIVATE-TOKEN: <admin_token>' 'https://<gitlab_host>/api/v4/projects/<project_id>/protected_branches/main' | jq '{name, push_access_levels: [.push_access_levels[] | {access_level, access_level_description}]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "access_level of 0 (No access) or 40 (Maintainer) with no developer-level (30) push entries indicates push restrictions are enabled. An access_level of 30 or absent protection indicates false."
+      },
+      {
+        "type": "api",
+        "instruction": "For Gitea, query the branch protection API to check push restriction settings on the default branch.",
+        "command": "curl --silent --header 'Authorization: token <admin_token>' 'https://<gitea_host>/api/v1/repos/<owner>/<repo>/branch_protections' | jq '.[] | select(.branch_name == \"main\") | {branch_name, push_whitelist_usernames, push_whitelist_teams, block_on_rejected_reviews}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-empty push_whitelist entries combined with enable_push set to false for general users indicates restrictions exist. Empty whitelist with enable_push true indicates push restrictions are not enforced."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Test push restrictions by attempting a direct commit push to the default branch as a non-maintainer user in a non-production repository to confirm the control is actively enforced.",
+        "command": "git clone https://<githost>/<org>/test-repo && cd test-repo && echo 'test' >> README.md && git add . && git commit -m 'push restriction test' && git push origin main 2>&1",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 'remote: error: push to protected branch' or 403 rejection confirms push restrictions are enforced. A successful push indicates the protection is not active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "required_review_count",
+    "option_description": "Specifies the minimum number of approving code reviews required from other contributors before a pull or merge request can be merged into the default branch. A value of 0 means merges are permitted without any peer review.",
+    "security_impact": "The Rego policy fires unprotected_default_branch_configuration when branch_protection_rule_exists is true but required_review_count is less than 1. Even with push restrictions in place, a required_review_count of 0 allows single-person merges, meaning a developer with merge rights can approve their own supply chain tampering. Code review is the primary detective control for catching malicious changes to CI/CD pipeline YAML, IaC files, and Dockerfile configurations before they reach production pipeline execution.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the GitLab protected branches API to retrieve the merge access configuration and check for required approvals on the default branch.",
+        "command": "curl --silent --header 'PRIVATE-TOKEN: <admin_token>' 'https://<gitlab_host>/api/v4/projects/<project_id>/protected_branches/main' | jq '{name, required_approvals: (.required_approvals // 0), merge_access_levels: [.merge_access_levels[].access_level_description]}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "required_approvals of 1 or higher indicates the control is active. A value of 0 or a missing field indicates no review gate is enforced."
+      },
+      {
+        "type": "api",
+        "instruction": "For GitLab, also check project-level approval rules which may enforce required approvals independently of branch protection settings.",
+        "command": "curl --silent --header 'PRIVATE-TOKEN: <admin_token>' 'https://<gitlab_host>/api/v4/projects/<project_id>/approval_rules' | jq '[.[] | {name, approvals_required, rule_type}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Entries with approvals_required >= 1 targeting the default branch indicate enforced review counts. An empty array or all rules with approvals_required of 0 indicates no review enforcement."
+      },
+      {
+        "type": "gui",
+        "instruction": "Check the branch protection rule for the default branch in the repository settings to read the required approvals configuration directly.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab: Repository Settings > Merge Requests > Approval rules section, check 'Required number of approvals'; also check Settings > Repository > Protected Branches > Approvals required column. GitHub: Repository Settings > Branches > Branch protection rules > 'Required approving reviews' field.",
+        "expected_output": "A value of 1 or higher in the required approvals field indicates the attribute value. A value of 0 or blank confirms required_review_count is 0."
+      },
+      {
+        "type": "api",
+        "instruction": "For Gitea, query branch protection settings to find the required_approvals field for the default branch.",
+        "command": "curl --silent --header 'Authorization: token <admin_token>' 'https://<gitea_host>/api/v1/repos/<owner>/<repo>/branch_protections' | jq '.[] | select(.branch_name == \"main\") | {branch_name, required_approvals}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "required_approvals >= 1 confirms the review gate is active. A value of 0 indicates no mandatory review is enforced."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0",
+      "1",
+      "2"
+    ]
+  },
+  {
+    "option_name": "branch_protection_rule_exists",
+    "option_description": "Indicates whether any branch protection rule or ruleset targeting the default branch (main/master) has been configured at the repository or organization level. This is a prerequisite for all other branch protection controls — if no rule exists, push restrictions and review requirements are implicitly absent regardless of platform defaults.",
+    "security_impact": "The Rego policy triggers unprotected_default_branch_configuration immediately when branch_protection_rule_exists is false, without checking any other conditions. This makes it the foundational control: a repository without a branch protection rule has zero guardrails on its default branch. Any contributor with write access can force-push, delete branches, or commit directly without review. For repositories containing CI/CD pipeline definitions, IaC, or Helm charts, this represents an unrestricted software supply chain injection point.",
+    "how_to_obtain": [
+      {
+        "type": "api",
+        "instruction": "Query the GitLab protected branches API to list all protected branches for the repository and confirm the default branch is included.",
+        "command": "curl --silent --header 'PRIVATE-TOKEN: <admin_token>' 'https://<gitlab_host>/api/v4/projects/<project_id>/protected_branches' | jq '[.[].name]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "The array should include 'main' or 'master'. An empty array or an array not containing the default branch name indicates no protection rule exists."
+      },
+      {
+        "type": "api",
+        "instruction": "For Gitea/Forgejo, list branch protection rules and check whether the default branch is covered.",
+        "command": "curl --silent --header 'Authorization: token <admin_token>' 'https://<gitea_host>/api/v1/repos/<owner>/<repo>/branch_protections' | jq '[.[].branch_name]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output should contain 'main' or 'master'. An empty array or missing default branch name confirms no branch protection rule exists."
+      },
+      {
+        "type": "gui",
+        "instruction": "Navigate to the repository's branch protection settings and confirm a rule targeting the default branch is listed and enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab: Repository Settings > Repository > Protected Branches > verify main/master appears in the protected branches table. GitHub: Repository Settings > Branches > Branch protection rules > confirm a rule matching 'main' or 'master' exists. Gitea: Repository Settings > Protected Branches.",
+        "expected_output": "An entry for the default branch in the protected branches list confirms branch_protection_rule_exists is true. An empty list confirms it is false."
+      },
+      {
+        "type": "command",
+        "instruction": "Use the GitLab CLI (glab) to check branch protection status for the default branch across multiple repositories in bulk.",
+        "command": "glab api projects/:fullpath/protected_branches --paginate | jq '[.[].name] | if any(. == \"main\" or . == \"master\") then \"EXISTS\" else \"MISSING\" end'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "'EXISTS' confirms a protection rule is in place. 'MISSING' confirms no rule is configured for the default branch."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "webhook_url_allowlist_enforced",
+    "option_description": "Controls whether the platform enforces a configured allowlist of permitted webhook destination URLs or domains, preventing users from registering webhooks that target arbitrary URLs including internal network addresses, cloud metadata endpoints, or other sensitive internal services.",
+    "security_impact": "The Rego policy fires webhook_ssrf_via_unrestricted_targets when both webhook_url_allowlist_enforced and internal_network_requests_blocked are false, and also when webhook_url_allowlist_enforced is false and webhook_creation_permission_scope is any_member. Without an allowlist, any repository contributor can configure a webhook pointing to internal services such as Kubernetes API servers, cloud metadata endpoints (169.254.169.254), internal databases, or other microservices. The Git server then becomes an SSRF proxy, making authenticated requests to internal infrastructure on behalf of the attacker.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Check the GitLab admin network settings for the outbound request allowlist configuration governing webhook destinations.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab Admin Area > Settings > Network > Outbound requests > review 'Allow requests to the local network from webhooks and integrations' toggle and 'Local IP addresses and domain names that hooks and services may access' allowlist field",
+        "expected_output": "An allowlist with specific permitted domains/IPs populated AND the local network requests toggle disabled indicates the control is enforced. An empty allowlist with the toggle enabled indicates the control is not enforced."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Gitea/Forgejo, inspect the app.ini webhook configuration section to check whether ALLOWED_HOST_LIST is populated with a restrictive allowlist.",
+        "command": "grep -A 15 '\\[webhook\\]' /etc/gitea/app.ini",
+        "file_path": "/etc/gitea/app.ini",
+        "navigation": null,
+        "expected_output": "ALLOWED_HOST_LIST set to a specific list of permitted hostnames/IPs (not 'external' or '*') indicates the allowlist is enforced. An absent or wildcard ALLOWED_HOST_LIST indicates the control is not active."
+      },
+      {
+        "type": "api",
+        "instruction": "Query GitLab application settings API to retrieve the outbound request allowlist configuration programmatically.",
+        "command": "curl --silent --header 'PRIVATE-TOKEN: <admin_token>' 'https://<gitlab_host>/api/v4/application/settings' | jq '{outbound_local_requests_allowlist, allow_local_requests_from_web_hooks_and_services}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "outbound_local_requests_allowlist containing specific permitted entries AND allow_local_requests_from_web_hooks_and_services being false indicates the allowlist is enforced. An empty allowlist array with allow set to true indicates false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Attempt to create a webhook targeting a known internal IP address as a non-admin user to verify whether the platform actively rejects the configuration.",
+        "command": "curl --request POST --header 'PRIVATE-TOKEN: <user_token>' --header 'Content-Type: application/json' --data '{\"url\":\"http://192.168.1.1/test\",\"push_events\":true}' 'https://<gitlab_host>/api/v4/projects/<project_id>/hooks'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A 422 Unprocessable Entity or error message referencing blocked URLs confirms the allowlist is enforced. A 201 Created response indicates webhook URL allowlist enforcement is not active."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "internal_network_requests_blocked",
+    "option_description": "Indicates whether the platform explicitly prevents webhook HTTP requests from reaching private or internal IP address ranges including RFC1918 addresses (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), loopback addresses (127.0.0.0/8), and link-local addresses (169.254.0.0/16) at either the application layer or via network egress controls.",
+    "security_impact": "The Rego policy fires webhook_ssrf_via_unrestricted_targets when internal_network_requests_blocked is false combined with either an absent webhook_url_allowlist_enforced or webhook_creation_permission_scope being any_member. Application-layer blocking alone is insufficient if the Git server has network access to internal subnets — an attacker can use webhooks to probe internal services, access the cloud instance metadata service to retrieve IAM credentials, or reach internal APIs that trust the Git server's IP. Both application-level controls (platform setting) and network egress filtering (firewall/security group rules) should be verified.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "Verify the GitLab admin setting that controls local network request blocking for webhooks and service integrations.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab Admin Area > Settings > Network > Outbound requests > confirm 'Allow requests to the local network from webhooks and integrations' is UNCHECKED (disabled)",
+        "expected_output": "The toggle being disabled (unchecked) indicates GitLab is blocking local network webhook requests at the application layer, contributing to internal_network_requests_blocked being true."
+      },
+      {
+        "type": "api",
+        "instruction": "Query GitLab application settings to confirm the allow_local_requests_from_web_hooks_and_services flag is set to false.",
+        "command": "curl --silent --header 'PRIVATE-TOKEN: <admin_token>' 'https://<gitlab_host>/api/v4/application/settings' | jq '{allow_local_requests_from_web_hooks_and_services, allow_local_requests_from_system_hooks}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Both values being false confirms application-layer blocking is active. Either value being true indicates internal network requests are permitted by the application."
+      },
+      {
+        "type": "network_test",
+        "instruction": "From the Git server host, attempt to reach the cloud metadata endpoint and a known internal RFC1918 address to verify network-level egress restrictions are enforced independently of application settings.",
+        "command": "curl --max-time 3 --silent --output /dev/null --write-out '%{http_code}' http://169.254.169.254/latest/meta-data/ ; echo ''; curl --max-time 3 --silent --output /dev/null --write-out '%{http_code}' http://10.0.0.1/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection timeout (000) or network unreachable responses for both addresses indicates network-level egress blocking is in place. Any HTTP response code (200, 401, etc.) indicates the Git server can reach internal network addresses and network-level blocking is absent."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review firewall or security group rules governing the Git server's outbound traffic to confirm egress to internal subnets is explicitly denied.",
+        "command": "iptables -L OUTPUT -n -v | grep -E '(DROP|REJECT)' ; ip6tables -L OUTPUT -n -v | grep -E '(DROP|REJECT)'",
+        "file_path": "/etc/iptables/rules.v4",
+        "navigation": null,
+        "expected_output": "DROP or REJECT rules targeting RFC1918 ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) and 169.254.0.0/16 in the OUTPUT chain confirm network-level blocking is active. Absence of such rules indicates reliance solely on application-layer controls."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false",
+      "true"
+    ]
+  },
+  {
+    "option_name": "webhook_creation_permission_scope",
+    "option_description": "Controls the minimum role or permission level required for a user to create or modify webhooks at either the repository or organization level. Restricting this to maintainer, admin, or disabling it entirely limits the attack surface for webhook-based SSRF attacks.",
+    "security_impact": "The Rego policy fires the 'webhook_ssrf_via_unrestricted_targets' exposure when webhook_creation_permission_scope == 'any_member' combined with either no webhook URL allowlist or no internal network request blocking. Any authenticated member being able to create webhooks dramatically expands SSRF risk because the Git server will make outbound HTTP requests to attacker-controlled internal URLs, enabling lateral movement into internal services.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Gitea, navigate to Site Administration > Settings and inspect the 'Webhook' section for permission settings. In GitLab, go to Admin Area > Settings > Network > Outbound requests and review webhook-related access controls. Also check organization-level and repository-level webhook settings under Settings > Webhooks.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Gitea: Admin Panel > Settings > Webhook | GitLab: Admin Area > Settings > Network > Outbound requests",
+        "expected_output": "A clear indicator of which roles (e.g., Owner, Maintainer, Developer, or all members) are permitted to manage webhooks."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Gitea, inspect app.ini for webhook-related settings that control access. For GitLab, review /etc/gitlab/gitlab.rb for webhook permission directives such as 'gitlab_rails[\"allow_local_requests_from_web_hooks_and_services\"]'.",
+        "command": "grep -i 'webhook' /etc/gitea/app.ini 2>/dev/null || grep -i 'webhook' /home/git/gitea/custom/conf/app.ini 2>/dev/null",
+        "file_path": "/etc/gitea/app.ini or /home/git/gitea/custom/conf/app.ini or /etc/gitlab/gitlab.rb",
+        "navigation": null,
+        "expected_output": "Configuration entries specifying webhook permission constraints or allowlist settings."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the Gitea API to list organization-level webhook configurations and determine which roles have write access. For GitLab, use the REST API to inspect group or project webhook settings and access levels.",
+        "command": "curl -s -H 'Authorization: token <ADMIN_TOKEN>' https://<GITEA_HOST>/api/v1/admin/orgs | jq '.[].visibility' && curl -s -H 'Authorization: token <ADMIN_TOKEN>' https://<GITEA_HOST>/api/v1/settings/api | jq .",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "API response indicating webhook-related permission settings or confirming if non-admin users have webhook creation capability."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform administrator to confirm whether a policy document or change control process exists that limits who can create or modify webhooks, and whether this is enforced technically or only by convention.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Confirmation of a documented and technically enforced restriction (e.g., only admins or maintainers can manage webhooks)."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "any_member",
+      "maintainer_or_above",
+      "admin_only",
+      "disabled"
+    ]
+  },
+  {
+    "option_name": "service_process_user",
+    "option_description": "Identifies the OS user account under which the Git service daemon or container process runs. The service should run as a dedicated low-privilege account (e.g., 'git', 'gitea', 'gitlab-www') rather than 'root' to limit the blast radius of a compromise.",
+    "security_impact": "The Rego policy triggers the 'git_service_process_running_as_root_or_privileged_user' exposure when service_process_user == 'root'. If the application process is compromised while running as root, the attacker immediately gains full host-level privileges, enabling container escape (T1611), administrative command execution (T1609), and persistence via container service manipulation (T1543.005). Principle of least privilege at the OS level is a primary defense layer.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "On the host running the Git service, inspect the process list to determine the effective user running the Git daemon. Match the process name to your platform (gitea, gitlab-workhorse, gitlab-rails, gogs).",
+        "command": "ps aux | grep -E 'gitea|gitlab|gogs|git-daemon' | grep -v grep | awk '{print $1, $11}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing the USER column — should be a non-root account such as 'git', 'gitea', or 'gitlab-www'. A value of 'root' or UID 0 is a finding."
+      },
+      {
+        "type": "command",
+        "instruction": "For containerized deployments, inspect the running container to determine the configured user. An empty string or '0' defaults to root.",
+        "command": "docker inspect $(docker ps --filter 'name=gitea\\|gitlab\\|gogs' -q) --format '{{.Config.User}} {{.Name}}' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-empty, non-root username or UID such as 'git' or '1000'. Empty output or '0' indicates root execution."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For systemd-managed deployments, check the service unit file for the User= directive which specifies the process owner.",
+        "command": "systemctl show gitea.service --property=User,ExecStart 2>/dev/null || systemctl show gitlab-runsvdir.service --property=User 2>/dev/null || cat /etc/systemd/system/gitea.service | grep -E '^User=|^Group='",
+        "file_path": "/etc/systemd/system/gitea.service or /lib/systemd/system/gitlab*.service",
+        "navigation": null,
+        "expected_output": "A 'User=git' or 'User=gitea' directive indicating a dedicated service account. Absence of User= means it runs as root."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes deployments, check the pod's security context to identify the user ID under which the container runs.",
+        "command": "kubectl get pod -l app=gitea -o jsonpath='{.items[*].spec.containers[*].securityContext.runAsUser}' -n <namespace>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-zero UID such as '1000'. An output of '0' or empty indicates the container runs as root."
+      }
+    ],
+    "value_type": "string",
+    "typical_values": [
+      "root",
+      "git",
+      "gitea",
+      "gitlab-www",
+      "1000"
+    ]
+  },
+  {
+    "option_name": "container_privileged_mode_enabled",
+    "option_description": "Indicates whether the Git service container is launched with the Docker --privileged flag or Kubernetes securityContext.privileged=true, which grants the container near-unrestricted access to the host kernel, all devices, and host namespaces.",
+    "security_impact": "The Rego policy triggers 'git_service_process_running_as_root_or_privileged_user' when container_privileged_mode_enabled == true. A privileged container has the same capabilities as a root process on the host, meaning a compromised Git service can immediately escape to the host (T1611), manipulate kernel namespaces, load kernel modules, and access all host filesystems and processes. This completely negates container isolation.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect the running Git service container to check if privileged mode is enabled. A value of 'true' is a critical finding.",
+        "command": "docker inspect $(docker ps --filter 'name=gitea\\|gitlab\\|gogs' -q) --format '{{.Name}}: Privileged={{.HostConfig.Privileged}}' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output showing 'Privileged=false' for all Git service containers. Any 'true' result is a high-severity finding."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Docker Compose files used to deploy the Git service and look for the 'privileged: true' key under the service definition.",
+        "command": "grep -r 'privileged' /opt/gitea/docker-compose.yml /opt/gitlab/docker-compose.yml /home/git/docker-compose.yml 2>/dev/null || find / -name 'docker-compose*.yml' -exec grep -l 'gitea\\|gitlab\\|gogs' {} \\; 2>/dev/null | xargs grep -l 'privileged' 2>/dev/null",
+        "file_path": "/opt/gitea/docker-compose.yml or /home/git/docker-compose.yml",
+        "navigation": null,
+        "expected_output": "No 'privileged: true' entries in any Docker Compose file used to run the Git service."
+      },
+      {
+        "type": "command",
+        "instruction": "For Kubernetes deployments, check all pod specs in the namespace for privileged security context settings.",
+        "command": "kubectl get pods -n <namespace> -o json | jq '.items[].spec.containers[].securityContext.privileged'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "All values should be 'false' or 'null'. Any 'true' result indicates privileged container mode is enabled."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Kubernetes deployment or StatefulSet manifests for the Git service and check the securityContext block.",
+        "command": "kubectl get deployment gitea -n <namespace> -o yaml | grep -A5 'securityContext' 2>/dev/null || kubectl get statefulset gitlab -n <namespace> -o yaml | grep -A5 'securityContext' 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "securityContext block should contain 'privileged: false' or omit the privileged field entirely."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "run_as_non_root_enforced",
+    "option_description": "Indicates whether the deployment configuration explicitly and technically enforces that the Git service cannot run as root — through mechanisms such as Kubernetes securityContext.runAsNonRoot=true, a Docker USER directive in the Dockerfile, or a systemd User= directive in the service unit file.",
+    "security_impact": "The Rego policy triggers 'git_service_process_running_as_root_or_privileged_user' when run_as_non_root_enforced is false or absent. The absence of an enforced non-root constraint means the service may inadvertently or maliciously be restarted as root, enabling privilege escalation and host escape. Enforcement via platform-level controls (not just convention) is required because a missing User= directive or missing Kubernetes securityContext means root is the default if the container image doesn't specify otherwise.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For Kubernetes, check if the runAsNonRoot security context is explicitly set to true at either pod or container level.",
+        "command": "kubectl get pod -l app=gitea -n <namespace> -o json | jq '.items[].spec.securityContext.runAsNonRoot, .items[].spec.containers[].securityContext.runAsNonRoot'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "One or more 'true' values indicating runAsNonRoot enforcement. 'null' or 'false' indicates it is not enforced."
+      },
+      {
+        "type": "command",
+        "instruction": "For Docker-based deployments, check whether the Dockerfile or image specifies a non-root USER directive.",
+        "command": "docker inspect $(docker ps --filter 'name=gitea\\|gitlab' -q) --format '{{.Config.User}}' && docker history --no-trunc $(docker ps --filter 'name=gitea' -q | head -1) 2>/dev/null | grep -i 'USER'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-empty username or UID (e.g., 'git' or '1000') indicating a USER directive is present. Empty output means root is the default."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect systemd service unit files for the Git service to verify that a User= directive is present and set to a non-root account.",
+        "command": "grep -E '^User=|^Group=' /etc/systemd/system/gitea.service /lib/systemd/system/gitea.service /etc/systemd/system/gitlab*.service 2>/dev/null",
+        "file_path": "/etc/systemd/system/gitea.service or /lib/systemd/system/gitea.service",
+        "navigation": null,
+        "expected_output": "Lines such as 'User=git' and 'Group=git'. Absence of User= means the service runs as root by default."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Review Docker Compose service definitions for the Git service to check for a 'user:' key that enforces non-root execution.",
+        "command": "grep -A2 -B2 'user:' /opt/gitea/docker-compose.yml /home/git/docker-compose.yml 2>/dev/null",
+        "file_path": "/opt/gitea/docker-compose.yml",
+        "navigation": null,
+        "expected_output": "A 'user: git' or 'user: 1000:1000' entry confirming non-root enforcement. Absence of this key means root may be used."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "backup_encryption_enabled",
+    "option_description": "Indicates whether backup archives of the Git service's repositories and data are encrypted at rest before or during storage, using mechanisms such as AES-256 symmetric encryption, GPG asymmetric encryption, or storage-provider-managed keys (e.g., AWS SSE-S3, SSE-KMS).",
+    "security_impact": "The Rego policy triggers 'unencrypted_or_publicly_accessible_backup_storage' when backup_encryption_enabled is false, and also when it is false combined with an overly_permissive backup storage policy. Repository backups contain the complete commit history including any secrets, credentials, or sensitive data ever committed, making them equivalent in value to live repository access. An unencrypted backup on any accessible storage location (T1530, T1213) constitutes a full data breach equivalent.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Review backup job scripts, cron jobs, or backup automation configuration to confirm whether encryption is applied as part of the backup pipeline. Identify which encryption tool or method is used (gpg, openssl, age, provider-managed).",
+        "command": "crontab -l -u git 2>/dev/null; crontab -l -u gitea 2>/dev/null; ls -la /etc/cron.d/ | grep -i backup; cat /etc/cron.d/gitea-backup 2>/dev/null",
+        "file_path": "/etc/cron.d/gitea-backup or /opt/backup/backup.sh",
+        "navigation": null,
+        "expected_output": "Backup scripts that include gpg --encrypt, openssl enc, or age encryption calls, or configuration pointing to an encrypted storage backend."
+      },
+      {
+        "type": "command",
+        "instruction": "Inspect existing backup archives to determine if they are stored in encrypted format. Encrypted files will typically have .gpg, .enc, or .age extensions, or will fail to open as plaintext tar/zip archives.",
+        "command": "find /var/backups/gitea /opt/gitea/backups /mnt/backups 2>/dev/null -name '*.zip' -o -name '*.tar.gz' -o -name '*.gpg' -o -name '*.enc' | head -20 && file $(find /var/backups/gitea 2>/dev/null -name '*.zip' | head -1) 2>/dev/null",
+        "file_path": "/var/backups/gitea or /opt/gitea/backups",
+        "navigation": null,
+        "expected_output": "Files with .gpg or .enc extensions, or file command output indicating encrypted/binary data rather than 'Zip archive' or 'gzip compressed'."
+      },
+      {
+        "type": "api",
+        "instruction": "For S3-compatible backup storage, use the AWS CLI or compatible tool to check if server-side encryption is enabled on the backup bucket.",
+        "command": "aws s3api get-bucket-encryption --bucket <backup-bucket-name> 2>/dev/null || aws s3api head-object --bucket <backup-bucket-name> --key <sample-backup-file> --query 'ServerSideEncryption'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A ServerSideEncryptionConfiguration showing AES256 or aws:kms. An error or empty response indicates no server-side encryption."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check Gitea backup configuration in app.ini or GitLab backup configuration for encryption settings.",
+        "command": "grep -i -A5 'backup\\|encrypt' /etc/gitea/app.ini 2>/dev/null || grep -i 'backup_encryption\\|backup_upload' /etc/gitlab/gitlab.rb 2>/dev/null",
+        "file_path": "/etc/gitea/app.ini or /etc/gitlab/gitlab.rb",
+        "navigation": null,
+        "expected_output": "Configuration entries indicating encryption is enabled, such as BACKUP_ENCRYPT=true or a reference to a KMS key ARN."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "backup_storage_access_policy",
+    "option_description": "Describes the effective access control policy applied to the backup storage location — whether it is publicly accessible (world-readable or anonymous access allowed), overly permissive (accessible to any authenticated user or broad network range), or properly restricted (access limited to designated backup service accounts only).",
+    "security_impact": "The Rego policy triggers 'unencrypted_or_publicly_accessible_backup_storage' when backup_storage_access_policy is 'public' (unconditionally), or when it is 'overly_permissive' combined with backup_encryption_enabled being false. A publicly accessible backup bucket or NFS share allows any internet user to download full repository history (T1530). Even overly permissive internal access enables insider threat and lateral movement scenarios where any authenticated internal user can exfiltrate the complete codebase, IaC, and historical secrets.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "For S3-compatible object storage, check the bucket ACL and bucket policy to determine if anonymous or broad access is granted. Look for 'AllUsers' or 'AuthenticatedUsers' in the ACL, and wildcard principals in the policy.",
+        "command": "aws s3api get-bucket-acl --bucket <backup-bucket-name> 2>/dev/null && aws s3api get-bucket-policy --bucket <backup-bucket-name> 2>/dev/null | python3 -m json.tool",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACL should show only the bucket owner with FULL_CONTROL and no AllUsers/AuthenticatedUsers grants. Policy should restrict access to specific IAM role ARNs or service accounts only."
+      },
+      {
+        "type": "command",
+        "instruction": "For local filesystem backup directories, check the file and directory permissions to identify world-readable or group-readable settings.",
+        "command": "ls -la /var/backups/gitea 2>/dev/null || ls -la /opt/gitea/backups 2>/dev/null || find /var/backups /opt/backups -name '*.zip' -o -name '*.tar.gz' 2>/dev/null | xargs ls -la 2>/dev/null | head -20",
+        "file_path": "/var/backups/gitea or /opt/gitea/backups",
+        "navigation": null,
+        "expected_output": "Permissions of 700 or 750 owned by the git/gitea service account. Permissions of 755, 644, or world-readable bits are findings."
+      },
+      {
+        "type": "command",
+        "instruction": "For NFS exports, check the /etc/exports file to determine if the backup share is exported with insecure settings such as no_root_squash, access from broad IP ranges, or without auth_sys authentication.",
+        "command": "cat /etc/exports 2>/dev/null | grep -v '^#' && showmount -e localhost 2>/dev/null",
+        "file_path": "/etc/exports",
+        "navigation": null,
+        "expected_output": "Backup directories should be exported only to specific trusted IP addresses with restricted options. Wildcard (*) hosts or no_root_squash on backup paths are findings."
+      },
+      {
+        "type": "gui",
+        "instruction": "For cloud provider backup storage, use the provider console to review bucket/container public access settings. For AWS S3, check 'Block Public Access' settings and bucket policy. For Azure Blob, check container access level. For GCS, check bucket IAM bindings.",
+        "command": "aws s3api get-public-access-block --bucket <backup-bucket-name> 2>/dev/null",
+        "file_path": null,
+        "navigation": "AWS Console: S3 > bucket-name > Permissions > Block public access | Azure Portal: Storage Account > Containers > Access level | GCP Console: Cloud Storage > Bucket > Permissions",
+        "expected_output": "All four Block Public Access settings should be 'true' for AWS. Azure containers should show 'Private'. GCS buckets should have no 'allUsers' or 'allAuthenticatedUsers' IAM bindings."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "public",
+      "overly_permissive",
+      "restricted"
+    ]
+  },
+  {
+    "option_name": "audit_log_enabled",
+    "option_description": "Indicates whether the platform-level audit logging capability is activated on the Git service instance, enabling the recording of security-relevant events such as logins, repository access, administrative actions, and configuration changes.",
+    "security_impact": "The Rego policy triggers 'audit_logging_disabled_or_incomplete' when audit_log_enabled is false or absent. Without audit logging, there is no forensic trail to detect or investigate unauthorized access, insider exfiltration, supply chain tampering, or privilege abuse. Disabled logging mirrors the impact of adversary TTPs T1562.008 (Disable Cloud Logs) and T1562.002 (Disable Event Logging) — attackers operating on a system without audit logs can exfiltrate repositories, modify permissions, and inject code without any detection signal.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In Gitea, navigate to the Admin Panel and check the log configuration. In GitLab, go to Admin Area > Monitoring > Audit Events to verify that audit events are being recorded and the feature is enabled.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Gitea: /-/admin/self-check or Admin > Configuration | GitLab: Admin Area > Monitoring > Audit Events",
+        "expected_output": "Audit Events page showing recent events, confirming the feature is active. An empty page or disabled feature indicator is a finding."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Gitea, inspect the [log] section of app.ini to confirm logging mode, level, and whether audit-specific logging is configured. For GitLab, check gitlab.rb for audit_log settings.",
+        "command": "grep -A10 '\\[log\\]' /etc/gitea/app.ini 2>/dev/null || grep -A10 '\\[log\\]' /home/git/gitea/custom/conf/app.ini 2>/dev/null",
+        "file_path": "/etc/gitea/app.ini or /home/git/gitea/custom/conf/app.ini",
+        "navigation": null,
+        "expected_output": "A [log] section with MODE set to a file or remote destination and LEVEL set to Info or lower. Missing or MODE='' indicates logging may be disabled."
+      },
+      {
+        "type": "command",
+        "instruction": "Check whether audit log files exist and are being actively written to, indicating that logging is operational.",
+        "command": "find /var/log/gitea /home/git/gitea/log /var/log/gitlab 2>/dev/null -name '*.log' | xargs ls -lt 2>/dev/null | head -10 && stat /var/log/gitea/gitea.log 2>/dev/null",
+        "file_path": "/var/log/gitea/gitea.log or /var/log/gitlab/audit_json.log",
+        "navigation": null,
+        "expected_output": "Log files with recent modification timestamps (within the current day for active systems). Absent files or stale timestamps indicate logging is not operational."
+      },
+      {
+        "type": "api",
+        "instruction": "For GitLab, use the API to retrieve recent audit events which confirms that audit logging is active and accessible.",
+        "command": "curl -s -H 'PRIVATE-TOKEN: <ADMIN_TOKEN>' 'https://<GITLAB_HOST>/api/v4/audit_events?per_page=5' | jq 'length, .[0].created_at'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A JSON array with 5 audit event objects and recent timestamps. An empty array '[]' or 404 response indicates audit logging is disabled or inaccessible."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true",
+      "false"
+    ]
+  },
+  {
+    "option_name": "audit_log_categories_covered",
+    "option_description": "Specifies the list of event categories actively captured and recorded in the platform's audit logs. Comprehensive coverage should include authentication events, repository access, permission changes, webhook events, and administrative actions. Gaps in coverage create blind spots for attacker activity.",
+    "security_impact": "The Rego policy triggers 'audit_logging_disabled_or_incomplete' when audit_log_enabled is true but 'authentication' is not present in audit_log_categories_covered. Authentication event coverage is treated as the minimum viable requirement. Missing categories create exploitable blind spots — for example, missing 'webhook_events' means SSRF webhook creation goes undetected; missing 'permission_changes' means privilege escalation is invisible; missing 'repository_access' means exfiltration of source code, IaC, and secrets cannot be correlated or detected (T1654 Log Enumeration exploitation).",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "In GitLab, navigate to Admin Area > Monitoring > Audit Events and review the available filter categories to identify which event types are being captured. In Gitea, check the Admin > Configuration page and log settings for event type coverage.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab: Admin Area > Monitoring > Audit Events > filter options | Gitea: Admin Panel > Configuration > Log Settings",
+        "expected_output": "A list of filterable audit event categories confirming which are active. Cross-reference against the expected set: authentication, repository_access, permission_changes, webhook_events, admin_actions."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Sample recent audit log entries to identify which event types and categories are actually being recorded. Look for login events, repo clone/push, permission grant/revoke, webhook create, and admin setting changes.",
+        "command": "tail -100 /var/log/gitea/gitea.log 2>/dev/null | grep -iE 'auth|login|webhook|permission|admin|access|clone|push' | sort -u | head -30",
+        "file_path": "/var/log/gitea/gitea.log or /var/log/gitlab/audit_json.log",
+        "navigation": null,
+        "expected_output": "Log entries covering diverse event types. Absence of authentication events, webhook events, or permission change entries indicates gaps in coverage."
+      },
+      {
+        "type": "api",
+        "instruction": "For GitLab, query the audit events API filtering by each expected event type to confirm which categories produce results. Missing results for a category may indicate it is not being captured.",
+        "command": "for type in authenticated repository_download member_created project_hook_added; do echo \"--- $type ---\"; curl -s -H 'PRIVATE-TOKEN: <ADMIN_TOKEN>' \"https://<GITLAB_HOST>/api/v4/audit_events?entity_type=$type&per_page=2\" | jq 'length'; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Non-zero counts for each event type query. Zero results for authentication or permission_changes queries indicates those categories are not being logged."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Gitea, review the app.ini log configuration to understand the log level and whether it is set to capture INFO-level events (required for authentication and access events) versus only WARN or ERROR.",
+        "command": "grep -E 'LEVEL|MODE|ROUTER|XORM|ACCESS' /etc/gitea/app.ini 2>/dev/null || grep -E 'LEVEL|MODE|ROUTER|XORM|ACCESS' /home/git/gitea/custom/conf/app.ini 2>/dev/null",
+        "file_path": "/etc/gitea/app.ini",
+        "navigation": null,
+        "expected_output": "LEVEL=Info or LEVEL=Trace with ROUTER=true and ACCESS=true to confirm authentication and repository access events are captured. LEVEL=Warn or higher will miss authentication events."
+      }
+    ],
+    "value_type": "array",
+    "typical_values": [
+      "authentication",
+      "repository_access",
+      "permission_changes",
+      "webhook_events",
+      "admin_actions"
+    ]
+  },
+  {
+    "option_name": "audit_log_retention_days",
+    "option_description": "Controls the number of days audit log entries are retained before being purged or rotated without archival. A value of 0 indicates no retention is configured, meaning logs may be lost immediately or on the next rotation cycle.",
+    "security_impact": "The Rego policy fires the 'audit_logging_disabled_or_incomplete' exposure when audit_log_retention_days is <= 0, even if audit logging is enabled. Without a meaningful retention period, forensic investigation of unauthorized access, insider exfiltration, or supply chain tampering becomes impossible because evidence is destroyed before it can be analyzed.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "For GitLab: Navigate to Admin Area → Monitoring → Audit Events and check the configured retention period. For Gitea: Navigate to Site Administration → Configuration and inspect audit log settings.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab: Admin Area > Monitoring > Audit Events > Audit log retention period | Gitea: Site Administration > Configuration",
+        "expected_output": "A numeric value (in days) displayed for audit log retention, e.g., '90 days' or 'Not configured'."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the GitLab configuration file for the audit_events_truncate_older_than_time_period setting, or check Gitea's app.ini for log retention parameters.",
+        "command": null,
+        "file_path": "/etc/gitlab/gitlab.rb",
+        "navigation": null,
+        "expected_output": "A line such as: gitlab_rails['audit_events_truncate_older_than_time_period'] = 90 or absence of the setting (defaults to 0)."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the GitLab application settings API to retrieve the audit_log_retention_period value programmatically.",
+        "command": "curl --silent --header 'PRIVATE-TOKEN: <admin_token>' 'https://<gitlab-host>/api/v4/application/settings' | jq '.audit_log_retention_period'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An integer value such as 90 (days), or null/0 if not configured."
+      },
+      {
+        "type": "command",
+        "instruction": "On self-hosted Gitea/Forgejo, inspect the app.ini file directly for any LOG section retention parameters and cross-check the log directory for file timestamps to infer effective retention.",
+        "command": "grep -i 'retention\\|rotate\\|max_days' /etc/gitea/app.ini && ls -lt /var/log/gitea/ | head -20",
+        "file_path": "/etc/gitea/app.ini",
+        "navigation": null,
+        "expected_output": "LOG_ROTATE = true and MAX_DAYS = 90 or similar, alongside log file timestamps confirming active rotation."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0 (no retention configured — common in default installs)",
+      "30",
+      "90",
+      "365",
+      "3650 (maximum)"
+    ]
+  },
+  {
+    "option_name": "version_has_known_cve",
+    "option_description": "Indicates whether the currently installed Git platform version has one or more publicly disclosed CVEs that have not been patched. This is a boolean flag derived by comparing the installed version against CVE databases and vendor security advisories.",
+    "security_impact": "The Rego policy triggers the 'outdated_platform_version_without_patch_management' exposure immediately when version_has_known_cve is true, regardless of patch policy status. Git platform CVEs have historically included unauthenticated RCE (e.g., GitLab CVE-2021-22205), authentication bypass, and privilege escalation — any of which provides an external attacker a direct path into the highest-value target in an organization.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Retrieve the installed platform version, then query the National Vulnerability Database or GitHub Advisory Database to check for known CVEs against that version.",
+        "command": "gitlab-rake gitlab:env:info 2>/dev/null | grep 'GitLab information' -A5 || gitea --version || forgejo --version",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output such as: 'GitLab 16.2.3' or 'Gitea Version: 1.20.4', which can then be checked against CVE databases."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Trivy to scan the running container image or installed package for known CVEs affecting the Git platform version.",
+        "command": "trivy image --severity HIGH,CRITICAL gitlab/gitlab-ce:latest 2>/dev/null || trivy fs --severity HIGH,CRITICAL /opt/gitea/",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A table listing CVE IDs, severity, affected package, and fixed version. Empty output indicates no known CVEs."
+      },
+      {
+        "type": "api",
+        "instruction": "Query the GitLab version API endpoint and cross-reference the returned version against the GitLab security releases page (https://about.gitlab.com/releases/categories/releases/) for listed CVEs.",
+        "command": "curl --silent --header 'PRIVATE-TOKEN: <admin_token>' 'https://<gitlab-host>/api/v4/version' | jq '{version, revision}'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON object like: {\"version\": \"16.2.3-ee\", \"revision\": \"abc1234\"}, which should be compared against the GitLab security advisories page."
+      },
+      {
+        "type": "command",
+        "instruction": "Use Grype to scan the installed binary or package database for CVEs affecting the Git service.",
+        "command": "grype dir:/opt/gitlab --only-fixed 2>/dev/null | grep -i 'critical\\|high'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Lines listing CVE IDs and affected components. No output indicates no known fixable CVEs detected."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common in organizations without automated version monitoring)",
+      "false (expected secure state)"
+    ]
+  },
+  {
+    "option_name": "patch_management_policy_exists",
+    "option_description": "Indicates whether a formal patch management policy or automated update process is in place for the Git platform, ensuring timely application of security patches. This encompasses documented procedures, scheduled patching windows, version monitoring tooling, and designated responsibility.",
+    "security_impact": "The Rego policy triggers 'outdated_platform_version_without_patch_management' when patch_management_policy_exists is false AND days_since_last_version_update >= 90. Without a patch management policy, organizations run known-vulnerable versions indefinitely, giving attackers a persistent exploitation window against a service that aggregates all source code, secrets, and CI/CD pipeline definitions.",
+    "how_to_obtain": [
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform owner or infrastructure team to determine whether a documented patch management policy exists. Request evidence of the policy document, patch schedule, and the process for monitoring vendor security advisories.",
+        "command": null,
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A documented policy with named owner, review cadence, patching SLA (e.g., critical CVEs patched within 14 days), and evidence of recent patch activity such as changelog or ticket records."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for automated update tooling or cron jobs on the host that manage platform version updates.",
+        "command": "crontab -l 2>/dev/null; ls /etc/cron.d/ | grep -i 'gitlab\\|gitea\\|update\\|patch'; systemctl list-timers | grep -i 'gitlab\\|gitea\\|update'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Scheduled cron entries or systemd timers referencing update scripts or package managers indicate automated patching. Absence of any output suggests manual-only updates."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Check for package manager auto-update configurations that include the Git platform package.",
+        "command": "cat /etc/apt/apt.conf.d/20auto-upgrades 2>/dev/null || cat /etc/dnf/automatic.conf 2>/dev/null | grep -i 'apply_updates\\|upgrade_type'",
+        "file_path": "/etc/apt/apt.conf.d/20auto-upgrades",
+        "navigation": null,
+        "expected_output": "APT: 'APT::Periodic::Unattended-Upgrade \"1\";' or DNF: 'apply_updates = yes' confirms automated patching is active."
+      },
+      {
+        "type": "log_analysis",
+        "instruction": "Review package manager or deployment logs to determine how frequently the platform has been updated, providing evidence of an active patch process.",
+        "command": "grep -i 'gitlab\\|gitea\\|upgrade\\|install' /var/log/dpkg.log 2>/dev/null | tail -50 || grep -i 'gitlab\\|gitea' /var/log/yum.log 2>/dev/null | tail -50",
+        "file_path": "/var/log/dpkg.log",
+        "navigation": null,
+        "expected_output": "Log entries showing regular upgrade activity with recent dates. Large gaps between upgrade events suggest absence of a formal patch process."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in smaller self-hosted deployments)",
+      "true (expected in mature engineering organizations with documented runbooks)"
+    ]
+  },
+  {
+    "option_name": "days_since_last_version_update",
+    "option_description": "The number of days elapsed since the Git platform was last updated to a new release or patch version. This is calculated from the installed version's release date or the date the package was last upgraded on the host.",
+    "security_impact": "The Rego policy fires 'outdated_platform_version_without_patch_management' when patch_management_policy_exists is false AND days_since_last_version_update >= 90. Ninety days without an update in a platform that publishes monthly security releases is a strong indicator that known-exploitable vulnerabilities are present. Extended staleness (>180 days) on a high-value target like a Git service significantly increases the probability that publicly available exploit code exists for the running version.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Check the installed package's installation or upgrade timestamp using the package manager.",
+        "command": "stat --format='%y' $(which gitlab-ctl 2>/dev/null || which gitea 2>/dev/null) | awk '{print $1}'; rpm -q --queryformat '%{INSTALLTIME:date}\n' gitlab-ee 2>/dev/null || dpkg-query -l gitlab-ee 2>/dev/null | grep '^ii'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A timestamp such as '2024-03-15' indicating when the current version was installed. Calculate days difference to today."
+      },
+      {
+        "type": "command",
+        "instruction": "Use apt or dnf to display the installation date of the git platform package and compute days elapsed.",
+        "command": "zgrep 'install gitlab\\|upgrade gitlab\\|install gitea' /var/log/dpkg.log* 2>/dev/null | tail -5; rpm -q --queryformat '%{INSTALLTIME:date}\n' gitlab-ce 2>/dev/null || rpm -q --queryformat '%{INSTALLTIME:date}\n' gitea 2>/dev/null",
+        "file_path": "/var/log/dpkg.log",
+        "navigation": null,
+        "expected_output": "A log line with a date, e.g., '2024-01-10 install gitlab-ce'. Compare against current date to get days elapsed."
+      },
+      {
+        "type": "api",
+        "instruction": "For GitLab, retrieve the current version via the API and then look up the release date from the GitLab releases API or package registry to compute days since update.",
+        "command": "curl --silent --header 'PRIVATE-TOKEN: <admin_token>' 'https://<gitlab-host>/api/v4/version' | jq -r '.version' | xargs -I{} curl --silent 'https://gitlab.com/api/v4/projects/gitlab-org%2Fgitlab/releases/v{}' | jq -r '.released_at'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "An ISO 8601 date string such as '2024-01-15T00:00:00.000Z'. Compute difference from today to determine days since last update."
+      },
+      {
+        "type": "gui",
+        "instruction": "For GitLab, navigate to the Admin Area to view the installed version, then cross-reference with the GitLab releases page to find the release date.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab: Admin Area > Dashboard > Components section shows current version | Then visit: https://about.gitlab.com/releases/ to find the release date",
+        "expected_output": "Version string displayed (e.g., '16.8.1') with corresponding release date on the public releases page, allowing manual computation of days elapsed."
+      }
+    ],
+    "value_type": "integer",
+    "typical_values": [
+      "0–30 (well-maintained, active patching)",
+      "31–89 (borderline, approaching policy threshold)",
+      "90–180 (policy violation threshold per Rego rule)",
+      "180+ (critically outdated, high probability of known exploitable CVEs)"
+    ]
+  },
+  {
+    "option_name": "network_binding_scope",
+    "option_description": "Indicates the network interface scope to which the Git service's web interface, SSH port, and API are bound. 'public' means bound to all interfaces (0.0.0.0 or ::), 'internal' means bound to a specific RFC1918/private network interface, and 'localhost' means bound only to the loopback adapter (127.0.0.1 or ::1).",
+    "security_impact": "The Rego policy triggers 'network_exposure_to_untrusted_segments' when network_binding_scope is 'public' AND network_layer_control_present is false. A service bound to 0.0.0.0 without firewall controls is directly reachable from any network segment the host connects to, including the public internet. Given that the Git service holds source code, IaC definitions, and CI/CD pipeline secrets, public binding without compensating controls constitutes a critical attack surface exposure.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Use ss or netstat to inspect which interfaces the Git service ports are actually bound to on the host.",
+        "command": "ss -tlnp | grep -E ':(80|443|22|3000|8080|8443|2222)\\s' && netstat -tlnp 2>/dev/null | grep -E ':(80|443|22|3000|8080|8443|2222)\\s'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Output like '0.0.0.0:3000' indicates public binding; '10.0.1.5:3000' indicates internal binding; '127.0.0.1:3000' indicates localhost-only binding."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the Git service configuration file for the HTTP and SSH bind address settings.",
+        "command": "grep -E 'HTTP_ADDR|SSH_LISTEN_HOST|HTTP_LISTEN|bind' /etc/gitea/app.ini 2>/dev/null; grep -E 'external_url|nginx.*listen|unicorn.*listen' /etc/gitlab/gitlab.rb 2>/dev/null",
+        "file_path": "/etc/gitea/app.ini",
+        "navigation": null,
+        "expected_output": "Gitea: HTTP_ADDR = 0.0.0.0 (public), HTTP_ADDR = 10.0.0.1 (internal), or HTTP_ADDR = 127.0.0.1 (localhost). GitLab: external_url reflects the intended binding scope."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For GitLab, inspect the gitlab.rb and nginx configuration to determine interface binding.",
+        "command": "grep -E 'listen|server_name|bind' /var/opt/gitlab/nginx/conf/gitlab-http.conf 2>/dev/null | head -20",
+        "file_path": "/var/opt/gitlab/nginx/conf/gitlab-http.conf",
+        "navigation": null,
+        "expected_output": "Lines such as 'listen 0.0.0.0:80' (public) or 'listen 10.0.0.5:80' (internal) or 'listen 127.0.0.1:80' (localhost only)."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Attempt to connect to the Git service ports from an external or untrusted network perspective to confirm whether the binding scope results in actual reachability from untrusted segments.",
+        "command": "curl --max-time 5 --silent --output /dev/null --write-out '%{http_code}' http://<external-ip>:3000/ && nmap -Pn -p 22,80,443,3000,8080 <external-ip>",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "HTTP 200 or SSH banner received from an external test confirms public reachability. Connection timeout confirms non-public binding or firewall blocking."
+      }
+    ],
+    "value_type": "enum",
+    "typical_values": [
+      "public (common in default installations without post-install hardening)",
+      "internal (recommended for corporate self-hosted deployments)",
+      "localhost (used when a reverse proxy handles external access)"
+    ]
+  },
+  {
+    "option_name": "network_layer_control_present",
+    "option_description": "Indicates whether at least one confirmed network-layer control — such as a firewall rule (iptables, ufw, cloud security group), VPN requirement, or reverse proxy with IP allowlisting — effectively restricts access to the Git service's ports from untrusted network segments.",
+    "security_impact": "The Rego policy fires 'network_exposure_to_untrusted_segments' in two conditions: when network_binding_scope is 'public' AND network_layer_control_present is false, or when publicly_resolvable_hostname is true AND network_layer_control_present is false. The absence of network-layer controls means any network-reachable actor can reach authentication endpoints, SSH, and the API — dramatically expanding the attack surface for credential stuffing, vulnerability exploitation, and anonymous access abuse.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Inspect iptables or nftables rules on the host to verify whether inbound access to Git service ports is restricted to known-good source IP ranges.",
+        "command": "iptables -L INPUT -n -v --line-numbers | grep -E '3000|8080|443|80|22|2222' && nftables list ruleset 2>/dev/null | grep -E '3000|8080|443|22'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "ACCEPT rules restricted to specific source IPs/CIDR ranges (e.g., 'source 10.0.0.0/8') confirm a network-layer control. Unrestricted ACCEPT or absence of rules confirms no control."
+      },
+      {
+        "type": "command",
+        "instruction": "Check ufw status to determine if a host-based firewall is active and restricting Git service ports.",
+        "command": "ufw status verbose | grep -E '3000|8080|443|22|2222|ALLOW|DENY'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Active ufw with rules like '3000/tcp ALLOW IN 10.0.0.0/8' confirms a network control. 'Status: inactive' or allow-all rules confirm absence of control."
+      },
+      {
+        "type": "api",
+        "instruction": "For cloud-hosted deployments, query the cloud provider's API to retrieve the security group or firewall rules applied to the Git service host.",
+        "command": "aws ec2 describe-security-groups --group-ids <sg-id> --query 'SecurityGroups[*].IpPermissions' --output json 2>/dev/null || gcloud compute firewall-rules list --filter='targetTags:<git-server-tag>' --format=json 2>/dev/null",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON showing inbound rules for ports 22, 80, 443, 3000. Rules limited to RFC1918 CIDR or specific corporate IP ranges confirm network-layer control. 0.0.0.0/0 source confirms absence."
+      },
+      {
+        "type": "network_test",
+        "instruction": "Verify VPN enforcement by attempting to reach the Git service from a non-VPN connection and confirming a block, and from a VPN connection confirming access.",
+        "command": "curl --max-time 5 --silent --output /dev/null --write-out '%{http_code}\\n' https://<git-hostname>/ && echo 'Reachable without VPN — no VPN control confirmed'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Connection refused or timeout from non-VPN IP confirms VPN/firewall enforcement (network_layer_control_present = true). HTTP 200 without VPN confirms absence of control."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (common in default cloud VM deployments without security group hardening)",
+      "true (expected in production deployments behind corporate firewalls or VPN)"
+    ]
+  },
+  {
+    "option_name": "publicly_resolvable_hostname",
+    "option_description": "Indicates whether the Git service's configured external hostname resolves to a public (non-RFC1918, non-loopback) IP address when queried from an external DNS resolver, signaling that the service is intentionally or accidentally exposed to the public internet via DNS.",
+    "security_impact": "The Rego policy triggers 'network_exposure_to_untrusted_segments' when publicly_resolvable_hostname is true AND network_layer_control_present is false. A publicly resolvable hostname enables external threat actors to discover and target the service without prior knowledge of its IP address, effectively advertising the Git service's existence to internet-wide scanners (e.g., Shodan, Censys). This is particularly dangerous for a service aggregating source code, infrastructure configurations, and pipeline secrets.",
+    "how_to_obtain": [
+      {
+        "type": "network_test",
+        "instruction": "Perform a DNS lookup of the configured Git service hostname using an external resolver to determine whether it resolves to a public IP address.",
+        "command": "dig <git-hostname> @8.8.8.8 +short && dig <git-hostname> @1.1.1.1 +short",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A public (non-RFC1918) IP address like '203.0.113.45' confirms publicly_resolvable_hostname = true. A private address (10.x, 172.16-31.x, 192.168.x) or NXDOMAIN confirms false."
+      },
+      {
+        "type": "command",
+        "instruction": "Extract the configured external hostname from the Git service configuration and test resolution in one pipeline.",
+        "command": "EXT_URL=$(grep -E 'external_url|HTTP_DOMAIN|DOMAIN' /etc/gitlab/gitlab.rb /etc/gitea/app.ini 2>/dev/null | grep -oP 'https?://[^/\"]+' | head -1 | sed 's|https\\?://||'); echo \"Testing: $EXT_URL\"; dig \"$EXT_URL\" @8.8.8.8 +short | grep -vE '^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.|127\\.)'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-empty public IP address output confirms publicly_resolvable_hostname = true. Empty output (all IPs are private or NXDOMAIN) confirms false."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Identify the configured external URL or domain from the platform configuration file to determine the hostname to test.",
+        "command": "grep -E 'external_url|HTTP_DOMAIN|ROOT_URL' /etc/gitlab/gitlab.rb /etc/gitea/app.ini /etc/forgejo/app.ini 2>/dev/null",
+        "file_path": "/etc/gitlab/gitlab.rb",
+        "navigation": null,
+        "expected_output": "A line like: external_url 'https://git.company.com' or ROOT_URL = https://git.internal.corp.com, providing the hostname to resolve externally."
+      },
+      {
+        "type": "api",
+        "instruction": "Use an internet-based DNS lookup service or API to check if the hostname resolves from outside the organization's network.",
+        "command": "curl --silent 'https://dns.google/resolve?name=<git-hostname>&type=A' | jq '.Answer[]?.data // \"No public resolution\"'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON with public IP addresses in the 'Answer' array confirms publicly_resolvable_hostname = true. Empty Answer array or NXDOMAIN in Status confirms false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true (common for SaaS-style internal tools accidentally exposed, or intentional public-facing instances)",
+      "false (expected for internal-only Git services using private DNS or split-horizon DNS)"
+    ]
+  },
+  {
+    "option_name": "config_secrets_encrypted_at_rest",
+    "option_description": "Indicates whether the Git platform's on-disk configuration files — which contain database credentials, SMTP passwords, LDAP bind passwords, object storage access keys, and other secrets — are encrypted at rest rather than stored in plaintext. This includes integration with a secrets management backend such as HashiCorp Vault.",
+    "security_impact": "The Rego policy fires 'secrets_stored_in_repository_configuration_or_history' when config_secrets_encrypted_at_rest is false (via 'not input.config_secrets_encrypted_at_rest'). Plaintext secrets in configuration files mean that any read access to the filesystem — achieved via path traversal, SSRF, backup exfiltration, or host compromise — immediately yields infrastructure-level credentials (database, LDAP, object storage). These credentials typically enable lateral movement far beyond the Git service itself.",
+    "how_to_obtain": [
+      {
+        "type": "config_file",
+        "instruction": "Inspect the primary Git platform configuration file for plaintext credentials, looking for database passwords, SMTP credentials, LDAP bind passwords, and S3/object storage keys.",
+        "command": "grep -E 'password|passwd|secret|key|token|credential' /etc/gitlab/gitlab.rb 2>/dev/null | grep -v '#' | grep -v 'vault\\|encrypted\\|ENC\\[' | head -30",
+        "file_path": "/etc/gitlab/gitlab.rb",
+        "navigation": null,
+        "expected_output": "Lines showing plaintext values like: gitlab_rails['db_password'] = 'MyPlaintextPassword123' confirm config_secrets_encrypted_at_rest = false. References to Vault paths or ENC[] encrypted blobs suggest encryption is in use."
+      },
+      {
+        "type": "config_file",
+        "instruction": "For Gitea/Forgejo, inspect app.ini for plaintext database and external service credentials.",
+        "command": "grep -E 'PASSWD|PASSWORD|SECRET|KEY|TOKEN' /etc/gitea/app.ini 2>/dev/null | grep -v '^;' | grep -v 'GENERATE\\|RANDOM\\|PLACEHOLDER'",
+        "file_path": "/etc/gitea/app.ini",
+        "navigation": null,
+        "expected_output": "Lines like 'PASSWD = MyDBPassword' confirm plaintext storage (false). Empty output or references to secret manager integrations suggest encrypted or externalized secret storage."
+      },
+      {
+        "type": "command",
+        "instruction": "Check for HashiCorp Vault integration or other secrets manager configuration that would indicate secrets are not stored in plaintext config files.",
+        "command": "grep -rE 'vault|secret_manager|aws_secrets|azure_keyvault|SECRET_BACKEND' /etc/gitlab/ /etc/gitea/ /opt/gitea/ 2>/dev/null | grep -v '.pyc\\|Binary' | head -20",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "References to Vault addresses, AWS Secrets Manager, or Azure Key Vault confirm an encrypted secrets backend is configured. Absence of any such references combined with plaintext values in config confirms false."
+      },
+      {
+        "type": "command",
+        "instruction": "Check filesystem permissions and file metadata on configuration files to assess whether secrets are additionally protected by OS-level access controls, and verify if GitLab's secrets file exists and is populated.",
+        "command": "ls -la /etc/gitlab/gitlab-secrets.json 2>/dev/null && python3 -c \"import json,sys; d=json.load(open('/etc/gitlab/gitlab-secrets.json')); print('Keys present:', list(d.keys())[:5])\" 2>/dev/null; stat /etc/gitea/app.ini 2>/dev/null | grep -E 'Access|Uid'",
+        "file_path": "/etc/gitlab/gitlab-secrets.json",
+        "navigation": null,
+        "expected_output": "GitLab's gitlab-secrets.json containing encrypted key material indicates secrets-at-rest protection for some values. File permissions of 600 owned by root/gitlab confirm restricted access, though this does not substitute for encryption."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false (default for GitLab and Gitea installations — credentials written plaintext to config files out of the box)",
+      "true (achieved via Vault integration, encrypted secrets backends, or environment variable injection from a secrets manager)"
+    ]
+  },
+  {
+    "option_name": "secrets_detected_in_repository_commits",
+    "option_description": "Tracks whether a secret-scanning tool has found unrevoked credentials, API keys, tokens, or passwords in the current repository content or historical git commits (including all branches and tags). A true value indicates live or historical exposure of sensitive material that has not been purged or rewritten from the git history.",
+    "security_impact": "The Rego policy fires the 'Secrets Stored In Repository Configuration Or History' exposure when secrets_detected_in_repository_commits is true AND secret_scanning_enabled is false. Even when scanning is enabled, the presence of detected-but-unrevoked secrets represents active credential exposure (MITRE T1552.001 Credentials In Files, T1213.003 Code Repositories). Because git history is immutable without explicit rewriting, a single historical commit containing an AWS access key or database password gives any repository reader infrastructure-level credentials, making this one of the highest-value findings in a self-hosted Git environment.",
+    "how_to_obtain": [
+      {
+        "type": "command",
+        "instruction": "Run gitleaks against the full repository history, including all branches and tags, to detect any secrets present in commits. This must be run with full clone depth (not a shallow clone) to cover the entire history.",
+        "command": "gitleaks detect --source /path/to/repo --log-opts='--all' --report-format json --report-path gitleaks-report.json; echo \"Exit code: $?\"; cat gitleaks-report.json | jq 'length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "Exit code 0 means no secrets detected (set attribute to false). Exit code 1 with findings in the JSON report means secrets were found (set attribute to true). Review the report to confirm findings are not false positives."
+      },
+      {
+        "type": "command",
+        "instruction": "Run truffleHog as an alternative or supplementary scanner against the repository, scanning all git history with entropy and regex detection enabled.",
+        "command": "trufflehog git file:///path/to/repo --json --only-verified 2>/dev/null | jq -s 'length'; trufflehog git file:///path/to/repo --json 2>/dev/null | jq -s '[.[] | select(.Verified == true)] | length'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A count greater than 0 for verified findings indicates secrets are present in history (set attribute to true). Zero verified findings suggests false, though unverified findings should still be reviewed."
+      },
+      {
+        "type": "gui",
+        "instruction": "For GitLab instances, navigate to the Security dashboard to review Secret Detection findings reported by pipeline scans. Check the vulnerability report filtered to 'Secret Detection' type across all projects.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab Admin Area > Security > Vulnerability Report > Filter by 'Secret Detection' > Review all 'Critical' and 'High' severity findings. Also check: Project > Security & Compliance > Vulnerability Report for each repository.",
+        "expected_output": "Any active (unresolved) Secret Detection vulnerabilities with status 'Detected' or 'Confirmed' indicate secrets_detected_in_repository_commits should be set to true."
+      },
+      {
+        "type": "api",
+        "instruction": "Query GitLab's Vulnerability API to programmatically retrieve all secret detection findings across repositories, filtering for unresolved findings.",
+        "command": "curl --header 'PRIVATE-TOKEN: <admin_token>' 'https://<gitlab-host>/api/v4/vulnerabilities?state=detected&scanner_id=secrets&per_page=100' | jq '[.[] | {id, project: .project.name, title, severity, state}]'",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "A non-empty JSON array indicates active secret detection findings exist (set attribute to true). An empty array [] suggests no platform-reported secrets, but still validate with gitleaks/truffleHog for full coverage."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "true — Common in organizations without established secret hygiene; historical commits frequently contain database credentials, cloud provider keys, and internal API tokens committed during development.",
+      "false — Achieved only when scanning confirms no secrets in current files or history, or when history has been rewritten (git filter-repo) and all detected secrets have been revoked and rotated."
+    ]
+  },
+  {
+    "option_name": "secret_scanning_enabled",
+    "option_description": "Indicates whether automated secret scanning is configured to detect credentials before or immediately after they are committed. This includes pre-receive hooks that block pushes containing secrets, CI/CD pipeline steps that scan each commit, or platform-native secret detection features (such as GitLab Secret Detection SAST or GitHub Advanced Security) that run on every push and pull request.",
+    "security_impact": "The Rego policy evaluates secret_scanning_enabled as a paired condition with secrets_detected_in_repository_commits: exposure is triggered when secrets are present AND scanning is not enabled. Beyond the paired rule, the absence of scanning (false) represents a systematic control gap — without automated detection, developers have no immediate feedback loop to prevent secret commits, meaning secrets can persist in history indefinitely (MITRE T1552 Unsecured Credentials, T1552.001 Credentials In Files). Pre-receive hooks provide the strongest preventive control by blocking commits at push time; pipeline scanning and platform-native detection provide detective controls. At least one layer must be active for this attribute to be set to true.",
+    "how_to_obtain": [
+      {
+        "type": "gui",
+        "instruction": "For GitLab, check whether Secret Detection is enabled in the Security Configuration of each project and verify the platform-level default pipeline includes the secret detection template. For Gitea or Forgejo, check if pre-receive hooks are installed at the server level.",
+        "command": null,
+        "file_path": null,
+        "navigation": "GitLab: Project > Security & Compliance > Security Configuration > 'Secret Detection' row — must show 'Enabled'. Also check: Admin Area > CI/CD > Default pipeline configuration for inclusion of 'Security/Secret-Detection.gitlab-ci.yml' template. Gitea: Site Administration > Git Hooks > pre-receive hook contents.",
+        "expected_output": "GitLab showing 'Enabled' with a green checkmark for Secret Detection, or a pre-receive hook script that invokes gitleaks or truffleHog on each push, indicates secret_scanning_enabled should be set to true."
+      },
+      {
+        "type": "config_file",
+        "instruction": "Inspect the GitLab CI/CD pipeline configuration files for inclusion of the secret detection job, or check server-side git hook scripts deployed to the git repositories' hooks directory.",
+        "command": "grep -r 'Secret-Detection\\|secret_detection\\|gitleaks\\|trufflehog\\|detect-secrets' /path/to/repo/.gitlab-ci.yml /etc/gitea/hooks/ /opt/gitlab/embedded/service/gitlab-rails/lib/; ls -la /path/to/git/repos/<project>.git/hooks/pre-receive",
+        "file_path": "/etc/gitea/hooks/pre-receive, /opt/gitlab/embedded/service/gitlab-rails/config/, /home/git/repositories/<namespace>/<project>.git/hooks/pre-receive, .gitlab-ci.yml",
+        "navigation": null,
+        "expected_output": "Finding references to Secret-Detection templates in CI config, or a pre-receive hook script calling a scanner binary, confirms scanning is enabled (true). Missing hooks directory or empty hook files confirms false."
+      },
+      {
+        "type": "api",
+        "instruction": "Use the GitLab API to check whether Secret Detection jobs appear in recent pipeline runs for a representative set of repositories, confirming the scanner actually executes on push.",
+        "command": "curl --header 'PRIVATE-TOKEN: <admin_token>' 'https://<gitlab-host>/api/v4/projects/<project_id>/pipelines?per_page=5' | jq '.[].id' | while read pid; do curl --header 'PRIVATE-TOKEN: <admin_token>' \"https://<gitlab-host>/api/v4/projects/<project_id>/pipelines/$pid/jobs\" | jq '[.[] | select(.name | test(\"secret|Secret\"))] | {pipeline: '$pid', secret_jobs: .}'; done",
+        "file_path": null,
+        "navigation": null,
+        "expected_output": "JSON output showing jobs with names containing 'secret' or 'Secret Detection' in recent pipeline runs confirms scanning is active (true). No matching jobs across multiple recent pipelines indicates secret_scanning_enabled should be set to false."
+      },
+      {
+        "type": "process_audit",
+        "instruction": "Interview the platform administrator or review the Git service onboarding documentation to determine whether a policy mandates secret scanning on all repositories, and whether enforcement is verified through compliance checks or pipeline enforcement rules.",
+        "command": null,
+        "file_path": null,
+        "navigation": "Request documentation of: (1) the CI/CD template repository enforcing secret scanning inclusion, (2) any GitLab Compliance Framework or Pipeline Execution Policy that injects secret detection into all pipelines, (3) evidence of pre-receive hook deployment runbooks or Ansible/Chef/Puppet automation that installs hooks on repository creation.",
+        "expected_output": "Existence of enforced compliance pipeline policies, documented runbooks for hook deployment, or a compliance framework enforcing the secret detection template across all projects supports setting the attribute to true. Absence of any such documentation or policy means the default is likely false."
+      }
+    ],
+    "value_type": "boolean",
+    "typical_values": [
+      "false — The most common state in self-hosted Git deployments without a mature DevSecOps program; pre-receive hooks are rarely deployed by default, and optional CI templates are frequently omitted from project pipelines.",
+      "true — Achieved in organizations using GitLab Ultimate with enforced Compliance Pipelines, or with centrally managed pre-receive hooks deployed via configuration management tools; requires active enforcement rather than optional enablement."
+    ]
+  }
+]

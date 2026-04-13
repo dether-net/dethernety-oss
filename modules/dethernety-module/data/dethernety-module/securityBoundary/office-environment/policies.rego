@@ -9,7 +9,8 @@ _insufficient_egress_filtering_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_egress_filtering[_insufficient_egress_filtering_def] if {
@@ -38,7 +39,8 @@ _flat_workstation_subnet_segmentation_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 flat_workstation_subnet_segmentation[_flat_workstation_subnet_segmentation_def] if {
@@ -67,7 +69,8 @@ _implicit_intranet_server_trust_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 implicit_intranet_server_trust[_implicit_intranet_server_trust_def] if {
@@ -90,7 +93,8 @@ _uncontrolled_ingress_from_vpn_or_remote_access_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 uncontrolled_ingress_from_vpn_or_remote_access[_uncontrolled_ingress_from_vpn_or_remote_access_def] if {
@@ -120,7 +124,8 @@ _inter_vlan_routing_without_stateful_inspection_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 inter_vlan_routing_without_stateful_inspection[_inter_vlan_routing_without_stateful_inspection_def] if {
@@ -143,7 +148,8 @@ _broadcast_domain_trust_propagation_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 broadcast_domain_trust_propagation[_broadcast_domain_trust_propagation_def] if {
@@ -173,7 +179,8 @@ _absence_of_east_west_monitoring_coverage_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 absence_of_east_west_monitoring_coverage[_absence_of_east_west_monitoring_coverage_def] if {
@@ -196,7 +203,8 @@ _shared_credential_path_across_zone_boundary_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 shared_credential_path_across_zone_boundary[_shared_credential_path_across_zone_boundary_def] if {
@@ -220,7 +228,8 @@ _permissive_dns_recursion_and_tunneling_path_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 permissive_dns_recursion_and_tunneling_path[_permissive_dns_recursion_and_tunneling_path_def] if {
@@ -249,7 +258,8 @@ _unmonitored_physical_network_access_points_def := {
     "category": "physical_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 unmonitored_physical_network_access_points[_unmonitored_physical_network_access_points_def] if {
@@ -272,7 +282,8 @@ _management_plane_cohabitation_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 management_plane_cohabitation[_management_plane_cohabitation_def] if {
