@@ -24,7 +24,8 @@ _plaintext_transmission_def := {
             "name": "Network Sniffing",
             "relevance": "Plaintext transmission enables network sniffing attacks where adversaries can capture unencrypted data in transit."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 plaintext_transmission[_plaintext_transmission_def] if {
@@ -62,7 +63,8 @@ _tls_downgrade_attack_def := {
             "name": "Weaken Encryption",
             "relevance": "TLS downgrade attacks aim to weaken encryption by forcing negotiation of older, less secure TLS versions or cipher suites."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 tls_downgrade_attack[_tls_downgrade_attack_def] if {
@@ -103,7 +105,8 @@ _weak_cipher_suite_negotiation_def := {
             "name": "Symmetric Cryptography",
             "relevance": "Cipher suite negotiation governs which symmetric cryptographic algorithms are used, making this directly relevant to weak cipher selection."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 weak_cipher_suite_negotiation[_weak_cipher_suite_negotiation_def] if {
@@ -144,7 +147,8 @@ _missing_certificate_validation_def := {
             "name": "Digital Certificates",
             "relevance": "Adversaries can develop forged digital certificates to exploit systems that lack proper certificate validation."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_certificate_validation[_missing_certificate_validation_def] if {
@@ -190,7 +194,8 @@ _absent_mutual_tls_authentication_def := {
             "name": "Steal or Forge Authentication Certificates",
             "relevance": "Without mutual TLS, stolen or forged certificates can be used to impersonate clients or servers in the communication channel."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 absent_mutual_tls_authentication[_absent_mutual_tls_authentication_def] if {
@@ -228,7 +233,8 @@ _replay_attack_on_pii_requests_def := {
             "name": "Traffic Duplication",
             "relevance": "Replay attacks on PII requests involve duplicating captured network traffic and replaying it to gain unauthorized access."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 replay_attack_on_pii_requests[_replay_attack_on_pii_requests_def] if {
@@ -260,7 +266,8 @@ _message_integrity_not_enforced_def := {
             "name": "Transmitted Data Manipulation",
             "relevance": "Without message integrity enforcement, adversaries can modify transmitted data in transit without detection."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 message_integrity_not_enforced[_message_integrity_not_enforced_def] if {
@@ -300,7 +307,8 @@ _http_strict_transport_security_absent_def := {
             "name": "Downgrade Attack",
             "relevance": "Missing HSTS headers enable protocol downgrade attacks where HTTPS connections are forced to unencrypted HTTP."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 http_strict_transport_security_absent[_http_strict_transport_security_absent_def] if {
@@ -342,7 +350,8 @@ _missing_rate_limiting_on_pii_channel_def := {
             "name": "Data Transfer Size Limits",
             "relevance": "Absence of rate limiting means there are no data transfer size constraints, enabling large-scale PII extraction."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_rate_limiting_on_pii_channel[_missing_rate_limiting_on_pii_channel_def] if {
@@ -381,7 +390,8 @@ _bgp_route_hijacking_exposure_def := {
             "name": "Network Boundary Bridging",
             "relevance": "BGP hijacking can bridge network boundaries by rerouting traffic across network perimeters through malicious route announcements."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 bgp_route_hijacking_exposure[_bgp_route_hijacking_exposure_def] if {
@@ -421,7 +431,8 @@ _dns_spoofing_redirect_of_flow_def := {
             "name": "DNS",
             "relevance": "Adversaries gather DNS information to perform targeted DNS spoofing attacks that redirect legitimate traffic flows."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 dns_spoofing_redirect_of_flow[_dns_spoofing_redirect_of_flow_def] if {

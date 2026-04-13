@@ -9,7 +9,8 @@ _unclassified_sensitive_local_data_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 unclassified_sensitive_local_data[_unclassified_sensitive_local_data_def] if {
@@ -33,7 +34,8 @@ _unencrypted_sensitive_files_at_rest_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 unencrypted_sensitive_files_at_rest[_unencrypted_sensitive_files_at_rest_def] if {
@@ -87,7 +89,8 @@ _inadequate_data_disposal_on_device_reuse_def := {
     "category": "physical_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 inadequate_data_disposal_on_device_reuse[_inadequate_data_disposal_on_device_reuse_def] if {
@@ -113,7 +116,8 @@ _sensitive_data_in_temporary_and_cache_files_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 sensitive_data_in_temporary_and_cache_files[_sensitive_data_in_temporary_and_cache_files_def] if {
@@ -142,7 +146,8 @@ _cross_border_transfer_via_local_sync_tools_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 cross_border_transfer_via_local_sync_tools[_cross_border_transfer_via_local_sync_tools_def] if {
@@ -175,7 +180,8 @@ _absence_of_masking_for_locally_copied_production_data_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 absence_of_masking_for_locally_copied_production_data[_absence_of_masking_for_locally_copied_production_data_def] if {

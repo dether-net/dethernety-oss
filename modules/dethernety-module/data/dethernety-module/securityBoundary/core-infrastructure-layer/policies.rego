@@ -24,7 +24,8 @@ _dns_recursive_query_exfiltration_via_zone_boundary_def := {
             "name": "Protocol Tunneling",
             "relevance": "DNS recursive queries can be used to tunnel exfiltrated data through protocol encapsulation across network zone boundaries."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 dns_recursive_query_exfiltration_via_zone_boundary[_dns_recursive_query_exfiltration_via_zone_boundary_def] if {
@@ -67,7 +68,8 @@ _smtp_relay_open_across_trust_zones_def := {
             "name": "Email Spoofing",
             "relevance": "Open SMTP relays across trust zones enable email spoofing by allowing unauthenticated message relay."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 smtp_relay_open_across_trust_zones[_smtp_relay_open_across_trust_zones_def] if {
@@ -108,7 +110,8 @@ _zone_transfer_unrestricted_between_segments_def := {
             "name": "DNS Server",
             "relevance": "Unrestricted zone transfers between segments represent a DNS server misconfiguration that can be exploited to compromise DNS infrastructure."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 zone_transfer_unrestricted_between_segments[_zone_transfer_unrestricted_between_segments_def] if {
@@ -152,7 +155,8 @@ _ingress_filtering_bypass_via_split_horizon_misconfiguration_def := {
             "name": "Fast Flux DNS",
             "relevance": "Split-horizon misconfigurations can be abused similarly to fast flux techniques to obscure malicious infrastructure and bypass ingress controls."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 ingress_filtering_bypass_via_split_horizon_misconfiguration[_ingress_filtering_bypass_via_split_horizon_misconfiguration_def] if {
@@ -192,7 +196,8 @@ _service_account_credential_propagation_across_zones_def := {
             "name": "Trusted Relationship",
             "relevance": "Cross-zone credential propagation exploits trusted relationships between zones that allow service accounts to authenticate across security boundaries."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 service_account_credential_propagation_across_zones[_service_account_credential_propagation_across_zones_def] if {
@@ -229,7 +234,8 @@ _management_plane_reachability_from_service_zone_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Reachability of the management plane from the service zone represents a network boundary bridging condition that undermines zone separation."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 management_plane_reachability_from_service_zone[_management_plane_reachability_from_service_zone_def] if {
@@ -268,7 +274,8 @@ _dns_dynamic_update_propagation_without_zone_scoping_def := {
             "name": "Fast Flux DNS",
             "relevance": "Unrestricted dynamic DNS updates without zone scoping can be leveraged to rapidly alter DNS records in a manner analogous to fast flux techniques."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 dns_dynamic_update_propagation_without_zone_scoping[_dns_dynamic_update_propagation_without_zone_scoping_def] if {
@@ -306,7 +313,8 @@ _inter_zone_monitoring_gap_on_foundational_service_traffic_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Monitoring gaps on inter-zone traffic enable undetected network boundary bridging by adversaries traversing zone boundaries."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 inter_zone_monitoring_gap_on_foundational_service_traffic[_inter_zone_monitoring_gap_on_foundational_service_traffic_def] if {
@@ -355,7 +363,8 @@ _email_header_trust_inheritance_across_zone_boundary_def := {
             "name": "Email Forwarding Rule",
             "relevance": "Trust inheritance in email headers across zones can be abused in conjunction with forwarding rules to escalate access or leak sensitive communications."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 email_header_trust_inheritance_across_zone_boundary[_email_header_trust_inheritance_across_zone_boundary_def] if {
@@ -394,10 +403,9 @@ _dns_forwarder_chain_traversal_bypassing_segmentation_def := {
             "name": "DNS Server",
             "relevance": "Exploiting DNS forwarder chains involves compromising or misconfiguring DNS server infrastructure to traverse segmentation."
         }
-    ]
-}
-
-dns_forwarder_chain_traversal_bypassing_segmentation[_dns_forwarder_chain_traversal_bypassing_segmentation_def] if {
+    ],
+    "attack_vector": "NETWORK"
+}[_dns_forwarder_chain_traversal_bypassing_segmentation_def] if {
     input.cross_zone_forwarder_configured == true
     not input.per_hop_acl_enforced
 }

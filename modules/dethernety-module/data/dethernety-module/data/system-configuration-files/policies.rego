@@ -29,7 +29,8 @@ _plaintext_secret_storage_def := {
             "name": "Private Keys",
             "relevance": "Covers private keys stored insecurely in plaintext, a common form of plaintext secret storage."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 plaintext_secret_storage[_plaintext_secret_storage_def] if {
@@ -67,7 +68,8 @@ _missing_or_inconsistent_data_classification_def := {
             "name": "Credentials In Files",
             "relevance": "Misclassified data in files can expose credentials, directly relevant to missing data classification controls."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 missing_or_inconsistent_data_classification[_missing_or_inconsistent_data_classification_def] if {
@@ -114,7 +116,8 @@ _excessive_filesystem_permissions_def := {
             "name": "Linux and Mac File and Directory Permissions Modification",
             "relevance": "Specifically addresses Linux/Mac filesystem permission abuse, highly relevant to excessive filesystem permission concerns."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 excessive_filesystem_permissions[_excessive_filesystem_permissions_def] if {
@@ -156,7 +159,8 @@ _undefined_retention_and_accumulation_def := {
             "name": "Credentials In Files",
             "relevance": "Accumulated files over time without defined retention may contain credentials that become exposure risks."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 undefined_retention_and_accumulation[_undefined_retention_and_accumulation_def] if {
@@ -202,7 +206,8 @@ _inadequate_disposal_procedures_def := {
             "name": "Inhibit System Recovery",
             "relevance": "Inadequate disposal may leave recovery paths intact, and this technique covers the manipulation of system recovery mechanisms."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 inadequate_disposal_procedures[_inadequate_disposal_procedures_def] if {
@@ -248,7 +253,8 @@ _cross_environment_data_leakage_via_config_copy_def := {
             "name": "Environmental Keying",
             "relevance": "Directly relevant as attackers or misconfigurations may exploit environment-specific keys when configs are copied between environments."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 cross_environment_data_leakage_via_config_copy[_cross_environment_data_leakage_via_config_copy_def] if {

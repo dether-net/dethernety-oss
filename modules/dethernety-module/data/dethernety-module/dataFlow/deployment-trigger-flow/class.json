@@ -2,7 +2,7 @@
   "name": "Deployment Trigger Flow",
   "classType": "dataFlow",
   "type": "Deployment Trigger Flow",
-  "description": "Data in transit from the CI/CD Pipeline Engine to the Container Orchestration Platform API server, carrying deployment manifests and image references. High sensitivity as it extends the existing Deployment Updates flow with pipeline-specific trust context. Compromise of this flow allows a pipeline to deploy arbitrary workloads to production.",
+  "description": "This dataFlow carries deployment manifests and image references from the CI/CD pipeline engine to the Kubernetes (or equivalent) API server. Because it transports pipeline trust context and directly influences production workload scheduling, any weakness in transport encryption, mutual authentication, or message integrity creates a high-impact path for arbitrary workload injection. The channel must enforce mTLS, certificate pinning, strong cipher suites, replay protection, and rate limiting to prevent interception, manifest tampering, credential replay, and resource exhaustion.",
   "category": "Software Supply Chain",
-  "status": "draft"
+  "status": "reviewed"
 }

@@ -31,7 +31,8 @@ _missing_sensitivity_classification_for_session_tokens_def := {
             "name": "Application Access Token",
             "relevance": "Application access tokens without sensitivity classification are at higher risk of misuse or improper handling across systems."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 missing_sensitivity_classification_for_session_tokens[_missing_sensitivity_classification_for_session_tokens_def] if {
@@ -92,7 +93,8 @@ _session_token_retained_beyond_expiry_in_logs_def := {
             "name": "Application Access Token",
             "relevance": "Application access tokens retained in logs after expiry can be used by attackers to bypass authentication mechanisms."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 session_token_retained_beyond_expiry_in_logs[_session_token_retained_beyond_expiry_in_logs_def] if {
@@ -143,7 +145,8 @@ _plaintext_token_persistence_in_memory_snapshots_def := {
             "name": "Token Impersonation/Theft",
             "relevance": "Plaintext tokens found in memory snapshots can be directly stolen and used for token impersonation attacks."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 plaintext_token_persistence_in_memory_snapshots[_plaintext_token_persistence_in_memory_snapshots_def] if {
@@ -189,7 +192,8 @@ _inadequate_access_control_to_token_stores_def := {
             "name": "Access Token Manipulation",
             "relevance": "Weak access controls on token stores enable adversaries to manipulate or abuse access tokens for privilege escalation."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 inadequate_access_control_to_token_stores[_inadequate_access_control_to_token_stores_def] if {
@@ -238,7 +242,8 @@ _absence_of_token_disposal_procedure_on_session_end_def := {
             "name": "Token Impersonation/Theft",
             "relevance": "Tokens not invalidated at session termination can be stolen and used for impersonation of the original authenticated user."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 absence_of_token_disposal_procedure_on_session_end[_absence_of_token_disposal_procedure_on_session_end_def] if {
@@ -286,7 +291,8 @@ _cross_border_transfer_of_session_tokens_without_residency_controls_def := {
             "name": "Web Session Cookie",
             "relevance": "Web session cookies transmitted across jurisdictions without controls are at risk of being hijacked for unauthorized session use."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 cross_border_transfer_of_session_tokens_without_residency_controls[_cross_border_transfer_of_session_tokens_without_residency_controls_def] if {

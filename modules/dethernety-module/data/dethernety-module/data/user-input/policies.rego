@@ -24,7 +24,8 @@ _ambiguous_classification_enforcement_def := {
             "name": "Obfuscated Files or Information",
             "relevance": "Ambiguous classification can allow obfuscation techniques to go undetected when data sensitivity labels are unclear or inconsistently applied."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 ambiguous_classification_enforcement[_ambiguous_classification_enforcement_def] if {
@@ -75,7 +76,8 @@ _undefined_temporary_retention_boundary_def := {
             "name": "Lifecycle-Triggered Deletion",
             "relevance": "Lifecycle-triggered deletion is directly relevant as undefined temporary retention boundaries mean deletion policies are not properly configured or enforced."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 undefined_temporary_retention_boundary[_undefined_temporary_retention_boundary_def] if {
@@ -126,7 +128,8 @@ _missing_pii_anonymization_or_masking_def := {
             "name": "Data from Information Repositories",
             "relevance": "Repositories lacking PII anonymization become high-value targets for adversaries seeking to extract personal information."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_pii_anonymization_or_masking[_missing_pii_anonymization_or_masking_def] if {
@@ -173,7 +176,8 @@ _insufficient_access_control_for_unclassified_data_def := {
             "name": "Conditional Access Policies",
             "relevance": "Insufficient access controls relate directly to inadequate or missing conditional access policies that fail to restrict unclassified data appropriately."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 insufficient_access_control_for_unclassified_data[_insufficient_access_control_for_unclassified_data_def] if {
@@ -220,7 +224,8 @@ _inadequate_disposal_procedure_for_transient_data_def := {
             "name": "Fileless Storage",
             "relevance": "Fileless storage of transient data may be missed by inadequate disposal procedures that only target traditional file-based artifacts."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 inadequate_disposal_procedure_for_transient_data[_inadequate_disposal_procedure_for_transient_data_def] if {
@@ -270,7 +275,8 @@ _cross_border_transfer_compliance_gap_def := {
             "name": "Data Staged",
             "relevance": "Staging data prior to cross-border transfer is a technique that highlights compliance gaps when data is aggregated and moved without proper authorization."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 cross_border_transfer_compliance_gap[_cross_border_transfer_compliance_gap_def] if {

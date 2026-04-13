@@ -31,7 +31,8 @@ _weak_authentication_mechanism_def := {
             "name": "Multi-Factor Authentication",
             "relevance": "Weak authentication often involves missing or bypassable MFA, which attackers can exploit or modify."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 weak_authentication_mechanism[_weak_authentication_mechanism_def] if {
@@ -69,7 +70,8 @@ _deprecated_cipher_suite_enabled_def := {
             "name": "Weaken Encryption",
             "relevance": "Enabling deprecated cipher suites directly weakens encryption protecting communications."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 deprecated_cipher_suite_enabled[_deprecated_cipher_suite_enabled_def] if {
@@ -130,7 +132,8 @@ _unrestricted_split_tunneling_def := {
             "name": "Protocol Tunneling",
             "relevance": "Split tunneling can be exploited to tunnel traffic outside of monitored VPN channels."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unrestricted_split_tunneling[_unrestricted_split_tunneling_def] if {
@@ -176,7 +179,8 @@ _overly_broad_network_access_policy_def := {
             "name": "Exploitation of Remote Services",
             "relevance": "Broad network access exposes more remote services to potential exploitation."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 overly_broad_network_access_policy[_overly_broad_network_access_policy_def] if {
@@ -236,7 +240,8 @@ _self_signed_or_expired_server_certificate_def := {
             "name": "Steal or Forge Authentication Certificates",
             "relevance": "Environments accepting self-signed certificates are susceptible to certificate forgery attacks."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 self_signed_or_expired_server_certificate[_self_signed_or_expired_server_certificate_def] if {
@@ -281,7 +286,8 @@ _unpatched_vpn_service_def := {
             "name": "Exploitation of Remote Services",
             "relevance": "Unpatched VPN services can be exploited through known vulnerabilities in remote service components."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unpatched_vpn_service[_unpatched_vpn_service_def] if {
@@ -320,7 +326,8 @@ _excessive_session_lifetime_and_no_idle_timeout_def := {
             "name": "Network Sniffing",
             "relevance": "Excessive session lifetimes increase exposure of session tokens that can be captured via network sniffing."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 excessive_session_lifetime_and_no_idle_timeout[_excessive_session_lifetime_and_no_idle_timeout_def] if {
@@ -373,7 +380,8 @@ _vpn_management_interface_exposed_externally_def := {
             "name": "Remote Services",
             "relevance": "Externally exposed management interfaces represent an accessible remote service attack surface."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 vpn_management_interface_exposed_externally[_vpn_management_interface_exposed_externally_def] if {
@@ -416,7 +424,8 @@ _default_or_shared_pre_shared_key_def := {
             "name": "Symmetric Cryptography",
             "relevance": "Pre-shared keys underpin symmetric cryptography; default or shared keys compromise the encryption."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 default_or_shared_pre_shared_key[_default_or_shared_pre_shared_key_def] if {
@@ -467,7 +476,8 @@ _insufficient_authentication_logging_def := {
             "name": "Credential Stuffing",
             "relevance": "Without adequate logging, credential stuffing attacks against authentication endpoints go undetected."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 insufficient_authentication_logging[_insufficient_authentication_logging_def] if {
@@ -520,7 +530,8 @@ _no_client_endpoint_posture_check_def := {
             "name": "Remote Access Tools",
             "relevance": "Lack of posture checks allows devices with unauthorized remote access tools to connect to the VPN."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 no_client_endpoint_posture_check[_no_client_endpoint_posture_check_def] if {
@@ -563,7 +574,8 @@ _privileged_account_used_for_vpn_service_identity_def := {
             "name": "Service Execution",
             "relevance": "A VPN service running as a privileged account can be abused for privileged service execution by attackers."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 privileged_account_used_for_vpn_service_identity[_privileged_account_used_for_vpn_service_identity_def] if {
@@ -612,7 +624,8 @@ _hardcoded_secrets_in_configuration_files_def := {
             "name": "Unsecured Credentials",
             "relevance": "Hardcoded secrets represent unsecured credentials accessible to anyone with file system access."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 hardcoded_secrets_in_configuration_files[_hardcoded_secrets_in_configuration_files_def] if {
@@ -658,7 +671,8 @@ _no_account_lockout_or_rate_limiting_on_authentication_def := {
             "name": "Password Spraying",
             "relevance": "No account lockout allows password spraying attacks across multiple accounts without triggering security controls."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 no_account_lockout_or_rate_limiting_on_authentication[_no_account_lockout_or_rate_limiting_on_authentication_def] if {

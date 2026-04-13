@@ -2,7 +2,7 @@
   "name": "Container Images",
   "classType": "data",
   "type": "Container Images",
-  "description": "Layered OCI filesystem snapshots including application binaries, runtime dependencies, and potentially embedded secrets or credentials stored in the Container Registry. High classification for production images. Primary target for supply-chain compromise through layer tampering or malicious base image substitution.",
+  "description": "Container registry image data presents significant data lifecycle risks centered on embedded secrets within layered OCI snapshots, inconsistent classification enforcement across image tiers, inadequate retention policies leading to stale image accumulation, and insufficient disposal controls allowing recovery of sensitive layer data. The layered filesystem model creates compounding exposure where sensitive data added and subsequently deleted in a Dockerfile layer remains permanently recoverable from the image manifest, making classification and disposal failures especially severe.",
   "category": "Container Infrastructure",
-  "status": "draft"
+  "status": "reviewed"
 }

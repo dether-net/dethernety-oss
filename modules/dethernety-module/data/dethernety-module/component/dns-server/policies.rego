@@ -22,7 +22,8 @@ _dnssec_validation_disabled_def := {
             "name": "DNS Server",
             "relevance": "Without DNSSEC validation, attackers can more easily compromise or impersonate DNS servers to redirect traffic."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 dnssec_validation_disabled[_dnssec_validation_disabled_def] if {
@@ -64,7 +65,8 @@ _open_recursive_resolver_exposure_def := {
             "name": "DNS Server",
             "relevance": "Exposed recursive resolvers can be compromised or abused by attackers as part of DNS infrastructure attacks."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 open_recursive_resolver_exposure[_open_recursive_resolver_exposure_def] if {
@@ -102,7 +104,8 @@ _unencrypted_upstream_forwarding_def := {
             "name": "Protocol Tunneling",
             "relevance": "Unencrypted upstream forwarding can be exploited for tunneling malicious traffic through DNS without detection."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 unencrypted_upstream_forwarding[_unencrypted_upstream_forwarding_def] if {
@@ -140,7 +143,8 @@ _dns_cache_poisoning_susceptibility_def := {
             "name": "Dynamic Resolution",
             "relevance": "Cache poisoning susceptibility enables adversaries to manipulate dynamic DNS resolution to serve malicious responses."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 dns_cache_poisoning_susceptibility[_dns_cache_poisoning_susceptibility_def] if {
@@ -184,7 +188,8 @@ _excessive_negative_cache_ttl_def := {
             "name": "Fast Flux DNS",
             "relevance": "High negative TTL values interact with fast flux techniques by affecting how long false negative responses persist in caches."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 excessive_negative_cache_ttl[_excessive_negative_cache_ttl_def] if {
@@ -221,7 +226,8 @@ _unrestricted_zone_transfer_def := {
             "name": "Exfiltration Over Alternative Protocol",
             "relevance": "Zone transfer data can be exfiltrated using DNS protocols, exposing sensitive infrastructure details to attackers."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unrestricted_zone_transfer[_unrestricted_zone_transfer_def] if {
@@ -260,7 +266,8 @@ _resolver_process_running_with_excessive_privileges_def := {
             "name": "DNS Server",
             "relevance": "Excessive privileges on a DNS resolver process make it a higher-value target for attackers seeking to compromise DNS server infrastructure."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 resolver_process_running_with_excessive_privileges[_resolver_process_running_with_excessive_privileges_def] if {
@@ -302,7 +309,8 @@ _missing_rate_limiting_on_responses_def := {
             "name": "DNS Server",
             "relevance": "Without rate limiting, DNS servers can be abused as attack infrastructure for large-scale denial-of-service campaigns."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_rate_limiting_on_responses[_missing_rate_limiting_on_responses_def] if {
@@ -345,7 +353,8 @@ _stale_trust_anchors_for_dnssec_def := {
             "name": "Digital Certificates",
             "relevance": "Stale trust anchors represent outdated cryptographic trust material that adversaries can exploit to bypass DNSSEC validation."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 stale_trust_anchors_for_dnssec[_stale_trust_anchors_for_dnssec_def] if {
@@ -429,7 +438,8 @@ _unpatched_resolver_software_def := {
             "name": "DNS",
             "relevance": "Exploiting unpatched vulnerabilities in DNS resolvers can allow adversaries to manipulate DNS communications and responses."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unpatched_resolver_software[_unpatched_resolver_software_def] if {
@@ -467,7 +477,8 @@ _permissive_access_control_list_for_queries_def := {
             "name": "System Network Configuration Discovery",
             "relevance": "Overly permissive query ACLs enable adversaries to perform network configuration discovery through unrestricted DNS queries."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 permissive_access_control_list_for_queries[_permissive_access_control_list_for_queries_def] if {
@@ -508,7 +519,8 @@ _dns_rebinding_protection_absent_def := {
             "name": "DNS",
             "relevance": "Absent DNS rebinding protection allows attackers to leverage DNS as a channel to pivot into internal networks."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 dns_rebinding_protection_absent[_dns_rebinding_protection_absent_def] if {
@@ -547,7 +559,8 @@ _chroot_or_namespace_isolation_not_applied_def := {
             "name": "Container Service",
             "relevance": "Lack of namespace isolation is analogous to missing container isolation controls, enabling privilege escalation and host escape."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 chroot_or_namespace_isolation_not_applied[_chroot_or_namespace_isolation_not_applied_def] if {

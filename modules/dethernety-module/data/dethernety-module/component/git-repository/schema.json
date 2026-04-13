@@ -1,0 +1,666 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "anonymous_access_enabled": {
+        "type": "boolean",
+        "title": "Anonymous Access Enabled",
+        "description": "Whether the Git service allows unauthenticated users to browse, clone, or interact with repositories without providing credentials.",
+        "default": false
+      },
+      "network_exposure": {
+        "type": "string",
+        "enum": [
+          "internet",
+          "internal",
+          "localhost"
+        ],
+        "title": "Network Exposure Level",
+        "description": "The network scope from which the Git service is reachable, determining the blast radius if anonymous access or permissive visibility is enabled.",
+        "default": "internal"
+      },
+      "mfa_enforced_for_admins": {
+        "type": "boolean",
+        "title": "MFA Enforced for Admin Accounts",
+        "description": "Whether multi-factor authentication is required for all administrative user accounts on the Git service.",
+        "default": false
+      },
+      "default_credentials_changed": {
+        "type": "boolean",
+        "title": "Default Admin Credentials Changed",
+        "description": "Whether the default administrative credentials (e.g., admin/admin, root/root) have been changed from their factory defaults.",
+        "default": false
+      },
+      "admin_password_policy": {
+        "type": "string",
+        "enum": [
+          "none",
+          "weak",
+          "strong"
+        ],
+        "title": "Admin Password Policy Strength",
+        "description": "The enforced password complexity policy for administrative accounts on the Git service.",
+        "default": "none"
+      },
+      "password_authentication_enabled": {
+        "type": "boolean",
+        "title": "SSH Password Authentication Enabled",
+        "description": "Whether SSH is configured to allow password-based authentication in addition to or instead of public-key authentication.",
+        "default": true
+      },
+      "weak_algorithms_present": {
+        "type": "boolean",
+        "title": "Weak SSH Algorithms Present",
+        "description": "Whether the SSH daemon is configured with deprecated or weak key exchange algorithms, ciphers, or MACs (e.g., diffie-hellman-group1-sha1, arcfour, hmac-md5, 3des-cbc).",
+        "default": false
+      },
+      "host_key_rotation_status": {
+        "type": "string",
+        "enum": [
+          "rotated",
+          "not_rotated",
+          "not_applicable",
+          "unknown"
+        ],
+        "title": "SSH Host Key Rotation Status",
+        "description": "Whether SSH host keys have been rotated following infrastructure migration or a known compromise event.",
+        "default": "unknown"
+      },
+      "https_enforced": {
+        "type": "boolean",
+        "title": "HTTPS Enforced",
+        "description": "Whether the Git service is configured to enforce HTTPS for all web and Git-over-HTTP traffic, redirecting or rejecting plaintext HTTP connections.",
+        "default": false
+      },
+      "tls_min_version": {
+        "type": "string",
+        "enum": [
+          "none",
+          "tls1.0",
+          "tls1.1",
+          "tls1.2",
+          "tls1.3"
+        ],
+        "title": "Minimum TLS Protocol Version",
+        "description": "The minimum TLS protocol version accepted by the Git service's HTTP interface.",
+        "default": "tls1.0"
+      },
+      "tls_certificate_expired": {
+        "type": "boolean",
+        "title": "TLS Certificate Expired",
+        "description": "Whether the TLS certificate presented by the Git service's HTTP interface is expired or not yet valid.",
+        "default": false
+      },
+      "weak_cipher_suites_enabled": {
+        "type": "boolean",
+        "title": "Weak TLS Cipher Suites Enabled",
+        "description": "Whether the TLS configuration permits known-weak cipher suites (e.g., RC4, DES, 3DES, EXPORT, NULL, or anonymous cipher suites).",
+        "default": false
+      },
+      "default_repository_visibility": {
+        "type": "string",
+        "enum": [
+          "public",
+          "internal",
+          "private"
+        ],
+        "title": "Default Repository Visibility",
+        "description": "The platform-wide default visibility setting applied to newly created repositories.",
+        "default": "private"
+      },
+      "token_expiry_enforcement": {
+        "type": "string",
+        "enum": [
+          "enforced",
+          "not_enforced"
+        ],
+        "title": "Token Expiry Enforcement Policy",
+        "description": "Whether the Git service enforces or requires expiration dates on personal access tokens and deploy tokens.",
+        "default": "not_enforced"
+      },
+      "tokens_without_expiry_exist": {
+        "type": "boolean",
+        "title": "Tokens Without Expiration Dates Exist",
+        "description": "Whether any active personal access tokens or deploy tokens have no expiration date set.",
+        "default": false
+      },
+      "token_scope_restriction_enforced": {
+        "type": "boolean",
+        "title": "Token Scope Restriction Enforced",
+        "description": "Whether the platform enforces minimum-scope policies or prevents issuance of tokens with broad/administrative scopes without approval.",
+        "default": false
+      },
+      "token_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Token Issuance Audit Logging Enabled",
+        "description": "Whether the Git service logs token creation, usage, and revocation events to an auditable log.",
+        "default": false
+      },
+      "push_restrictions_enabled": {
+        "type": "boolean",
+        "title": "Push Restrictions Enabled",
+        "description": "Whether direct pushes to the default branch are restricted (e.g., only maintainers or no one can push directly without a PR).",
+        "default": false
+      },
+      "required_review_count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10,
+        "title": "Required Pull Request Review Count",
+        "description": "Minimum number of approving reviews required before a pull request can be merged into the default branch. Zero means no review is required.",
+        "default": 0
+      },
+      "branch_protection_rule_exists": {
+        "type": "boolean",
+        "title": "Branch Protection Rule Exists",
+        "description": "Whether any branch protection rule (ruleset) is configured for the default branch at all. If absent, all other controls are implicitly disabled.",
+        "default": false
+      },
+      "webhook_url_allowlist_enforced": {
+        "type": "boolean",
+        "title": "Webhook URL Allowlist Enforced",
+        "description": "Whether the platform enforces an allowlist of permitted webhook target URLs or domains, preventing arbitrary internal addresses from being targeted.",
+        "default": false
+      },
+      "internal_network_requests_blocked": {
+        "type": "boolean",
+        "title": "Webhook Requests to Internal Network Blocked",
+        "description": "Whether the platform explicitly blocks webhook HTTP requests targeting private/internal IP ranges (RFC1918, loopback, link-local) at the application or network level.",
+        "default": false
+      },
+      "webhook_creation_permission_scope": {
+        "type": "string",
+        "enum": [
+          "any_member",
+          "maintainer_or_above",
+          "admin_only",
+          "disabled"
+        ],
+        "title": "Webhook Creation Permission Scope",
+        "description": "The minimum role or permission level required to create or modify webhooks on a repository or organization.",
+        "default": "any_member"
+      },
+      "service_process_user": {
+        "type": "string",
+        "title": "Git Service Process User",
+        "description": "The OS user account under which the Git service daemon or container process runs (e.g., 'root', 'git', 'gitlab-www')."
+      },
+      "container_privileged_mode_enabled": {
+        "type": "boolean",
+        "title": "Container Privileged Mode Enabled",
+        "description": "Whether the Git service container is launched with the --privileged flag or equivalent, granting it near-unrestricted access to the host kernel.",
+        "default": false
+      },
+      "run_as_non_root_enforced": {
+        "type": "boolean",
+        "title": "Run As Non-Root Enforced",
+        "description": "Whether the deployment configuration explicitly enforces that the Git service must not run as root (e.g., Kubernetes securityContext.runAsNonRoot, Docker USER directive, or systemd service User= directive).",
+        "default": false
+      },
+      "backup_encryption_enabled": {
+        "type": "boolean",
+        "title": "Backup Encryption Enabled",
+        "description": "Whether backup archives are encrypted at rest (e.g., AES-256, GPG, or storage-provider-managed encryption).",
+        "default": false
+      },
+      "backup_storage_access_policy": {
+        "type": "string",
+        "enum": [
+          "public",
+          "overly_permissive",
+          "restricted"
+        ],
+        "title": "Backup Storage Access Policy",
+        "description": "The effective access control policy on the backup storage location (object bucket, NFS share, or local directory)."
+      },
+      "audit_log_enabled": {
+        "type": "boolean",
+        "title": "Audit Logging Enabled",
+        "description": "Whether audit logging is enabled on the Git platform instance at the platform level.",
+        "default": false
+      },
+      "audit_log_categories_covered": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Audit Log Event Categories Covered",
+        "description": "List of event categories actively captured in audit logs. Expected values include: authentication, repository_access, permission_changes, webhook_events, admin_actions.",
+        "default": []
+      },
+      "audit_log_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Audit Log Retention Period (Days)",
+        "description": "Number of days audit logs are retained before being purged or rotated without archival. Zero means no retention configured.",
+        "default": 0
+      },
+      "version_has_known_cve": {
+        "type": "boolean",
+        "title": "Running Version Has Known CVEs",
+        "description": "Indicates whether the currently installed Git platform version has one or more publicly disclosed CVEs that have not been patched.",
+        "default": false
+      },
+      "patch_management_policy_exists": {
+        "type": "boolean",
+        "title": "Patch Management Policy Exists",
+        "description": "Indicates whether a formal patch management policy or automated update process is in place for the Git platform, ensuring timely application of security patches.",
+        "default": false
+      },
+      "days_since_last_version_update": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9999,
+        "title": "Days Since Last Platform Version Update",
+        "description": "Number of days elapsed since the Git platform was last updated to a new release or patch version."
+      },
+      "network_binding_scope": {
+        "type": "string",
+        "enum": [
+          "public",
+          "internal",
+          "localhost"
+        ],
+        "title": "Network Binding Scope",
+        "description": "Indicates whether the Git service's web interface, SSH port, and API are bound to all interfaces (0.0.0.0/wildcard), a specific internal interface, or localhost only."
+      },
+      "network_layer_control_present": {
+        "type": "boolean",
+        "title": "Network-Layer Access Control Present",
+        "description": "Whether a network-layer control (firewall rule, VPN requirement, or reverse proxy with IP allowlisting) is confirmed to restrict access to the Git service's ports from untrusted segments.",
+        "default": false
+      },
+      "publicly_resolvable_hostname": {
+        "type": "boolean",
+        "title": "Service Has Publicly Resolvable Hostname",
+        "description": "Whether the Git service is reachable via a publicly resolvable DNS hostname, indicating intentional or accidental exposure to the public internet."
+      },
+      "config_secrets_encrypted_at_rest": {
+        "type": "boolean",
+        "title": "Configuration Secrets Encrypted at Rest",
+        "description": "Whether the platform's on-disk configuration files (database credentials, SMTP passwords, LDAP bind passwords, object storage keys) are encrypted at rest rather than stored in plaintext.",
+        "default": false
+      },
+      "secrets_detected_in_repository_commits": {
+        "type": "boolean",
+        "title": "Secrets Detected in Repository Commits or History",
+        "description": "Whether a secret-scanning tool has found credentials, API keys, or passwords in current repository content or historical git commits that have not been purged/rewritten.",
+        "default": false
+      },
+      "secret_scanning_enabled": {
+        "type": "boolean",
+        "title": "Automated Secret Scanning Enabled",
+        "description": "Whether automated secret scanning (pre-receive hooks, CI/CD pipeline scanning, or platform-native secret detection) is enabled to prevent secrets from being committed or to alert on existing secrets.",
+        "default": false
+      }
+    },
+    "required": [
+      "anonymous_access_enabled",
+      "network_exposure",
+      "mfa_enforced_for_admins",
+      "default_credentials_changed",
+      "admin_password_policy",
+      "password_authentication_enabled",
+      "weak_algorithms_present",
+      "host_key_rotation_status",
+      "https_enforced",
+      "tls_min_version",
+      "tls_certificate_expired",
+      "weak_cipher_suites_enabled",
+      "default_repository_visibility",
+      "token_expiry_enforcement",
+      "tokens_without_expiry_exist",
+      "token_scope_restriction_enforced",
+      "token_audit_logging_enabled",
+      "push_restrictions_enabled",
+      "required_review_count",
+      "branch_protection_rule_exists",
+      "webhook_url_allowlist_enforced",
+      "internal_network_requests_blocked",
+      "webhook_creation_permission_scope",
+      "service_process_user",
+      "container_privileged_mode_enabled",
+      "run_as_non_root_enforced",
+      "backup_encryption_enabled",
+      "backup_storage_access_policy",
+      "audit_log_enabled",
+      "audit_log_categories_covered",
+      "audit_log_retention_days",
+      "version_has_known_cve",
+      "patch_management_policy_exists",
+      "days_since_last_version_update",
+      "network_binding_scope",
+      "network_layer_control_present",
+      "publicly_resolvable_hostname",
+      "config_secrets_encrypted_at_rest",
+      "secrets_detected_in_repository_commits",
+      "secret_scanning_enabled"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/admin_password_policy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/anonymous_access_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/branch_protection_rule_exists"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/default_credentials_changed"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/default_repository_visibility"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/mfa_enforced_for_admins"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/password_authentication_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/public_repository_count"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/push_restrictions_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/required_review_count"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitive_content_types_present"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/token_expiry_enforcement"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/token_scope_restriction_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tokens_without_expiry_exist"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/host_key_rotation_status"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_encryption_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/config_secrets_encrypted_at_rest"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/https_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_detected_in_repository_commits"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_certificate_expired"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_min_version"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_cipher_suites_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_scanning_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/weak_algorithms_present"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/internal_network_requests_blocked"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/network_binding_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/network_exposure"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/network_layer_control_present"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/webhook_url_allowlist_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/publicly_resolvable_hostname"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/webhook_creation_permission_scope"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Configuration & Deployment",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/container_privileged_mode_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/days_since_last_version_update"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_management_policy_exists"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/run_as_non_root_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/service_process_user"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/version_has_known_cve"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_categories_covered"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_retention_days"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/token_audit_logging_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_storage_access_policy"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

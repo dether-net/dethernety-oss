@@ -22,7 +22,8 @@ _unencrypted_backend_traffic_def := {
             "name": "Exfiltration Over Alternative Protocol",
             "relevance": "Unencrypted backend channels may be exploited to exfiltrate data over alternative protocols without detection."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 unencrypted_backend_traffic[_unencrypted_backend_traffic_def] if {
@@ -64,7 +65,8 @@ _weak_tls_configuration_def := {
             "name": "Reduce Key Space",
             "relevance": "Weak TLS configurations often involve reduced key lengths, which corresponds to reducing the effective key space attackers need to break."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 weak_tls_configuration[_weak_tls_configuration_def] if {
@@ -121,7 +123,8 @@ _exposed_management_interface_def := {
             "name": "Remote Services",
             "relevance": "Exposed management interfaces typically provide remote service access that adversaries can abuse for lateral movement or initial access."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 exposed_management_interface[_exposed_management_interface_def] if {
@@ -159,7 +162,8 @@ _default_or_weak_admin_credentials_def := {
             "name": "Password Guessing",
             "relevance": "Weak admin credentials are susceptible to password guessing attacks by adversaries attempting to gain unauthorized access."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 default_or_weak_admin_credentials[_default_or_weak_admin_credentials_def] if {
@@ -197,7 +201,8 @@ _missing_mutual_tls_on_backend_def := {
             "name": "Steal or Forge Authentication Certificates",
             "relevance": "Missing mutual TLS means certificates are not used for backend authentication, enabling certificate forgery attacks to impersonate backend services."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 missing_mutual_tls_on_backend[_missing_mutual_tls_on_backend_def] if {
@@ -244,7 +249,8 @@ _health_check_information_disclosure_def := {
             "name": "System Network Configuration Discovery",
             "relevance": "Health check endpoints often disclose network configuration and topology information useful for adversary reconnaissance."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 health_check_information_disclosure[_health_check_information_disclosure_def] if {
@@ -285,7 +291,8 @@ _insufficient_access_logging_def := {
             "name": "Hide Infrastructure",
             "relevance": "Insufficient logging enables adversaries to hide their infrastructure and activities by operating in environments with poor visibility."
         }
-    ]
+    ],
+    "attack_vector": "UNSPECIFIED"
 }
 
 insufficient_access_logging[_insufficient_access_logging_def] if {
@@ -350,7 +357,8 @@ _missing_rate_limiting_and_connection_throttling_def := {
             "name": "Application Exhaustion Flood",
             "relevance": "Lack of rate limiting enables application-layer exhaustion floods targeting specific application resources through the load balancer."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_rate_limiting_and_connection_throttling[_missing_rate_limiting_and_connection_throttling_def] if {
@@ -384,7 +392,8 @@ _unvalidated_or_spoofable_forwarded_headers_def := {
             "name": "Proxy",
             "relevance": "Unvalidated forwarded headers can be manipulated by attackers using proxies to spoof source addresses and bypass IP-based access controls."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unvalidated_or_spoofable_forwarded_headers[_unvalidated_or_spoofable_forwarded_headers_def] if {
@@ -428,7 +437,8 @@ _privileged_process_execution_def := {
             "name": "Create or Modify System Process",
             "relevance": "Adversaries may abuse privileged process execution contexts to create or modify system processes for persistence or escalation."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 privileged_process_execution[_privileged_process_execution_def] if {
@@ -477,7 +487,8 @@ _hardcoded_secrets_in_configuration_def := {
             "name": "Unsecured Credentials",
             "relevance": "Hardcoded secrets represent unsecured credentials that adversaries can find and leverage to gain unauthorized access."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 hardcoded_secrets_in_configuration[_hardcoded_secrets_in_configuration_def] if {
@@ -516,7 +527,8 @@ _unpatched_load_balancer_software_def := {
             "name": "Exploitation of Remote Services",
             "relevance": "Unpatched software vulnerabilities in load balancers can be exploited through remote service exploitation techniques."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unpatched_load_balancer_software[_unpatched_load_balancer_software_def] if {
@@ -561,7 +573,8 @@ _missing_multi_factor_authentication_on_admin_def := {
             "name": "Credential Stuffing",
             "relevance": "Without MFA, admin interfaces are vulnerable to credential stuffing attacks that can achieve account takeover with stolen credentials."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_multi_factor_authentication_on_admin[_missing_multi_factor_authentication_on_admin_def] if {
@@ -605,7 +618,8 @@ _no_session_timeout_on_management_session_def := {
             "name": "Remote Service Session Hijacking",
             "relevance": "Without session timeouts, hijacked remote management sessions remain valid, enabling persistent unauthorized control of the load balancer."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 no_session_timeout_on_management_session[_no_session_timeout_on_management_session_def] if {
@@ -642,7 +656,8 @@ _backend_pool_auto_discovery_without_authentication_def := {
             "name": "Cloud Infrastructure Discovery",
             "relevance": "Auto-discovery without authentication in cloud environments enables adversaries to enumerate cloud infrastructure components and backend pools."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 backend_pool_auto_discovery_without_authentication[_backend_pool_auto_discovery_without_authentication_def] if {
@@ -687,7 +702,8 @@ _missing_certificate_validity_monitoring_def := {
             "name": "Install Root Certificate",
             "relevance": "Lack of certificate validity monitoring may allow unauthorized root certificate installation to go undetected."
         }
-    ]
+    ],
+    "attack_vector": "UNSPECIFIED"
 }
 
 missing_certificate_validity_monitoring[_missing_certificate_validity_monitoring_def] if {
@@ -737,7 +753,8 @@ _unrestricted_icmp_and_diagnostic_protocols_def := {
             "name": "System Network Configuration Discovery",
             "relevance": "Unrestricted ICMP and diagnostic protocols enable adversaries to perform network configuration discovery and map the infrastructure."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 unrestricted_icmp_and_diagnostic_protocols[_unrestricted_icmp_and_diagnostic_protocols_def] if {

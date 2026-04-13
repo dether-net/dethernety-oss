@@ -22,7 +22,8 @@ _unencrypted_update_channel_def := {
             "name": "Exfiltration Over Unencrypted Non-C2 Protocol",
             "relevance": "Unencrypted update channels can be leveraged to exfiltrate data over plaintext protocols without detection."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unencrypted_update_channel[_unencrypted_update_channel_def] if {
@@ -61,7 +62,8 @@ _missing_mutual_tls_authentication_def := {
             "name": "Domain Controller Authentication",
             "relevance": "Missing mutual TLS authentication enables adversaries to bypass or manipulate authentication mechanisms on managed components."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_mutual_tls_authentication[_missing_mutual_tls_authentication_def] if {
@@ -105,7 +107,8 @@ _weak_or_deprecated_tls_ciphers_def := {
             "name": "Reduce Key Space",
             "relevance": "Deprecated ciphers with reduced key space make brute-force or cryptanalytic attacks feasible against TLS-protected channels."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 weak_or_deprecated_tls_ciphers[_weak_or_deprecated_tls_ciphers_def] if {
@@ -162,7 +165,8 @@ _replay_of_configuration_update_messages_def := {
             "name": "Encrypted Channel",
             "relevance": "Replay attacks target the integrity and freshness of encrypted channel messages used for configuration updates."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 replay_of_configuration_update_messages[_replay_of_configuration_update_messages_def] if {
@@ -205,7 +209,8 @@ _missing_payload_integrity_verification_def := {
             "name": "Weaken Encryption",
             "relevance": "Missing integrity checks allow adversaries to modify payloads, effectively bypassing cryptographic protections."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_payload_integrity_verification[_missing_payload_integrity_verification_def] if {
@@ -251,7 +256,8 @@ _unauthenticated_update_source_routing_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Unauthenticated routing allows adversaries to bridge network boundaries and redirect update traffic."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 unauthenticated_update_source_routing[_unauthenticated_update_source_routing_def] if {
@@ -295,7 +301,8 @@ _absence_of_rate_limiting_on_update_channel_def := {
             "name": "Network Denial of Service",
             "relevance": "Absence of rate limiting enables network-level denial of service attacks against the update channel."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 absence_of_rate_limiting_on_update_channel[_absence_of_rate_limiting_on_update_channel_def] if {
@@ -342,7 +349,8 @@ _certificate_validation_bypass_on_managed_component_def := {
             "name": "Install Digital Certificate",
             "relevance": "Attackers can install malicious digital certificates to facilitate certificate validation bypass on managed components."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 certificate_validation_bypass_on_managed_component[_certificate_validation_bypass_on_managed_component_def] if {
@@ -384,7 +392,8 @@ _update_channel_over_untrusted_network_segment_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Untrusted network segments enable adversaries to bridge network boundaries and intercept update traffic."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 update_channel_over_untrusted_network_segment[_update_channel_over_untrusted_network_segment_def] if {
@@ -424,7 +433,8 @@ _protocol_metadata_leakage_def := {
             "name": "Exfiltration Over Unencrypted Non-C2 Protocol",
             "relevance": "Protocol metadata leakage over unencrypted channels can expose sensitive information to passive observers."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 protocol_metadata_leakage[_protocol_metadata_leakage_def] if {

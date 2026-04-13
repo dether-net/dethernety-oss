@@ -22,7 +22,8 @@ _undefined_sensitivity_classification_def := {
             "name": "Data from Cloud Storage",
             "relevance": "Unclassified data in cloud storage is more vulnerable to unauthorized access as protective controls cannot be applied appropriately."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 undefined_sensitivity_classification[_undefined_sensitivity_classification_def] if {
@@ -61,7 +62,8 @@ _absent_or_undefined_retention_schedule_def := {
             "name": "Data from Information Repositories",
             "relevance": "Data retained indefinitely without schedules remains accessible in repositories, increasing the attack surface for data collection."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 absent_or_undefined_retention_schedule[_absent_or_undefined_retention_schedule_def] if {
@@ -108,7 +110,8 @@ _inadequate_access_control_granularity_def := {
             "name": "Conditional Access Policies",
             "relevance": "Insufficient granularity in conditional access policies is a direct manifestation of inadequate access control granularity."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 inadequate_access_control_granularity[_inadequate_access_control_granularity_def] if {
@@ -160,7 +163,8 @@ _missing_data_at_rest_encryption_def := {
             "name": "Exfiltration Over Physical Medium",
             "relevance": "Unencrypted data at rest is especially vulnerable to physical medium exfiltration if storage devices are physically accessed."
         }
-    ]
+    ],
+    "attack_vector": "PHYSICAL"
 }
 
 missing_data_at_rest_encryption[_missing_data_at_rest_encryption_def] if {
@@ -211,7 +215,8 @@ _absent_anonymization_or_pseudonymization_controls_def := {
             "name": "Data from Information Repositories",
             "relevance": "Absent anonymization controls mean that data repositories contain identifiable personal data accessible to adversaries."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 absent_anonymization_or_pseudonymization_controls[_absent_anonymization_or_pseudonymization_controls_def] if {
@@ -250,7 +255,8 @@ _non_compliant_cross_border_transfer_def := {
             "name": "Data from Cloud Storage",
             "relevance": "Cross-border data transfers often involve cloud storage access from regions that may not comply with data residency requirements."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 non_compliant_cross_border_transfer[_non_compliant_cross_border_transfer_def] if {
@@ -296,7 +302,8 @@ _insecure_or_incomplete_data_disposal_def := {
             "name": "Exfiltration Over Physical Medium",
             "relevance": "Insecurely disposed physical media can be recovered and exfiltrated by adversaries who gain access to discarded storage devices."
         }
-    ]
+    ],
+    "attack_vector": "PHYSICAL"
 }
 
 insecure_or_incomplete_data_disposal[_insecure_or_incomplete_data_disposal_def] if {

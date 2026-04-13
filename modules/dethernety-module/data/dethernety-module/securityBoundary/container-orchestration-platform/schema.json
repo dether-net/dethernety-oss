@@ -4,302 +4,253 @@
     "properties": {
       "anonymous_auth_enabled": {
         "type": "boolean",
-        "title": "API Server Anonymous Authentication Enabled",
-        "description": "Whether the kube-apiserver is started with --anonymous-auth=true (or the flag is absent, which defaults to true), allowing unauthenticated requests to reach the API server and be processed under the system:anonymous identity.",
+        "title": "Anonymous Authentication Enabled",
+        "description": "Whether the API server allows unauthenticated (anonymous) requests via --anonymous-auth=true flag. When true, requests without valid credentials are processed as system:anonymous.",
         "default": true
       },
-      "etcd_client_cert_auth_enabled": {
+      "workload_to_apiserver_network_policy_enforced": {
         "type": "boolean",
-        "title": "etcd Client Certificate Authentication Enabled",
-        "description": "Whether etcd requires mutual TLS client certificate authentication for all client connections (--client-cert-auth=true). When disabled, any network-accessible client can connect to etcd without authentication.",
+        "title": "Workload-to-API-Server Network Policy Enforced",
+        "description": "Whether NetworkPolicy or equivalent firewall rules restrict workload pods from directly reaching the API server endpoint (typically port 6443). True means traffic is restricted.",
         "default": false
       },
-      "kubeconfig_privilege_level": {
-        "type": "string",
-        "title": "Kubeconfig Privilege Level",
-        "description": "The highest privilege level granted by the stored kubeconfig credentials — cluster-admin, elevated (e.g., broad RBAC roles), namespace-scoped, or read-only.",
-        "enum": [
-          "cluster_admin",
-          "elevated",
-          "namespace_scoped",
-          "read_only"
-        ]
-      },
-      "kubeconfig_storage_locations": {
-        "type": "array",
-        "title": "Kubeconfig Storage Locations",
-        "description": "List of locations where kubeconfig files are stored, such as CI/CD pipeline secrets, shared namespaces, developer workstations, or version control systems."
-      },
-      "service_account_automounts_token": {
+      "mutual_tls_enforced": {
         "type": "boolean",
-        "title": "Service Account Token Auto-Mounted in Pods",
-        "description": "Whether the service account has automountServiceAccountToken enabled (default true), meaning pods using this SA will automatically receive an API token that can be used to exercise the bound permissions.",
-        "default": true
-      },
-      "short_lived_credential_rotation_enabled": {
-        "type": "boolean",
-        "title": "Short-Lived Credential Rotation Enabled",
-        "description": "Indicates whether the kubeconfig credentials use short-lived tokens (e.g., OIDC tokens with short TTL, projected service account tokens) that are automatically rotated, rather than long-lived static credentials.",
+        "title": "Mutual TLS Enforced on API Server",
+        "description": "Whether the API server requires client certificate authentication (mTLS) for all connections, meaning both --client-ca-file is configured and clients must present valid certificates.",
         "default": false
       },
-      "workload_accessible_storage": {
-        "type": "boolean",
-        "title": "Kubeconfig Accessible from Workload Zone",
-        "description": "Indicates whether the kubeconfig is stored in a location reachable by workload-zone actors — e.g., a Kubernetes Secret in a non-isolated namespace, a CI/CD environment variable available to pipeline jobs, or a shared filesystem mount.",
-        "default": false
-      },
-      "ingress_controller_automount_service_account_token": {
-        "type": "boolean",
-        "title": "Service Account Token Auto-Mounted in Ingress Controller Pod",
-        "description": "Indicates whether the ingress controller pod mounts the service account token automatically, making the token available to any process that achieves code execution inside the pod."
-      },
-      "token_bound_to_audience": {
-        "type": "boolean",
-        "title": "Service Account Token Bound to Specific Audience",
-        "description": "Whether projected service account tokens with explicit audience and expiration are used instead of long-lived legacy tokens, limiting token reuse from external network locations.",
-        "default": false
-      },
-      "binding_scope": {
-        "type": "string",
-        "title": "Role Binding Scope",
-        "description": "Whether the role binding is cluster-scoped (ClusterRoleBinding) or namespace-scoped (RoleBinding). Cluster-scoped bindings grant permissions across all namespaces.",
-        "enum": [
-          "cluster",
-          "namespace"
-        ]
-      },
-      "bound_role_has_wildcard_or_admin": {
-        "type": "boolean",
-        "title": "Bound Role Contains Wildcard Verbs or cluster-admin",
-        "description": "Whether the role referenced by the binding grants wildcard verbs, wildcard resources, or is the built-in cluster-admin ClusterRole, representing effectively unrestricted API access.",
-        "default": false
-      },
-      "cross_namespace_rbac_bindings_present": {
-        "type": "boolean",
-        "title": "Cross-Namespace RBAC Bindings Present",
-        "description": "Indicates whether ClusterRoleBindings or RoleBindings exist that grant service accounts in one tenant namespace access to resources in other tenant namespaces or cluster-wide control plane resources.",
-        "default": false
-      },
-      "ingress_controller_cluster_scoped_secret_access": {
-        "type": "boolean",
-        "title": "Ingress Controller Has Cluster-Scoped Secret Read Access",
-        "description": "Indicates whether the ingress controller service account holds ClusterRole or ClusterRoleBinding permissions granting read access to Secrets across all namespaces, rather than being restricted to its own namespace.",
-        "default": false
-      },
-      "ingress_controller_namespace_isolation_enforced": {
-        "type": "boolean",
-        "title": "Ingress Controller Namespace Isolation Enforced",
-        "description": "Indicates whether the ingress controller RBAC permissions are scoped to its own namespace via RoleBindings rather than granted cluster-wide via ClusterRoleBindings.",
-        "default": false
-      },
-      "kubelet_credential_host_path_mount_present": {
-        "type": "boolean",
-        "title": "Kubelet Credential Host Path Mount Present",
-        "description": "Indicates whether any pod on the node mounts a host path that includes directories containing kubelet credentials (e.g., /var/lib/kubelet/pki or /etc/kubernetes/pki) allowing workload access to node certificates.",
-        "default": false
-      },
-      "node_certificate_file_permissions_world_readable": {
-        "type": "boolean",
-        "title": "Node Certificate Files World Readable",
-        "description": "Indicates whether the kubelet client certificate and key files on the node filesystem have overly permissive file permissions (readable by non-root users).",
-        "default": false
-      },
-      "node_restriction_admission_plugin_enabled": {
-        "type": "boolean",
-        "title": "NodeRestriction Admission Plugin Enabled",
-        "description": "Indicates whether the NodeRestriction admission controller is enabled on the API server, which limits what resources a node identity can access or modify, reducing the blast radius of node credential reuse.",
-        "default": false
-      },
-      "subject_type": {
-        "type": "string",
-        "title": "Binding Subject Type",
-        "description": "The kind of subject referenced in the role binding. ServiceAccount subjects attached to pods create direct workload-to-control-plane privilege propagation paths.",
-        "enum": [
-          "ServiceAccount",
-          "User",
-          "Group"
-        ]
-      },
-      "webhook_operator_rbac_unrestricted": {
-        "type": "boolean",
-        "title": "Webhook Operator Has Unrestricted RBAC",
-        "description": "Indicates whether the service account or identity operating the webhook server has cluster-admin or equivalent RBAC permissions, meaning a compromised webhook operator can also directly manipulate cluster state.",
-        "default": false
-      },
-      "api_server_firewall_ingress_restricted": {
-        "type": "boolean",
-        "title": "External Firewall/Security Group Restricts API Server Ingress",
-        "description": "Whether a host-level firewall, cloud security group, or ACL restricts inbound access to the API server port (6443/443) to only authorized CIDR ranges. False means the port is reachable from workload subnets or the public internet.",
-        "default": false
-      },
-      "cni_plugin_enforces_networkpolicy_in_control_plane_namespace": {
-        "type": "boolean",
-        "title": "CNI Plugin Enforces NetworkPolicy in Control Plane Namespace",
-        "description": "Whether the installed CNI plugin is capable of and configured to enforce NetworkPolicy for pods running in the control plane namespace.",
-        "default": false
-      },
-      "control_plane_components_run_as_static_pods_outside_cni": {
-        "type": "boolean",
-        "title": "Control Plane Components Run as Static Pods Outside CNI Scope",
-        "description": "Whether control plane components run as static pods whose network namespace may bypass CNI-enforced NetworkPolicy, making any configured NetworkPolicy ineffective for them.",
-        "default": false
-      },
-      "control_plane_namespace_egress_networkpolicy_configured": {
-        "type": "boolean",
-        "title": "Control Plane Namespace Egress NetworkPolicy Configured",
-        "description": "Whether NetworkPolicy resources with egress rules exist in the namespace(s) hosting control plane components, restricting outbound traffic from API server, controller-manager, and scheduler pods.",
-        "default": false
-      },
-      "default_network_policy_present": {
-        "type": "boolean",
-        "title": "Default Deny NetworkPolicy Present",
-        "description": "Indicates whether a default-deny NetworkPolicy exists in each tenant namespace to restrict cross-namespace traffic by default.",
-        "default": false
-      },
-      "egress_network_policy_controls_control_plane_ports": {
-        "type": "boolean",
-        "title": "Egress Network Policy Restricts Control Plane Ports",
-        "description": "Whether NetworkPolicy objects exist in workload namespaces that explicitly restrict egress traffic on ports 443 and 6443 toward control plane IP ranges, preventing unrestricted token-bearing connections from compromised pods.",
-        "default": false
+      "api_server_insecure_port": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 65535,
+        "title": "API Server Insecure Port",
+        "description": "Port number on which the API server listens for HTTP (non-TLS) requests via --insecure-port. A value of 0 means disabled. Non-zero values expose the API server without TLS or authentication.",
+        "default": 0
       },
       "etcd_listen_address_scope": {
         "type": "string",
-        "title": "etcd Listen Address Scope",
-        "description": "The network scope on which etcd client port binds. loopback_only means 127.0.0.1 only; node_local means bound to node's primary interface; all_interfaces means 0.0.0.0, accessible from any network interface.",
         "enum": [
-          "loopback_only",
-          "node_local",
+          "control_plane_only",
+          "node_network",
           "all_interfaces"
-        ]
+        ],
+        "title": "etcd Listen Address Scope",
+        "description": "Indicates which network interfaces etcd is bound to: control-plane-only (loopback or dedicated control plane interface), node-network (reachable from all nodes), or all-interfaces (0.0.0.0, reachable from workload and node networks)."
       },
-      "etcd_network_access_restricted_to_api_server": {
+      "firewall_restricts_etcd_to_control_plane": {
         "type": "boolean",
-        "title": "etcd Network Access Restricted to API Server Only",
-        "description": "Whether network-level controls enforce that only the API server can reach etcd client ports (typically 2379/2380). False means etcd is reachable from broader cluster network or nodes.",
+        "title": "Firewall Restricts etcd Ingress to Control Plane Zone",
+        "description": "Whether host-level or network-level firewall rules enforce that etcd client ports (default 2379) and peer ports (default 2380) accept connections only from control plane segment source addresses.",
         "default": false
       },
-      "network_policy_restricts_api_server_egress": {
-        "type": "boolean",
-        "title": "Network Policy Restricts Pod-to-API-Server Egress",
-        "description": "Whether NetworkPolicy resources exist in workload namespaces that explicitly deny or restrict pod-initiated connections to the API server port. False means no such policy is enforced and pods can freely initiate connections to the control plane.",
-        "default": false
+      "bound_subject_types": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Bound Subject Types",
+        "description": "List of subject kinds bound by the ClusterRoleBinding (e.g., ServiceAccount, User, Group). Identifies whether workload-level identities such as ServiceAccounts are granted cluster-wide roles."
       },
-      "webhook_server_zone": {
+      "granted_verbs": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Granted Verbs",
+        "description": "Set of verbs explicitly granted by the ClusterRole referenced in the binding (e.g., get, list, watch, create, update, delete, '*'). Broad or wildcard verbs on sensitive resources indicate privilege escalation risk."
+      },
+      "granted_resources": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Granted Resources",
+        "description": "Set of Kubernetes resource types explicitly granted by the ClusterRole (e.g., secrets, pods, nodes, '*'). Sensitive resource types or wildcard grants expand the blast radius of a compromised workload identity."
+      },
+      "subject_namespace": {
         "type": "string",
-        "title": "Webhook Server Network Zone",
-        "description": "The network zone where the admission webhook server is deployed, indicating whether it resides in the workload zone (operator-controlled), shared zone, or a dedicated control plane zone.",
-        "enum": [
-          "control_plane_zone",
-          "shared_zone",
-          "workload_zone"
-        ]
-      },
-      "ingress_controller_exposed_to_external_traffic": {
-        "type": "boolean",
-        "title": "Ingress Controller Directly Exposed to External Traffic",
-        "description": "Indicates whether the ingress controller receives traffic directly from outside the cluster (e.g., via LoadBalancer or NodePort service type), placing it in an externally reachable attack position."
-      },
-      "high_risk_api_groups_covered": {
-        "type": "boolean",
-        "title": "High-Risk API Groups Covered by Webhooks",
-        "description": "Indicates whether admission webhooks include rules covering high-risk API groups such as apps, batch, and the core group ('') for all relevant resource types. False means privileged workload creation paths are uninspected.",
-        "default": false
-      },
-      "webhook_ca_bundle_configured": {
-        "type": "boolean",
-        "title": "Webhook CA Bundle Configured",
-        "description": "Indicates whether a caBundle is explicitly set in the webhook configuration, enabling the API server to verify the TLS identity of the webhook server.",
-        "default": false
-      },
-      "webhook_covered_operations": {
-        "type": "array",
-        "title": "Webhook Covered Operations",
-        "description": "List of HTTP operations (CREATE, UPDATE, DELETE, CONNECT) covered by the admission webhook rules across all registered webhooks. Gaps indicate policy bypass surfaces."
-      },
-      "webhook_covered_subresources": {
-        "type": "array",
-        "title": "Webhook Covered Subresources",
-        "description": "List of subresources explicitly covered by admission webhook rules (e.g., pods/exec, pods/ephemeralcontainers, pods/attach). Absence of high-risk subresources indicates bypass gaps."
-      },
-      "webhook_namespace_selector_present": {
-        "type": "boolean",
-        "title": "Webhook Namespace Selector Restricts Scope",
-        "description": "Indicates whether any registered admission webhook uses a restrictive namespaceSelector that excludes one or more non-system namespaces from policy inspection, creating namespace-scoped bypass gaps. Also used to assess whether all webhooks have scoped selectors for multi-tenant enforcement.",
-        "default": false
+        "title": "Subject Service Account Namespace",
+        "description": "Namespace of the ServiceAccount subject bound by the ClusterRoleBinding or RoleBinding. Workload namespaces receiving cluster-wide grants represent cross-boundary privilege propagation."
       },
       "webhook_failure_policy": {
         "type": "string",
+        "enum": [
+          "Ignore",
+          "Fail"
+        ],
         "title": "Webhook Failure Policy",
-        "description": "The failurePolicy setting for registered admission webhooks. Ignore means a webhook timeout or error allows the request through, compounding scope gap and trust inversion risks.",
-        "enum": [
-          "Fail",
-          "Ignore"
-        ]
+        "description": "The failurePolicy setting on the admission webhook configuration, determining behavior when the webhook endpoint is unreachable. 'Ignore' allows requests to proceed; 'Fail' blocks them.",
+        "default": "Ignore"
       },
-      "audit_log_backend_enabled": {
+      "namespace_selector_exempts_system_namespaces": {
         "type": "boolean",
-        "title": "Audit Log Backend Enabled",
-        "description": "Whether at least one audit log backend (file or webhook) is configured and active on the API server.",
+        "title": "Namespace Selector Exempts System Namespaces",
+        "description": "Whether the webhook's namespaceSelector excludes kube-system, kube-public, or other privileged namespaces, leaving those namespaces uncovered by policy enforcement.",
         "default": false
       },
-      "audit_policy_configured": {
-        "type": "boolean",
-        "title": "Audit Policy Configured",
-        "description": "Whether the API server has an audit policy file configured (--audit-policy-file flag is set and points to a valid file).",
-        "default": false
-      },
-      "audit_policy_sensitive_verb_coverage": {
+      "webhook_match_policy": {
         "type": "string",
-        "title": "Audit Policy Sensitive Verb Coverage",
-        "description": "Whether the audit policy includes RequestResponse level logging for sensitive verbs (get on secrets, exec, bind, escalate) across relevant API groups.",
-        "default": "none",
         "enum": [
-          "full",
-          "partial",
-          "none"
-        ]
+          "Equivalent",
+          "Exact"
+        ],
+        "title": "Webhook Match Policy",
+        "description": "The matchPolicy field controlling how the webhook matches requests. 'Exact' may miss equivalent API group/version requests, leaving coverage gaps for resources accessed via different API versions.",
+        "default": "Equivalent"
+      },
+      "uncovered_resource_types": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Uncovered Resource Types",
+        "description": "List of high-risk resource types (e.g., pods, deployments, secrets, serviceaccounts) not covered by any admission webhook rule, leaving them without policy enforcement."
+      },
+      "automount_service_account_token": {
+        "type": "boolean",
+        "title": "Auto-Mount Service Account Token Enabled",
+        "description": "Indicates whether the pod spec or service account object has automountServiceAccountToken set to true (or unset, defaulting to true), causing API server credentials to be automatically injected into pod filesystems.",
+        "default": true
+      },
+      "service_account_has_elevated_rbac": {
+        "type": "boolean",
+        "title": "Service Account Has Elevated RBAC Permissions",
+        "description": "Indicates whether the service account bound to the pod has ClusterRole or Role bindings granting permissions beyond minimal read-only access (e.g., write permissions or access to sensitive resources).",
+        "default": false
+      },
+      "workload_namespace_trust_zone": {
+        "type": "string",
+        "enum": [
+          "restricted",
+          "standard",
+          "administrative",
+          "unclassified"
+        ],
+        "title": "Workload Namespace Trust Zone Classification",
+        "description": "The trust zone classification of the namespace in which the pod runs, indicating the sensitivity of the environment and the risk of credential exposure.",
+        "default": "unclassified"
+      },
+      "foreign_namespace_subjects_in_rolebindings": {
+        "type": "boolean",
+        "title": "Foreign Namespace Subjects in RoleBindings",
+        "description": "Indicates whether any RoleBinding in a tenant namespace references subjects (ServiceAccounts or Groups) originating from a different tenant namespace.",
+        "default": false
+      },
+      "role_grants_cluster_scoped_resources": {
+        "type": "boolean",
+        "title": "Role Grants Access to Cluster-Scoped Resources",
+        "description": "Indicates whether any Role (namespace-scoped) in a tenant namespace includes rules that reference cluster-scoped resource types (e.g., nodes, persistentvolumes, clusterroles, namespaces).",
+        "default": false
+      },
+      "high_privilege_kubeconfig_zones": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "High-Privilege Kubeconfig Storage Zones",
+        "description": "List of trust zones where high-privilege kubeconfig files (cluster-admin or broad namespace rights) are stored or accessible, such as 'ci_cd_runner', 'developer_workstation', 'workload_namespace', 'monitoring_agent', 'control_plane'."
+      },
+      "workload_zone_credential_store_accessible": {
+        "type": "boolean",
+        "title": "Workload Zone Can Access Control-Plane Credential Store",
+        "description": "Whether systems or pods running in workload namespaces or lower-trust zones have network or API access to the credential store that holds control-plane-scoped kubeconfig files or service account tokens.",
+        "default": false
+      },
+      "credential_scope": {
+        "type": "string",
+        "enum": [
+          "cluster_admin",
+          "broad_namespace",
+          "namespace_scoped",
+          "read_only"
+        ],
+        "title": "Credential Privilege Scope",
+        "description": "The privilege scope of the exposed or potentially exposed kubeconfig/service account credential."
+      },
+      "network_policy_restricts_control_plane_ingress": {
+        "type": "boolean",
+        "title": "NetworkPolicy Restricts Control Plane Ingress",
+        "description": "Whether a Kubernetes NetworkPolicy exists that explicitly denies or limits workload pod/namespace access to control plane ports (e.g., 6443, 2379, 2380, 10259, 10257).",
+        "default": false
+      },
+      "external_firewall_restricts_control_plane_ingress": {
+        "type": "boolean",
+        "title": "External Firewall Restricts Control Plane Ingress",
+        "description": "Whether an external firewall (cloud security group, ACL, host firewall) enforces rules preventing arbitrary workload nodes or pod CIDRs from reaching control plane endpoints on administrative ports.",
+        "default": false
+      },
+      "audit_policy_sensitive_resources_log_level": {
+        "type": "string",
+        "enum": [
+          "None",
+          "Metadata",
+          "Request",
+          "RequestResponse"
+        ],
+        "title": "Audit Policy Log Level for Sensitive Resources",
+        "description": "The audit log level applied to sensitive control plane resources (secrets, clusterrolebindings, pods/exec) in the Kubernetes audit policy. Indicates whether boundary-crossing events are captured."
+      },
+      "audit_log_path_configured": {
+        "type": "boolean",
+        "title": "Audit Log Path Configured",
+        "description": "Whether the API server is configured with a valid --audit-log-path or --audit-webhook-config-file, meaning audit logging is active at all.",
+        "default": false
+      },
+      "audit_policy_file_present": {
+        "type": "boolean",
+        "title": "Audit Policy File Present",
+        "description": "Whether a structured audit policy file is referenced by the API server (--audit-policy-file flag). If absent, no fine-grained audit rules exist.",
+        "default": false
+      },
+      "bind_address_non_loopback": {
+        "type": "boolean",
+        "title": "Scheduler/Controller Manager Bound to Non-Loopback Address",
+        "description": "Indicates whether kube-scheduler or kube-controller-manager is configured with --bind-address set to a non-loopback address (e.g., 0.0.0.0 or a node IP), exposing health/metrics endpoints beyond localhost.",
+        "default": false
+      },
+      "authentication_disabled_on_endpoint": {
+        "type": "boolean",
+        "title": "Authentication Disabled on Health/Metrics Endpoint",
+        "description": "Indicates whether the exposed health or metrics endpoint has authentication disabled, either via --authentication-kubeconfig being absent/empty, --authentication-skip-lookup=true, or the deprecated --port being set to a non-zero value.",
+        "default": false
       }
     },
     "required": [
       "anonymous_auth_enabled",
-      "etcd_client_cert_auth_enabled",
-      "kubeconfig_privilege_level",
-      "kubeconfig_storage_locations",
-      "service_account_automounts_token",
-      "short_lived_credential_rotation_enabled",
-      "workload_accessible_storage",
-      "ingress_controller_automount_service_account_token",
-      "token_bound_to_audience",
-      "binding_scope",
-      "bound_role_has_wildcard_or_admin",
-      "cross_namespace_rbac_bindings_present",
-      "ingress_controller_cluster_scoped_secret_access",
-      "ingress_controller_namespace_isolation_enforced",
-      "kubelet_credential_host_path_mount_present",
-      "node_certificate_file_permissions_world_readable",
-      "node_restriction_admission_plugin_enabled",
-      "subject_type",
-      "webhook_operator_rbac_unrestricted",
-      "api_server_firewall_ingress_restricted",
-      "cni_plugin_enforces_networkpolicy_in_control_plane_namespace",
-      "control_plane_components_run_as_static_pods_outside_cni",
-      "control_plane_namespace_egress_networkpolicy_configured",
-      "default_network_policy_present",
-      "egress_network_policy_controls_control_plane_ports",
+      "workload_to_apiserver_network_policy_enforced",
+      "mutual_tls_enforced",
+      "api_server_insecure_port",
       "etcd_listen_address_scope",
-      "etcd_network_access_restricted_to_api_server",
-      "network_policy_restricts_api_server_egress",
-      "webhook_server_zone",
-      "ingress_controller_exposed_to_external_traffic",
-      "high_risk_api_groups_covered",
-      "webhook_ca_bundle_configured",
-      "webhook_covered_operations",
-      "webhook_covered_subresources",
-      "webhook_namespace_selector_present",
+      "firewall_restricts_etcd_to_control_plane",
+      "bound_subject_types",
+      "granted_verbs",
+      "granted_resources",
+      "subject_namespace",
       "webhook_failure_policy",
-      "audit_log_backend_enabled",
-      "audit_policy_configured",
-      "audit_policy_sensitive_verb_coverage"
+      "namespace_selector_exempts_system_namespaces",
+      "webhook_match_policy",
+      "uncovered_resource_types",
+      "automount_service_account_token",
+      "service_account_has_elevated_rbac",
+      "workload_namespace_trust_zone",
+      "foreign_namespace_subjects_in_rolebindings",
+      "role_grants_cluster_scoped_resources",
+      "high_privilege_kubeconfig_zones",
+      "workload_zone_credential_store_accessible",
+      "credential_scope",
+      "network_policy_restricts_control_plane_ingress",
+      "external_firewall_restricts_control_plane_ingress",
+      "audit_policy_sensitive_resources_log_level",
+      "audit_log_path_configured",
+      "audit_policy_file_present",
+      "bind_address_non_loopback",
+      "authentication_disabled_on_endpoint"
     ]
   },
   "uiSchema": {
@@ -318,6 +269,32 @@
               },
               {
                 "type": "Control",
+                "scope": "#/properties/api_server_insecure_port"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/authentication_disabled_on_endpoint"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/bound_subject_types"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/credential_scope"
+              },
+              {
+                "type": "Control",
                 "scope": "#/properties/etcd_client_cert_auth_enabled"
               }
             ]
@@ -327,11 +304,11 @@
             "elements": [
               {
                 "type": "Control",
-                "scope": "#/properties/kubeconfig_privilege_level"
+                "scope": "#/properties/foreign_namespace_subjects_in_rolebindings"
               },
               {
                 "type": "Control",
-                "scope": "#/properties/kubeconfig_storage_locations"
+                "scope": "#/properties/granted_resources"
               }
             ]
           },
@@ -340,11 +317,11 @@
             "elements": [
               {
                 "type": "Control",
-                "scope": "#/properties/service_account_automounts_token"
+                "scope": "#/properties/granted_verbs"
               },
               {
                 "type": "Control",
-                "scope": "#/properties/short_lived_credential_rotation_enabled"
+                "scope": "#/properties/high_privilege_kubeconfig_zones"
               }
             ]
           },
@@ -353,11 +330,11 @@
             "elements": [
               {
                 "type": "Control",
-                "scope": "#/properties/workload_accessible_storage"
+                "scope": "#/properties/role_grants_cluster_scoped_resources"
               },
               {
                 "type": "Control",
-                "scope": "#/properties/ingress_controller_automount_service_account_token"
+                "scope": "#/properties/service_account_has_elevated_rbac"
               }
             ]
           },
@@ -366,78 +343,11 @@
             "elements": [
               {
                 "type": "Control",
-                "scope": "#/properties/token_bound_to_audience"
-              }
-            ]
-          }
-        ]
-      },
-      {
-        "type": "Category",
-        "label": "Authorization & RBAC",
-        "elements": [
-          {
-            "type": "HorizontalLayout",
-            "elements": [
-              {
-                "type": "Control",
-                "scope": "#/properties/binding_scope"
+                "scope": "#/properties/subject_namespace"
               },
               {
                 "type": "Control",
-                "scope": "#/properties/bound_role_has_wildcard_or_admin"
-              }
-            ]
-          },
-          {
-            "type": "HorizontalLayout",
-            "elements": [
-              {
-                "type": "Control",
-                "scope": "#/properties/cross_namespace_rbac_bindings_present"
-              },
-              {
-                "type": "Control",
-                "scope": "#/properties/ingress_controller_cluster_scoped_secret_access"
-              }
-            ]
-          },
-          {
-            "type": "HorizontalLayout",
-            "elements": [
-              {
-                "type": "Control",
-                "scope": "#/properties/ingress_controller_namespace_isolation_enforced"
-              },
-              {
-                "type": "Control",
-                "scope": "#/properties/kubelet_credential_host_path_mount_present"
-              }
-            ]
-          },
-          {
-            "type": "HorizontalLayout",
-            "elements": [
-              {
-                "type": "Control",
-                "scope": "#/properties/node_certificate_file_permissions_world_readable"
-              },
-              {
-                "type": "Control",
-                "scope": "#/properties/node_restriction_admission_plugin_enabled"
-              }
-            ]
-          },
-          {
-            "type": "HorizontalLayout",
-            "elements": [
-              {
-                "type": "Control",
-                "scope": "#/properties/subject_type"
-              },
-              {
-                "type": "Control",
-                "scope": "#/properties/webhook_operator_rbac_unrestricted"
+                "scope": "#/properties/automount_service_account_token"
               }
             ]
           }
@@ -452,50 +362,11 @@
             "elements": [
               {
                 "type": "Control",
-                "scope": "#/properties/api_server_exposed_to_internet"
-              },
-              {
-                "type": "Control",
-                "scope": "#/properties/api_server_firewall_ingress_restricted"
-              }
-            ]
-          },
-          {
-            "type": "HorizontalLayout",
-            "elements": [
-              {
-                "type": "Control",
-                "scope": "#/properties/cni_plugin_enforces_networkpolicy_in_control_plane_namespace"
-              },
-              {
-                "type": "Control",
-                "scope": "#/properties/control_plane_components_run_as_static_pods_outside_cni"
-              }
-            ]
-          },
-          {
-            "type": "HorizontalLayout",
-            "elements": [
-              {
-                "type": "Control",
-                "scope": "#/properties/control_plane_namespace_egress_networkpolicy_configured"
-              },
-              {
-                "type": "Control",
-                "scope": "#/properties/default_network_policy_present"
-              }
-            ]
-          },
-          {
-            "type": "HorizontalLayout",
-            "elements": [
-              {
-                "type": "Control",
-                "scope": "#/properties/egress_network_policy_controls_control_plane_ports"
-              },
-              {
-                "type": "Control",
                 "scope": "#/properties/etcd_listen_address_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/external_firewall_restricts_control_plane_ingress"
               }
             ]
           },
@@ -504,11 +375,11 @@
             "elements": [
               {
                 "type": "Control",
-                "scope": "#/properties/etcd_network_access_restricted_to_api_server"
+                "scope": "#/properties/firewall_restricts_etcd_to_control_plane"
               },
               {
                 "type": "Control",
-                "scope": "#/properties/network_policy_restricts_api_server_egress"
+                "scope": "#/properties/network_policy_restricts_control_plane_ingress"
               }
             ]
           },
@@ -517,11 +388,20 @@
             "elements": [
               {
                 "type": "Control",
-                "scope": "#/properties/webhook_server_zone"
+                "scope": "#/properties/workload_to_apiserver_network_policy_enforced"
               },
               {
                 "type": "Control",
-                "scope": "#/properties/ingress_controller_exposed_to_external_traffic"
+                "scope": "#/properties/workload_zone_credential_store_accessible"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/bind_address_non_loopback"
               }
             ]
           }
@@ -529,18 +409,33 @@
       },
       {
         "type": "Category",
-        "label": "Admission Control",
+        "label": "Encryption & Data Protection",
         "elements": [
           {
             "type": "HorizontalLayout",
             "elements": [
               {
                 "type": "Control",
-                "scope": "#/properties/high_risk_api_groups_covered"
+                "scope": "#/properties/mutual_tls_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/namespace_selector_exempts_system_namespaces"
               },
               {
                 "type": "Control",
-                "scope": "#/properties/webhook_ca_bundle_configured"
+                "scope": "#/properties/uncovered_resource_types"
               }
             ]
           },
@@ -549,24 +444,24 @@
             "elements": [
               {
                 "type": "Control",
-                "scope": "#/properties/webhook_covered_operations"
-              },
-              {
-                "type": "Control",
-                "scope": "#/properties/webhook_covered_subresources"
-              }
-            ]
-          },
-          {
-            "type": "HorizontalLayout",
-            "elements": [
-              {
-                "type": "Control",
-                "scope": "#/properties/webhook_namespace_selector_present"
+                "scope": "#/properties/webhook_enforces_security_policy"
               },
               {
                 "type": "Control",
                 "scope": "#/properties/webhook_failure_policy"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/webhook_match_policy"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/workload_namespace_trust_zone"
               }
             ]
           }
@@ -581,11 +476,11 @@
             "elements": [
               {
                 "type": "Control",
-                "scope": "#/properties/audit_log_backend_enabled"
+                "scope": "#/properties/audit_log_path_configured"
               },
               {
                 "type": "Control",
-                "scope": "#/properties/audit_policy_configured"
+                "scope": "#/properties/audit_policy_file_present"
               }
             ]
           },
@@ -594,7 +489,7 @@
             "elements": [
               {
                 "type": "Control",
-                "scope": "#/properties/audit_policy_sensitive_verb_coverage"
+                "scope": "#/properties/audit_policy_sensitive_resources_log_level"
               }
             ]
           }

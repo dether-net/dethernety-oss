@@ -22,7 +22,8 @@ _unauthenticated_management_endpoint_exposure_def := {
             "name": "Active Scanning",
             "relevance": "Attackers actively scan for exposed management endpoints to identify unauthenticated access points."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unauthenticated_management_endpoint_exposure[_unauthenticated_management_endpoint_exposure_def] if {
@@ -54,7 +55,8 @@ _tls_not_enforced_on_inbound_connections_def := {
             "name": "Network Sniffing",
             "relevance": "Without TLS enforcement, plaintext traffic on inbound connections is vulnerable to interception via network sniffing."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 tls_not_enforced_on_inbound_connections[_tls_not_enforced_on_inbound_connections_def] if {
@@ -88,7 +90,8 @@ _weak_or_default_tls_configuration_def := {
             "name": "Weaken Encryption",
             "relevance": "Default or misconfigured TLS settings directly weaken encryption strength, aligning with this technique."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 weak_or_default_tls_configuration[_weak_or_default_tls_configuration_def] if {
@@ -118,7 +121,8 @@ _process_running_with_excessive_os_privilege_def := {
             "name": "Exploitation for Privilege Escalation",
             "relevance": "Processes with excessive OS privileges provide an elevated foothold that attackers exploit to escalate privileges further."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 process_running_with_excessive_os_privilege[_process_running_with_excessive_os_privilege_def] if {
@@ -159,7 +163,8 @@ _secrets_stored_in_plaintext_on_disk_or_environment_def := {
             "name": "Unsecured Credentials",
             "relevance": "Plaintext secrets in environment variables or disk represent unsecured credentials that adversaries search for."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 secrets_stored_in_plaintext_on_disk_or_environment[_secrets_stored_in_plaintext_on_disk_or_environment_def] if {
@@ -246,7 +251,8 @@ _sensitive_data_leakage_in_log_output_def := {
             "name": "Credentials",
             "relevance": "Sensitive data leaked in logs often includes credentials that adversaries collect for reconnaissance or access."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 sensitive_data_leakage_in_log_output[_sensitive_data_leakage_in_log_output_def] if {
@@ -290,7 +296,8 @@ _unpatched_runtime_or_framework_def := {
             "name": "Exploitation of Remote Services",
             "relevance": "Known vulnerabilities in unpatched runtimes are exploited to compromise remote services."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unpatched_runtime_or_framework[_unpatched_runtime_or_framework_def] if {
@@ -331,7 +338,8 @@ _overly_permissive_network_binding_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Overly permissive network binding can bridge internal and external network boundaries, enabling lateral movement."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 overly_permissive_network_binding[_overly_permissive_network_binding_def] if {
@@ -370,7 +378,8 @@ _missing_rate_limiting_and_resource_throttling_def := {
             "name": "Service Exhaustion Flood",
             "relevance": "Missing throttling allows service exhaustion attacks that degrade or deny service availability."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_rate_limiting_and_resource_throttling[_missing_rate_limiting_and_resource_throttling_def] if {
@@ -414,7 +423,8 @@ _inter_service_mutual_tls_not_configured_def := {
             "name": "Protocol Tunneling",
             "relevance": "Absence of mTLS allows attackers to intercept or tunnel through inter-service communication undetected."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 inter_service_mutual_tls_not_configured[_inter_service_mutual_tls_not_configured_def] if {
@@ -456,7 +466,8 @@ _jwt_or_token_validation_misconfiguration_def := {
             "name": "Use Alternate Authentication Material",
             "relevance": "Misconfigured token validation enables use of crafted or stolen tokens as alternate authentication material."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 jwt_or_token_validation_misconfiguration[_jwt_or_token_validation_misconfiguration_def] if {
@@ -497,7 +508,8 @@ _absence_of_graceful_shutdown_and_circuit_breaker_configuration_def := {
             "name": "Fallback Channels",
             "relevance": "Lack of circuit breaker configuration leaves no controlled fallback, mirroring the resilience gap exploited by fallback channel techniques."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 absence_of_graceful_shutdown_and_circuit_breaker_configuration[_absence_of_graceful_shutdown_and_circuit_breaker_configuration_def] if {
@@ -538,7 +550,8 @@ _debug_mode_enabled_in_production_def := {
             "name": "Debugger Evasion",
             "relevance": "Debug endpoints in production can be leveraged by attackers who are aware of debugging interfaces to inspect or manipulate application state."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 debug_mode_enabled_in_production[_debug_mode_enabled_in_production_def] if {

@@ -22,7 +22,8 @@ _weak_tls_protocol_version_def := {
             "name": "Weaken Encryption",
             "relevance": "Using weak TLS protocol versions directly weakens the encryption protecting communications."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 weak_tls_protocol_version[_weak_tls_protocol_version_def] if {
@@ -67,7 +68,8 @@ _missing_or_invalid_tls_certificate_def := {
             "name": "Digital Certificates",
             "relevance": "Attackers may forge or obtain fraudulent certificates to impersonate servers with missing or invalid certificates."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_or_invalid_tls_certificate[_missing_or_invalid_tls_certificate_def] if {
@@ -108,7 +110,8 @@ _http_plaintext_enabled_def := {
             "name": "Network Sniffing",
             "relevance": "Plaintext HTTP traffic can be intercepted via network sniffing, exposing all transmitted data to attackers."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 http_plaintext_enabled[_http_plaintext_enabled_def] if {
@@ -148,7 +151,8 @@ _server_version_disclosure_def := {
             "name": "Software",
             "relevance": "Disclosed server version information enables adversaries to gather victim host software details for targeted exploitation."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 server_version_disclosure[_server_version_disclosure_def] if {
@@ -178,7 +182,8 @@ _directory_listing_enabled_def := {
             "name": "File and Directory Discovery",
             "relevance": "Enabled directory listing allows attackers to enumerate files and directories on the web server."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 directory_listing_enabled[_directory_listing_enabled_def] if {
@@ -219,7 +224,8 @@ _missing_security_response_headers_def := {
             "name": "HTML Smuggling",
             "relevance": "Absence of security headers like Content-Security-Policy facilitates HTML smuggling and cross-site scripting attacks."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_security_response_headers[_missing_security_response_headers_def] if {
@@ -265,7 +271,8 @@ _unrestricted_http_methods_def := {
             "name": "Web Protocols",
             "relevance": "Unrestricted HTTP methods allow attackers to leverage web protocols for unauthorized actions such as PUT or DELETE operations."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unrestricted_http_methods[_unrestricted_http_methods_def] if {
@@ -313,7 +320,8 @@ _privileged_process_execution_def := {
             "name": "Create or Modify System Process",
             "relevance": "Privileged process execution may involve creating or modifying system processes to maintain elevated access."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 privileged_process_execution[_privileged_process_execution_def] if {
@@ -355,7 +363,8 @@ _web_root_permission_misconfiguration_def := {
             "name": "Services File Permissions Weakness",
             "relevance": "Weak permissions on web root files can be exploited similarly to services file permission weaknesses for unauthorized access."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 web_root_permission_misconfiguration[_web_root_permission_misconfiguration_def] if {
@@ -397,7 +406,8 @@ _insufficient_access_logging_def := {
             "name": "Indicator Blocking",
             "relevance": "Insufficient logging effectively blocks security indicators from being captured, aiding attacker evasion."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_access_logging[_insufficient_access_logging_def] if {
@@ -454,7 +464,8 @@ _log_injection_via_uncontrolled_log_format_def := {
             "name": "Obfuscated Files or Information",
             "relevance": "Attackers can inject obfuscated or misleading entries into logs to hide malicious activity through uncontrolled log formats."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 log_injection_via_uncontrolled_log_format[_log_injection_via_uncontrolled_log_format_def] if {
@@ -488,7 +499,8 @@ _unpatched_server_software_def := {
             "name": "Exploits",
             "relevance": "Attackers obtain or use existing exploits specifically targeting unpatched server software vulnerabilities."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unpatched_server_software[_unpatched_server_software_def] if {
@@ -527,7 +539,8 @@ _absent_rate_limiting_and_request_throttling_def := {
             "name": "Reflection Amplification",
             "relevance": "Absent request throttling enables reflection amplification attacks by allowing unlimited requests to be processed."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 absent_rate_limiting_and_request_throttling[_absent_rate_limiting_and_request_throttling_def] if {
@@ -568,7 +581,8 @@ _default_or_sample_content_present_def := {
             "name": "Exploit Public-Facing Application",
             "relevance": "Default and sample content often contain known vulnerabilities that can be directly exploited in public-facing applications."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 default_or_sample_content_present[_default_or_sample_content_present_def] if {
@@ -605,7 +619,8 @@ _misconfigured_virtual_host_isolation_def := {
             "name": "Domain Fronting",
             "relevance": "Misconfigured virtual host isolation can be abused similarly to domain fronting to access unintended hosts or bypass controls."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 misconfigured_virtual_host_isolation[_misconfigured_virtual_host_isolation_def] if {
@@ -643,7 +658,8 @@ _private_key_file_exposure_def := {
             "name": "Unsecured Credentials",
             "relevance": "Private key file exposure represents a form of unsecured credentials that attackers can harvest for further attacks."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 private_key_file_exposure[_private_key_file_exposure_def] if {

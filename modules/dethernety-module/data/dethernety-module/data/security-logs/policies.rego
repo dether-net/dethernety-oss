@@ -22,7 +22,8 @@ _insufficient_sensitivity_classification_def := {
             "name": "Gather Victim Identity Information",
             "relevance": "Improperly classified sensitive data can expose identity information that adversaries gather for reconnaissance and targeting purposes."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_sensitivity_classification[_insufficient_sensitivity_classification_def] if {
@@ -68,7 +69,8 @@ _undefined_or_unenforced_retention_schedule_def := {
             "name": "File Deletion",
             "relevance": "Unenforced retention policies leave no guardrails to prevent unauthorized or premature deletion of files that should be preserved."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 undefined_or_unenforced_retention_schedule[_undefined_or_unenforced_retention_schedule_def] if {
@@ -112,7 +114,8 @@ _absence_of_pii_and_quasi_identifier_masking_def := {
             "name": "IP Addresses",
             "relevance": "Absence of masking for quasi-identifiers such as IP addresses exposes network identity information that adversaries can collect and use."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 absence_of_pii_and_quasi_identifier_masking[_absence_of_pii_and_quasi_identifier_masking_def] if {
@@ -158,7 +161,8 @@ _overly_broad_read_access_to_metadata_aggregates_def := {
             "name": "Cloud Groups",
             "relevance": "Overly broad access to metadata aggregates often stems from misconfigured cloud group permissions that grant unintended read access."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 overly_broad_read_access_to_metadata_aggregates[_overly_broad_read_access_to_metadata_aggregates_def] if {
@@ -210,7 +214,8 @@ _missing_encryption_at_rest_for_sensitive_log_fields_def := {
             "name": "Data from Cloud Storage",
             "relevance": "Missing encryption at rest for cloud-stored log fields exposes sensitive data to adversaries who gain access to cloud storage resources."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 missing_encryption_at_rest_for_sensitive_log_fields[_missing_encryption_at_rest_for_sensitive_log_fields_def] if {
@@ -245,7 +250,8 @@ _non_compliant_cross_border_transfer_of_operational_metadata_def := {
             "name": "Determine Physical Locations",
             "relevance": "Operational metadata transferred across borders can reveal physical location information that adversaries use for reconnaissance."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 non_compliant_cross_border_transfer_of_operational_metadata[_non_compliant_cross_border_transfer_of_operational_metadata_def] if {
@@ -287,7 +293,8 @@ _inadequate_secure_disposal_procedures_def := {
             "name": "Lifecycle-Triggered Deletion",
             "relevance": "Inadequate disposal procedures may fail to properly configure lifecycle-triggered deletion, resulting in data not being securely removed as intended."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 inadequate_secure_disposal_procedures[_inadequate_secure_disposal_procedures_def] if {

@@ -22,7 +22,8 @@ _implicit_inter_segment_trust_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Covers techniques for bridging network boundaries by exploiting implicit trust between segments."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 implicit_inter_segment_trust[_implicit_inter_segment_trust_def] if {
@@ -69,7 +70,8 @@ _insufficient_egress_filtering_def := {
             "name": "Exfiltration Over Unencrypted Non-C2 Protocol",
             "relevance": "Lack of egress filtering allows unencrypted exfiltration over non-standard protocols to go undetected."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_egress_filtering[_insufficient_egress_filtering_def] if {
@@ -113,7 +115,8 @@ _overpermissive_ingress_acl_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Overly permissive ingress rules effectively allow boundary bridging by not restricting unauthorized traffic."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 overpermissive_ingress_acl[_overpermissive_ingress_acl_def] if {
@@ -154,7 +157,8 @@ _boundary_monitoring_blind_spots_def := {
             "name": "Network Sniffing",
             "relevance": "Blind spots in boundary monitoring can enable undetected network sniffing at segment boundaries."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 boundary_monitoring_blind_spots[_boundary_monitoring_blind_spots_def] if {
@@ -191,7 +195,8 @@ _shared_credentials_across_zones_def := {
             "name": "Credential Stuffing",
             "relevance": "Shared credentials increase the risk of credential stuffing attacks succeeding across multiple zones."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 shared_credentials_across_zones[_shared_credentials_across_zones_def] if {
@@ -230,7 +235,8 @@ _trust_propagation_via_management_plane_def := {
             "name": "Adversary-in-the-Middle",
             "relevance": "Attackers can intercept management plane communications to propagate trust and manipulate traffic between zones."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 trust_propagation_via_management_plane[_trust_propagation_via_management_plane_def] if {
@@ -272,7 +278,8 @@ _dynamic_routing_protocol_boundary_leakage_def := {
             "name": "Protocol Tunneling",
             "relevance": "Routing protocol leakage can be used to create tunnels that bypass boundary controls between network segments."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 dynamic_routing_protocol_boundary_leakage[_dynamic_routing_protocol_boundary_leakage_def] if {
@@ -314,7 +321,8 @@ _vlan_hopping_at_segment_boundary_def := {
             "name": "Network Address Translation Traversal",
             "relevance": "NAT traversal techniques can complement VLAN hopping to cross segment boundaries undetected."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 vlan_hopping_at_segment_boundary[_vlan_hopping_at_segment_boundary_def] if {
@@ -364,7 +372,8 @@ _split_tunnel_vpn_segment_bypass_def := {
             "name": "External Remote Services",
             "relevance": "Split tunnel VPNs are a form of external remote service that can be exploited to bypass segment boundaries."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 split_tunnel_vpn_segment_bypass[_split_tunnel_vpn_segment_bypass_def] if {
@@ -404,7 +413,8 @@ _firewall_rule_shadowing_def := {
             "name": "Disable or Modify Cloud Firewall",
             "relevance": "Rule shadowing in cloud environments involves modifying cloud firewall policies to create unintended permissive paths."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 firewall_rule_shadowing[_firewall_rule_shadowing_def] if {
@@ -449,7 +459,8 @@ _uncontrolled_inter_zone_protocol_tunneling_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Uncontrolled tunneling enables bridging of network zone boundaries, undermining segmentation controls."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 uncontrolled_inter_zone_protocol_tunneling[_uncontrolled_inter_zone_protocol_tunneling_def] if {
@@ -495,7 +506,8 @@ _stale_boundary_policy_drift_def := {
             "name": "Network Address Translation Traversal",
             "relevance": "Outdated NAT and boundary policies may allow traversal techniques that should have been remediated as the environment evolved."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 stale_boundary_policy_drift[_stale_boundary_policy_drift_def] if {
@@ -536,7 +548,8 @@ _vpn_endpoint_posture_not_enforced_def := {
             "name": "Valid Accounts",
             "relevance": "Without posture enforcement, valid credentials from a non-compliant device are sufficient to access the segment, bypassing device-based access controls."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 vpn_endpoint_posture_not_enforced[_vpn_endpoint_posture_not_enforced_def] if {

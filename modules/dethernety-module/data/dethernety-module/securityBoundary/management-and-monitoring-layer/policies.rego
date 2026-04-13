@@ -24,7 +24,8 @@ _management_plane_ingress_bypass_def := {
             "name": "Hide Infrastructure",
             "relevance": "Adversaries may hide infrastructure used to bypass management plane ingress controls."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 management_plane_ingress_bypass[_management_plane_ingress_bypass_def] if {
@@ -72,7 +73,8 @@ _egress_telemetry_exfiltration_path_def := {
             "name": "Indicator Blocking",
             "relevance": "Blocking telemetry indicators on egress paths prevents detection of exfiltration activity."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 egress_telemetry_exfiltration_path[_egress_telemetry_exfiltration_path_def] if {
@@ -114,7 +116,8 @@ _shared_credential_across_zones_def := {
             "name": "Credential Stuffing",
             "relevance": "Shared credentials increase the risk of credential stuffing attacks succeeding across multiple zones."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 shared_credential_across_zones[_shared_credential_across_zones_def] if {
@@ -157,7 +160,8 @@ _monitoring_agent_lateral_movement_vector_def := {
             "name": "Exploitation of Remote Services",
             "relevance": "Vulnerabilities in monitoring agent remote services can be exploited to move laterally between zones."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 monitoring_agent_lateral_movement_vector[_monitoring_agent_lateral_movement_vector_def] if {
@@ -200,7 +204,8 @@ _unsegmented_management_vlan_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Lack of VLAN segmentation enables bridging between management and other network boundaries."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 unsegmented_management_vlan[_unsegmented_management_vlan_def] if {
@@ -239,7 +244,8 @@ _trust_propagation_via_orchestration_controller_def := {
             "name": "Software Deployment Tools",
             "relevance": "Orchestration controllers function as software deployment tools whose compromise enables trust propagation throughout the infrastructure."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 trust_propagation_via_orchestration_controller[_trust_propagation_via_orchestration_controller_def] if {
@@ -278,7 +284,8 @@ _health_check_endpoint_zone_exposure_def := {
             "name": "System Network Configuration Discovery",
             "relevance": "Health check endpoints may reveal network configuration and zone topology information to adversaries."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 health_check_endpoint_zone_exposure[_health_check_endpoint_zone_exposure_def] if {
@@ -318,7 +325,8 @@ _monitoring_blind_spot_at_zone_boundary_def := {
             "name": "Traffic Duplication",
             "relevance": "Blind spots at zone boundaries may allow traffic duplication and exfiltration without detection."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 monitoring_blind_spot_at_zone_boundary[_monitoring_blind_spot_at_zone_boundary_def] if {
@@ -362,7 +370,8 @@ _out_of_band_channel_unmonitored_def := {
             "name": "Traffic Signaling",
             "relevance": "Adversaries may use traffic signaling over out-of-band channels to covertly communicate without triggering monitored paths."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 out_of_band_channel_unmonitored[_out_of_band_channel_unmonitored_def] if {
@@ -406,7 +415,8 @@ _supply_chain_implant_in_monitoring_agent_def := {
             "name": "Subvert Trust Controls",
             "relevance": "Supply chain implants in monitoring agents subvert trust controls to appear as legitimate signed software."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 supply_chain_implant_in_monitoring_agent[_supply_chain_implant_in_monitoring_agent_def] if {
@@ -450,7 +460,8 @@ _overpermissive_service_mesh_sidecar_in_management_zone_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Overpermissive sidecar proxies in the management zone can bridge network boundaries that should remain isolated."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 overpermissive_service_mesh_sidecar_in_management_zone[_overpermissive_service_mesh_sidecar_in_management_zone_def] if {
@@ -489,7 +500,8 @@ _stale_firewall_rule_permitting_legacy_management_access_def := {
             "name": "Disable or Modify Network Device Firewall",
             "relevance": "Legacy management access permitted by stale rules on network device firewalls exposes management interfaces to unauthorized access."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 stale_firewall_rule_permitting_legacy_management_access[_stale_firewall_rule_permitting_legacy_management_access_def] if {

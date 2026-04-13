@@ -2,7 +2,7 @@
   "name": "Container Registry",
   "classType": "component",
   "type": "STORE",
-  "description": "Stores and serves OCI-format container images using the OCI Distribution Specification with image manifest and layer deduplication support. Acts as the direct supply-chain bridge between the Software Delivery Pipeline and the Container Orchestration Platform. Production images may embed secrets if misconfigured, making this a high-value exfiltration target.",
+  "description": "An OCI-compliant container registry acting as the supply-chain bridge between CI/CD pipelines and container orchestration platforms. Misconfiguration of authentication, authorization, transport encryption, image signing, and storage controls can enable unauthorized image access, secret exfiltration from embedded image layers, supply-chain poisoning, and lateral movement into production workloads.",
   "category": "Container Infrastructure",
-  "status": "draft"
+  "status": "reviewed"
 }

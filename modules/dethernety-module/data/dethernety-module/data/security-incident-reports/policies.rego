@@ -24,7 +24,8 @@ _incident_data_misclassification_def := {
             "name": "Indicator Blocking",
             "relevance": "Misclassification of incident data can lead to blocking or ignoring critical security indicators, undermining detection efforts."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 incident_data_misclassification[_incident_data_misclassification_def] if {
@@ -67,7 +68,8 @@ _excessive_access_to_raw_incident_data_def := {
             "name": "Exploitation for Credential Access",
             "relevance": "Overly permissive access to raw incident data increases risk of credential and sensitive information exposure through exploitation."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 excessive_access_to_raw_incident_data[_excessive_access_to_raw_incident_data_def] if {
@@ -115,7 +117,8 @@ _pii_not_masked_in_incident_records_def := {
             "name": "Log Enumeration",
             "relevance": "Adversaries enumerating logs containing unmasked PII can harvest sensitive personal information from incident records."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 pii_not_masked_in_incident_records[_pii_not_masked_in_incident_records_def] if {
@@ -161,7 +164,8 @@ _undefined_retention_policy_for_incident_records_def := {
             "name": "File Deletion",
             "relevance": "Without clear retention policies, adversaries or insiders may improperly delete incident records, hindering forensic investigations."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 undefined_retention_policy_for_incident_records[_undefined_retention_policy_for_incident_records_def] if {
@@ -205,7 +209,8 @@ _unencrypted_incident_data_at_rest_in_shared_repositories_def := {
             "name": "Data from Cloud Storage",
             "relevance": "Unencrypted data at rest in shared cloud repositories can be directly accessed and exfiltrated by adversaries."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unencrypted_incident_data_at_rest_in_shared_repositories[_unencrypted_incident_data_at_rest_in_shared_repositories_def] if {
@@ -244,7 +249,8 @@ _cross_border_transfer_of_incident_data_without_compliance_review_def := {
             "name": "Data from Information Repositories",
             "relevance": "Cross-border transfers of incident data from repositories without review expose sensitive information to unauthorized foreign access."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 cross_border_transfer_of_incident_data_without_compliance_review[_cross_border_transfer_of_incident_data_without_compliance_review_def] if {
@@ -287,7 +293,8 @@ _insecure_disposal_of_closed_incident_records_def := {
             "name": "File Deletion",
             "relevance": "Improper file deletion during disposal of incident records can leave recoverable remnants of sensitive security data."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 insecure_disposal_of_closed_incident_records[_insecure_disposal_of_closed_incident_records_def] if {

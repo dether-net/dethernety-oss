@@ -1,0 +1,369 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "secrets_detected_in_layers": {
+        "type": "boolean",
+        "title": "Secrets Detected in Image Layers",
+        "description": "Indicates whether a secrets scanner (e.g., Trivy, Trufflesecurity, Grype) has detected credentials, API keys, certificates, or tokens in any layer of the image, including historically overwritten or deleted layers.",
+        "default": false
+      },
+      "secret_found_in_non_final_layer": {
+        "type": "boolean",
+        "title": "Secret Present in Non-Final (Overwritten/Deleted) Layer",
+        "description": "Indicates whether at least one secret is present in a layer that is not the top-most (final) layer — meaning it may have been intentionally deleted or overwritten in a subsequent layer, yet remains permanently readable from the image manifest.",
+        "default": false
+      },
+      "image_secret_scan_enforcement": {
+        "type": "string",
+        "enum": [
+          "enforced",
+          "scan_only",
+          "none"
+        ],
+        "title": "Secret Scanning Enforcement in Registry/Pipeline",
+        "description": "Whether the registry or CI/CD pipeline enforces secret scanning as a gate that blocks images with detected secrets from being pushed or promoted.",
+        "default": "none"
+      },
+      "image_classification_tier": {
+        "type": "string",
+        "enum": [
+          "production_high",
+          "production_standard",
+          "development",
+          "public",
+          "confidential",
+          "restricted",
+          "internal",
+          "unclassified"
+        ],
+        "title": "Image Classification Tier",
+        "description": "The data classification tier assigned to this image, reflecting both the intended organizational tier (e.g., production_high, development) and the sensitivity of its contents (e.g., confidential, restricted). Used across classification enforcement and encryption rules.",
+        "default": "unclassified"
+      },
+      "manifest_classification_label_present": {
+        "type": "boolean",
+        "title": "Classification Label Present in Image Manifest",
+        "description": "Whether the image manifest or tag metadata contains a recognized classification label (e.g., 'com.example.classification' or equivalent OCI annotation) with a non-empty value.",
+        "default": false
+      },
+      "push_pull_classification_verification_enforced": {
+        "type": "boolean",
+        "title": "Classification Label Verification Enforced at Push/Pull",
+        "description": "Whether the registry or admission control layer enforces verification of the classification label at image push and pull time, blocking images that lack required classification metadata.",
+        "default": false
+      },
+      "image_level_encryption_enabled": {
+        "type": "boolean",
+        "title": "Image-Level Encryption Enabled",
+        "description": "Whether image layer blobs are encrypted at the image/manifest level (e.g., OCI image encryption) with dedicated key management, independent of storage-layer encryption.",
+        "default": false
+      },
+      "access_controlled_key_management_configured": {
+        "type": "boolean",
+        "title": "Access-Controlled Key Management Configured",
+        "description": "Whether the encryption keys for image-level encryption are managed by an access-controlled KMS with policies tied to classification tier, rather than static or shared keys.",
+        "default": false
+      },
+      "retention_policy_defined": {
+        "type": "boolean",
+        "title": "Image Retention Policy Defined",
+        "description": "Whether a formal retention schedule or policy exists governing when old image tags or versions must be deleted or archived from the registry.",
+        "default": false
+      },
+      "image_expiry_automation_enabled": {
+        "type": "boolean",
+        "title": "Automated Image Expiry Enforcement Enabled",
+        "description": "Whether automated tooling or registry-native lifecycle rules are actively configured to delete or archive images according to the retention policy, without requiring manual intervention.",
+        "default": false
+      },
+      "stale_image_count": {
+        "type": "integer",
+        "minimum": 0,
+        "title": "Stale Image Count",
+        "description": "Number of image tags or versions in the registry that have not been pulled or updated beyond the organization's defined or industry-standard retention window (e.g., older than 90 days with no recent pull)."
+      },
+      "access_control_granularity_level": {
+        "type": "string",
+        "enum": [
+          "registry",
+          "repository",
+          "tag",
+          "classification_tier"
+        ],
+        "title": "Access Control Granularity Level",
+        "description": "The level at which access controls are enforced within the container registry — whether grants are applied per registry, per repository, or per image tag/classification tier.",
+        "default": "repository"
+      },
+      "mixed_classification_images_in_shared_repository": {
+        "type": "boolean",
+        "title": "Mixed Classification Images in Shared Repository",
+        "description": "Whether the same repository or access grant scope contains images of differing classification tiers (e.g., production and development images share a repository or IAM role).",
+        "default": false
+      },
+      "lower_env_principals_with_production_image_access": {
+        "type": "boolean",
+        "title": "Lower-Environment Principals Have Production Image Access",
+        "description": "Whether service accounts or users authorized only for development or staging images have effective read access to production image layers due to coarse-grained access grants.",
+        "default": false
+      },
+      "geo_replication_enabled": {
+        "type": "boolean",
+        "title": "Geographic Replication Enabled",
+        "description": "Whether the container registry has cross-region or cross-zone replication configured, causing image layers and manifests to be transmitted across geographic boundaries.",
+        "default": false
+      },
+      "image_classification_label": {
+        "type": "string",
+        "enum": [
+          "unclassified",
+          "internal",
+          "confidential",
+          "restricted",
+          "secret"
+        ],
+        "title": "Image Classification Label",
+        "description": "The data classification level assigned to the container image for cross-border transfer assessment, reflecting the sensitivity of embedded application logic, secrets, or regulated data within its layers.",
+        "default": "unclassified"
+      },
+      "cross_border_transfer_policy_enforced": {
+        "type": "boolean",
+        "title": "Cross-Border Transfer Policy Enforced",
+        "description": "Whether a verified policy or technical control exists that enforces data residency and cross-border transfer rules before image layers are replicated or pulled across jurisdictions.",
+        "default": false
+      },
+      "replication_audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Replication and Pull Audit Logging Enabled",
+        "description": "Whether all image pull and replication events (including cross-region transfers) are logged with sufficient detail to reconstruct which layers traversed which jurisdictions."
+      },
+      "garbage_collection_verified_post_deletion": {
+        "type": "boolean",
+        "title": "Garbage Collection Verified After Image Deletion",
+        "description": "Whether an explicit garbage collection cycle has been run and confirmed to purge unreferenced layer blobs following image deletion operations. True only when GC has been executed and blob removal verified.",
+        "default": false
+      },
+      "deleted_images_with_sensitive_classification": {
+        "type": "boolean",
+        "title": "Deleted Images Classified as Sensitive Exist Without Blob Purge",
+        "description": "Whether any images tagged or classified as containing sensitive data (e.g., secrets, PII, confidential configuration) have been deleted by tag/manifest removal but without a subsequent verified garbage collection cycle to purge their layer blobs.",
+        "default": false
+      },
+      "unreferenced_blob_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 36500,
+        "title": "Unreferenced Blob Retention Age (Days)",
+        "description": "The number of days unreferenced layer blobs have persisted in registry storage since the most recent image deletion that should have triggered disposal. A value of 0 indicates blobs were purged same-day."
+      }
+    },
+    "required": [
+      "secrets_detected_in_layers",
+      "secret_found_in_non_final_layer",
+      "image_secret_scan_enforcement",
+      "image_classification_tier",
+      "manifest_classification_label_present",
+      "push_pull_classification_verification_enforced",
+      "image_level_encryption_enabled",
+      "access_controlled_key_management_configured",
+      "retention_policy_defined",
+      "image_expiry_automation_enabled",
+      "stale_image_count",
+      "access_control_granularity_level",
+      "mixed_classification_images_in_shared_repository",
+      "lower_env_principals_with_production_image_access",
+      "geo_replication_enabled",
+      "image_classification_label",
+      "cross_border_transfer_policy_enforced",
+      "replication_audit_logging_enabled",
+      "garbage_collection_verified_post_deletion",
+      "deleted_images_with_sensitive_classification",
+      "unreferenced_blob_retention_days"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/image_secret_scan_enforcement"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_found_in_non_final_layer"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secrets_detected_in_layers"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_controlled_key_management_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/image_classification_label"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/image_classification_tier"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/image_level_encryption_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/manifest_classification_label_present"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/push_pull_classification_verification_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/access_control_granularity_level"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/lower_env_principals_with_production_image_access"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/mixed_classification_images_in_shared_repository"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/deleted_images_with_sensitive_classification"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/garbage_collection_verified_post_deletion"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/retention_policy_defined"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/image_expiry_automation_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/stale_image_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/unreferenced_blob_retention_days"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cross_border_transfer_policy_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/geo_replication_enabled"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/replication_audit_logging_enabled"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

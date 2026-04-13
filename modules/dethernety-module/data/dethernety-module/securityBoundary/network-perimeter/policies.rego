@@ -29,7 +29,8 @@ _ingress_acl_misconfiguration_def := {
             "name": "Disable or Modify Network Device Firewall",
             "relevance": "Network device firewall modifications represent the network-layer equivalent of ingress ACL misconfigurations at boundary devices."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 ingress_acl_misconfiguration[_ingress_acl_misconfiguration_def] if {
@@ -81,7 +82,8 @@ _egress_filtering_absence_def := {
             "name": "Exfiltration Over Web Service",
             "relevance": "Without egress filtering, attackers can freely exfiltrate data to external web services without interception."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 egress_filtering_absence[_egress_filtering_absence_def] if {
@@ -132,7 +134,8 @@ _vpn_gateway_over_trust_propagation_def := {
             "name": "Protocol Tunneling",
             "relevance": "VPN trust propagation can be exploited through protocol tunneling to route malicious traffic through trusted VPN connections."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 vpn_gateway_over_trust_propagation[_vpn_gateway_over_trust_propagation_def] if {
@@ -181,7 +184,8 @@ _load_balancer_zone_bypass_def := {
             "name": "Disable or Modify Cloud Firewall",
             "relevance": "Cloud load balancer zone bypass often involves modification or circumvention of associated cloud firewall rules."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 load_balancer_zone_bypass[_load_balancer_zone_bypass_def] if {
@@ -232,7 +236,8 @@ _inter_boundary_device_shared_management_plane_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Shared management planes between boundary devices create pathways to bridge otherwise separated network zones."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 inter_boundary_device_shared_management_plane[_inter_boundary_device_shared_management_plane_def] if {
@@ -278,7 +283,8 @@ _vpn_split_tunneling_enforcement_gap_def := {
             "name": "Protocol Tunneling",
             "relevance": "Attackers can exploit split tunneling gaps by tunneling malicious traffic through allowed VPN channels."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 vpn_split_tunneling_enforcement_gap[_vpn_split_tunneling_enforcement_gap_def] if {
@@ -324,7 +330,8 @@ _insufficient_east_west_segmentation_at_ingress_def := {
             "name": "Multi-hop Proxy",
             "relevance": "Without east-west controls, attackers can chain internal hosts as multi-hop proxies to reach deeper network segments."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_east_west_segmentation_at_ingress[_insufficient_east_west_segmentation_at_ingress_def] if {
@@ -369,7 +376,8 @@ _monitoring_blind_spot_at_vpn_termination_def := {
             "name": "Network Sniffing",
             "relevance": "Blind spots at VPN termination create opportunities where network sniffing or traffic interception goes unmonitored."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 monitoring_blind_spot_at_vpn_termination[_monitoring_blind_spot_at_vpn_termination_def] if {
@@ -418,7 +426,8 @@ _protocol_tunneling_through_allowed_ports_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Tunneling through allowed ports enables boundary bridging by carrying unauthorized traffic inside permitted protocol wrappers."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 protocol_tunneling_through_allowed_ports[_protocol_tunneling_through_allowed_ports_def] if {
@@ -465,7 +474,8 @@ _asymmetric_routing_breaking_stateful_inspection_def := {
             "name": "Multi-hop Proxy",
             "relevance": "Multi-hop proxy chains can deliberately induce asymmetric routing to evade stateful firewall inspection of bidirectional flows."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 asymmetric_routing_breaking_stateful_inspection[_asymmetric_routing_breaking_stateful_inspection_def] if {
@@ -513,7 +523,8 @@ _boundary_credential_reuse_across_zones_def := {
             "name": "Credentials",
             "relevance": "Gathering boundary credentials enables their reuse across multiple zones as part of reconnaissance and lateral movement planning."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 boundary_credential_reuse_across_zones[_boundary_credential_reuse_across_zones_def] if {
@@ -562,7 +573,8 @@ _firewall_rule_shadowing_and_stale_policy_def := {
             "name": "Clear Network Connection History and Configurations",
             "relevance": "Stale firewall policies may result from cleared or untracked configuration changes that obscure the true security posture."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 firewall_rule_shadowing_and_stale_policy[_firewall_rule_shadowing_and_stale_policy_def] if {

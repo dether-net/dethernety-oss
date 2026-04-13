@@ -31,7 +31,8 @@ _unclassified_or_misclassified_credential_data_def := {
             "name": "Credentials",
             "relevance": "Improperly classified credential data can be gathered by adversaries as part of reconnaissance to obtain valid credentials."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 unclassified_or_misclassified_credential_data[_unclassified_or_misclassified_credential_data_def] if {
@@ -84,7 +85,8 @@ _plaintext_credential_logging_def := {
             "name": "Keylogging",
             "relevance": "Plaintext credential logging is conceptually similar to keylogging in that sensitive authentication input is captured and stored in an unprotected form."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 plaintext_credential_logging[_plaintext_credential_logging_def] if {
@@ -130,7 +132,8 @@ _excessive_retention_of_authentication_artifacts_def := {
             "name": "Steal or Forge Authentication Certificates",
             "relevance": "Long-retained authentication certificates increase the window of opportunity for adversaries to steal or forge them for unauthorized access."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 excessive_retention_of_authentication_artifacts[_excessive_retention_of_authentication_artifacts_def] if {
@@ -179,7 +182,8 @@ _missing_masking_of_credential_fields_in_audit_records_def := {
             "name": "Credentials",
             "relevance": "Exposed credential fields in audit records provide adversaries with harvested credentials during reconnaissance activities."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 missing_masking_of_credential_fields_in_audit_records[_missing_masking_of_credential_fields_in_audit_records_def] if {
@@ -225,7 +229,8 @@ _cross_border_transfer_of_authentication_data_without_adequacy_controls_def := {
             "name": "Automated Collection",
             "relevance": "Bulk automated collection of authentication data for cross-border transfer increases the risk of large-scale credential exposure."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 cross_border_transfer_of_authentication_data_without_adequacy_controls[_cross_border_transfer_of_authentication_data_without_adequacy_controls_def] if {
@@ -273,7 +278,8 @@ _inadequate_disposal_of_cached_authentication_material_def := {
             "name": "Credentials In Files",
             "relevance": "Cached credentials not properly disposed of may persist in files on disk where they can be discovered and harvested."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 inadequate_disposal_of_cached_authentication_material[_inadequate_disposal_of_cached_authentication_material_def] if {

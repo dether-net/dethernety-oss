@@ -22,7 +22,8 @@ _absence_of_sensitivity_classification_on_zone_data_def := {
             "name": "DNS",
             "relevance": "Lack of sensitivity classification on zone data facilitates adversary gathering of DNS information about victim infrastructure."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 absence_of_sensitivity_classification_on_zone_data[_absence_of_sensitivity_classification_on_zone_data_def] if {
@@ -65,7 +66,8 @@ _indefinite_retention_of_decommissioned_dns_records_def := {
             "name": "IP Addresses",
             "relevance": "Indefinitely retained DNS records expose historical IP address mappings that adversaries can use to map victim network infrastructure."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 indefinite_retention_of_decommissioned_dns_records[_indefinite_retention_of_decommissioned_dns_records_def] if {
@@ -104,7 +106,8 @@ _zone_file_snapshots_stored_without_encryption_at_rest_def := {
             "name": "DNS/Passive DNS",
             "relevance": "Unencrypted zone file snapshots can expose complete DNS zone data if storage is compromised, enabling full passive DNS intelligence gathering."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 zone_file_snapshots_stored_without_encryption_at_rest[_zone_file_snapshots_stored_without_encryption_at_rest_def] if {
@@ -142,7 +145,8 @@ _overly_broad_read_access_to_full_zone_data_def := {
             "name": "Windows File and Directory Permissions Modification",
             "relevance": "Misconfigured or excessively permissive access controls on zone data reflect improper permission management that adversaries can exploit."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 overly_broad_read_access_to_full_zone_data[_overly_broad_read_access_to_full_zone_data_def] if {
@@ -184,7 +188,8 @@ _no_masking_of_internal_host_metadata_in_logs_and_exports_def := {
             "name": "IP Addresses",
             "relevance": "Exposed internal host metadata in exports reveals internal IP address assignments, aiding adversary network mapping efforts."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 no_masking_of_internal_host_metadata_in_logs_and_exports[_no_masking_of_internal_host_metadata_in_logs_and_exports_def] if {
@@ -223,7 +228,8 @@ _absence_of_formal_disposal_procedure_for_dns_record_data_def := {
             "name": "DNS/Passive DNS",
             "relevance": "Improperly disposed DNS records remain available for passive DNS reconnaissance, exposing historical infrastructure details to adversaries."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 absence_of_formal_disposal_procedure_for_dns_record_data[_absence_of_formal_disposal_procedure_for_dns_record_data_def] if {

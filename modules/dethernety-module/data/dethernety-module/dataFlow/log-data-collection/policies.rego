@@ -22,7 +22,8 @@ _plaintext_log_transport_def := {
             "name": "Exfiltration Over Unencrypted Non-C2 Protocol",
             "relevance": "Unencrypted log transport mirrors the risk of data exfiltration over unencrypted protocols."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 plaintext_log_transport[_plaintext_log_transport_def] if {
@@ -59,7 +60,8 @@ _missing_mutual_tls_authentication_def := {
             "name": "Protocol or Service Impersonation",
             "relevance": "Absence of mutual TLS allows attackers to impersonate legitimate services or clients without certificate verification."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 missing_mutual_tls_authentication[_missing_mutual_tls_authentication_def] if {
@@ -106,7 +108,8 @@ _weak_or_deprecated_tls_cipher_suites_def := {
             "name": "Reduce Key Space",
             "relevance": "Deprecated cipher suites often use reduced key spaces making them vulnerable to cryptanalytic attacks."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 weak_or_deprecated_tls_cipher_suites[_weak_or_deprecated_tls_cipher_suites_def] if {
@@ -140,7 +143,8 @@ _log_message_integrity_absence_def := {
             "name": "Transmitted Data Manipulation",
             "relevance": "Without integrity controls, log messages in transit can be tampered with or manipulated by attackers."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 log_message_integrity_absence[_log_message_integrity_absence_def] if {
@@ -180,7 +184,8 @@ _replay_attack_on_log_stream_def := {
             "name": "Indicator Blocking",
             "relevance": "Replay attacks on log streams can flood or confuse monitoring systems, effectively blocking legitimate indicators."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 replay_attack_on_log_stream[_replay_attack_on_log_stream_def] if {
@@ -224,7 +229,8 @@ _log_injection_via_malformed_messages_def := {
             "name": "Adversary-in-the-Middle",
             "relevance": "Log injection via malformed messages can be facilitated through adversary-in-the-middle positioning to alter log data."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 log_injection_via_malformed_messages[_log_injection_via_malformed_messages_def] if {
@@ -261,7 +267,8 @@ _insecure_protocol_selection_udp_syslog_def := {
             "name": "File Transfer Protocols",
             "relevance": "Insecure protocol selection like UDP syslog exposes log data similar to risks from unencrypted application layer protocols."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 insecure_protocol_selection_udp_syslog[_insecure_protocol_selection_udp_syslog_def] if {
@@ -299,7 +306,8 @@ _absent_rate_limiting_and_bandwidth_controls_def := {
             "name": "Traffic Duplication",
             "relevance": "Absence of bandwidth controls can enable attackers to duplicate and flood log traffic overwhelming the logging infrastructure."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 absent_rate_limiting_and_bandwidth_controls[_absent_rate_limiting_and_bandwidth_controls_def] if {
@@ -337,7 +345,8 @@ _internal_routing_path_exposure_def := {
             "name": "Network Address Translation Traversal",
             "relevance": "Internal routing path exposure can facilitate NAT traversal attacks to reach otherwise inaccessible network segments."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 internal_routing_path_exposure[_internal_routing_path_exposure_def] if {
@@ -375,7 +384,8 @@ _certificate_validation_bypass_in_log_agent_def := {
             "name": "Steal or Forge Authentication Certificates",
             "relevance": "Certificate validation bypass in log agents enables attackers to use stolen or forged certificates without detection."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 certificate_validation_bypass_in_log_agent[_certificate_validation_bypass_in_log_agent_def] if {
@@ -417,7 +427,8 @@ _log_stream_eavesdropping_via_span_or_tap_def := {
             "name": "Traffic Duplication",
             "relevance": "SPAN and TAP configurations duplicate network traffic, directly enabling eavesdropping on log streams."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 log_stream_eavesdropping_via_span_or_tap[_log_stream_eavesdropping_via_span_or_tap_def] if {

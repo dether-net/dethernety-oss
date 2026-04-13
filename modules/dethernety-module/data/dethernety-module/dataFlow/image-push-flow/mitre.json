@@ -1,0 +1,131 @@
+{
+  "exploitedBy": [
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1040",
+      "name": "Network Sniffing",
+      "relevance": "Unencrypted registry transport allows attackers to capture credentials and layer data via network sniffing."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1071.001",
+      "name": "Web Protocols",
+      "relevance": "Downgraded or plaintext HTTP registry communication exposes data to interception over web protocols."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1596.003",
+      "name": "Digital Certificates",
+      "relevance": "Absence of mutual TLS means certificate validation is incomplete, enabling attackers to exploit certificate weaknesses during registry push."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1649",
+      "name": "Steal or Forge Authentication Certificates",
+      "relevance": "Without mutual TLS, forged or stolen certificates can be used to impersonate clients or servers during registry push operations."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1553.003",
+      "name": "SIP and Trust Provider Hijacking",
+      "relevance": "Failure to verify manifest integrity in transit allows attackers to tamper with trust validation mechanisms similar to SIP/trust provider hijacking."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1574.001",
+      "name": "DLL Search Order Hijacking",
+      "relevance": "Unverified layer manifests in transit can allow substitution of malicious content analogous to hijacking legitimate loading processes."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1553.002",
+      "name": "Code Signing",
+      "relevance": "Stripping or suppressing cryptographic signatures subverts code signing verification, allowing unsigned or malicious images to be accepted."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1601.001",
+      "name": "Patch System Image",
+      "relevance": "Replaying a manipulated manifest or layer push can result in a patched or substituted image being accepted by the registry."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1584.002",
+      "name": "DNS Server",
+      "relevance": "DNS hijacking directly redirects registry traffic to a rogue registry by compromising DNS resolution infrastructure."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1213",
+      "name": "Data from Information Repositories",
+      "relevance": "Without rate limiting, attackers can enumerate registry contents and harvest layer/manifest data from the repository."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1552.002",
+      "name": "Credentials in Registry",
+      "relevance": "Unrestricted enumeration requests can expose stored credentials or sensitive configuration within registry metadata."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1528",
+      "name": "Steal Application Access Token",
+      "relevance": "Weak or reused credentials transmitted over the network can be intercepted and reused as application access tokens for unauthorized registry pushes."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1550.001",
+      "name": "Application Access Token",
+      "relevance": "Compromised registry credentials enable attackers to use application access tokens to authenticate and push malicious images."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1553.004",
+      "name": "Install Root Certificate",
+      "relevance": "Without certificate pinning, a rogue CA can install a trusted root certificate to intercept TLS traffic to the registry undetected."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1608.001",
+      "name": "Upload Malware",
+      "relevance": "Chunked upload resumption without integrity checks allows an attacker to inject malicious content into a partially uploaded layer."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1612",
+      "name": "Build Image on Host",
+      "relevance": "Lack of integrity checkpoints during resumable uploads can enable a malicious image to be assembled and stored in the registry."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1090.003",
+      "name": "Multi-hop Proxy",
+      "relevance": "An insecure pull-through cache or proxy in the transit path can act as a multi-hop proxy to intercept and modify registry traffic."
+    },
+    {
+      "label": "MitreAttackTechnique",
+      "property": "attack_id",
+      "value": "T1677",
+      "name": "Poisoned Pipeline Execution",
+      "relevance": "A compromised pull-through cache can serve poisoned image layers to consumers, effectively poisoning the delivery pipeline."
+    }
+  ],
+  "respondsWith": []
+}

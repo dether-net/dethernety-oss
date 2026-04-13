@@ -1,0 +1,770 @@
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "anonymous_access_enabled": {
+        "type": "boolean",
+        "title": "Anonymous Access Enabled",
+        "description": "Whether the repository allows unauthenticated (anonymous) read or write access without credentials",
+        "default": false
+      },
+      "anonymous_access_scope": {
+        "type": "string",
+        "enum": [
+          "none",
+          "read",
+          "write",
+          "read_write"
+        ],
+        "title": "Anonymous Access Scope",
+        "description": "Whether anonymous access permits read-only retrieval, write/deploy operations, or both"
+      },
+      "repository_visibility": {
+        "type": "string",
+        "enum": [
+          "public",
+          "internal",
+          "air_gapped"
+        ],
+        "title": "Repository Visibility",
+        "description": "Whether the repository is exposed to the public internet, internal network only, or air-gapped"
+      },
+      "proxy_resolution_order": {
+        "type": "string",
+        "enum": [
+          "public_first",
+          "internal_first",
+          "public_only",
+          "internal_only",
+          "undefined"
+        ],
+        "title": "Proxy Resolution Order",
+        "description": "The order in which the proxy or virtual repository resolves package names — whether public registries are consulted before internal ones, or internal first."
+      },
+      "internal_package_namespaces_scoped": {
+        "type": "boolean",
+        "title": "Internal Package Namespaces Scoped/Reserved",
+        "description": "Whether internal package names are protected by namespace scoping, allow-listing, or explicit reservation rules that prevent public registries from serving packages with matching names.",
+        "default": false
+      },
+      "upstream_public_registries_included": {
+        "type": "boolean",
+        "title": "Public Upstream Registries Included in Proxy/Virtual Repo",
+        "description": "Whether the virtual or proxy repository configuration includes at least one public upstream registry (e.g., npmjs.org, PyPI, Maven Central) as a source alongside internal hosted repositories.",
+        "default": false
+      },
+      "version_pinning_enforced": {
+        "type": "boolean",
+        "title": "Strict Version Pinning Enforced",
+        "description": "Whether build pipelines enforce exact version pinning (e.g., lock files, hash verification) for all dependencies, preventing resolution of higher-versioned packages from public registries."
+      },
+      "signature_verification_enforced": {
+        "type": "boolean",
+        "title": "Signature Verification Enforced",
+        "description": "Whether the repository is configured to require and validate artifact signatures (GPG, PGP, Sigstore, etc.) on upload and/or download before accepting or serving artifacts.",
+        "default": false
+      },
+      "proxy_remote_repositories_configured": {
+        "type": "boolean",
+        "title": "Proxy / Remote Repositories Configured",
+        "description": "Whether the repository is configured to proxy or cache artifacts from external registries (e.g., npm registry, PyPI, Maven Central, Helm hub). Proxying without signature validation significantly amplifies dependency confusion and supply chain risk.",
+        "default": false
+      },
+      "unsigned_artifact_upload_blocked": {
+        "type": "boolean",
+        "title": "Unsigned Artifact Upload Blocked",
+        "description": "Whether the repository actively rejects (blocks) upload requests for artifacts that lack a valid signature, as opposed to merely warning or logging.",
+        "default": false
+      },
+      "service_account_permission_scope": {
+        "type": "string",
+        "enum": [
+          "global_admin",
+          "repository_wide_write",
+          "scoped_write",
+          "read_only"
+        ],
+        "title": "Service Account Permission Scope",
+        "description": "The scope of write/admin permissions granted to the CI/CD service account or API token within the artifact repository — whether it has repository-wide or globally scoped access versus being restricted to specific repositories or namespaces."
+      },
+      "pipeline_token_can_overwrite_artifacts": {
+        "type": "boolean",
+        "title": "Pipeline Token Can Overwrite Existing Artifacts",
+        "description": "Whether the CI/CD pipeline token has the ability to overwrite (redeploy/delete-and-replace) existing artifact versions in the repository, including artifacts owned by other teams or namespaces.",
+        "default": false
+      },
+      "permission_grant_uses_wildcard": {
+        "type": "boolean",
+        "title": "Permission Grant Uses Wildcard Repository Pattern",
+        "description": "Whether the service account or API token permission grant uses a wildcard pattern (e.g., '*', 'ANY', or regex) to match repositories rather than explicitly enumerating specific repository names.",
+        "default": false
+      },
+      "repository_url_scheme": {
+        "type": "string",
+        "enum": [
+          "http",
+          "https"
+        ],
+        "title": "Repository URL Scheme",
+        "description": "The URL scheme used to access the artifact repository (http vs https)"
+      },
+      "tls_certificate_validation_enabled": {
+        "type": "boolean",
+        "title": "TLS Certificate Validation Enabled",
+        "description": "Whether TLS/SSL certificate validation is enforced in client configurations when connecting to the artifact repository. False indicates certificate validation is disabled (e.g., --insecure, ssl_verify=false, skipTLSVerify=true).",
+        "default": false
+      },
+      "storage_encryption_enabled": {
+        "type": "boolean",
+        "title": "Storage Encryption at Rest Enabled",
+        "description": "Whether the underlying storage backend for artifact blobs and metadata has encryption at rest enabled.",
+        "default": false
+      },
+      "encryption_key_management": {
+        "type": "string",
+        "enum": [
+          "customer_managed_kms",
+          "platform_managed",
+          "none"
+        ],
+        "title": "Encryption Key Management Type",
+        "description": "The key management approach used for storage encryption, indicating whether keys are externally managed, platform-managed, or absent.",
+        "default": "none"
+      },
+      "immutable_artifacts_enforced": {
+        "type": "boolean",
+        "title": "Immutable Artifacts Enforced",
+        "description": "Whether the repository is configured to prevent overwriting of already-published artifact versions (immutable releases policy enabled).",
+        "default": false
+      },
+      "write_access_scope": {
+        "type": "string",
+        "enum": [
+          "cicd_only",
+          "internal_users",
+          "external_or_anonymous"
+        ],
+        "title": "Write Access Scope",
+        "description": "The scope of principals that have write (deploy/push) access to the repository — whether restricted to CI/CD service accounts only, broader internal users, or open to external parties."
+      },
+      "artifact_signing_verified_on_publish": {
+        "type": "boolean",
+        "title": "Artifact Signing Verified on Publish",
+        "description": "Whether the repository enforces signature verification before accepting artifact uploads, preventing unsigned or invalidly-signed artifacts from being stored."
+      },
+      "proxy_allow_list_enabled": {
+        "type": "boolean",
+        "title": "Proxy Allow List Enabled",
+        "description": "Whether the remote proxy repository has a domain or package-name allow list configured to restrict which external packages can be downloaded",
+        "default": false
+      },
+      "proxy_repository_type": {
+        "type": "string",
+        "enum": [
+          "npm",
+          "pypi",
+          "maven",
+          "helm",
+          "go",
+          "nuget",
+          "raw",
+          "docker",
+          "other"
+        ],
+        "title": "Proxy Repository Type",
+        "description": "The type of external registry or package ecosystem this proxy repository fronts"
+      },
+      "upstream_url_restricted": {
+        "type": "boolean",
+        "title": "Upstream URL Restricted to Known Safe Registries",
+        "description": "Whether the proxy's upstream URL is restricted to a known, organization-approved external registry rather than pointing to an arbitrary or wildcard upstream",
+        "default": false
+      },
+      "secret_scanning_enabled": {
+        "type": "boolean",
+        "title": "Secret Scanning Enabled",
+        "description": "Whether the artifact repository has secret/credential scanning enabled on uploaded metadata files (POM, Helm values, package descriptors, build metadata).",
+        "default": false
+      },
+      "metadata_read_access_scope": {
+        "type": "string",
+        "enum": [
+          "anonymous",
+          "authenticated_users",
+          "restricted_roles"
+        ],
+        "title": "Metadata Read Access Scope",
+        "description": "The scope of users who can read artifact metadata files in the repository.",
+        "default": "authenticated_users"
+      },
+      "detected_secret_patterns_in_metadata": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Detected Secret Patterns in Metadata",
+        "description": "List of secret pattern types (e.g., API keys, database credentials, tokens) found via scanning of stored metadata files such as POM files, Helm chart values.yaml, or package descriptors.",
+        "default": []
+      },
+      "audit_logging_enabled": {
+        "type": "boolean",
+        "title": "Audit Logging Enabled",
+        "description": "Whether the artifact repository is configured to log artifact upload, download, deletion, and permission change events.",
+        "default": false
+      },
+      "audit_log_event_coverage": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Audit Log Event Coverage",
+        "description": "List of event types currently captured by audit logging (e.g., upload, download, delete, permission_change).",
+        "default": []
+      },
+      "siem_forwarding_configured": {
+        "type": "boolean",
+        "title": "SIEM Log Forwarding Configured",
+        "description": "Whether audit logs from the artifact repository are forwarded to a SIEM or centralized log management system.",
+        "default": false
+      },
+      "version_has_known_cve": {
+        "type": "boolean",
+        "title": "Version Has Known CVE",
+        "description": "Indicates whether the currently running artifact repository software version has one or more publicly disclosed CVEs, particularly in dependency resolution engines, metadata parsers, or REST API endpoints.",
+        "default": false
+      },
+      "days_since_last_patch": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Days Since Last Patch Applied",
+        "description": "Number of days elapsed since the artifact repository software was last updated or patched to address known vulnerabilities."
+      },
+      "patch_available": {
+        "type": "boolean",
+        "title": "Patch Available",
+        "description": "Indicates whether the vendor has released a patched version of the artifact repository software that addresses the known CVEs affecting the current installation.",
+        "default": false
+      },
+      "network_exposure_scope": {
+        "type": "string",
+        "enum": [
+          "public_internet",
+          "flat_internal",
+          "segmented_private"
+        ],
+        "title": "Network Exposure Scope",
+        "description": "The network segment(s) on which the repository admin interface and artifact API are accessible — public internet, flat internal network, or properly segmented/private network."
+      },
+      "ip_allowlist_enforced": {
+        "type": "boolean",
+        "title": "IP Allowlist Enforced",
+        "description": "Whether an IP allowlist (or equivalent CIDR-based restriction) is configured and actively enforced on the admin interface and artifact API endpoints.",
+        "default": false
+      },
+      "vpn_or_bastion_required": {
+        "type": "boolean",
+        "title": "VPN or Bastion Access Required",
+        "description": "Whether access to the admin interface and artifact API is gated behind a VPN or bastion host, preventing direct external or flat-network access.",
+        "default": false
+      },
+      "repository_permission_scopes_count": {
+        "type": "integer",
+        "title": "Number of Distinct Repository Permission Scopes",
+        "description": "The number of distinct permission scopes or access control groups defined across all artifact repositories. A value of 1 indicates all repositories share a single permission scope regardless of artifact sensitivity.",
+        "minimum": 0,
+        "default": 1
+      },
+      "sensitivity_tiers_represented": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "uniqueItems": true,
+        "title": "Sensitivity Tiers of Repositories in Use",
+        "description": "List of sensitivity classifications present among the artifact repositories (e.g., 'release', 'internal-dev', 'third-party-proxy', 'staging'). Used to determine whether multiple tiers exist that would warrant separate permission scopes."
+      },
+      "cross_tier_write_access_permitted": {
+        "type": "boolean",
+        "title": "Cross-Tier Write Access Permitted",
+        "description": "Whether a user or role that has write access to lower-sensitivity repositories (e.g., internal-dev) also has write access to higher-sensitivity repositories (e.g., release) under the same permission scope.",
+        "default": false
+      },
+      "checksum_validation_enabled": {
+        "type": "boolean",
+        "title": "Checksum Validation Enabled on Proxy Cache",
+        "description": "Whether the proxy cache repository validates artifact checksums (SHA-256, MD5) against upstream-published values before serving artifacts to clients.",
+        "default": false
+      },
+      "proxy_cache_enabled": {
+        "type": "boolean",
+        "title": "Proxy Cache Active",
+        "description": "Whether this repository is configured as a proxy or virtual/group repository that caches artifacts from an upstream external registry."
+      },
+      "cleanup_policies_configured": {
+        "type": "boolean",
+        "title": "Cleanup Policies Configured",
+        "description": "Whether artifact retention or cleanup policies are defined and active for the repository, controlling automatic removal of stale, old, or deprecated artifact versions.",
+        "default": false
+      },
+      "oldest_artifact_age_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 36500,
+        "title": "Oldest Artifact Age (Days)",
+        "description": "The age in days of the oldest artifact version currently retained in the repository. Indicates how long artifacts accumulate without removal when no retention policy exists."
+      },
+      "cert_expiry_monitoring_enabled": {
+        "type": "boolean",
+        "title": "TLS Certificate Expiry Monitoring Enabled",
+        "description": "Whether automated monitoring or alerting is configured to track TLS certificate expiry for repository HTTPS endpoints",
+        "default": false
+      },
+      "days_until_cert_expiry": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Days Until TLS Certificate Expiry",
+        "description": "Number of days remaining before the TLS certificate for the repository HTTPS endpoint expires. A value of 0 means already expired."
+      },
+      "client_tls_verification_disabled": {
+        "type": "boolean",
+        "title": "Client TLS Verification Disabled",
+        "description": "Whether any configured repository clients (e.g., Helm, package managers, artifact downloaders) have TLS certificate verification disabled, enabling insecure fallback when certificates are invalid or expired",
+        "default": false
+      },
+      "backup_enabled": {
+        "type": "boolean",
+        "title": "Backup Enabled",
+        "description": "Whether automated backups are configured for the artifact repository storage (e.g., scheduled snapshots, replication, or backup jobs)",
+        "default": false
+      },
+      "backup_restoration_tested": {
+        "type": "boolean",
+        "title": "Backup Restoration Tested",
+        "description": "Whether backup restoration has been successfully tested and validated within the past review period, confirming backups are actually recoverable",
+        "default": false
+      },
+      "backup_retention_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "title": "Backup Retention Period (Days)",
+        "description": "Number of days backup copies of artifact repository data are retained before deletion",
+        "default": 0
+      }
+    },
+    "required": [
+      "anonymous_access_enabled",
+      "anonymous_access_scope",
+      "repository_visibility",
+      "proxy_resolution_order",
+      "internal_package_namespaces_scoped",
+      "upstream_public_registries_included",
+      "version_pinning_enforced",
+      "signature_verification_enforced",
+      "proxy_remote_repositories_configured",
+      "unsigned_artifact_upload_blocked",
+      "service_account_permission_scope",
+      "pipeline_token_can_overwrite_artifacts",
+      "permission_grant_uses_wildcard",
+      "repository_url_scheme",
+      "tls_certificate_validation_enabled",
+      "storage_encryption_enabled",
+      "encryption_key_management",
+      "immutable_artifacts_enforced",
+      "write_access_scope",
+      "artifact_signing_verified_on_publish",
+      "proxy_allow_list_enabled",
+      "proxy_repository_type",
+      "upstream_url_restricted",
+      "secret_scanning_enabled",
+      "metadata_read_access_scope",
+      "detected_secret_patterns_in_metadata",
+      "audit_logging_enabled",
+      "audit_log_event_coverage",
+      "siem_forwarding_configured",
+      "version_has_known_cve",
+      "days_since_last_patch",
+      "patch_available",
+      "network_exposure_scope",
+      "ip_allowlist_enforced",
+      "vpn_or_bastion_required",
+      "repository_permission_scopes_count",
+      "sensitivity_tiers_represented",
+      "cross_tier_write_access_permitted",
+      "checksum_validation_enabled",
+      "proxy_cache_enabled",
+      "cleanup_policies_configured",
+      "oldest_artifact_age_days",
+      "backup_enabled",
+      "backup_restoration_tested",
+      "backup_retention_days"
+    ]
+  },
+  "uiSchema": {
+    "type": "Categorization",
+    "elements": [
+      {
+        "type": "Category",
+        "label": "Authentication & Access",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/anonymous_access_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/anonymous_access_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cross_tier_write_access_permitted"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/metadata_read_access_scope"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/permission_grant_uses_wildcard"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/pipeline_token_can_overwrite_artifacts"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/repository_permission_scopes_count"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/sensitivity_tiers_represented"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/service_account_permission_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/write_access_scope"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Application Security",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/checksum_validation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/detected_secret_patterns_in_metadata"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/immutable_artifacts_enforced"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/patch_available"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/secret_scanning_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/signature_verification_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/unsigned_artifact_upload_blocked"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/version_has_known_cve"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/artifact_signing_verified_on_publish"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/days_since_last_patch"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/version_pinning_enforced"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Network & Connectivity",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/internal_package_namespaces_scoped"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/ip_allowlist_enforced"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/network_exposure_scope"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/proxy_allow_list_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/proxy_remote_repositories_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/proxy_resolution_order"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/repository_visibility"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/upstream_public_registries_included"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/vpn_or_bastion_required"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/proxy_cache_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/proxy_repository_type"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/upstream_url_restricted"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Encryption & Data Protection",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/repository_url_scheme"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/storage_encryption_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/tls_certificate_validation_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/encryption_key_management"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cert_expiry_monitoring_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/client_tls_verification_disabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/days_until_cert_expiry"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Logging & Monitoring",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_log_event_coverage"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/audit_logging_enabled"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/siem_forwarding_configured"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Category",
+        "label": "Storage & Backup",
+        "elements": [
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_enabled"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_restoration_tested"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/cleanup_policies_configured"
+              },
+              {
+                "type": "Control",
+                "scope": "#/properties/backup_retention_days"
+              }
+            ]
+          },
+          {
+            "type": "HorizontalLayout",
+            "elements": [
+              {
+                "type": "Control",
+                "scope": "#/properties/oldest_artifact_age_days"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

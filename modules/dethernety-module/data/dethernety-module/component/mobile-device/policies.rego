@@ -7,7 +7,8 @@ _weak_or_absent_device_screen_lock_def := {
     "category": "physical_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 weak_or_absent_device_screen_lock[_weak_or_absent_device_screen_lock_def] if {
@@ -35,7 +36,8 @@ _unencrypted_device_storage_def := {
     "category": "physical_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 unencrypted_device_storage[_unencrypted_device_storage_def] if {
@@ -62,7 +64,8 @@ _outdated_os_version_with_unpatched_vulnerabilities_def := {
     "category": "network_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 outdated_os_version_with_unpatched_vulnerabilities[_outdated_os_version_with_unpatched_vulnerabilities_def] if {
@@ -88,7 +91,8 @@ _device_jailbreak_or_root_status_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 device_jailbreak_or_root_status[_device_jailbreak_or_root_status_def] if {
@@ -115,7 +119,8 @@ _disabled_or_absent_mobile_device_management_def := {
     "category": "host_security",
     "criticality": "high",
     "score": 8,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 disabled_or_absent_mobile_device_management[_disabled_or_absent_mobile_device_management_def] if {
@@ -143,7 +148,8 @@ _insecure_wi_fi_auto_connect_behavior_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 insecure_wi_fi_auto_connect_behavior[_insecure_wi_fi_auto_connect_behavior_def] if {
@@ -167,7 +173,8 @@ _absence_of_remote_wipe_capability_def := {
     "category": "physical_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 absence_of_remote_wipe_capability[_absence_of_remote_wipe_capability_def] if {
@@ -191,7 +198,8 @@ _excessive_application_permissions_granted_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 excessive_application_permissions_granted[_excessive_application_permissions_granted_def] if {
@@ -219,7 +227,8 @@ _bluetooth_perpetually_enabled_and_discoverable_def := {
     "category": "physical_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "ADJACENT"
 }
 
 bluetooth_perpetually_enabled_and_discoverable[_bluetooth_perpetually_enabled_and_discoverable_def] if {
@@ -245,7 +254,8 @@ _unmanaged_sideloaded_or_third_party_store_applications_def := {
     "category": "host_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "LOCAL"
 }
 
 unmanaged_sideloaded_or_third_party_store_applications[_unmanaged_sideloaded_or_third_party_store_applications_def] if {
@@ -267,7 +277,8 @@ _lack_of_certificate_pinning_enforcement_at_device_trust_store_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 lack_of_certificate_pinning_enforcement_at_device_trust_store[_lack_of_certificate_pinning_enforcement_at_device_trust_store_def] if {
@@ -291,7 +302,8 @@ _icloud_or_cloud_backup_containing_application_data_def := {
     "category": "network_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "NETWORK"
 }
 
 icloud_or_cloud_backup_containing_application_data[_icloud_or_cloud_backup_containing_application_data_def] if {
@@ -311,7 +323,8 @@ _developer_mode_or_usb_debugging_enabled_def := {
     "category": "physical_security",
     "criticality": "medium",
     "score": 5,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 developer_mode_or_usb_debugging_enabled[_developer_mode_or_usb_debugging_enabled_def] if {
@@ -335,7 +348,8 @@ _insufficient_failed_authentication_lockout_policy_def := {
     "category": "physical_security",
     "criticality": "low",
     "score": 2,
-    "exploited_by": []
+    "exploited_by": [],
+    "attack_vector": "PHYSICAL"
 }
 
 insufficient_failed_authentication_lockout_policy[_insufficient_failed_authentication_lockout_policy_def] if {

@@ -22,7 +22,8 @@ _unencrypted_secrets_in_configuration_files_def := {
             "name": "Unsecured Credentials",
             "relevance": "Parent technique covering the broader risk of secrets stored without encryption in accessible locations."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 unencrypted_secrets_in_configuration_files[_unencrypted_secrets_in_configuration_files_def] if {
@@ -56,7 +57,8 @@ _unauthenticated_configuration_agent_api_def := {
             "name": "Cloud Administration Command",
             "relevance": "Attackers can leverage unauthenticated agent APIs to issue administrative commands similar to cloud administration command abuse."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unauthenticated_configuration_agent_api[_unauthenticated_configuration_agent_api_def] if {
@@ -95,7 +97,8 @@ _overprivileged_deployment_service_account_def := {
             "name": "Software Deployment Tools",
             "relevance": "Overprivileged deployment accounts tied to software deployment tools amplify the blast radius if those tools are compromised."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 overprivileged_deployment_service_account[_overprivileged_deployment_service_account_def] if {
@@ -137,7 +140,8 @@ _unsigned_or_unverified_configuration_content_def := {
             "name": "Software Deployment Tools",
             "relevance": "Unsigned configuration content delivered through deployment tools can allow adversaries to inject malicious configurations at scale."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unsigned_or_unverified_configuration_content[_unsigned_or_unverified_configuration_content_def] if {
@@ -180,7 +184,8 @@ _unencrypted_transport_to_configuration_server_def := {
             "name": "Non-Application Layer Protocol",
             "relevance": "Use of unencrypted or non-standard protocols for configuration server communication enables traffic interception and manipulation."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 unencrypted_transport_to_configuration_server[_unencrypted_transport_to_configuration_server_def] if {
@@ -226,7 +231,8 @@ _configuration_drift_not_detected_or_remediated_def := {
             "name": "Patch System Image",
             "relevance": "Undetected configuration drift may mask unauthorized modifications to system images or configurations by adversaries."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 configuration_drift_not_detected_or_remediated[_configuration_drift_not_detected_or_remediated_def] if {
@@ -276,7 +282,8 @@ _world_readable_configuration_state_files_def := {
             "name": "File and Directory Discovery",
             "relevance": "Adversaries use file and directory discovery to locate world-readable configuration state files containing sensitive information."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 world_readable_configuration_state_files[_world_readable_configuration_state_files_def] if {
@@ -316,7 +323,8 @@ _insufficient_configuration_change_logging_def := {
             "name": "Indicator Removal",
             "relevance": "Without adequate logging, adversaries can make configuration changes and remove indicators of compromise without detection."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 insufficient_configuration_change_logging[_insufficient_configuration_change_logging_def] if {
@@ -364,7 +372,8 @@ _unpatched_configuration_management_agent_def := {
             "name": "Exploit Public-Facing Application",
             "relevance": "Configuration management agents exposed to the network represent public-facing applications exploitable via unpatched vulnerabilities."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 unpatched_configuration_management_agent[_unpatched_configuration_management_agent_def] if {
@@ -402,7 +411,8 @@ _untrusted_external_module_or_plugin_sources_def := {
             "name": "Software Deployment Tools",
             "relevance": "Untrusted external modules introduced via deployment tools can propagate malicious code across all managed systems."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 untrusted_external_module_or_plugin_sources[_untrusted_external_module_or_plugin_sources_def] if {
@@ -441,7 +451,8 @@ _excessive_network_exposure_of_agent_listener_def := {
             "name": "Network Boundary Bridging",
             "relevance": "Excessive network exposure of agent listeners can allow adversaries to bridge network boundaries and access otherwise isolated systems."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 excessive_network_exposure_of_agent_listener[_excessive_network_exposure_of_agent_listener_def] if {
@@ -480,7 +491,8 @@ _weak_host_identity_verification_by_server_def := {
             "name": "Install Digital Certificate",
             "relevance": "Adversaries can install fraudulent digital certificates to pass weak host identity checks by the configuration server."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 weak_host_identity_verification_by_server[_weak_host_identity_verification_by_server_def] if {
@@ -521,7 +533,8 @@ _no_rollback_capability_for_failed_deployments_def := {
             "name": "Application or System Exploitation",
             "relevance": "Without rollback, failed or malicious deployments can leave systems in a degraded or exploitable state indefinitely."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 no_rollback_capability_for_failed_deployments[_no_rollback_capability_for_failed_deployments_def] if {
@@ -563,7 +576,8 @@ _environment_variable_leakage_in_deployment_context_def := {
             "name": "Unsecured Credentials",
             "relevance": "Environment variable leakage in deployment contexts is a form of unsecured credentials accessible to adversaries with system access."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 environment_variable_leakage_in_deployment_context[_environment_variable_leakage_in_deployment_context_def] if {
@@ -607,7 +621,8 @@ _missing_idempotency_enforcement_allowing_partial_state_def := {
             "name": "Event Triggered Execution",
             "relevance": "Partial configuration states from non-idempotent deployments may create unintended event triggers that adversaries can abuse for persistent execution."
         }
-    ]
+    ],
+    "attack_vector": "LOCAL"
 }
 
 missing_idempotency_enforcement_allowing_partial_state[_missing_idempotency_enforcement_allowing_partial_state_def] if {

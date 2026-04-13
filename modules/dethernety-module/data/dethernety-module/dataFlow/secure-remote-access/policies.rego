@@ -22,7 +22,8 @@ _weak_tls_protocol_version_def := {
             "name": "Weaken Encryption",
             "relevance": "Using weak TLS protocol versions directly weakens the encryption protecting the channel."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 weak_tls_protocol_version[_weak_tls_protocol_version_def] if {
@@ -65,7 +66,8 @@ _insufficient_cipher_suite_strength_def := {
             "name": "Reduce Key Space",
             "relevance": "Insufficient cipher suite strength reduces the effective key space, making brute-force or cryptanalytic attacks feasible."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 insufficient_cipher_suite_strength[_insufficient_cipher_suite_strength_def] if {
@@ -106,7 +108,8 @@ _missing_mutual_tls_authentication_def := {
             "name": "Asymmetric Cryptography",
             "relevance": "Mutual TLS relies on asymmetric cryptography for certificate-based authentication; its absence allows impersonation attacks."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_mutual_tls_authentication[_missing_mutual_tls_authentication_def] if {
@@ -151,7 +154,8 @@ _certificate_validation_bypass_def := {
             "name": "Digital Certificates",
             "relevance": "Adversaries may develop or use fraudulent digital certificates when certificate validation is bypassed."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 certificate_validation_bypass[_certificate_validation_bypass_def] if {
@@ -189,7 +193,8 @@ _tls_session_replay_attack_def := {
             "name": "Steal or Forge Kerberos Tickets",
             "relevance": "Session replay attacks share the same conceptual model as ticket/credential replay, reusing captured session tokens to authenticate."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 tls_session_replay_attack[_tls_session_replay_attack_def] if {
@@ -233,7 +238,8 @@ _no_forward_secrecy_on_channel_def := {
             "name": "Asymmetric Cryptography",
             "relevance": "Forward secrecy is a property of asymmetric key exchange; its absence means long-term asymmetric keys can decrypt past traffic."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 no_forward_secrecy_on_channel[_no_forward_secrecy_on_channel_def] if {
@@ -263,7 +269,8 @@ _missing_hsts_or_protocol_downgrade_protection_def := {
             "name": "Downgrade Attack",
             "relevance": "Missing HSTS directly enables protocol downgrade attacks forcing browsers to use insecure HTTP instead of HTTPS."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_hsts_or_protocol_downgrade_protection[_missing_hsts_or_protocol_downgrade_protection_def] if {
@@ -304,7 +311,8 @@ _absence_of_message_integrity_controls_def := {
             "name": "Encrypted Channel",
             "relevance": "Encrypted channels without integrity controls are vulnerable to message manipulation even if confidentiality is preserved."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 absence_of_message_integrity_controls[_absence_of_message_integrity_controls_def] if {
@@ -342,7 +350,8 @@ _missing_rate_limiting_on_encrypted_channel_def := {
             "name": "Protocol Tunneling",
             "relevance": "Lack of rate limiting on encrypted channels can be exploited for high-volume tunneling of malicious traffic."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 missing_rate_limiting_on_encrypted_channel[_missing_rate_limiting_on_encrypted_channel_def] if {
@@ -386,7 +395,8 @@ _bgp_route_hijacking_exposure_def := {
             "name": "Multi-hop Proxy",
             "relevance": "BGP hijacking can redirect traffic through adversary-controlled nodes, effectively functioning as a multi-hop interception proxy."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 bgp_route_hijacking_exposure[_bgp_route_hijacking_exposure_def] if {
@@ -437,7 +447,8 @@ _dns_based_traffic_interception_def := {
             "name": "Domain Fronting",
             "relevance": "Domain fronting abuses DNS and CDN infrastructure to disguise and intercept traffic."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 dns_based_traffic_interception[_dns_based_traffic_interception_def] if {
@@ -484,7 +495,8 @@ _insecure_renegotiation_vulnerability_def := {
             "name": "Network Sniffing",
             "relevance": "Insecure renegotiation vulnerabilities may expose session data to network sniffing during the renegotiation handshake."
         }
-    ]
+    ],
+    "attack_vector": "ADJACENT"
 }
 
 insecure_renegotiation_vulnerability[_insecure_renegotiation_vulnerability_def] if {
@@ -526,7 +538,8 @@ _traffic_metadata_leakage_via_timing_def := {
             "name": "Data Obfuscation",
             "relevance": "Timing side-channels leak metadata about obfuscated communications, undermining data obfuscation protections."
         }
-    ]
+    ],
+    "attack_vector": "NETWORK"
 }
 
 traffic_metadata_leakage_via_timing[_traffic_metadata_leakage_via_timing_def] if {
