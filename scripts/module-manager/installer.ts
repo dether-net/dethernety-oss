@@ -51,14 +51,24 @@ export class Installer {
     const manifest = loadManifest(extracted);
     console.log(`Module: ${manifest.name}@${manifest.version}`);
 
+    // Detect tarball layout.
+    // v2 (dethernety-module):  ./dethernety/<manifest.name>/…  (JS + nested data)
+    // v1 / data-only (mitre):  ./<manifest.name>/  and  ./data/   (flat)
+    const nestedBase = join(extracted, 'dethernety');
+    const hasV2Layout = existsSync(nestedBase);
+
     // 3. Copy dethernety component (JS module files)
-    const dethernetyDir = join(extracted, manifest.name);
+    const dethernetyDir = hasV2Layout
+      ? nestedBase
+      : join(extracted, manifest.name);
     if (existsSync(dethernetyDir)) {
       this.copyModuleFiles(dethernetyDir, manifest.name);
     }
 
     // 4. Copy CSV data to Memgraph import dir
-    const dataDir = join(extracted, 'data');
+    const dataDir = hasV2Layout
+      ? join(nestedBase, manifest.name, 'data')
+      : join(extracted, 'data');
     if (existsSync(dataDir) && this.importDir) {
       this.copyImportData(dataDir, manifest.name);
     }
