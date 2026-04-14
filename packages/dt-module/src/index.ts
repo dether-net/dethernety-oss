@@ -12,6 +12,8 @@ export * from './interfaces/lg-analysis-config-interface';
 export * from './interfaces/module-resolver-interface';
 
 export * from './db-ops';
+export * from './embedding-file-cache';
+export * from './embedding-text';
 export * from './dt-file-json-module';
 export * from './dt-file-opa-module';
 export * from './dt-neo4j-json-module';

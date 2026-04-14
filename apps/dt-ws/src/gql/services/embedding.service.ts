@@ -1,10 +1,23 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  composeClassText,
+  composeElementText,
+  parseEmbeddingResponse,
+} from '@dethernety/dt-module/embedding';
 
 @Injectable()
 export class EmbeddingService {
   private readonly logger = new Logger(EmbeddingService.name);
-  private readonly enabled: boolean;
+  /**
+   * Session-level enabled flag. Starts from EMBEDDING_ENABLED and can be
+   * flipped to false by disableForSession() — for example when
+   * MatchClassesResolverService detects an index-dimension mismatch. Callers
+   * read isEnabled() before every resolve pass; the flag is never flipped
+   * back on within a process lifetime.
+   */
+  private enabled: boolean;
+  private sessionDisabled = false;
   private readonly url: string;
   private readonly apiKey: string;
   private readonly model: string;
@@ -45,6 +58,21 @@ export class EmbeddingService {
   }
 
   /**
+   * Disable embedding for the remainder of this process. Called when the
+   * runtime detects an unrecoverable invariant break (most notably, a
+   * vector-index dimension that disagrees with EMBEDDING_DIMENSIONS).
+   *
+   * After this is called, isEnabled() returns false and embedBatch()
+   * returns null. Logs exactly once.
+   */
+  disableForSession(reason: string): void {
+    if (this.sessionDisabled) return;
+    this.sessionDisabled = true;
+    this.enabled = false;
+    this.logger.error('Embedding disabled for this session', { reason });
+  }
+
+  /**
    * Embed a batch of texts via the configured HTTP endpoint.
    * Returns null if embeddings are disabled.
    * Retries up to 3 times with exponential backoff (1s, 3s, 9s) on failure.
@@ -70,7 +98,7 @@ export class EmbeddingService {
           throw new Error(`Embedding API returned ${response.status}: ${response.statusText}`);
         }
         const data = await response.json();
-        return this.parseEmbeddingResponse(data, texts.length);
+        return parseEmbeddingResponse(data, texts.length);
       } catch (error) {
         if (attempt === maxRetries) throw error;
         const delay = backoffBase * Math.pow(3, attempt - 1);
@@ -87,35 +115,8 @@ export class EmbeddingService {
   }
 
   /**
-   * Parse the embedding response, supporting both OpenAI and Ollama formats.
-   *
-   * OpenAI format: { data: [{ embedding: [...] }, ...] }
-   * Ollama /api/embed: { embeddings: [[...], [...]] }
-   * Ollama /api/embeddings (single): { embedding: [...] }
-   */
-  private parseEmbeddingResponse(data: any, expectedCount: number): number[][] {
-    // OpenAI format: { data: [{ embedding: [...] }] }
-    if (Array.isArray(data?.data)) {
-      return data.data.map((item: any) => item.embedding);
-    }
-
-    // Ollama /api/embed format: { embeddings: [[...], [...]] }
-    if (Array.isArray(data?.embeddings)) {
-      return data.embeddings;
-    }
-
-    // Ollama /api/embeddings single-text format: { embedding: [...] }
-    if (Array.isArray(data?.embedding)) {
-      return [data.embedding];
-    }
-
-    throw new Error(
-      `Unexpected embedding API response format. Expected OpenAI ({ data: [...] }) or Ollama ({ embeddings: [...] }) format, got keys: [${Object.keys(data || {}).join(', ')}]`,
-    );
-  }
-
-  /**
-   * Compose the embedding text for a class node.
+   * Compose the embedding text for a class node. Delegates to the shared
+   * helper so runtime and build-time tooling produce identical text.
    */
   composeClassText(cls: {
     name: string;
@@ -123,17 +124,17 @@ export class EmbeddingService {
     category?: string;
     type?: string;
   }): string {
-    return `${cls.name}. ${cls.description || ''}. Category: ${cls.category || 'General'}. Type: ${cls.type || 'Unknown'}.`;
+    return composeClassText(cls);
   }
 
   /**
-   * Compose the embedding text for a query element.
+   * Compose the embedding text for a query element (match_classes input side).
    */
   composeElementText(element: {
     name: string;
     description?: string;
     type?: string;
   }): string {
-    return `${element.name}. ${element.description || ''}. Type: ${element.type || 'Unknown'}.`;
+    return composeElementText(element);
   }
 }

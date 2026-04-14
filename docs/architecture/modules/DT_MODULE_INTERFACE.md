@@ -142,8 +142,29 @@ export interface DTModule {
 
   // Optional - Custom GraphQL resolvers for fields declared in getSchemaExtension()
   getResolvers?(context: ModuleResolverContext): ResolverMap | Promise<ResolverMap>;
+
+  // Optional - Pre-computed class embeddings (offline-install support)
+  getEmbedding?(className: string, embeddingModel: string): number[] | null;
 }
 ```
+
+### `getEmbedding?(className, embeddingModel)`
+
+Returns a pre-computed embedding vector for `className` under the slugified
+`embeddingModel`, or `null` if no vector is available. When present, the
+platform uses it instead of calling the embedding endpoint — enabling
+offline install.
+
+- `embeddingModel` is the **slugified** model identifier (produced by
+  `slugifyModelName()` in `@dethernety/dt-module/embedding`), so it is
+  always safe to use as a filename segment. A model like
+  `sentence-transformers/all-MiniLM-L6-v2` is slugified to
+  `sentence-transformers-all-MiniLM-L6-v2`.
+- The base classes `DtFileOpaModule` and `DtFileJsonModule` implement
+  this by reading `{classDir}/embeddings/{slug}.json`. See
+  [Pre-Computed Embeddings Spec](./PRE_COMPUTED_EMBEDDINGS_SPEC.md).
+- Generate vectors with the `module-manager embed` CLI; see
+  [Development Guide → Pre-computed Embeddings](./DEVELOPMENT_GUIDE.md#pre-computed-embeddings-optional).
 
 ---
 

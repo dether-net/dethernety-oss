@@ -8,6 +8,7 @@
     "build": "pnpm build:ts && pnpm build:package",
     "build:ts": "tsc",
     "build:package": "node ../../scripts/package-module.js",
+    "embed": "../../scripts/module-manager.sh embed . --model ${EMBEDDING_MODEL:-nomic-embed-text} --url ${EMBEDDING_URL:-http://localhost:11434/api/embed}",
     "dev": "tsc -w",
     "clean": "rm -rf dist"
   },
