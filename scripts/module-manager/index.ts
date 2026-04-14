@@ -17,6 +17,7 @@ import { resolve } from 'node:path';
 import { Installer } from './installer';
 import { DatabaseClient } from './database';
 import { StateManager } from './state';
+import { runEmbed } from './embed';
 
 // ── argument parsing ────────────────────────────────────────────────────
 
@@ -29,6 +30,10 @@ const { values, positionals } = parseArgs({
     'db-user':     { type: 'string', default: 'dethernety' },
     'db-pass':     { type: 'string', default: process.env.NEO4J_PASSWORD || '' },
     'state-file':  { type: 'string', default: '' },
+    'model':       { type: 'string', default: '' },
+    'url':         { type: 'string', default: '' },
+    'api-key':     { type: 'string', default: '' },
+    'batch-size':  { type: 'string', default: '128' },
     'help':        { type: 'boolean', default: false },
   },
 });
@@ -39,6 +44,7 @@ Usage:
   module-manager install <archive.tar.gz> [options]
   module-manager ingest  <cypher-file-or-dir> [options]
   module-manager list    [options]
+  module-manager embed   <module-path> --model <name> --url <endpoint> [options]
 
 Options:
   --target <path>        Module installation directory
@@ -47,6 +53,10 @@ Options:
   --db-user <user>       DB user  (default: neo4j)
   --db-pass <pass>       DB password (or set NEO4J_PASSWORD)
   --state-file <path>    installed-modules.json path
+  --model <name>         Embedding model (embed only, required)
+  --url <endpoint>       Embedding endpoint URL (embed only, required)
+  --api-key <key>        Bearer token for the embedding endpoint (embed only)
+  --batch-size <n>       Classes per POST (embed only, default: 128)
 `);
   process.exit(0);
 }
@@ -107,6 +117,37 @@ async function main() {
       } finally {
         await db.close();
       }
+      break;
+    }
+
+    case 'embed': {
+      const modulePath = rest[0];
+      if (!modulePath) {
+        console.error(
+          'Usage: module-manager embed <module-path> --model <name> --url <endpoint> [--api-key <key>] [--batch-size <n>]',
+        );
+        process.exit(1);
+      }
+      if (!values.model) {
+        console.error('embed: --model is required');
+        process.exit(1);
+      }
+      if (!values.url) {
+        console.error('embed: --url is required');
+        process.exit(1);
+      }
+      const batchSize = parseInt(values['batch-size'] || '128', 10);
+      if (!Number.isFinite(batchSize) || batchSize <= 0) {
+        console.error(`embed: --batch-size must be a positive integer (got "${values['batch-size']}")`);
+        process.exit(1);
+      }
+      await runEmbed({
+        modulePath: resolve(modulePath),
+        model: values.model!,
+        url: values.url!,
+        apiKey: values['api-key'] || undefined,
+        batchSize,
+      });
       break;
     }
 

@@ -3,16 +3,43 @@ import * as path from 'path';
 import jsonLogic from "json-logic-js";
 
 import { DTModule, DTMetadata, Countermeasure, Exposure, DbOps } from './index';
+import { EmbeddingFileCache } from './embedding-file-cache';
+
+/** Class-type directory names used by the JSON layout. */
+const JSON_LAYOUT_CLASS_TYPE_DIRS = [
+  'ComponentClasses',
+  'DataFlowClasses',
+  'SecurityBoundaryClasses',
+  'ControlClasses',
+  'DataClasses',
+];
 
 export class DtFileJsonModule implements DTModule {
   private readonly moduleDataDir: string;
   private readonly moduleName: string;
   private readonly dbOps: DbOps;
+  private readonly embeddingCache: EmbeddingFileCache;
 
   constructor(moduleDataDir: string, moduleName: string, driver: any) {
     this.moduleDataDir = moduleDataDir;
     this.moduleName = moduleName;
     this.dbOps = new DbOps(driver);
+    // No Nest Logger in this class — EmbeddingFileCache falls back to console.warn.
+    this.embeddingCache = new EmbeddingFileCache({
+      moduleDataDir: path.join(this.moduleDataDir, this.moduleName),
+      classTypeDirs: JSON_LAYOUT_CLASS_TYPE_DIRS,
+      classDefinitionFile: 'metadata.json',
+    });
+  }
+
+  /**
+   * Return a pre-computed embedding vector for a class by name, if shipped
+   * with the module at {classDir}/embeddings/{modelSlug}.json. Returns null
+   * when no vector is available — the platform falls back to on-the-fly
+   * embedding for that class.
+   */
+  getEmbedding(className: string, embeddingModel: string): number[] | null {
+    return this.embeddingCache.get(className, embeddingModel);
   }
   
   private getClassDirectories(classesDir: string): string[] | null {

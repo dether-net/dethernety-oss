@@ -3,6 +3,7 @@ import * as path from 'path';
 import { Logger } from '@nestjs/common';
 import { OpaOps, Policy } from './opa-ops';
 import { DTModule, DTMetadata, Countermeasure, Exposure, DbOps, VALID_ATTACK_VECTORS } from './index';
+import { EmbeddingFileCache } from './embedding-file-cache';
 
 /**
  * V2 classType folder mapping.
@@ -112,6 +113,7 @@ export class DtFileOpaModule implements DTModule {
   private readonly moduleName: string;
   private readonly dbOps: DbOps;
   private readonly logger: Logger;
+  private readonly embeddingCache: EmbeddingFileCache;
   private opaOps: OpaOps;
   private resetInProgress = false;
 
@@ -124,11 +126,30 @@ export class DtFileOpaModule implements DTModule {
     const opaServerUrl = process.env.OPA_COMPILE_SERVER_URL || process.env.OPA_SERVER_URL || 'http://localhost:8181';
     this.opaOps = new OpaOps(opaServerUrl, this.logger);
 
+    this.embeddingCache = new EmbeddingFileCache({
+      moduleDataDir: path.join(this.moduleDataDir, this.moduleName),
+      classTypeDirs: CLASS_TYPES.map((t) => t.dir),
+      classDefinitionFile: 'class.json',
+      logger: {
+        warn: (msg, meta) => this.logger.warn(msg, meta ?? {}),
+      },
+    });
+
     this.logger.log('DtFileOpaModule initialized', {
       moduleName: this.moduleName,
       moduleDataDir: this.moduleDataDir,
       opaServerUrl,
     });
+  }
+
+  /**
+   * Return a pre-computed embedding vector for a class by name, if shipped
+   * with the module at {classDir}/embeddings/{modelSlug}.json. Returns null
+   * when no vector is available — the platform falls back to on-the-fly
+   * embedding for that class.
+   */
+  getEmbedding(className: string, embeddingModel: string): number[] | null {
+    return this.embeddingCache.get(className, embeddingModel);
   }
 
   // ---------------------------------------------------------------------------

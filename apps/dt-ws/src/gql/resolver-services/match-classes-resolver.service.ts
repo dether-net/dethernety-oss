@@ -280,24 +280,65 @@ export class MatchClassesResolverService {
   }
 
   /**
-   * Ensure HNSW vector indexes exist for all 5 class labels.
-   * Runs once — subsequent calls are no-ops.
+   * Ensure HNSW vector indexes exist for all 5 class labels and verify that
+   * their dimension matches EMBEDDING_DIMENSIONS.
+   *
+   * Public so ModuleManagementService can await this from resolveVectors()
+   * before the first module install — on a fresh DB no matchClasses query
+   * has fired yet, so the bootstrap wouldn't otherwise run in time.
+   *
+   * Idempotency: vectorIndexesEnsured is set only after a full successful
+   * pass (index existence + dimension cross-check). If this method throws
+   * (DB unreachable, etc.) the flag stays false and the next call retries.
+   *
+   * Dimension mismatch handling: rather than fail-open into writing vectors
+   * against a wrong-dim index, we call embeddingService.disableForSession().
+   * Older Memgraph versions that do not project `dimension` fall through
+   * with a single warn — the check was attempted but not authoritative.
    */
-  private async ensureVectorIndexes(): Promise<void> {
+  async ensureVectorIndexes(): Promise<void> {
     if (this.vectorIndexesEnsured) return;
 
     const session = this.neo4jDriver.session({
       database: this.configService.get('database.name') || 'neo4j',
     });
     try {
-      const result = await session.executeRead(async (tx: any) => {
-        return await tx.run(
-          'CALL vector_search.show_index_info() YIELD index_name RETURN index_name',
+      // Read existing index names + dimensions in a single pass. On older
+      // Memgraph that does not project `dimension`, the query throws and we
+      // fall back to a name-only read plus a non-authoritative warn.
+      let existingIndexes: Set<string>;
+      let existingDimensions: Map<string, number> | null;
+      try {
+        const result = await session.executeRead(async (tx: any) => {
+          return await tx.run(
+            'CALL vector_search.show_index_info() YIELD index_name, dimension RETURN index_name, dimension',
+          );
+        });
+        existingIndexes = new Set<string>();
+        existingDimensions = new Map<string, number>();
+        for (const rec of result.records as any[]) {
+          const name = rec.get('index_name');
+          existingIndexes.add(name);
+          const dimRaw = rec.get('dimension');
+          // Memgraph returns integer types; neo4j-driver wraps them. Coerce to number.
+          const dim = typeof dimRaw === 'number' ? dimRaw : Number(dimRaw?.toNumber?.() ?? dimRaw);
+          if (Number.isFinite(dim)) existingDimensions.set(name, dim);
+        }
+      } catch (err) {
+        this.logger.warn(
+          'Memgraph vector index dimension projection not available — skipping cross-check',
+          { error: safeErrorMessage(err) },
         );
-      });
-      const existingIndexes = new Set(
-        result.records.map((r: any) => r.get('index_name')),
-      );
+        const result = await session.executeRead(async (tx: any) => {
+          return await tx.run(
+            'CALL vector_search.show_index_info() YIELD index_name RETURN index_name',
+          );
+        });
+        existingIndexes = new Set<string>(
+          result.records.map((r: any) => r.get('index_name')),
+        );
+        existingDimensions = null;
+      }
 
       const dimensions = this.embeddingService.getDimensions();
 
@@ -314,6 +355,16 @@ export class MatchClassesResolverService {
             `CREATE VECTOR INDEX ${indexName} ON :${nodeLabel}(embedding) ` +
               `WITH CONFIG {"dimension": ${dimensions}, "capacity": 500, "metric": "cos"}`,
           );
+        } else if (existingDimensions) {
+          const existing = existingDimensions.get(indexName);
+          if (existing !== undefined && existing !== dimensions) {
+            this.embeddingService.disableForSession(
+              `Vector index ${indexName} has dimension ${existing} but EMBEDDING_DIMENSIONS=${dimensions}. ` +
+                `Pre-existing vectors would be scored against mismatched new vectors. ` +
+                `Recommended: drop the index and restart, or set EMBEDDING_DIMENSIONS to ${existing}.`,
+            );
+            return; // Do NOT set vectorIndexesEnsured — retry will no-op via isEnabled() upstream.
+          }
         }
       }
 

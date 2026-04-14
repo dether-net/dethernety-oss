@@ -413,6 +413,12 @@ These properties are **optional**. Class nodes without them are valid and fully 
 
 The central design principle is **embed before insert**: vectors are computed before class nodes enter the database. This eliminates eventual consistency -- if a class node exists, it already has its embedding. There is no window where a class is queryable by name but not by vector similarity, no `embeddingReady` flag, no background worker.
 
+### Pre-computed vectors (offline install)
+
+Before the pipeline reaches the embedding endpoint, `ModuleManagementService.resolveVectors()` asks the module itself whether it has a pre-computed vector for each class via `DTModule.getEmbedding(className, slug)`. When present, the shipped vector is used directly; only classes without a shipped vector are embedded on the fly. Fully-embedded modules install with zero HTTP calls to the embedding endpoint.
+
+The shipped vector path, the on-the-fly path, and the CLI (`module-manager embed`) all share a single text-composition helper (`@dethernety/dt-module/embedding::composeClassText`) to guarantee the text embedded at build time is byte-equal to the text embedded at install time. See [PRE_COMPUTED_EMBEDDINGS_SPEC.md](../../modules/PRE_COMPUTED_EMBEDDINGS_SPEC.md) for the full design.
+
 ```
   Module metadata (YAML/JSON)
          │

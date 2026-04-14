@@ -1,7 +1,9 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DTModule, DTMetadata } from '@dethernety/dt-module';
+import { slugifyModelName } from '@dethernety/dt-module/embedding';
 import { EmbeddingService } from '../services/embedding.service';
+import { MatchClassesResolverService } from '../resolver-services/match-classes-resolver.service';
 import { GqlConfig } from '../gql.config';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -35,6 +37,8 @@ export class ModuleManagementService {
     @Inject('NEO4J_DRIVER') private readonly neo4jDriver: any,
     private readonly configService: ConfigService,
     private readonly embeddingService: EmbeddingService,
+    @Inject(forwardRef(() => MatchClassesResolverService))
+    private readonly matchClassesResolver: MatchClassesResolverService,
   ) {
     this.config = this.configService.get<GqlConfig>('gql')!;
     
@@ -383,26 +387,42 @@ export class ModuleManagementService {
       });
 
       const classData = this.flattenProperties(cls);
+      const hasEmbedding = embedding !== undefined;
       const nodeProperties = {
         ...classData,
         updatedAt: new Date().toISOString(),
-        ...(embedding ? { embedding, embeddingModel: this.embeddingService.getModel() } : {}),
+        ...(hasEmbedding
+          ? { embedding, embeddingModel: this.embeddingService.getModel() }
+          : {}),
       };
 
-      await tx.run(
-        `MATCH (p:Module {id: $moduleId})
-         MERGE (p)-[:HAS_CLASS]->(t:${classLabel} {name: $name})
-         ON CREATE SET
-           t.id = randomUUID(),
-           t.createdAt = datetime()
-         SET t += $nodeProperties
-         RETURN t`,
-        {
-          moduleId,
-          name: cls.name,
-          nodeProperties,
-        }
-      );
+      // When no vector is provided, REMOVE any stale embedding/embeddingModel
+      // left over from a previous install. Without this, a class that had a
+      // pre-computed vector last time and doesn't this time (model change,
+      // file deleted, per-class dim mismatch) would silently be scored against
+      // a wrong-model vector in match_classes.
+      const cypher = hasEmbedding
+        ? `MATCH (p:Module {id: $moduleId})
+           MERGE (p)-[:HAS_CLASS]->(t:${classLabel} {name: $name})
+           ON CREATE SET
+             t.id = randomUUID(),
+             t.createdAt = datetime()
+           SET t += $nodeProperties
+           RETURN t`
+        : `MATCH (p:Module {id: $moduleId})
+           MERGE (p)-[:HAS_CLASS]->(t:${classLabel} {name: $name})
+           ON CREATE SET
+             t.id = randomUUID(),
+             t.createdAt = datetime()
+           SET t += $nodeProperties
+           REMOVE t.embedding, t.embeddingModel
+           RETURN t`;
+
+      await tx.run(cypher, {
+        moduleId,
+        name: cls.name,
+        nodeProperties,
+      });
 
       const duration = Date.now() - startTime;
       this.recordOperation('upsertClass', duration, {
@@ -433,16 +453,150 @@ export class ModuleManagementService {
   }
 
   /**
+   * Resolve the embedding vector for every class in a module's metadata.
+   *
+   * Runs OUTSIDE any write transaction — the caller must invoke this before
+   * session.executeWrite. The returned Map is handed to upsertModule(...,
+   * vectors?) which does no embedding HTTP.
+   *
+   * Returns null when embedding is disabled (either via EMBEDDING_ENABLED or
+   * a session-level disableForSession flip). When null is returned, Phase 3
+   * writes no embedding properties and REMOVES any stale ones.
+   *
+   * For each class:
+   *   1. Ask the module via moduleInstance.getEmbedding?.(className, slug).
+   *   2. If that returns a vector of the expected dimension, use it.
+   *   3. Otherwise, compose text and batch-embed via the HTTP endpoint.
+   *
+   * Failures in the on-the-fly batch throw — the caller decides per-module
+   * whether to swallow (bulk path) or propagate (single-module mutation).
+   */
+  async resolveVectors(
+    metadata: DTMetadata,
+    moduleInstance?: DTModule,
+  ): Promise<Map<string, number[]> | null> {
+    // Snapshot isEnabled() once so a mid-call flip of the session-disabled
+    // flag does not produce a half-resolved map.
+    if (!this.embeddingService.isEnabled()) return null;
+
+    // Ensure the vector index exists and its dimension matches the config
+    // before we commit any vector writes. On a fresh DB the matchClasses
+    // query path hasn't run yet, so without this the bootstrap would never
+    // fire in time to gate the very first install. ensureVectorIndexes is
+    // idempotent (guarded by an internal boolean flag).
+    await this.matchClassesResolver.ensureVectorIndexes();
+
+    // The dim cross-check may have disabled embedding for the session.
+    // Re-snapshot.
+    if (!this.embeddingService.isEnabled()) return null;
+
+    const rawModel = this.embeddingService.getModel();
+    if (!rawModel) {
+      // Empty EMBEDDING_MODEL config — treat as "no pre-computed lookup
+      // possible" and fall through to on-the-fly for every class.
+      this.logger.warn(
+        'EMBEDDING_MODEL is empty — all classes will be embedded on the fly',
+        { moduleName: metadata.name },
+      );
+    }
+    const modelSlug = rawModel ? slugifyModelName(rawModel) : '';
+    const expectedDim = this.embeddingService.getDimensions();
+
+    // Flatten classes in the same order upsertModule's Phase 3 will iterate.
+    const allClasses: { cls: any; label: string }[] = [];
+    for (const modClass of MODULE_CLASS_CONFIGS) {
+      const classes = metadata[modClass.key];
+      if (classes && Array.isArray(classes)) {
+        for (const cls of classes) {
+          allClasses.push({ cls, label: modClass.label });
+        }
+      }
+    }
+
+    if (allClasses.length === 0) return new Map();
+
+    const resolved = new Map<string, number[]>();
+    const missing: { className: string; text: string }[] = [];
+
+    for (const { cls } of allClasses) {
+      if (!cls?.name) continue;
+
+      let pre: number[] | null = null;
+      if (modelSlug && moduleInstance?.getEmbedding) {
+        try {
+          // getEmbedding contract: synchronous, returns null or number[].
+          // Coerce undefined → null (optional chaining quirk).
+          pre = moduleInstance.getEmbedding(cls.name, modelSlug) ?? null;
+        } catch (err) {
+          this.logger.warn('Module getEmbedding threw — falling through', {
+            moduleName: metadata.name,
+            className: cls.name,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          pre = null;
+        }
+      }
+
+      if (pre && Array.isArray(pre) && pre.length === expectedDim) {
+        resolved.set(cls.name, pre);
+      } else {
+        if (pre && Array.isArray(pre) && pre.length !== expectedDim) {
+          this.logger.warn(
+            'Pre-computed embedding dimension mismatch; falling through to on-the-fly',
+            {
+              moduleName: metadata.name,
+              className: cls.name,
+              expected: expectedDim,
+              got: pre.length,
+            },
+          );
+        }
+        missing.push({
+          className: cls.name,
+          text: this.embeddingService.composeClassText(cls),
+        });
+      }
+    }
+
+    if (missing.length > 0) {
+      const fresh = await this.embeddingService.embedBatch(
+        missing.map((m) => m.text),
+      );
+      // embedBatch returns null only when embedding became disabled between
+      // the snapshot and the call (e.g. dim-mismatch during bootstrap).
+      // In that case, write no vectors at all.
+      if (!fresh) return null;
+      for (let i = 0; i < missing.length; i++) {
+        resolved.set(missing[i].className, fresh[i]);
+      }
+    }
+
+    this.logger.log('Embeddings resolved', {
+      moduleName: metadata.name,
+      total: allClasses.length,
+      preComputed: allClasses.length - missing.length,
+      onTheFly: missing.length,
+    });
+
+    return resolved;
+  }
+
+  /**
    * Upserts a module with comprehensive validation and error handling.
    * @param tx The database transaction
    * @param metadata The module metadata
    * @param options Operation options
+   * @param vectors  Pre-resolved embeddings keyed by className (from
+   *                 resolveVectors). null → embedding disabled (write none);
+   *                 undefined → caller didn't resolve (tests/migrations);
+   *                 Map → per-class lookup.
    * @returns UpsertResult with operation details
    */
   async upsertModule(
-    tx: DatabaseTransaction, 
-    metadata: DTMetadata, 
-    options: ModuleOperationOptions = {}
+    tx: DatabaseTransaction,
+    metadata: DTMetadata,
+    options: ModuleOperationOptions = {},
+    vectors?: Map<string, number[]> | null,
   ): Promise<UpsertResult> {
     const startTime = Date.now();
     let classesProcessed = 0;
@@ -532,21 +686,22 @@ export class ModuleManagementService {
         }
       }
 
-      // Phase 2: Batch-embed all classes if embedding enabled
-      let vectors: number[][] | null = null;
-      if (this.embeddingService.isEnabled() && allClasses.length > 0) {
-        const texts = allClasses.map(({ cls }) =>
-          this.embeddingService.composeClassText(cls),
-        );
-        vectors = await this.embeddingService.embedBatch(texts);
-        // embedBatch throws after 3 retries when enabled but unreachable
-        // — propagates to fail the entire module install (no partial state)
-      }
+      // Phase 2 (embedding resolution) runs OUTSIDE this write transaction now
+      // — see resolveVectors() + updateAllModules Phase A. Holding a Bolt
+      // write tx across an HTTP call to the embedding endpoint would keep
+      // locks open for the entire network round-trip.
+      //
+      // `vectors` is the pre-resolved map keyed by className:
+      //   - null      → embedding disabled for the whole module, write no embedding property
+      //   - undefined → caller did not resolve vectors (legacy path, tests) — equivalent to null
+      //   - Map       → per-class lookup; classes not in the map get no embedding
+      const vectorForClass = (name: string): number[] | undefined =>
+        vectors?.get(name);
 
-      // Phase 3: Upsert each class with its embedding vector
+      // Phase 3: Upsert each class with its (optional) pre-resolved vector.
       for (let i = 0; i < allClasses.length; i++) {
         const { cls, label } = allClasses[i];
-        const embedding = vectors ? vectors[i] : undefined;
+        const embedding = vectorForClass(cls.name);
         try {
           await this.upsertClass(tx, moduleId, cls, label, embedding);
           classesProcessed++;
@@ -655,18 +810,23 @@ export class ModuleManagementService {
     try {
       this.logger.log('Starting single module reset');
 
+      // Phase A — resolve vectors OUTSIDE the write tx. A failure here throws
+      // straight out to the caller (single-module mutation path; no per-module
+      // skip-and-continue like the bulk path).
+      const metadata = await Promise.resolve(moduleInstance.getMetadata());
+      if (!metadata) {
+        throw new Error('Module metadata not found');
+      }
+      const vectors = await this.resolveVectors(metadata, moduleInstance);
+
+      this.logger.debug('Resetting module', {
+        moduleName: metadata.name,
+        version: metadata.version,
+      });
+
+      // Phase B — write tx with pre-resolved vectors (no HTTP inside).
       await session.executeWrite(async (tx: DatabaseTransaction) => {
-        const metadata = await Promise.resolve(moduleInstance.getMetadata());
-        if (!metadata) {
-          throw new Error('Module metadata not found');
-        }
-
-        this.logger.debug('Resetting module', {
-          moduleName: metadata.name,
-          version: metadata.version,
-        });
-
-        const result = await this.upsertModule(tx, metadata, options);
+        const result = await this.upsertModule(tx, metadata, options, vectors);
         moduleInstalled = result.moduleName;
 
         this.logger.log('Module reset successfully', {
@@ -720,18 +880,41 @@ export class ModuleManagementService {
         options,
       });
 
+      // Phase A — resolve vectors for every module OUTSIDE the write tx.
+      // Per-module try/catch preserves today's skip-and-continue semantic:
+      // a failing module is logged and dropped; others still install.
+      const resolved = new Map<
+        string,
+        { metadata: DTMetadata; vectors: Map<string, number[]> | null }
+      >();
+      for (const [moduleName, moduleInstance] of modules) {
+        try {
+          this.logger.debug('Processing module for update', { moduleName });
+          const metadata = await Promise.resolve(moduleInstance.getMetadata());
+          if (!metadata) {
+            this.logger.warn('Module metadata not found, skipping', { moduleName });
+            continue;
+          }
+          const vectors = await this.resolveVectors(metadata, moduleInstance);
+          resolved.set(moduleName, { metadata, vectors });
+        } catch (error) {
+          errorCount++;
+          this.logger.error('Failed to resolve vectors during bulk update', {
+            moduleName,
+            error: error.message,
+            stack: error.stack,
+          });
+          // Continue with other modules — same semantic as today's in-tx catch.
+        }
+      }
+
+      // Phase B — single write tx with pre-resolved vectors; no HTTP inside.
+      // Per-module try/catch retained for symmetry with Phase A and with
+      // the pre-change behavior at module-management.service.ts:725-752.
       await session.executeWrite(async (tx: DatabaseTransaction) => {
-        for (const [moduleName, moduleInstance] of modules) {
+        for (const [moduleName, { metadata, vectors }] of resolved) {
           try {
-            this.logger.debug('Processing module for update', { moduleName });
-
-            const metadata = await Promise.resolve(moduleInstance.getMetadata());
-            if (!metadata) {
-              this.logger.warn('Module metadata not found, skipping', { moduleName });
-              continue;
-            }
-
-            const result = await this.upsertModule(tx, metadata, options);
+            const result = await this.upsertModule(tx, metadata, options, vectors);
             modulesInstalled.push(result.moduleName);
             processedCount++;
 
@@ -740,15 +923,14 @@ export class ModuleManagementService {
               moduleId: result.moduleId,
               classesProcessed: result.classesProcessed,
             });
-
           } catch (error) {
             errorCount++;
-            this.logger.error('Failed to process module during bulk update', {
+            this.logger.error('Failed to upsert module during bulk update', {
               moduleName,
               error: error.message,
               stack: error.stack,
             });
-            // Continue with other modules
+            // Continue with other modules.
           }
         }
 

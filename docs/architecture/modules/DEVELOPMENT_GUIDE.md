@@ -775,6 +775,119 @@ For the full architecture and security model, see [MODULE_CUSTOM_RESOLVERS.md](.
 
 ---
 
+## Pre-computed Embeddings (Optional)
+
+Modules can ship pre-computed embedding vectors alongside their class
+definitions. At install time, the platform prefers a shipped vector over
+calling the embedding endpoint — allowing offline install and eliminating a
+network dependency for the vast majority of classes.
+
+**Authoritative spec:** [PRE_COMPUTED_EMBEDDINGS_SPEC.md](./PRE_COMPUTED_EMBEDDINGS_SPEC.md).
+
+### When to use
+
+- The deployment target has no reachable embedding endpoint (air-gapped,
+  enterprise network without egress).
+- The module is large (hundreds of classes) and you want install to be
+  fast and deterministic.
+- You want to pin the exact text-and-model used for vector generation,
+  so similarity scores remain reproducible across installs.
+
+### End-to-end author workflow
+
+Modules can wire the CLI into their `package.json` so authors get a short
+command (`pnpm embed`) that reads `EMBEDDING_MODEL` and `EMBEDDING_URL`
+from the environment with sensible defaults. `modules/dethernety-module`
+does this; mirror it in your own module:
+
+```json
+{
+  "scripts": {
+    "embed": "../../scripts/module-manager.sh embed . --model ${EMBEDDING_MODEL:-nomic-embed-text} --url ${EMBEDDING_URL:-http://localhost:11434/api/embed}"
+  }
+}
+```
+
+Full round-trip:
+
+```bash
+# 1. Build the module
+cd modules/my-module && pnpm build
+
+# 2. Generate vectors (writes embeddings/<slug>.json under each class dir)
+pnpm embed
+# or with overrides:
+EMBEDDING_MODEL=text-embedding-3-small \
+EMBEDDING_URL=https://api.openai.com/v1/embeddings \
+EMBEDDING_API_KEY=... pnpm embed
+
+# 3. Repackage so the embeddings/ directories end up in the tarball
+pnpm build
+
+# 4. Install (offline-capable now)
+./scripts/module-manager.sh install dist/my-module-1.0.0.tar.gz
+```
+
+Calling the shell wrapper directly works too when you need ad-hoc flags:
+
+```bash
+./scripts/module-manager.sh embed modules/my-module \
+  --model nomic-embed-text \
+  --url http://localhost:11434/api/embed \
+  --batch-size 64
+```
+
+### What `module-manager embed` does
+
+1. Reads `manifest.json` for the module name, then walks
+   `<module-path>/data/<name>/`.
+2. Auto-detects the layout — V2 OPA (`component/`, `dataFlow/`,
+   `securityBoundary/`, `control/`, `data/` with `class.json`) or JSON
+   (`ComponentClasses/` etc. with `metadata.json`).
+3. For each class, composes embedding text using the **same** helper
+   (`composeClassText`) the runtime uses — same formula, same
+   type-normalization — so pre-computed vectors score identically to
+   on-the-fly vectors.
+4. POSTs chunked batches (`--batch-size`, default 128) to the configured
+   endpoint. Supports OpenAI, Ollama `/api/embed`, and Ollama legacy
+   `/api/embeddings` response formats.
+5. Writes each vector to
+   `{classDir}/embeddings/{modelSlug}.json` as a JSON array of floats.
+
+### CLI flags
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--model` | yes | Embedding model name (sent in the request body). |
+| `--url` | yes | Embedding endpoint URL. |
+| `--api-key` | no | Bearer token for the endpoint. |
+| `--batch-size` | no (default 128) | Classes per POST. Endpoints cap input list size — 128 works for Ollama and stays well under OpenAI's 2048 limit. |
+
+The CLI deliberately does not retry on API failure, does not validate
+vector dimensions, and does not delete stale vectors. Rerun after fixing
+the endpoint; `rm -rf data/<name>/*/*/embeddings/` to start clean.
+
+### Model switching
+
+The filename slug is derived from the model name, so
+`embeddings/nomic-embed-text.json` and
+`embeddings/text-embedding-3-small.json` can coexist for different model
+targets. The platform loads only the file matching `EMBEDDING_MODEL` at
+install time; classes without a matching file fall back to on-the-fly.
+
+### Packager support
+
+`oss/scripts/package-module.js` copies the entire `data/` tree
+recursively, so `embeddings/` directories are included automatically in
+the resulting tarball. Legacy cypher/csv modules are **not** supported
+(see [Packaging](./PRE_COMPUTED_EMBEDDINGS_SPEC.md#packaging)).
+
+### Offline install
+
+With every class embedded, installation issues zero HTTP calls to the
+embedding endpoint. Partial coverage is fully supported: classes without
+a pre-computed vector are embedded on the fly during install.
+
 ## Testing and Debugging
 
 ### Local Development

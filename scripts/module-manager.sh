@@ -100,6 +100,18 @@ cmd_list() {
   "${TSX}" "${TS_CORE}" list "$@"
 }
 
+# ── command: embed ───────────────────────────────────────────────────────
+# Generate pre-computed class embeddings for a module.
+cmd_embed() {
+  check_prerequisites
+
+  local module_path="${1:?Usage: module-manager.sh embed <module-path> --model <name> --url <endpoint> [--api-key <key>] [--batch-size <n>]}"
+  shift
+
+  log "Generating embeddings for module at ${module_path}…"
+  "${TSX}" "${TS_CORE}" embed "${module_path}" "$@"
+}
+
 # ── usage ────────────────────────────────────────────────────────────────
 usage() {
   cat <<EOF
@@ -110,6 +122,7 @@ Usage:
   $(basename "$0") install <module.tar.gz> [options]    Install a packaged module
   $(basename "$0") ingest  <cypher-file-or-dir> [opts]  Run Cypher files against Memgraph
   $(basename "$0") list    [options]                     List installed modules
+  $(basename "$0") embed   <module-path> [opts]         Generate pre-computed class embeddings
 
 Options:
   --target <path>       Module installation target directory
@@ -118,6 +131,10 @@ Options:
   --db-user <user>      Database user  (default: dethernety)
   --db-pass <pass>      Database password
   --state-file <path>   Path to installed-modules.json
+  --model <name>        Embedding model (embed only, required)
+  --url <endpoint>      Embedding endpoint URL (embed only, required)
+  --api-key <key>       Bearer token for the embedding endpoint (embed only)
+  --batch-size <n>      Classes per POST (embed only, default: 128)
   --help                Show this message
 EOF
 }
@@ -128,6 +145,7 @@ case "${1:-}" in
   install) shift; cmd_install "$@" ;;
   ingest)  shift; cmd_ingest "$@" ;;
   list)    shift; cmd_list "$@" ;;
+  embed)   shift; cmd_embed "$@" ;;
   --help|-h|help) usage ;;
   *)
     if [ -n "${1:-}" ]; then
