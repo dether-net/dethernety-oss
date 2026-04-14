@@ -88,6 +88,15 @@ main() {
     mkdir -p "$MODULE_DIR/data"
     mkdir -p "$MODULE_DIR/dist"
 
+    # Remove any stragglers from previous runs that died before cleanup
+    # (SIGKILL, terminal crash, system reboot — the EXIT trap never fired).
+    local stragglers
+    stragglers=$(docker ps -a --filter 'name=^memgraph-mitre-build-' --format '{{.Names}}' || true)
+    if [[ -n "$stragglers" ]]; then
+        log_warn "Removing straggler container(s) from prior runs: $stragglers"
+        echo "$stragglers" | xargs -r docker rm -f >/dev/null
+    fi
+
     # Start Memgraph container
     log_info "Starting temporary Memgraph container..."
     docker run -d \

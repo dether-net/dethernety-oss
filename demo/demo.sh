@@ -215,7 +215,9 @@ if needs_module_install; then
   MITRE_DIR="${OSS_ROOT}/modules/mitre-frameworks"
   if [ -d "${MITRE_DIR}" ]; then
     step "Building mitre-frameworks (this may take a few minutes)"
-    if "${MODULE_MANAGER}" build "${MITRE_DIR}" 2>/dev/null; then
+    MITRE_BUILD_LOG="${DEMO_DIR}/.mitre-build.log"
+    if "${MODULE_MANAGER}" build "${MITRE_DIR}" >"${MITRE_BUILD_LOG}" 2>&1; then
+      rm -f "${MITRE_BUILD_LOG}"
       MITRE_TARBALL=$(find "${MITRE_DIR}/dist" -name "mitre-frameworks-*.tar.gz" 2>/dev/null | head -1)
       if [ -n "${MITRE_TARBALL}" ]; then
         step "Installing mitre-frameworks"
@@ -230,8 +232,9 @@ if needs_module_install; then
         warn "mitre-frameworks tarball not found after build — skipping."
       fi
     else
-      warn "mitre-frameworks build failed (may need Python + venv). Skipping."
-      warn "Install later with: ../scripts/module-manager.sh build ../modules/mitre-frameworks"
+      warn "mitre-frameworks build failed. Last 20 lines of ${MITRE_BUILD_LOG}:"
+      tail -n 20 "${MITRE_BUILD_LOG}" >&2 || true
+      warn "Retry later with: ../scripts/module-manager.sh build ../modules/mitre-frameworks"
     fi
   fi
   # Restart dethernety so it picks up the newly installed modules
