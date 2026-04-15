@@ -22,9 +22,12 @@ overrides:
   defu: '>=6.1.5'
   path-to-regexp@>=8.0.0: '>=8.4.0'
   picomatch@<4.0.0: '>=2.3.2'
+  picomatch@>=4.0.0: '>=4.0.4'
   brace-expansion@<2.0.0: '>=1.1.13 <2.0.0'
   brace-expansion@>=2.0.0 <3.0.0: '>=2.0.3 <3.0.0'
+  brace-expansion@>=5.0.0: '>=5.0.5'
   yaml@<2.0.0: '>=1.10.3 <2.0.0'
+  flatted: '>=3.4.2'
   '@apollo/federation-internals': '>=2.13.2'
 
 importers:
