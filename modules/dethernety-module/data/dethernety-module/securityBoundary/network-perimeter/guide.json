@@ -719,7 +719,7 @@
   {
     "option_name": "split_tunneling_enabled",
     "option_description": "Controls whether the VPN gateway policy allows remote clients to simultaneously route traffic through the VPN tunnel and directly to the internet outside the VPN boundary. When enabled, only traffic destined for specific corporate subnets traverses the VPN, while all other traffic exits directly through the client's local internet connection.",
-    "security_impact": "The Rego policy fires vpn_split_tunneling_enforcement_gap when split_tunneling_enabled is true AND either vpn_client_traffic_inspection_enforced is false OR vpn_client_subnet_segmentation is 'none' or 'partial'. Split tunneling creates an unmonitored ingress path — a compromised endpoint can be used as a pivot into the internal zone while its internet traffic bypasses VPN inspection entirely, enabling T1572 Protocol Tunneling and T1599 Network Boundary Bridging attacks.",
+    "security_impact": "The Rego policy fires vpn_split_tunneling_enforcement_gap when split_tunneling_enabled is true AND either vpn_client_traffic_inspection_enforced is false OR vpn_client_subnet_segmentation is 'none' or 'partial'. Split tunneling creates an unmonitored ingress path \u2014 a compromised endpoint can be used as a pivot into the internal zone while its internet traffic bypasses VPN inspection entirely, enabling T1572 Protocol Tunneling and T1599 Network Boundary Bridging attacks.",
     "how_to_obtain": [
       {
         "type": "command",
@@ -1107,7 +1107,8 @@
         "navigation": null,
         "expected_output": "Each rule containing 'service-https' or 'service-dns' should show an application value other than 'any' and a non-empty profile-setting element."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "allowed_ports_without_protocol_enforcement",
@@ -1146,12 +1147,13 @@
         "navigation": null,
         "expected_output": "Policies returned with empty application arrays but explicit service ports indicate those ports are enforced by port-matching only; collect those port numbers into this array."
       }
-    ]
+    ],
+    "value_type": "array"
   },
   {
     "option_name": "stateful_inspection_symmetry_enforced",
     "option_description": "Controls whether the load balancer or multi-homed firewall configuration guarantees that both the request and response packets for any given TCP/UDP connection always traverse the same stateful firewall instance. This is enforced through mechanisms such as source IP affinity (sticky sessions), ECMP with consistent flow hashing (5-tuple), or active/standby HA with no ECMP.",
-    "security_impact": "The Rego rule `asymmetric_routing_breaking_stateful_inspection` fires when `asymmetric_routing_paths_present` is true AND neither `stateful_inspection_symmetry_enforced` nor `firewall_state_synchronization_enabled` is true. Without symmetry enforcement, return traffic may reach a firewall instance that has no record of the original connection, causing it to drop or—in permissive configurations—pass uninspected traffic, effectively bypassing stateful policy. This enables T1599 (Network Boundary Bridging) and T1090.003 (Multi-hop Proxy) attacks.",
+    "security_impact": "The Rego rule `asymmetric_routing_breaking_stateful_inspection` fires when `asymmetric_routing_paths_present` is true AND neither `stateful_inspection_symmetry_enforced` nor `firewall_state_synchronization_enabled` is true. Without symmetry enforcement, return traffic may reach a firewall instance that has no record of the original connection, causing it to drop or\u2014in permissive configurations\u2014pass uninspected traffic, effectively bypassing stateful policy. This enables T1599 (Network Boundary Bridging) and T1090.003 (Multi-hop Proxy) attacks.",
     "how_to_obtain": [
       {
         "type": "command",
@@ -1185,12 +1187,13 @@
         "navigation": null,
         "expected_output": "Output should show 'stickiness.enabled' = 'true' and a non-zero 'stickiness.lb_cookie.duration_seconds' or 'stickiness.app_cookie.duration_seconds' value."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "firewall_state_synchronization_enabled",
     "option_description": "Controls whether connection state tables are actively synchronized across all firewall instances in a cluster or multi-homed HA deployment. When enabled, any firewall node can inspect return traffic for connections initiated through a peer node, compensating for asymmetric routing without requiring strict traffic path symmetry.",
-    "security_impact": "The Rego rule `asymmetric_routing_breaking_stateful_inspection` requires that at least one of `stateful_inspection_symmetry_enforced` or `firewall_state_synchronization_enabled` be true to avoid triggering when `asymmetric_routing_paths_present` is true. Without state synchronization and without symmetry enforcement, a firewall node receiving return traffic it did not process for the initial SYN will have no connection table entry, potentially dropping legitimate traffic or—if configured to fail-open—passing it without inspection. This creates an uninspected channel exploitable via T1599 and T1020.001 (Traffic Duplication).",
+    "security_impact": "The Rego rule `asymmetric_routing_breaking_stateful_inspection` requires that at least one of `stateful_inspection_symmetry_enforced` or `firewall_state_synchronization_enabled` be true to avoid triggering when `asymmetric_routing_paths_present` is true. Without state synchronization and without symmetry enforcement, a firewall node receiving return traffic it did not process for the initial SYN will have no connection table entry, potentially dropping legitimate traffic or\u2014if configured to fail-open\u2014passing it without inspection. This creates an uninspected channel exploitable via T1599 and T1020.001 (Traffic Duplication).",
     "how_to_obtain": [
       {
         "type": "command",
@@ -1224,7 +1227,8 @@
         "navigation": "Device > High Availability > General > Setup: HA Enabled=Yes; Election Settings: check 'Session Synchronization' checkbox is checked; State Synchronization: verify sync interface is defined and status shows 'synchronized'",
         "expected_output": "The HA dashboard should display both peers as 'synchronized' with a non-zero session count under 'Synchronized Sessions'. Any 'out-of-sync' status requires investigation."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "asymmetric_routing_paths_present",
@@ -1263,7 +1267,8 @@
         "navigation": null,
         "expected_output": "If SYN packets appear on interface eth0 but SYN-ACK packets appear on eth1, asymmetric routing is confirmed and the attribute should be set to true."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "credential_scope_separation_enforced",
@@ -1302,7 +1307,8 @@
         "navigation": null,
         "expected_output": "The TACACS+ or RADIUS server group referenced by boundary devices should use a distinct server IP or a distinct group/realm from that used by internal network devices and servers."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "shared_credential_identities_detected",
@@ -1341,7 +1347,8 @@
         "navigation": null,
         "expected_output": "The team should confirm that break-glass accounts are unique per zone with distinct credentials, vaulted separately, and rotated independently. Any admission of shared emergency credentials confirms this attribute as true."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "boundary_to_internal_mfa_required",
@@ -1380,7 +1387,8 @@
         "navigation": null,
         "expected_output": "The walkthrough should demonstrate that after VPN authentication, reaching an internal server (e.g., via SSH to a production host or RDP to a domain controller) triggers a distinct MFA challenge (TOTP, push notification, hardware token). If internal access is reachable without any additional prompt, the attribute should be set to false."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "shadowed_rule_count",
@@ -1423,8 +1431,8 @@
     "value_type": "integer",
     "typical_values": [
       "0 (target state, clean policy)",
-      "1–5 (common in mid-sized environments with moderate policy churn)",
-      "10–50 (typical in enterprises with unmanaged rule accumulation over years)",
+      "1\u20135 (common in mid-sized environments with moderate policy churn)",
+      "10\u201350 (typical in enterprises with unmanaged rule accumulation over years)",
       "100+ (legacy environments with no formal policy lifecycle)"
     ]
   },
@@ -1469,8 +1477,8 @@
     "value_type": "integer",
     "typical_values": [
       "0 (target state)",
-      "1–10 (well-managed environments with regular decommission procedures)",
-      "20–100 (typical in organizations lacking formal firewall lifecycle management)",
+      "1\u201310 (well-managed environments with regular decommission procedures)",
+      "20\u2013100 (typical in organizations lacking formal firewall lifecycle management)",
       "200+ (large legacy environments where service decommissions are not tracked to firewall cleanup)"
     ]
   },
@@ -1514,9 +1522,9 @@
     ],
     "value_type": "integer",
     "typical_values": [
-      "0–90 (mature security programs with quarterly review cycles)",
-      "91–180 (acceptable range for semi-annual review cadence)",
-      "181–365 (common in organizations without formal recertification programs; triggers policy finding)",
+      "0\u201390 (mature security programs with quarterly review cycles)",
+      "91\u2013180 (acceptable range for semi-annual review cadence)",
+      "181\u2013365 (common in organizations without formal recertification programs; triggers policy finding)",
       "365+ (high-risk state seen in legacy environments; indicates no structured review process)"
     ]
   },
