@@ -94,7 +94,7 @@
   },
   {
     "option_name": "world_read_bit_set",
-    "option_description": "A boolean indicating whether the least-significant permission octet of a file has the read bit (bit 2, value 4) set for the 'other' (world) user class. When true, any local user or process on the system—regardless of ownership or group membership—can read the file's contents without any special privileges.",
+    "option_description": "A boolean indicating whether the least-significant permission octet of a file has the read bit (bit 2, value 4) set for the 'other' (world) user class. When true, any local user or process on the system\u2014regardless of ownership or group membership\u2014can read the file's contents without any special privileges.",
     "security_impact": "This is a primary trigger in the Rego world_readable_sensitive_files rule. When world_read_bit_set is true AND file_classification is 'private_key', 'credential', or 'sensitive_config', a high-criticality exposure (score 8) is raised immediately. An attacker who has obtained any unprivileged shell (via web exploitation, misconfigured service, etc.) can read SSH private keys, API tokens, or database passwords from world-readable sensitive files, enabling lateral movement or privilege escalation without needing to exploit any additional vulnerability.",
     "how_to_obtain": [
       {
@@ -301,7 +301,7 @@
         "instruction": "In AWS Console, verify EBS volume encryption to determine if provider_managed encryption is active.",
         "command": null,
         "file_path": null,
-        "navigation": "AWS Console → EC2 → Volumes → select the volume → Details tab → Encryption field shows 'Encrypted' or 'Not encrypted'. KMS Key ID field will show the key ARN if provider_managed encryption is enabled.",
+        "navigation": "AWS Console \u2192 EC2 \u2192 Volumes \u2192 select the volume \u2192 Details tab \u2192 Encryption field shows 'Encrypted' or 'Not encrypted'. KMS Key ID field will show the key ARN if provider_managed encryption is enabled.",
         "expected_output": "Encryption: Encrypted and a KMS Key ID populated indicates 'provider_managed'. 'Not encrypted' indicates 'none'."
       },
       {
@@ -381,7 +381,7 @@
         "command": "grep -rEi 'key[_-]?(file|path|store|location)|encryption[_-]?key' /etc/ /opt/ /app/ 2>/dev/null | grep -v Binary",
         "file_path": null,
         "navigation": null,
-        "expected_output": "Paths such as '/etc/ssl/private/app.key' or '/var/lib/app/keys/' — compare these against 'df -h' output to determine if they share a mount point with encrypted data volumes."
+        "expected_output": "Paths such as '/etc/ssl/private/app.key' or '/var/lib/app/keys/' \u2014 compare these against 'df -h' output to determine if they share a mount point with encrypted data volumes."
       },
       {
         "type": "command",
@@ -417,7 +417,7 @@
   },
   {
     "option_name": "key_file_plaintext",
-    "option_description": "Indicates whether encryption key material is stored as a raw, unencrypted file on the filesystem — such as a bare PEM private key, raw binary key material, or an unobfuscated key string embedded in a configuration file — rather than being wrapped by a key-encryption-key (KEK) or envelope encryption scheme.",
+    "option_description": "Indicates whether encryption key material is stored as a raw, unencrypted file on the filesystem \u2014 such as a bare PEM private key, raw binary key material, or an unobfuscated key string embedded in a configuration file \u2014 rather than being wrapped by a key-encryption-key (KEK) or envelope encryption scheme.",
     "security_impact": "The Rego policy fires the 'unprotected_encryption_key_storage' exposure when key_file_plaintext is true. Plaintext key material on disk can be exfiltrated by any process or user with read access to the key file, read access to /proc/mem of a process that loaded the key, or access to backup snapshots of the filesystem. Envelope encryption or KEK wrapping ensures the raw key material is never at rest in usable form.",
     "how_to_obtain": [
       {
@@ -470,7 +470,7 @@
         "command": "stat -c '%a %n' /path/to/keyfile",
         "file_path": null,
         "navigation": null,
-        "expected_output": "Output such as '400 /etc/ssl/private/app.key' (secure) or '644 /etc/ssl/private/app.key' (insecure — world-readable). Record the numeric value as the attribute value."
+        "expected_output": "Output such as '400 /etc/ssl/private/app.key' (secure) or '644 /etc/ssl/private/app.key' (insecure \u2014 world-readable). Record the numeric value as the attribute value."
       },
       {
         "type": "command",
@@ -501,7 +501,7 @@
   {
     "option_name": "unauthorized_suid_sgid_binaries",
     "option_description": "Contains the list of executable files discovered on the filesystem that have the SUID (Set User ID) or SGID (Set Group ID) bit set but are not present in the organization-approved whitelist of permitted elevated-execution binaries. SUID/SGID bits cause a binary to execute with the file owner's or group's privileges rather than the invoking user's privileges.",
-    "security_impact": "The Rego policy triggers the 'suid_sgid_bit_misconfiguration' exposure whenever count(input.unauthorized_suid_sgid_binaries) is greater than zero. Any non-whitelisted SUID/SGID binary represents a potential privilege escalation path — an attacker who can invoke such a binary may gain the file owner's privileges (commonly root). This is a primary technique in local privilege escalation attacks and post-exploitation persistence.",
+    "security_impact": "The Rego policy triggers the 'suid_sgid_bit_misconfiguration' exposure whenever count(input.unauthorized_suid_sgid_binaries) is greater than zero. Any non-whitelisted SUID/SGID binary represents a potential privilege escalation path \u2014 an attacker who can invoke such a binary may gain the file owner's privileges (commonly root). This is a primary technique in local privilege escalation attacks and post-exploitation persistence.",
     "how_to_obtain": [
       {
         "type": "command",
@@ -517,7 +517,7 @@
         "command": "find / -perm /6000 -type f -exec ls -la {} \\; 2>/dev/null",
         "file_path": null,
         "navigation": null,
-        "expected_output": "Lines such as '-rwsr-xr-x 1 root root 67816 Apr 2 2021 /usr/bin/passwd' — the 's' in user or group execute position indicates SUID or SGID. Non-standard paths (e.g., /tmp/, /opt/, /home/) are strong indicators of unauthorized binaries."
+        "expected_output": "Lines such as '-rwsr-xr-x 1 root root 67816 Apr 2 2021 /usr/bin/passwd' \u2014 the 's' in user or group execute position indicates SUID or SGID. Non-standard paths (e.g., /tmp/, /opt/, /home/) are strong indicators of unauthorized binaries."
       },
       {
         "type": "command",
@@ -546,7 +546,7 @@
   {
     "option_name": "suid_sgid_binaries_owned_by_root",
     "option_description": "A boolean flag indicating whether any of the binaries identified in 'unauthorized_suid_sgid_binaries' are owned by the root user (UID 0). Root-owned SUID/SGID binaries are the most dangerous category because executing them elevates the invoking user's effective UID to 0, granting full system control.",
-    "security_impact": "The Rego policy fires an additional condition within 'suid_sgid_bit_misconfiguration' when both count(input.unauthorized_suid_sgid_binaries) > 0 and suid_sgid_binaries_owned_by_root is true. Root-owned SUID binaries represent direct privilege escalation to root — the most severe form of local privilege escalation. Even a single such binary can allow any local user to fully compromise the host.",
+    "security_impact": "The Rego policy fires an additional condition within 'suid_sgid_bit_misconfiguration' when both count(input.unauthorized_suid_sgid_binaries) > 0 and suid_sgid_binaries_owned_by_root is true. Root-owned SUID binaries represent direct privilege escalation to root \u2014 the most severe form of local privilege escalation. Even a single such binary can allow any local user to fully compromise the host.",
     "how_to_obtain": [
       {
         "type": "command",
@@ -582,7 +582,7 @@
   {
     "option_name": "world_writable_suid_sgid_binary_present",
     "option_description": "Indicates whether any SUID or SGID binary on the system is simultaneously world-writable (write permission bit set for 'others'). This combination is critically dangerous: any unprivileged user can overwrite the binary's contents, then invoke it to execute arbitrary code with the elevated privileges granted by the SUID/SGID bits.",
-    "security_impact": "The Rego policy fires a standalone 'suid_sgid_bit_misconfiguration' exposure condition directly when world_writable_suid_sgid_binary_present is true, independent of the unauthorized binary list. This condition represents one of the most severe local privilege escalation vulnerabilities possible — an unprivileged attacker can replace a SUID root binary with a malicious payload and trigger immediate root-level code execution.",
+    "security_impact": "The Rego policy fires a standalone 'suid_sgid_bit_misconfiguration' exposure condition directly when world_writable_suid_sgid_binary_present is true, independent of the unauthorized binary list. This condition represents one of the most severe local privilege escalation vulnerabilities possible \u2014 an unprivileged attacker can replace a SUID root binary with a malicious payload and trigger immediate root-level code execution.",
     "how_to_obtain": [
       {
         "type": "command",
@@ -618,7 +618,7 @@
   {
     "option_name": "auditd_rules_configured",
     "option_description": "Indicates whether the Linux Audit daemon (auditd) has watch rules configured that target sensitive files and directories such as /etc/passwd, /etc/shadow, /etc/ssh/, /root, and similar high-value paths. Watch rules cause auditd to generate audit log entries whenever the watched paths are accessed, modified, or have attribute changes.",
-    "security_impact": "The Rego policy fires the 'insufficient_filesystem_audit_logging' exposure when auditd_service_running is true but auditd_rules_configured is false (and no alternative monitoring is present), and also when sensitive_path_watch_count equals zero. Without audit rules on sensitive paths, unauthorized access to credential files, SSH keys, or configuration files will be completely invisible — attackers can read /etc/shadow or modify /etc/sudoers without generating any log evidence, preventing detection and forensic investigation.",
+    "security_impact": "The Rego policy fires the 'insufficient_filesystem_audit_logging' exposure when auditd_service_running is true but auditd_rules_configured is false (and no alternative monitoring is present), and also when sensitive_path_watch_count equals zero. Without audit rules on sensitive paths, unauthorized access to credential files, SSH keys, or configuration files will be completely invisible \u2014 attackers can read /etc/shadow or modify /etc/sudoers without generating any log evidence, preventing detection and forensic investigation.",
     "how_to_obtain": [
       {
         "type": "command",
@@ -662,7 +662,7 @@
   {
     "option_name": "auditd_service_running",
     "option_description": "Indicates whether the auditd daemon process is currently active and running on the host. Auditd is the userspace component of the Linux Audit subsystem that receives audit events from the kernel and writes them to the audit log. Without the service running, no filesystem audit events are captured regardless of rule configuration.",
-    "security_impact": "The Rego policy triggers the 'insufficient_filesystem_audit_logging' exposure when auditd_service_running is false (and no alternative monitoring is present). A stopped or inactive auditd daemon means the entire audit subsystem is non-functional — no events for sensitive file access, privilege use, or configuration changes are recorded. This creates a complete blind spot for incident response and compliance auditing, and satisfies attacker goals of operating without generating forensic evidence.",
+    "security_impact": "The Rego policy triggers the 'insufficient_filesystem_audit_logging' exposure when auditd_service_running is false (and no alternative monitoring is present). A stopped or inactive auditd daemon means the entire audit subsystem is non-functional \u2014 no events for sensitive file access, privilege use, or configuration changes are recorded. This creates a complete blind spot for incident response and compliance auditing, and satisfies attacker goals of operating without generating forensic evidence.",
     "how_to_obtain": [
       {
         "type": "command",
@@ -743,15 +743,15 @@
     ],
     "value_type": "integer",
     "typical_values": [
-      "0 (no rules — insecure default)",
-      "3–5 (partial coverage)",
-      "6–10 (covers /etc/passwd, /etc/shadow, /etc/sudoers, /etc/ssh/, /root, /var/log — recommended minimum)",
+      "0 (no rules \u2014 insecure default)",
+      "3\u20135 (partial coverage)",
+      "6\u201310 (covers /etc/passwd, /etc/shadow, /etc/sudoers, /etc/ssh/, /root, /var/log \u2014 recommended minimum)",
       "15+ (comprehensive enterprise baseline)"
     ]
   },
   {
     "option_name": "alternative_fs_monitoring_configured",
-    "option_description": "Indicates whether a non-auditd filesystem monitoring solution — such as inotifywait, OSSEC/Wazuh FIM (syscheck), or Falco filesystem rules — is actively configured to monitor sensitive paths, serving as a substitute or complement to auditd watch rules.",
+    "option_description": "Indicates whether a non-auditd filesystem monitoring solution \u2014 such as inotifywait, OSSEC/Wazuh FIM (syscheck), or Falco filesystem rules \u2014 is actively configured to monitor sensitive paths, serving as a substitute or complement to auditd watch rules.",
     "security_impact": "The Rego policy allows 'insufficient_filesystem_audit_logging' to fire when auditd is absent or has zero sensitive path rules AND this attribute is false. A true value satisfies the policy's fallback condition, meaning at least one monitoring layer is present. Without either auditd or an alternative, unauthorized modifications to credential stores, SSH keys, or logs are entirely invisible to defenders.",
     "how_to_obtain": [
       {
@@ -804,7 +804,7 @@
         "command": "mount | grep ' /tmp ' | awk '{print $6}' | tr -d '()'",
         "file_path": null,
         "navigation": null,
-        "expected_output": "A comma-separated string such as 'rw,nosuid,nodev,noexec,relatime' — all three security options should be present"
+        "expected_output": "A comma-separated string such as 'rw,nosuid,nodev,noexec,relatime' \u2014 all three security options should be present"
       },
       {
         "type": "command",
@@ -820,7 +820,7 @@
         "command": "grep -E '\\s/tmp\\s' /etc/fstab",
         "file_path": "/etc/fstab",
         "navigation": null,
-        "expected_output": "An fstab entry such as 'tmpfs /tmp tmpfs defaults,nodev,nosuid,noexec 0 0' — if absent, /tmp may inherit root filesystem options on remount"
+        "expected_output": "An fstab entry such as 'tmpfs /tmp tmpfs defaults,nodev,nosuid,noexec 0 0' \u2014 if absent, /tmp may inherit root filesystem options on remount"
       },
       {
         "type": "command",
@@ -833,8 +833,8 @@
     ],
     "value_type": "array",
     "typical_values": [
-      "['rw', 'relatime'] (insecure default — no security options)",
-      "['rw', 'nosuid', 'nodev', 'relatime'] (partial — missing noexec)",
+      "['rw', 'relatime'] (insecure default \u2014 no security options)",
+      "['rw', 'nosuid', 'nodev', 'relatime'] (partial \u2014 missing noexec)",
       "['rw', 'nosuid', 'nodev', 'noexec', 'relatime'] (secure recommended configuration)",
       "['rw', 'nosuid', 'nodev', 'noexec', 'size=1G', 'mode=1777', 'relatime'] (hardened with size limit)"
     ]
@@ -879,7 +879,7 @@
     ],
     "value_type": "array",
     "typical_values": [
-      "[] or null (not separately mounted — inherits /var or root options, typically insecure)",
+      "[] or null (not separately mounted \u2014 inherits /var or root options, typically insecure)",
       "['rw', 'relatime'] (mounted but without security hardening)",
       "['rw', 'nosuid', 'nodev', 'noexec', 'relatime'] (secure dedicated mount)",
       "['rw', 'bind', 'nosuid', 'nodev', 'noexec'] (bind-mounted from hardened /tmp)"
@@ -925,14 +925,14 @@
     ],
     "value_type": "boolean",
     "typical_values": [
-      "true (common default on many Linux distributions — syslog/rsyslog creates 644 files)",
+      "true (common default on many Linux distributions \u2014 syslog/rsyslog creates 644 files)",
       "false (hardened systems using 640 permissions with adm/syslog group ownership)"
     ]
   },
   {
     "option_name": "sensitive_data_patterns_in_logs",
     "option_description": "Indicates whether scanning of log files has detected patterns consistent with credentials, API tokens, PII, private key material, or other sensitive data (e.g., 'password=', 'Authorization: Bearer', SSN patterns, PEM headers) that should not appear in log output.",
-    "security_impact": "The Rego policy 'sensitive_data_in_unprotected_log_files' fires when sensitive_data_patterns_in_logs is true AND log_file_permissions_world_readable is true. Even without world-readable permissions, sensitive data in logs multiplies the impact of any log access — whether by authorized users, log aggregation services with weak ACLs, or attackers who gain read access. Credentials in logs often persist long after rotation, providing attackers with durable access material.",
+    "security_impact": "The Rego policy 'sensitive_data_in_unprotected_log_files' fires when sensitive_data_patterns_in_logs is true AND log_file_permissions_world_readable is true. Even without world-readable permissions, sensitive data in logs multiplies the impact of any log access \u2014 whether by authorized users, log aggregation services with weak ACLs, or attackers who gain read access. Credentials in logs often persist long after rotation, providing attackers with durable access material.",
     "how_to_obtain": [
       {
         "type": "command",
@@ -975,7 +975,7 @@
   },
   {
     "option_name": "log_sanitization_enabled",
-    "option_description": "Indicates whether the application or logging framework has active log filtering or redaction mechanisms — such as log4j Replace converters, Logback MaskingConverter, middleware request scrubbers, or custom redaction libraries — that strip or mask sensitive field values before writing to log files.",
+    "option_description": "Indicates whether the application or logging framework has active log filtering or redaction mechanisms \u2014 such as log4j Replace converters, Logback MaskingConverter, middleware request scrubbers, or custom redaction libraries \u2014 that strip or mask sensitive field values before writing to log files.",
     "security_impact": "The Rego policy 'sensitive_data_in_unprotected_log_files' fires when log_sanitization_enabled is false (or not set) AND log_file_permissions_world_readable is true, regardless of whether sensitive patterns are actually detected. The policy treats absence of sanitization as a systemic risk: even if no sensitive data appears today, lack of a redaction mechanism means one code change or configuration error can silently begin logging credentials. This provides defense-in-depth against accidental sensitive data exposure.",
     "how_to_obtain": [
       {
@@ -1013,14 +1013,14 @@
     ],
     "value_type": "boolean",
     "typical_values": [
-      "false (default — most applications have no explicit log sanitization unless configured)",
+      "false (default \u2014 most applications have no explicit log sanitization unless configured)",
       "true (applications using mature logging frameworks with redaction plugins, or those subject to PCI-DSS/HIPAA compliance requirements)"
     ]
   },
   {
     "option_name": "fim_tool_installed",
-    "option_description": "Indicates whether a recognized file integrity monitoring (FIM) tool — such as AIDE (Advanced Intrusion Detection Environment), Tripwire, Samhain, or kernel-level dm-verity — is installed on the system and capable of detecting unauthorized modifications to critical files and binaries.",
-    "security_impact": "The Rego policy 'missing_filesystem_integrity_monitoring' fires immediately when fim_tool_installed is false. Without FIM, modifications to system binaries (/usr/bin, /sbin), libraries (/lib, /usr/lib), or configuration files (/etc) by rootkits, malware, or attackers who have achieved local access go completely undetected. FIM is a core detective control for persistence and tampering — its absence means an attacker can replace binaries or backdoor SSH configurations indefinitely without triggering alerts.",
+    "option_description": "Indicates whether a recognized file integrity monitoring (FIM) tool \u2014 such as AIDE (Advanced Intrusion Detection Environment), Tripwire, Samhain, or kernel-level dm-verity \u2014 is installed on the system and capable of detecting unauthorized modifications to critical files and binaries.",
+    "security_impact": "The Rego policy 'missing_filesystem_integrity_monitoring' fires immediately when fim_tool_installed is false. Without FIM, modifications to system binaries (/usr/bin, /sbin), libraries (/lib, /usr/lib), or configuration files (/etc) by rootkits, malware, or attackers who have achieved local access go completely undetected. FIM is a core detective control for persistence and tampering \u2014 its absence means an attacker can replace binaries or backdoor SSH configurations indefinitely without triggering alerts.",
     "how_to_obtain": [
       {
         "type": "command",
@@ -1098,7 +1098,8 @@
         "navigation": null,
         "expected_output": "The 'database' directive points to an existing .db file and a 'database_out' directive is defined; cron integration or inotify daemon mode is configured."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "fim_critical_paths_covered",
@@ -1137,7 +1138,8 @@
         "navigation": null,
         "expected_output": "All six critical directory prefixes appear at least once across the combined configuration."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "noexec_option_set",
@@ -1176,7 +1178,8 @@
         "navigation": null,
         "expected_output": "The shell returns 'Permission denied' (exit code 126) when noexec is enforced; exit code 0 means noexec is absent."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "nosuid_option_set",
@@ -1215,7 +1218,8 @@
         "navigation": null,
         "expected_output": "If nosuid is active, the 's' bit still appears in ls output but execution will not grant elevated privileges; use 'findmnt -o TARGET,OPTIONS' to confirm the flag."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "nodev_option_set",
@@ -1254,7 +1258,8 @@
         "navigation": null,
         "expected_output": "With nodev enforced, mknod succeeds in creating the inode but accessing the device returns 'Operation not permitted'; absence of nodev allows the device to function."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "plaintext_secrets_detected",
@@ -1293,7 +1298,8 @@
         "navigation": null,
         "expected_output": "No files listed means no exposed private key material was found outside expected controlled paths."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "secrets_manager_in_use",
@@ -1332,7 +1338,8 @@
         "navigation": null,
         "expected_output": "Environment variables or annotations referencing a secrets manager endpoint confirm runtime secret retrieval is configured rather than local file storage."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "secret_file_world_readable",
@@ -1371,7 +1378,8 @@
         "navigation": null,
         "expected_output": "No 'EXPOSED' lines means private keys are properly restricted. Any 'EXPOSED' entry indicates a world-readable private key requiring immediate chmod 600 remediation."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "root_owned_world_writable_path_count",

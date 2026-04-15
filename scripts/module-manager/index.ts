@@ -18,6 +18,7 @@ import { Installer } from './installer';
 import { DatabaseClient } from './database';
 import { StateManager } from './state';
 import { runEmbed } from './embed';
+import { runExport } from './export';
 
 // ── argument parsing ────────────────────────────────────────────────────
 
@@ -34,6 +35,8 @@ const { values, positionals } = parseArgs({
     'url':         { type: 'string', default: '' },
     'api-key':     { type: 'string', default: '' },
     'batch-size':  { type: 'string', default: '128' },
+    'output':      { type: 'string', default: '' },
+    'include-embeddings': { type: 'boolean', default: false },
     'help':        { type: 'boolean', default: false },
   },
 });
@@ -45,6 +48,7 @@ Usage:
   module-manager ingest  <cypher-file-or-dir> [options]
   module-manager list    [options]
   module-manager embed   <module-path> --model <name> --url <endpoint> [options]
+  module-manager export  <module-path> [--output <path>] [--include-embeddings]
 
 Options:
   --target <path>        Module installation directory
@@ -57,6 +61,8 @@ Options:
   --url <endpoint>       Embedding endpoint URL (embed only, required)
   --api-key <key>        Bearer token for the embedding endpoint (embed only)
   --batch-size <n>       Classes per POST (embed only, default: 128)
+  --output <path>        Output archive path (export only)
+  --include-embeddings   Keep embeddings/ subdirs in archive (export only)
 `);
   process.exit(0);
 }
@@ -147,6 +153,22 @@ async function main() {
         url: values.url!,
         apiKey: values['api-key'] || undefined,
         batchSize,
+      });
+      break;
+    }
+
+    case 'export': {
+      const modulePath = rest[0];
+      if (!modulePath) {
+        console.error(
+          'Usage: module-manager export <module-path> [--output <path>] [--include-embeddings]',
+        );
+        process.exit(1);
+      }
+      runExport({
+        modulePath: resolve(modulePath),
+        output: values.output || undefined,
+        includeEmbeddings: values['include-embeddings'] === true,
       });
       break;
     }
