@@ -9,7 +9,7 @@
         "instruction": "Open the organization's data governance or CMDB tool (e.g., Collibra, Alation, ServiceNow CMDB). Search for the token store asset by name or connection string. Review the 'Data Classification' or 'Sensitivity' field on the asset record.",
         "command": null,
         "file_path": null,
-        "navigation": "Collibra: Data Catalog → Search → [token store name] → Asset Detail → Classification tag | ServiceNow: CMDB → CI record → Data Classification field",
+        "navigation": "Collibra: Data Catalog \u2192 Search \u2192 [token store name] \u2192 Asset Detail \u2192 Classification tag | ServiceNow: CMDB \u2192 CI record \u2192 Data Classification field",
         "expected_output": "A label of 'confidential', 'restricted', or 'secret' for a session token store. Labels of 'public' or 'internal' indicate misclassification."
       },
       {
@@ -36,7 +36,8 @@
         "navigation": null,
         "expected_output": "A documented classification decision dated within the last review cycle, with approval from the data owner, showing the store is labeled 'confidential', 'restricted', or 'secret'."
       }
-    ]
+    ],
+    "value_type": "enum"
   },
   {
     "option_name": "encryption_at_rest_enabled",
@@ -64,7 +65,7 @@
         "instruction": "In the AWS Console, navigate to the token store service, open the instance or cluster, and inspect the encryption configuration tab.",
         "command": null,
         "file_path": null,
-        "navigation": "AWS Console → RDS → Databases → [instance] → Configuration tab → Storage Encrypted | AWS Console → ElastiCache → Redis clusters → [cluster] → Description tab → Encryption at rest",
+        "navigation": "AWS Console \u2192 RDS \u2192 Databases \u2192 [instance] \u2192 Configuration tab \u2192 Storage Encrypted | AWS Console \u2192 ElastiCache \u2192 Redis clusters \u2192 [cluster] \u2192 Description tab \u2192 Encryption at rest",
         "expected_output": "Field shows 'Yes' or 'Enabled'. 'No' or 'Disabled' is a finding. Repeat inspection for associated snapshot/backup destinations (S3 bucket SSE, EBS snapshot encryption)."
       },
       {
@@ -75,7 +76,8 @@
         "navigation": null,
         "expected_output": "Response shows `SSEAlgorithm: aws:kms` or `AES256`. A bucket with no default encryption rule or a policy that does not deny unencrypted puts is a finding."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "access_logging_enabled_on_token_store",
@@ -111,10 +113,11 @@
         "instruction": "For cloud-managed token stores, verify that CloudTrail data events or equivalent are capturing API-level reads and writes to the store.",
         "command": null,
         "file_path": null,
-        "navigation": "AWS Console → CloudTrail → Trails → [trail name] → Data events tab → Verify S3 or DynamoDB data events include the token store resource ARN",
+        "navigation": "AWS Console \u2192 CloudTrail \u2192 Trails \u2192 [trail name] \u2192 Data events tab \u2192 Verify S3 or DynamoDB data events include the token store resource ARN",
         "expected_output": "Data event logging shows 'Read' and 'Write' enabled for the specific token store resource ARN. Absent or limited to management events only is a finding."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "token_retention_policy_days",
@@ -153,11 +156,12 @@
         "navigation": null,
         "expected_output": "A variable such as `TOKEN_TTL=86400` (seconds) or `token.retention.days=30`. Absence of any retention-related variable is a finding. Convert seconds to days for the attribute value."
       }
-    ]
+    ],
+    "value_type": "integer"
   },
   {
     "option_name": "token_retention_policy_enforced",
-    "option_description": "Whether the system automatically purges or expires stored tokens (in databases, caches, audit logs, and backup tables) after their validity window closes. True only when a technical mechanism — TTL, scheduled job, or eviction policy — actively removes tokens across all stores.",
+    "option_description": "Whether the system automatically purges or expires stored tokens (in databases, caches, audit logs, and backup tables) after their validity window closes. True only when a technical mechanism \u2014 TTL, scheduled job, or eviction policy \u2014 actively removes tokens across all stores.",
     "security_impact": "The Rego policy `token_persistence_beyond_session_lifetime` fires directly when `token_retention_policy_enforced` is false. A defined policy without enforcement (e.g., a policy document exists but no purge job runs) is treated the same as no policy. Expired tokens that remain in storage become dormant credentials that can be replayed if signing secrets rotate or revocation checks are bypassed. This attribute must be true across all stores including primary DB, cache, and audit/log tables.",
     "how_to_obtain": [
       {
@@ -192,7 +196,8 @@
         "navigation": null,
         "expected_output": "A runbook step or automation pipeline that explicitly covers purging tokens from audit log tables and backup snapshots, with evidence of recent execution. Coverage of primary store only is an incomplete finding."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "revoked_token_store_cleanup_enabled",
@@ -231,7 +236,8 @@
         "navigation": null,
         "expected_output": "A runbook section covering revocation list pruning with a defined schedule (e.g., daily) and evidence of recent execution in the change log or job history. No defined procedure is a finding."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "max_token_retention_days",
@@ -270,7 +276,8 @@
         "navigation": null,
         "expected_output": "A documented inventory of all backup locations with explicit retention periods. The maximum value across all locations is the correct attribute value. An undocumented backup location or 'indefinite' retention is a finding."
       }
-    ]
+    ],
+    "value_type": "integer"
   },
   {
     "option_name": "tokens_logged_in_plaintext",
@@ -298,7 +305,7 @@
         "instruction": "Query the log aggregation system API for recent token-pattern matches across all ingested log sources.",
         "command": "curl -s -H 'Authorization: Bearer <splunk-token>' 'https://<splunk-host>:8089/services/search/jobs' -d 'search=search index=app_logs earliest=-24h | regex _raw=\"eyJ[A-Za-z0-9_-]{10,}\\\\.[A-Za-z0-9_-]{10,}\\.\" | head 10' -d 'output_mode=json' | jq '.results'",
         "file_path": null,
-        "navigation": "Splunk: Search & Reporting → Search bar → `index=app_logs earliest=-24h | regex _raw=\"eyJ[A-Za-z0-9_-]{10,}\"` | ELK: Kibana → Discover → Filter by index pattern → KQL: `message: /eyJ[A-Za-z0-9_-]{20,}/`",
+        "navigation": "Splunk: Search & Reporting \u2192 Search bar \u2192 `index=app_logs earliest=-24h | regex _raw=\"eyJ[A-Za-z0-9_-]{10,}\"` | ELK: Kibana \u2192 Discover \u2192 Filter by index pattern \u2192 KQL: `message: /eyJ[A-Za-z0-9_-]{20,}/`",
         "expected_output": "Zero results. Any log event containing a full JWT or token string is a finding. Confirm the search covers all log sources including API gateway, application, and audit logs."
       },
       {
@@ -309,12 +316,13 @@
         "navigation": null,
         "expected_output": "A filter rule explicitly matching 'Authorization', 'token', 'session', or 'Set-Cookie' fields and replacing them with '[FILTERED]' or '[REDACTED]'. Absence of any such filter when token variables are used in log calls is a finding."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "token_storage_encryption",
     "option_description": "Controls the encryption method applied to session tokens at rest in the primary token store (database, cache, or session store). Determines whether tokens are stored as plaintext, hashed, field-level encrypted, volume-encrypted, or both field and volume encrypted.",
-    "security_impact": "The Rego policy triggers the 'Unencrypted Token At Rest' exposure (score 8, high criticality) when this value is 'none' or 'hashed', since both expose usable token material to any actor with storage-level read access. Even 'field_encrypted' or 'volume_encrypted' alone triggers the finding if encryption_at_rest_enabled is false, meaning the declared method must be active and verified — not just configured in name.",
+    "security_impact": "The Rego policy triggers the 'Unencrypted Token At Rest' exposure (score 8, high criticality) when this value is 'none' or 'hashed', since both expose usable token material to any actor with storage-level read access. Even 'field_encrypted' or 'volume_encrypted' alone triggers the finding if encryption_at_rest_enabled is false, meaning the declared method must be active and verified \u2014 not just configured in name.",
     "how_to_obtain": [
       {
         "type": "command",
@@ -404,7 +412,7 @@
   {
     "option_name": "log_access_control_scope",
     "option_description": "Describes the breadth of principals permitted to read log and audit data that may contain session token values, relative to the access controls applied to the session store itself. Values range from tightly restricted (matching session store ACLs) to fully unrestricted (publicly readable or broadly shared).",
-    "security_impact": "The Rego policy triggers 'Token Exposure In Log And Audit Data' when tokens_logged_in_plaintext is true and this value is 'broader_than_session_store' or 'unrestricted'. Even if tokens are not intentionally logged, this attribute determines the blast radius: if log consumers exceed session store principals, any token value that enters logs — via a debug statement, error trace, or serialization leak — is immediately accessible to a wider population than the protected store warrants.",
+    "security_impact": "The Rego policy triggers 'Token Exposure In Log And Audit Data' when tokens_logged_in_plaintext is true and this value is 'broader_than_session_store' or 'unrestricted'. Even if tokens are not intentionally logged, this attribute determines the blast radius: if log consumers exceed session store principals, any token value that enters logs \u2014 via a debug statement, error trace, or serialization leak \u2014 is immediately accessible to a wider population than the protected store warrants.",
     "how_to_obtain": [
       {
         "type": "command",
@@ -449,7 +457,7 @@
   {
     "option_name": "token_store_roles_with_read_access",
     "option_description": "An enumerated list of all database roles, IAM roles, or service accounts that hold SELECT/READ permissions on session token stores, including session tables, Redis key namespaces, and JWT blacklist stores. This is the factual access inventory used as input for access control policy evaluation.",
-    "security_impact": "The Rego policy evaluates this list as the prerequisite for the 'Insufficient Access Control On Token Stores' exposure (score 5). A non-empty list combined with non_auth_roles_require_token_access being false triggers the finding unconditionally, and the absence of bulk read alerting compounds it. An accurate, complete enumeration is essential — undiscovered roles represent uncontrolled read paths to live credentials.",
+    "security_impact": "The Rego policy evaluates this list as the prerequisite for the 'Insufficient Access Control On Token Stores' exposure (score 5). A non-empty list combined with non_auth_roles_require_token_access being false triggers the finding unconditionally, and the absence of bulk read alerting compounds it. An accurate, complete enumeration is essential \u2014 undiscovered roles represent uncontrolled read paths to live credentials.",
     "how_to_obtain": [
       {
         "type": "command",
@@ -494,7 +502,7 @@
   {
     "option_name": "non_auth_roles_require_token_access",
     "option_description": "A boolean indicating whether every role listed in token_store_roles_with_read_access has a documented, function-necessary business justification for direct access to raw session token data. False means at least one role can read tokens without a clear functional requirement.",
-    "security_impact": "The Rego policy triggers 'Insufficient Access Control On Token Stores' whenever token_store_roles_with_read_access is non-empty and this attribute is false — regardless of whether bulk read alerting is enabled. This condition directly models the principle of least privilege: roles such as reporting services, audit log writers, or batch workers that need session metadata (user ID, expiry time) do not require raw token values. Overly permissive access enables silent bulk extraction without triggering targeted alerts.",
+    "security_impact": "The Rego policy triggers 'Insufficient Access Control On Token Stores' whenever token_store_roles_with_read_access is non-empty and this attribute is false \u2014 regardless of whether bulk read alerting is enabled. This condition directly models the principle of least privilege: roles such as reporting services, audit log writers, or batch workers that need session metadata (user ID, expiry time) do not require raw token values. Overly permissive access enables silent bulk extraction without triggering targeted alerts.",
     "how_to_obtain": [
       {
         "type": "process_audit",
@@ -537,8 +545,8 @@
   },
   {
     "option_name": "token_store_bulk_read_alerting_enabled",
-    "option_description": "Indicates whether SIEM rules, database audit configurations, or cache monitoring are configured to detect and alert on bulk enumeration or mass extraction of session token store records — such as full-table scans, Redis KEYS * commands, or sustained high-volume GET patterns against token namespaces.",
-    "security_impact": "The Rego policy uses this attribute as a compensating control in the 'Insufficient Access Control On Token Stores' evaluation: even when overly broad read access exists, active bulk-read alerting reduces the window for silent mass extraction. The finding is triggered both with and without this attribute when non_auth_roles_require_token_access is false, but absence of alerting represents an aggravated condition — an attacker with any token store read access can extract the full credential set without triggering a detection signal.",
+    "option_description": "Indicates whether SIEM rules, database audit configurations, or cache monitoring are configured to detect and alert on bulk enumeration or mass extraction of session token store records \u2014 such as full-table scans, Redis KEYS * commands, or sustained high-volume GET patterns against token namespaces.",
+    "security_impact": "The Rego policy uses this attribute as a compensating control in the 'Insufficient Access Control On Token Stores' evaluation: even when overly broad read access exists, active bulk-read alerting reduces the window for silent mass extraction. The finding is triggered both with and without this attribute when non_auth_roles_require_token_access is false, but absence of alerting represents an aggravated condition \u2014 an attacker with any token store read access can extract the full credential set without triggering a detection signal.",
     "how_to_obtain": [
       {
         "type": "command",
@@ -582,8 +590,8 @@
   },
   {
     "option_name": "secure_deletion_procedure_defined",
-    "option_description": "Indicates whether a documented and actively enforced procedure exists for cryptographic erasure or secure deletion of session token data from decommissioned storage volumes, backup archives, and long-term retention datasets — including evidence of actual execution such as signed decommission checklists, automated pipeline confirmations, or audit trails.",
-    "security_impact": "The Rego policy triggers 'Absent Or Non Compliant Disposal Procedure' (score 5) whenever this attribute is false. Policy documents alone without enforcement evidence do not satisfy the condition. Tokens recovered from improperly disposed backup media or snapshots may remain valid if revocation state is not independently maintained — creating a durable credential exposure window that survives the production session lifecycle. NIST SP 800-88 cryptographic erasure is the target standard.",
+    "option_description": "Indicates whether a documented and actively enforced procedure exists for cryptographic erasure or secure deletion of session token data from decommissioned storage volumes, backup archives, and long-term retention datasets \u2014 including evidence of actual execution such as signed decommission checklists, automated pipeline confirmations, or audit trails.",
+    "security_impact": "The Rego policy triggers 'Absent Or Non Compliant Disposal Procedure' (score 5) whenever this attribute is false. Policy documents alone without enforcement evidence do not satisfy the condition. Tokens recovered from improperly disposed backup media or snapshots may remain valid if revocation state is not independently maintained \u2014 creating a durable credential exposure window that survives the production session lifecycle. NIST SP 800-88 cryptographic erasure is the target standard.",
     "how_to_obtain": [
       {
         "type": "process_audit",
@@ -626,8 +634,8 @@
   },
   {
     "option_name": "token_revocation_state_persisted_separately",
-    "option_description": "Indicates whether the authentication system maintains an independent, authoritative revocation registry — such as a Redis-backed denylist or database revocation table — that is consulted on every token validation request, independent of the token's own claims or expiry. This ensures that tokens recovered from improperly disposed or stolen media cannot be replayed even if they remain cryptographically valid.",
-    "security_impact": "The Rego policy includes this attribute as a compensating control in the 'Absent Or Non Compliant Disposal Procedure' evaluation: when secure_deletion_procedure_defined is false, the absence of a separate revocation store compounds the risk by leaving recovered tokens without a runtime invalidation mechanism. Even with disposal procedures in place, stateless token validation (e.g., JWT signature-only verification) means a token extracted from a backup remains usable until its exp claim lapses — which may be hours, days, or indefinitely for tokens with no expiry.",
+    "option_description": "Indicates whether the authentication system maintains an independent, authoritative revocation registry \u2014 such as a Redis-backed denylist or database revocation table \u2014 that is consulted on every token validation request, independent of the token's own claims or expiry. This ensures that tokens recovered from improperly disposed or stolen media cannot be replayed even if they remain cryptographically valid.",
+    "security_impact": "The Rego policy includes this attribute as a compensating control in the 'Absent Or Non Compliant Disposal Procedure' evaluation: when secure_deletion_procedure_defined is false, the absence of a separate revocation store compounds the risk by leaving recovered tokens without a runtime invalidation mechanism. Even with disposal procedures in place, stateless token validation (e.g., JWT signature-only verification) means a token extracted from a backup remains usable until its exp claim lapses \u2014 which may be hours, days, or indefinitely for tokens with no expiry.",
     "how_to_obtain": [
       {
         "type": "command",
@@ -659,7 +667,7 @@
         "command": "TOKEN=$(curl -s -X POST https://app/api/login -H 'Content-Type: application/json' -d '{\"user\":\"testuser\",\"pass\":\"testpass\"}' | jq -r '.token') && curl -s -X POST https://app/api/logout -H \"Authorization: Bearer $TOKEN\" && curl -s -o /dev/null -w '%{http_code}' -X GET https://app/api/profile -H \"Authorization: Bearer $TOKEN\"",
         "file_path": null,
         "navigation": null,
-        "expected_output": "HTTP 401 response after logout confirms revocation state is checked independently. HTTP 200 response confirms that revocation is NOT enforced at validation time — the token remains valid based on its claims alone."
+        "expected_output": "HTTP 401 response after logout confirms revocation state is checked independently. HTTP 200 response confirms that revocation is NOT enforced at validation time \u2014 the token remains valid based on its claims alone."
       }
     ],
     "value_type": "boolean",

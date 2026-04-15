@@ -100,6 +100,18 @@ cmd_list() {
   "${TSX}" "${TS_CORE}" list "$@"
 }
 
+# ── command: export ──────────────────────────────────────────────────────
+# Produce a Studio-importable archive from a module's file-based class data.
+cmd_export() {
+  check_prerequisites
+
+  local module_path="${1:?Usage: module-manager.sh export <module-path> [--output <path>] [--include-embeddings]}"
+  shift
+
+  log "Exporting Studio archive from ${module_path}…"
+  "${TSX}" "${TS_CORE}" export "${module_path}" "$@"
+}
+
 # ── command: embed ───────────────────────────────────────────────────────
 # Generate pre-computed class embeddings for a module.
 cmd_embed() {
@@ -123,19 +135,22 @@ Usage:
   $(basename "$0") ingest  <cypher-file-or-dir> [opts]  Run Cypher files against Memgraph
   $(basename "$0") list    [options]                     List installed modules
   $(basename "$0") embed   <module-path> [opts]         Generate pre-computed class embeddings
+  $(basename "$0") export  <module-path> [opts]         Package module for Studio import
 
 Options:
-  --target <path>       Module installation target directory
-  --import-dir <path>   Memgraph CSV import directory (for LOAD CSV)
-  --db-uri <uri>        Bolt URI       (default: bolt://localhost:7687)
-  --db-user <user>      Database user  (default: dethernety)
-  --db-pass <pass>      Database password
-  --state-file <path>   Path to installed-modules.json
-  --model <name>        Embedding model (embed only, required)
-  --url <endpoint>      Embedding endpoint URL (embed only, required)
-  --api-key <key>       Bearer token for the embedding endpoint (embed only)
-  --batch-size <n>      Classes per POST (embed only, default: 128)
-  --help                Show this message
+  --target <path>        Module installation target directory
+  --import-dir <path>    Memgraph CSV import directory (for LOAD CSV)
+  --db-uri <uri>         Bolt URI       (default: bolt://localhost:7687)
+  --db-user <user>       Database user  (default: dethernety)
+  --db-pass <pass>       Database password
+  --state-file <path>    Path to installed-modules.json
+  --model <name>         Embedding model (embed only, required)
+  --url <endpoint>       Embedding endpoint URL (embed only, required)
+  --api-key <key>        Bearer token for the embedding endpoint (embed only)
+  --batch-size <n>       Classes per POST (embed only, default: 128)
+  --output <path>        Output archive path (export only)
+  --include-embeddings   Keep embeddings/ subdirs in archive (export only)
+  --help                 Show this message
 EOF
 }
 
@@ -146,6 +161,7 @@ case "${1:-}" in
   ingest)  shift; cmd_ingest "$@" ;;
   list)    shift; cmd_list "$@" ;;
   embed)   shift; cmd_embed "$@" ;;
+  export)  shift; cmd_export "$@" ;;
   --help|-h|help) usage ;;
   *)
     if [ -n "${1:-}" ]; then

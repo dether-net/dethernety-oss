@@ -405,7 +405,9 @@ _dns_forwarder_chain_traversal_bypassing_segmentation_def := {
         }
     ],
     "attack_vector": "NETWORK"
-}[_dns_forwarder_chain_traversal_bypassing_segmentation_def] if {
+}
+
+dns_forwarder_chain_traversal_bypassing_segmentation[_dns_forwarder_chain_traversal_bypassing_segmentation_def] if {
     input.cross_zone_forwarder_configured == true
     not input.per_hop_acl_enforced
 }

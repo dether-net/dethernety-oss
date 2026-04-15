@@ -2,7 +2,7 @@
   {
     "option_name": "classification_engines_enabled",
     "option_description": "Controls which content inspection engines are active in the DLP system. Engines include pattern_matching (regex/keyword), fingerprinting (document hashing), ml_classifier (machine learning models), and exact_data_match (structured data lookup against reference datasets).",
-    "security_impact": "The Rego policy requires at least 2 engines enabled for baseline content_inspection_accuracy compliance. Specific engine combinations unlock additional compliance paths: having 'ml_classifier' with 5+ custom patterns satisfies one path, and 'exact_data_match' with recent tuning satisfies another. Running only a single engine leaves significant detection gaps — fingerprinting alone misses novel data, while pattern matching alone has high false-positive rates. Layering engines dramatically reduces both false positives and false negatives.",
+    "security_impact": "The Rego policy requires at least 2 engines enabled for baseline content_inspection_accuracy compliance. Specific engine combinations unlock additional compliance paths: having 'ml_classifier' with 5+ custom patterns satisfies one path, and 'exact_data_match' with recent tuning satisfies another. Running only a single engine leaves significant detection gaps \u2014 fingerprinting alone misses novel data, while pattern matching alone has high false-positive rates. Layering engines dramatically reduces both false positives and false negatives.",
     "how_to_obtain": [
       {
         "type": "gui",
@@ -39,7 +39,7 @@
   },
   {
     "option_name": "false_positive_rate_percent",
-    "option_description": "Measures the percentage of DLP alerts over the past 30 days that were closed as false positives — legitimate activity incorrectly flagged as a policy violation. This metric reflects the quality and precision of classifier tuning.",
+    "option_description": "Measures the percentage of DLP alerts over the past 30 days that were closed as false positives \u2014 legitimate activity incorrectly flagged as a policy violation. This metric reflects the quality and precision of classifier tuning.",
     "security_impact": "The Rego policy enforces a threshold of <=10% false positive rate for the primary content_inspection_accuracy compliance path, and <=15% for paths involving ml_classifier or exact_data_match. High false positive rates above these thresholds indicate under-tuned classifiers, causing analyst alert fatigue, missed true positives buried in noise, and operational pressure to disable or weaken policies. This directly undermines the DLP system's ability to detect actual data exfiltration events.",
     "how_to_obtain": [
       {
@@ -116,7 +116,7 @@
   {
     "option_name": "last_classifier_tuning_days",
     "option_description": "Records the number of days elapsed since DLP classifiers, pattern sets, detection thresholds, or ML model training data were last reviewed and updated. This tracks the freshness of detection logic relative to the current threat and data environment.",
-    "security_impact": "The Rego policy requires last_classifier_tuning_days <=90 for both the primary content_inspection_accuracy path (requiring 2+ engines and <=10% FP rate) and the exact_data_match path (requiring <=15% FP rate). Classifiers that have not been tuned in over 90 days drift from current data patterns — business data formats evolve, new sensitive data types are introduced, and threat actor exfiltration techniques adapt to evade static rules. Stale ML models trained on outdated data lose detection accuracy over time. Regular tuning cycles are a fundamental operational requirement for effective DLP.",
+    "security_impact": "The Rego policy requires last_classifier_tuning_days <=90 for both the primary content_inspection_accuracy path (requiring 2+ engines and <=10% FP rate) and the exact_data_match path (requiring <=15% FP rate). Classifiers that have not been tuned in over 90 days drift from current data patterns \u2014 business data formats evolve, new sensitive data types are introduced, and threat actor exfiltration techniques adapt to evade static rules. Stale ML models trained on outdated data lose detection accuracy over time. Regular tuning cycles are a fundamental operational requirement for effective DLP.",
     "how_to_obtain": [
       {
         "type": "gui",
@@ -200,7 +200,7 @@
   {
     "option_name": "blocking_mode_enabled",
     "option_description": "Indicates whether the DLP system is configured to actively block (prevent) policy-violating transmissions inline, as opposed to operating in monitor-only, audit, or alert-only mode where violations are logged but not stopped.",
-    "security_impact": "The Rego policy for network_channel_prevention_coverage requires blocking_mode_enabled == true. A DLP system in monitor-only mode provides detection and forensic value but offers zero preventive protection — sensitive data successfully exits the organization while analysts are merely notified after the fact. Transitioning from monitor to block mode is the critical step that converts the DLP investment from a detective control to a preventive control. Many organizations remain in monitor mode indefinitely due to fear of blocking legitimate business traffic, which negates the primary security benefit of DLP.",
+    "security_impact": "The Rego policy for network_channel_prevention_coverage requires blocking_mode_enabled == true. A DLP system in monitor-only mode provides detection and forensic value but offers zero preventive protection \u2014 sensitive data successfully exits the organization while analysts are merely notified after the fact. Transitioning from monitor to block mode is the critical step that converts the DLP investment from a detective control to a preventive control. Many organizations remain in monitor mode indefinitely due to fear of blocking legitimate business traffic, which negates the primary security benefit of DLP.",
     "how_to_obtain": [
       {
         "type": "gui",
@@ -236,7 +236,7 @@
   {
     "option_name": "ssl_tls_inspection_active",
     "option_description": "Indicates whether SSL/TLS decryption and inspection is active on the network DLP appliance or proxy, enabling the DLP system to inspect the plaintext content of encrypted HTTPS and other TLS-wrapped connections before they exit the network perimeter.",
-    "security_impact": "This attribute is referenced by two Rego rules. For network_channel_prevention_coverage, ssl_tls_inspection_active == true is required alongside blocking mode and HTTPS/SMTP/FTP channel coverage — without TLS inspection, the HTTPS channel entry in monitored_channels is effectively blind, as the DLP system cannot read encrypted payloads. For encrypted_traffic_inspection_capability, it is the foundational requirement for the entire rule. Given that over 95% of internet traffic is now HTTPS-encrypted, a DLP system without SSL/TLS inspection is unable to detect the vast majority of outbound data transmissions, rendering network-layer DLP largely ineffective.",
+    "security_impact": "This attribute is referenced by two Rego rules. For network_channel_prevention_coverage, ssl_tls_inspection_active == true is required alongside blocking mode and HTTPS/SMTP/FTP channel coverage \u2014 without TLS inspection, the HTTPS channel entry in monitored_channels is effectively blind, as the DLP system cannot read encrypted payloads. For encrypted_traffic_inspection_capability, it is the foundational requirement for the entire rule. Given that over 95% of internet traffic is now HTTPS-encrypted, a DLP system without SSL/TLS inspection is unable to detect the vast majority of outbound data transmissions, rendering network-layer DLP largely ineffective.",
     "how_to_obtain": [
       {
         "type": "gui",
@@ -280,7 +280,7 @@
   {
     "option_name": "endpoint_dlp_agent_deployed",
     "option_description": "Indicates whether a DLP agent is installed and actively running on managed endpoints (workstations, laptops) to enforce data movement controls at the device level, including USB/removable media blocking, clipboard controls, print-to-file restrictions, and application-level data handling enforcement.",
-    "security_impact": "The Rego policy for endpoint_data_movement_control requires endpoint_dlp_agent_deployed == true as its foundational condition. Endpoint DLP provides coverage that network DLP cannot: it protects data on endpoints operating outside the corporate network (e.g., VPN-less remote workers), enforces controls on local operations like USB copy that never traverse the network, and provides context-aware controls based on application and user identity. Without endpoint agents, users can bypass network DLP entirely by copying sensitive data to personal devices, printing, or using local storage — all common insider threat vectors.",
+    "security_impact": "The Rego policy for endpoint_data_movement_control requires endpoint_dlp_agent_deployed == true as its foundational condition. Endpoint DLP provides coverage that network DLP cannot: it protects data on endpoints operating outside the corporate network (e.g., VPN-less remote workers), enforces controls on local operations like USB copy that never traverse the network, and provides context-aware controls based on application and user identity. Without endpoint agents, users can bypass network DLP entirely by copying sensitive data to personal devices, printing, or using local storage \u2014 all common insider threat vectors.",
     "how_to_obtain": [
       {
         "type": "gui",
@@ -358,7 +358,8 @@
         "navigation": null,
         "expected_output": "XML nodes under <EndpointChannels> with <Channel name='usb_storage' action='block'/> or equivalent entries for each enforced channel."
       }
-    ]
+    ],
+    "value_type": "array"
   },
   {
     "option_name": "policy_enforcement_mode",
@@ -397,12 +398,13 @@
         "navigation": null,
         "expected_output": "Log entries showing policy mode set to 'Block' or 'MonitorAndAlert' with the most recent timestamp confirming current enforcement state."
       }
-    ]
+    ],
+    "value_type": "enum"
   },
   {
     "option_name": "sensitive_data_patterns_configured",
-    "option_description": "Indicates whether content inspection rules containing sensitive data patterns — such as regular expressions for PII (SSNs, credit card numbers), PCI data, PHI identifiers, or intellectual property fingerprints — are both defined and actively enabled within the DLP policy. This boolean reflects whether the DLP system can actually identify what it is protecting.",
-    "security_impact": "The Rego rule for endpoint_data_movement_control requires input.sensitive_data_patterns_configured == true. Without active content inspection patterns, the DLP system cannot detect sensitive data even if channel enforcement is configured — it has no criteria to trigger on. A false value here means channel blocking may still occur but will be unable to differentiate between sensitive and non-sensitive data transfers, either blocking everything or nothing useful.",
+    "option_description": "Indicates whether content inspection rules containing sensitive data patterns \u2014 such as regular expressions for PII (SSNs, credit card numbers), PCI data, PHI identifiers, or intellectual property fingerprints \u2014 are both defined and actively enabled within the DLP policy. This boolean reflects whether the DLP system can actually identify what it is protecting.",
+    "security_impact": "The Rego rule for endpoint_data_movement_control requires input.sensitive_data_patterns_configured == true. Without active content inspection patterns, the DLP system cannot detect sensitive data even if channel enforcement is configured \u2014 it has no criteria to trigger on. A false value here means channel blocking may still occur but will be unable to differentiate between sensitive and non-sensitive data transfers, either blocking everything or nothing useful.",
     "how_to_obtain": [
       {
         "type": "gui",
@@ -436,7 +438,8 @@
         "navigation": null,
         "expected_output": "Prints True if at least one enabled content rule with a data identifier is found in the exported policy configuration."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "casb_integration_enabled",
@@ -475,7 +478,8 @@
         "navigation": null,
         "expected_output": "Recent log entries showing successful CASB API authentication events and heartbeat confirmations within the last polling interval (typically every 5-15 minutes)."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "cloud_upload_blocking_policy_status",
@@ -514,12 +518,13 @@
         "navigation": null,
         "expected_output": "Written confirmation of the current cloud upload policy status and documented business justification if set to audit_only, including expected timeline for moving to enforce_block."
       }
-    ]
+    ],
+    "value_type": "enum"
   },
   {
     "option_name": "monitored_cloud_services",
     "option_description": "Enumerates the specific cloud storage and collaboration platforms actively covered by DLP or CASB policies, including both sanctioned applications (SharePoint, Google Drive, Box, Dropbox) and unsanctioned shadow IT services. Each service in this list has associated DLP detection and/or blocking rules applied through the CASB connector or DLP cloud module.",
-    "security_impact": "The Rego rule for cloud_and_saas_visibility requires count(input.monitored_cloud_services) > 0 — at least one cloud service must be monitored for the countermeasure to apply. An empty list means no cloud services are within DLP policy scope, creating complete blind spots for cloud-based exfiltration. Coverage breadth also matters: organizations that only monitor SharePoint but not Dropbox or personal Google Drive leave common shadow IT exfiltration paths uncovered.",
+    "security_impact": "The Rego rule for cloud_and_saas_visibility requires count(input.monitored_cloud_services) > 0 \u2014 at least one cloud service must be monitored for the countermeasure to apply. An empty list means no cloud services are within DLP policy scope, creating complete blind spots for cloud-based exfiltration. Coverage breadth also matters: organizations that only monitor SharePoint but not Dropbox or personal Google Drive leave common shadow IT exfiltration paths uncovered.",
     "how_to_obtain": [
       {
         "type": "gui",
@@ -553,11 +558,12 @@
         "navigation": null,
         "expected_output": "Deduplicated list of cloud service names that have appeared in DLP policy event records, confirming actual monitored services versus those configured."
       }
-    ]
+    ],
+    "value_type": "array"
   },
   {
     "option_name": "automated_response_actions_enabled",
-    "option_description": "Controls whether the DLP system is configured to automatically execute response actions — such as quarantining files, blocking transfers, sending alerts, notifying users, or forwarding events to a SIEM — when a policy violation is detected, without requiring manual analyst intervention. This is the master enable flag for DLP automation workflows.",
+    "option_description": "Controls whether the DLP system is configured to automatically execute response actions \u2014 such as quarantining files, blocking transfers, sending alerts, notifying users, or forwarding events to a SIEM \u2014 when a policy violation is detected, without requiring manual analyst intervention. This is the master enable flag for DLP automation workflows.",
     "security_impact": "The Rego rule for incident_response_automation requires input.automated_response_actions_enabled == true in both evaluation paths. Without this enabled, even fully configured response actions (quarantine, SIEM forwarding, blocking) will not execute automatically, increasing mean time to containment and requiring manual analyst intervention for every incident. This flag gates all automated DLP incident response capability.",
     "how_to_obtain": [
       {
@@ -592,7 +598,8 @@
         "navigation": null,
         "expected_output": "Documented confirmation of automated response status with either evidence of active automation workflows or a written exception explaining manual-only response posture with compensating controls."
       }
-    ]
+    ],
+    "value_type": "boolean"
   },
   {
     "option_name": "configured_response_actions",
@@ -631,7 +638,8 @@
         "navigation": null,
         "expected_output": "Frequency-sorted list of response action types that have fired in the log period, e.g., 'block: 142, alert: 138, user_notification: 89, siem_forwarding: 142', confirming which actions are actively executing."
       }
-    ]
+    ],
+    "value_type": "array"
   },
   {
     "option_name": "siem_forwarding_configured",
@@ -680,7 +688,7 @@
   {
     "option_name": "policies_in_enforcement_mode",
     "option_description": "Represents the count of DLP policies currently configured in active enforcement (block or quarantine) mode, as opposed to policies that are in monitor-only, simulation, audit, or disabled states. This is a direct measure of how much of the DLP ruleset is actively preventing data loss rather than passively observing it.",
-    "security_impact": "This integer is evaluated in two Rego conditions for the incident_response_automation rule: the first requires policies_in_enforcement_mode >= 1 alongside automated response actions and at least two configured response actions; the second requires it >= 1 alongside SIEM forwarding and a 'block' action configured. A value of 0 means no policies are actively blocking anything — all detection is advisory only — and the Incident Response Automation countermeasure will not be satisfied regardless of other settings.",
+    "security_impact": "This integer is evaluated in two Rego conditions for the incident_response_automation rule: the first requires policies_in_enforcement_mode >= 1 alongside automated response actions and at least two configured response actions; the second requires it >= 1 alongside SIEM forwarding and a 'block' action configured. A value of 0 means no policies are actively blocking anything \u2014 all detection is advisory only \u2014 and the Incident Response Automation countermeasure will not be satisfied regardless of other settings.",
     "how_to_obtain": [
       {
         "type": "gui",
@@ -727,7 +735,7 @@
   {
     "option_name": "audit_logging_enabled",
     "option_description": "Controls whether the DLP system's audit and event logging subsystem is actively enabled and configured to write event records (policy matches, violations, administrative actions) to a defined log destination such as a local file, syslog server, or SIEM connector. When disabled, no persistent record of DLP activity is created.",
-    "security_impact": "This boolean is the primary gate condition in the audit_logging_completeness Rego rule: audit_logging_enabled must be true before any other logging quality checks (logged_fields, tamper_protection_mechanism) are evaluated. If this is false, the Audit Logging Completeness countermeasure fails entirely, creating forensic blind spots that prevent incident reconstruction, violate regulatory audit trail requirements (PCI DSS 10.x, HIPAA §164.312(b), SOX), and remove evidence needed for post-incident investigations.",
+    "security_impact": "This boolean is the primary gate condition in the audit_logging_completeness Rego rule: audit_logging_enabled must be true before any other logging quality checks (logged_fields, tamper_protection_mechanism) are evaluated. If this is false, the Audit Logging Completeness countermeasure fails entirely, creating forensic blind spots that prevent incident reconstruction, violate regulatory audit trail requirements (PCI DSS 10.x, HIPAA \u00a7164.312(b), SOX), and remove evidence needed for post-incident investigations.",
     "how_to_obtain": [
       {
         "type": "gui",
@@ -771,7 +779,7 @@
   {
     "option_name": "logged_fields",
     "option_description": "Defines the set of data fields captured in each DLP event log entry. The completeness of this field list determines the forensic utility of the log record. Key fields include sender, recipient, data_classification, action_taken, timestamp, and content_snippet, which together allow full reconstruction of a data handling incident.",
-    "security_impact": "The audit_logging_completeness Rego rule explicitly checks for the presence of six specific fields: 'sender', 'recipient', 'data_classification', 'action_taken', 'timestamp', and 'content_snippet' — all must be present in the logged_fields array for the countermeasure to be satisfied. Missing any one of these fields creates a forensic gap: without 'sender/recipient' you cannot attribute the incident; without 'data_classification' you cannot assess severity; without 'content_snippet' you cannot confirm what data was involved; without 'action_taken' you cannot verify the policy response occurred.",
+    "security_impact": "The audit_logging_completeness Rego rule explicitly checks for the presence of six specific fields: 'sender', 'recipient', 'data_classification', 'action_taken', 'timestamp', and 'content_snippet' \u2014 all must be present in the logged_fields array for the countermeasure to be satisfied. Missing any one of these fields creates a forensic gap: without 'sender/recipient' you cannot attribute the incident; without 'data_classification' you cannot assess severity; without 'content_snippet' you cannot confirm what data was involved; without 'action_taken' you cannot verify the policy response occurred.",
     "how_to_obtain": [
       {
         "type": "log_analysis",
@@ -816,7 +824,7 @@
   {
     "option_name": "tamper_protection_mechanism",
     "option_description": "Specifies the method used to protect DLP audit logs from unauthorized modification or deletion after they are written. Valid mechanisms include cryptographic signing (each log entry signed with a key), immutable SIEM forwarding (logs sent to a write-once SIEM), hash chaining (each entry's hash includes the prior entry), WORM storage (physical/logical write-once media), or none (no tamper protection).",
-    "security_impact": "The audit_logging_completeness Rego rule includes the condition 'not input.tamper_protection_mechanism in [\"none\"]' — meaning any value other than 'none' satisfies the tamper protection requirement. If the value is 'none', the entire Audit Logging Completeness countermeasure fails even when all log fields are present and logging is enabled. Tamper-evident logs are essential for regulatory compliance (PCI DSS Requirement 10.5, HIPAA), legal admissibility of incident evidence, and detection of insider threat actors who might attempt to cover tracks by deleting or altering DLP violation records.",
+    "security_impact": "The audit_logging_completeness Rego rule includes the condition 'not input.tamper_protection_mechanism in [\"none\"]' \u2014 meaning any value other than 'none' satisfies the tamper protection requirement. If the value is 'none', the entire Audit Logging Completeness countermeasure fails even when all log fields are present and logging is enabled. Tamper-evident logs are essential for regulatory compliance (PCI DSS Requirement 10.5, HIPAA), legal admissibility of incident evidence, and detection of insider threat actors who might attempt to cover tracks by deleting or altering DLP violation records.",
     "how_to_obtain": [
       {
         "type": "gui",
@@ -863,7 +871,7 @@
   {
     "option_name": "rule_versioning_enabled",
     "option_description": "Controls whether the DLP policy management system maintains a version history of all policy rules, capturing the state of each rule before and after modifications. When enabled, administrators can view historical rule versions, compare changes, rollback to previous configurations, and produce an audit trail of who changed what policy and when.",
-    "security_impact": "This boolean is a required condition in both Rego paths for the policy_management_and_tuning_maintainability rule — rule_versioning_enabled must be true in every branch. Without version history, unauthorized or erroneous policy changes cannot be detected or reversed, creating operational risk where a misconfigured rule silently stops blocking sensitive data exfiltration. Version history also supports compliance audit requirements to demonstrate that DLP policies have been consistently maintained and that any changes were intentional and tracked.",
+    "security_impact": "This boolean is a required condition in both Rego paths for the policy_management_and_tuning_maintainability rule \u2014 rule_versioning_enabled must be true in every branch. Without version history, unauthorized or erroneous policy changes cannot be detected or reversed, creating operational risk where a misconfigured rule silently stops blocking sensitive data exfiltration. Version history also supports compliance audit requirements to demonstrate that DLP policies have been consistently maintained and that any changes were intentional and tracked.",
     "how_to_obtain": [
       {
         "type": "gui",
@@ -907,7 +915,7 @@
   {
     "option_name": "policy_approval_workflow_status",
     "option_description": "Indicates the state of a formal, workflow-based approval process for DLP policy changes before they are deployed to production enforcement. Values range from 'enabled' (full workflow with required approvals), 'partial' (some changes require approval), 'disabled' (workflow exists but is bypassed or inactive), to 'not_configured' (no approval process defined at all).",
-    "security_impact": "Both Rego branches for policy_management_and_tuning_maintainability require policy_approval_workflow_status == 'enabled' (the exact string 'enabled', not 'partial'). This prevents unauthorized or untested policy changes from immediately affecting production DLP enforcement — a critical control because an incorrectly written blocking rule could quarantine legitimate business traffic causing operational disruption, or a deliberately weakened policy could allow sensitive data exfiltration. Approval workflows also create accountability and change management records required by compliance frameworks such as SOC 2 CC8.1 and ISO 27001 A.12.1.2.",
+    "security_impact": "Both Rego branches for policy_management_and_tuning_maintainability require policy_approval_workflow_status == 'enabled' (the exact string 'enabled', not 'partial'). This prevents unauthorized or untested policy changes from immediately affecting production DLP enforcement \u2014 a critical control because an incorrectly written blocking rule could quarantine legitimate business traffic causing operational disruption, or a deliberately weakened policy could allow sensitive data exfiltration. Approval workflows also create accountability and change management records required by compliance frameworks such as SOC 2 CC8.1 and ISO 27001 A.12.1.2.",
     "how_to_obtain": [
       {
         "type": "gui",
@@ -1005,7 +1013,7 @@
         "instruction": "Navigate to the DLP administration console and inspect the incident management or policy governance section. Look for a 'False Positive Reporting' workflow, a feedback queue, or a user-facing 'Report Misclassification' button in end-user notification emails. Confirm whether submitted reports are linked to policy review tickets.",
         "command": null,
         "file_path": null,
-        "navigation": "DLP Admin Console → Incident Management → False Positive / Feedback Queue OR Policy Governance → Review Workflow",
+        "navigation": "DLP Admin Console \u2192 Incident Management \u2192 False Positive / Feedback Queue OR Policy Governance \u2192 Review Workflow",
         "expected_output": "A visible queue or tracking mechanism that captures false-positive submissions and links them to policy rule IDs pending review."
       },
       {
@@ -1046,10 +1054,10 @@
     "how_to_obtain": [
       {
         "type": "gui",
-        "instruction": "Open the DLP policy editor and inspect the available rule conditions. Check whether sensitivity label attributes (e.g., 'Confidential', 'Highly Confidential') appear as selectable conditions in active DLP policies. For Microsoft Purview DLP, navigate to Compliance Center → Data loss prevention → Policies and verify that sensitivity labels are listed as conditions.",
+        "instruction": "Open the DLP policy editor and inspect the available rule conditions. Check whether sensitivity label attributes (e.g., 'Confidential', 'Highly Confidential') appear as selectable conditions in active DLP policies. For Microsoft Purview DLP, navigate to Compliance Center \u2192 Data loss prevention \u2192 Policies and verify that sensitivity labels are listed as conditions.",
         "command": null,
         "file_path": null,
-        "navigation": "Microsoft Purview Compliance Center → Data loss prevention → Policies → [Select Policy] → Edit → Conditions → Content contains → Sensitivity labels",
+        "navigation": "Microsoft Purview Compliance Center \u2192 Data loss prevention \u2192 Policies \u2192 [Select Policy] \u2192 Edit \u2192 Conditions \u2192 Content contains \u2192 Sensitivity labels",
         "expected_output": "Sensitivity label values from the classification framework appearing as available and actively used conditions in one or more DLP policy rules."
       },
       {
@@ -1086,7 +1094,7 @@
   },
   {
     "option_name": "identity_context_enforcement_enabled",
-    "option_description": "Controls whether DLP policies incorporate identity-aware attributes—such as Active Directory or Azure AD group membership, user role, or device compliance posture—to apply differentiated enforcement actions rather than a uniform block-or-allow decision for all users.",
+    "option_description": "Controls whether DLP policies incorporate identity-aware attributes\u2014such as Active Directory or Azure AD group membership, user role, or device compliance posture\u2014to apply differentiated enforcement actions rather than a uniform block-or-allow decision for all users.",
     "security_impact": "The Rego `data_classification_integration_depth` countermeasure requires `identity_context_enforcement_enabled == true` alongside classification integration and sufficient graduated actions. Without identity context, DLP policies apply identical treatment to privileged users, contractors, and regular employees, creating either excessive friction for legitimate high-trust users or insufficient restriction for high-risk accounts. Identity-aware enforcement is the foundation of least-privilege data access at the DLP layer.",
     "how_to_obtain": [
       {
@@ -1094,7 +1102,7 @@
         "instruction": "Open the DLP policy editor and navigate to active policy rules. Inspect the 'Conditions' or 'Scope' section of each rule for user/group-based conditions such as AD group membership, Azure AD role, or Intune device compliance state. Confirm at least two rules apply distinct actions based on identity attributes.",
         "command": null,
         "file_path": null,
-        "navigation": "DLP Admin Console → Policy Management → Active Policies → [Select Policy] → Rules → Conditions → User or group is / Device compliance state",
+        "navigation": "DLP Admin Console \u2192 Policy Management \u2192 Active Policies \u2192 [Select Policy] \u2192 Rules \u2192 Conditions \u2192 User or group is / Device compliance state",
         "expected_output": "Policy conditions referencing specific AD/AAD groups or device compliance states, with different enforcement actions applied per identity context."
       },
       {
@@ -1131,14 +1139,14 @@
   {
     "option_name": "graduated_policy_action_count",
     "option_description": "Measures the number of distinct enforcement action types configured across all active DLP policies, representing policy graduation depth. Actions range from permissive (allow, log-only) through advisory (user-notify, manager-notify) to restrictive (block-with-override, hard-block).",
-    "security_impact": "The Rego `data_classification_integration_depth` countermeasure requires `graduated_policy_action_count >= 3` to activate. A policy set with only 1–2 actions (e.g., only block or only log) creates a binary enforcement model that generates excessive false positives or provides inadequate protection. At least 3 distinct levels allow for proportional response calibrated to data sensitivity and user context, reducing both over-blocking friction and under-enforcement risk.",
+    "security_impact": "The Rego `data_classification_integration_depth` countermeasure requires `graduated_policy_action_count >= 3` to activate. A policy set with only 1\u20132 actions (e.g., only block or only log) creates a binary enforcement model that generates excessive false positives or provides inadequate protection. At least 3 distinct levels allow for proportional response calibrated to data sensitivity and user context, reducing both over-blocking friction and under-enforcement risk.",
     "how_to_obtain": [
       {
         "type": "gui",
         "instruction": "Navigate to the DLP policy management console and enumerate all active policy rules. For each rule, record the configured enforcement action. Compile a deduplicated list of unique action types across all active policies. Common action types include: Allow, Log-Only, Notify-User, Notify-Manager, Block-with-Override, Hard-Block, Quarantine, Encrypt.",
         "command": null,
         "file_path": null,
-        "navigation": "DLP Admin Console → Policy Management → Active Policies → View All Rules → Action column (deduplicate unique values)",
+        "navigation": "DLP Admin Console \u2192 Policy Management \u2192 Active Policies \u2192 View All Rules \u2192 Action column (deduplicate unique values)",
         "expected_output": "A list of 3 or more distinct action types applied across active DLP policy rules."
       },
       {
@@ -1155,7 +1163,7 @@
         "command": "psql -U enforce_user -d enforce_db -c \"SELECT DISTINCT action_type FROM policy_rules WHERE rule_status='ACTIVE' ORDER BY action_type;\"",
         "file_path": null,
         "navigation": null,
-        "expected_output": "A result set showing distinct action type values such as BLOCK, LOG, NOTIFY_USER, NOTIFY_MANAGER, BLOCK_WITH_OVERRIDE, QUARANTINE — count should be >= 3."
+        "expected_output": "A result set showing distinct action type values such as BLOCK, LOG, NOTIFY_USER, NOTIFY_MANAGER, BLOCK_WITH_OVERRIDE, QUARANTINE \u2014 count should be >= 3."
       },
       {
         "type": "config_file",
@@ -1177,15 +1185,15 @@
   },
   {
     "option_name": "inspection_scope",
-    "option_description": "Defines which portion of encrypted SSL/TLS network traffic is subject to DLP inspection — none (no SSL interception), partial (selected categories, specific domains, or defined ports only), or full (all SSL/TLS traffic regardless of destination or protocol).",
-    "security_impact": "The Rego `encrypted_traffic_inspection_capability` countermeasure requires `inspection_scope` to be either `partial` or `full` (combined with valid certificate trust and DLP policy application to decrypted traffic). With `inspection_scope == none`, the DLP engine is blind to all encrypted exfiltration — which represents the overwhelming majority of modern web traffic. Full scope provides maximum coverage while partial scope is a common operational compromise balancing privacy and performance constraints.",
+    "option_description": "Defines which portion of encrypted SSL/TLS network traffic is subject to DLP inspection \u2014 none (no SSL interception), partial (selected categories, specific domains, or defined ports only), or full (all SSL/TLS traffic regardless of destination or protocol).",
+    "security_impact": "The Rego `encrypted_traffic_inspection_capability` countermeasure requires `inspection_scope` to be either `partial` or `full` (combined with valid certificate trust and DLP policy application to decrypted traffic). With `inspection_scope == none`, the DLP engine is blind to all encrypted exfiltration \u2014 which represents the overwhelming majority of modern web traffic. Full scope provides maximum coverage while partial scope is a common operational compromise balancing privacy and performance constraints.",
     "how_to_obtain": [
       {
         "type": "gui",
         "instruction": "Open the proxy or network DLP management console and navigate to the SSL/TLS inspection policy settings. Determine whether SSL inspection is disabled, enabled for specific URL categories or IP ranges (partial), or enabled for all HTTPS traffic (full). Note any exemption lists that define the partial scope.",
         "command": null,
         "file_path": null,
-        "navigation": "Proxy/DLP Console → SSL Inspection Policy → Inspection Rules → Review enabled categories and exemption lists",
+        "navigation": "Proxy/DLP Console \u2192 SSL Inspection Policy \u2192 Inspection Rules \u2192 Review enabled categories and exemption lists",
         "expected_output": "A clear indication of whether SSL inspection applies to all HTTPS, a defined subset, or is disabled, with visible exemption or inclusion category lists."
       },
       {
@@ -1243,10 +1251,10 @@
       },
       {
         "type": "gui",
-        "instruction": "Check the MDM or GPO deployment console to confirm the interception CA certificate deployment policy is active and shows successful deployment to managed device groups. For Microsoft Intune, navigate to Devices → Configuration profiles → Certificate deployment profile and verify success counts match enrolled device counts.",
+        "instruction": "Check the MDM or GPO deployment console to confirm the interception CA certificate deployment policy is active and shows successful deployment to managed device groups. For Microsoft Intune, navigate to Devices \u2192 Configuration profiles \u2192 Certificate deployment profile and verify success counts match enrolled device counts.",
         "command": null,
         "file_path": null,
-        "navigation": "Microsoft Intune → Devices → Configuration Profiles → [Certificate Profile Name] → Device and user check-in status → Review failed deployments",
+        "navigation": "Microsoft Intune \u2192 Devices \u2192 Configuration Profiles \u2192 [Certificate Profile Name] \u2192 Device and user check-in status \u2192 Review failed deployments",
         "expected_output": "Deployment success rate at or near 100% of enrolled managed devices, with zero or minimal failures that have documented exceptions."
       },
       {
@@ -1267,14 +1275,14 @@
   {
     "option_name": "dlp_policy_applied_to_decrypted_traffic",
     "option_description": "Confirms that DLP content inspection rules and sensitive data pattern definitions are actively bound to and enforced against decrypted SSL/TLS payload content, rather than being limited to plaintext HTTP channels or only inspecting metadata (URLs, headers) from encrypted sessions.",
-    "security_impact": "The Rego `encrypted_traffic_inspection_capability` countermeasure requires `dlp_policy_applied_to_decrypted_traffic == true` alongside active SSL inspection and a valid certificate chain. SSL/TLS interception without DLP policy binding to decrypted payloads is operationally equivalent to no inspection — the traffic is decrypted and re-encrypted without examining its content for sensitive data patterns, leaving the entire encrypted exfiltration attack surface unprotected even when the infrastructure cost of decryption has been accepted.",
+    "security_impact": "The Rego `encrypted_traffic_inspection_capability` countermeasure requires `dlp_policy_applied_to_decrypted_traffic == true` alongside active SSL inspection and a valid certificate chain. SSL/TLS interception without DLP policy binding to decrypted payloads is operationally equivalent to no inspection \u2014 the traffic is decrypted and re-encrypted without examining its content for sensitive data patterns, leaving the entire encrypted exfiltration attack surface unprotected even when the infrastructure cost of decryption has been accepted.",
     "how_to_obtain": [
       {
         "type": "gui",
         "instruction": "In the DLP policy configuration, open an active policy that contains sensitive data pattern rules (e.g., PII, credit card numbers). Verify that the policy's channel or traffic binding explicitly includes HTTPS or SSL-decrypted traffic as an inspection target, not only HTTP or plaintext channels.",
         "command": null,
         "file_path": null,
-        "navigation": "DLP Admin Console → Policy Management → [Active Policy with Sensitive Patterns] → Channels / Traffic Binding → Confirm HTTPS or SSL Decrypted is listed as an active channel",
+        "navigation": "DLP Admin Console \u2192 Policy Management \u2192 [Active Policy with Sensitive Patterns] \u2192 Channels / Traffic Binding \u2192 Confirm HTTPS or SSL Decrypted is listed as an active channel",
         "expected_output": "The policy's channel configuration showing HTTPS/SSL-decrypted traffic as an active inspection target with at least one sensitive data pattern condition bound to it."
       },
       {
