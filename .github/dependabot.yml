@@ -18,6 +18,11 @@ updates:
       # Memgraph only supports @neo4j/graphql 7.2.0
       # https://memgraph.com/docs/client-libraries/graphql
       - dependency-name: "@neo4j/graphql"
+      # @jsonforms/vue-vuetify peer-requires vuetify ^3.9.0 as of 3.7.0
+      # (latest, Nov 2025) and 3.8.0-alpha.0 (next). Bumping vuetify to 4.x
+      # breaks JSONForms-rendered UI. Lift when upstream ships Vuetify 4 support.
+      - dependency-name: "vuetify"
+        update-types: ["version-update:semver-major"]
     open-pull-requests-limit: 10
 
   - package-ecosystem: "github-actions"
