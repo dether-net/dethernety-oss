@@ -17,7 +17,9 @@
   },
   "typesVersions": {
     "*": {
-      "embedding": ["dist/embedding-text.d.ts"]
+      "embedding": [
+        "dist/embedding-text.d.ts"
+      ]
     }
   },
   "scripts": {
@@ -26,16 +28,16 @@
   },
   "dependencies": {
     "@dethernety/dt-core": "workspace:*",
-    "@langchain/langgraph-sdk": "^1.8.8",
-    "@nestjs/common": "^11.1.18",
+    "@langchain/langgraph-sdk": "^1.8.9",
+    "@nestjs/common": "^11.1.19",
     "@open-policy-agent/opa": "^2.0.0",
-    "axios": "^1.14.0",
+    "axios": "^1.15.0",
     "graphql": "^16.13.2",
     "graphql-subscriptions": "^3.0.0",
     "json-logic-js": "^2.0.5"
   },
   "devDependencies": {
     "@types/json-logic-js": "^2.0.8",
-    "@types/node": "^25.5.2"
+    "@types/node": "^25.6.0"
   }
 }

@@ -60,6 +60,10 @@ pnpm docker:run           # Run Docker container
 - Authentication via OIDC/JWT tokens validated at every hop
 - Frontend uses runtime configuration (no build-time env injection)
 
+## Dependency Maintenance
+
+Dependabot runs on this repo. In the main Dethernety monorepo, dependency sweeps are orchestrated through a weekly maintenance workflow that batches updates into a single reviewable PR. If you fork this repo for your own use, you'll drive Dependabot directly — the sweep tooling is not part of the OSS surface.
+
 ## Important Files
 
 - `apps/dt-ui/src/main.ts` — Frontend entry point
