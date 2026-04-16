@@ -44,7 +44,7 @@
     "@dethernety/dt-core": "workspace:*",
     "@types/node": "^25.6.0",
     "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.2",
     "vitest": "^4.1.4"
   },
   "license": "AGPL-3.0-only",
