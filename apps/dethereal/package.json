@@ -1,6 +1,6 @@
 {
   "name": "@dether.net/dethereal",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "Dethereal - Claude Code plugin for AI-guided threat modeling with Dethernety",
   "type": "module",
   "main": "dist/index.js",
