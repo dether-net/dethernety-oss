@@ -60,10 +60,21 @@ async function loadFs(): Promise<FsModule> {
  * Node accepts forward slashes on every supported platform.
  */
 function join(...parts: string[]): string {
+  // CodeQL flagged the previous regex form (`p.replace(/\/+$/, '')` and
+  // `p.replace(/^\/+|\/+$/g, '')`) as js/polynomial-redos. The patterns
+  // are anchored single quantifiers — V8 runs them in O(n) so they are
+  // not actually exploitable — but rewriting as character-by-character
+  // trims silences the static analyser without changing behaviour.
   return parts
     .map((p, i) => {
-      if (i === 0) return p.replace(/\/+$/, '');
-      return p.replace(/^\/+|\/+$/g, '');
+      let start = 0;
+      let end = p.length;
+      // Strip trailing `/` always; strip leading `/` only on continuation parts.
+      while (end > start && p.charCodeAt(end - 1) === 47 /* '/' */) end--;
+      if (i !== 0) {
+        while (start < end && p.charCodeAt(start) === 47 /* '/' */) start++;
+      }
+      return p.slice(start, end);
     })
     .filter(p => p.length > 0)
     .join('/');

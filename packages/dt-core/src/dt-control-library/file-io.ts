@@ -11,12 +11,19 @@
 
 import { atomicWriteWithFsync } from './wal-helper.js';
 
-/** POSIX-style join — see wal-helper.ts header for why static `node:path` is forbidden. */
+/** POSIX-style join — see wal-helper.ts header for why static `node:path` is
+ *  forbidden, and for the CodeQL js/polynomial-redos rationale behind the
+ *  regex-free char-trim form. */
 function join(...parts: string[]): string {
   return parts
     .map((p, i) => {
-      if (i === 0) return p.replace(/\/+$/, '');
-      return p.replace(/^\/+|\/+$/g, '');
+      let start = 0;
+      let end = p.length;
+      while (end > start && p.charCodeAt(end - 1) === 47 /* '/' */) end--;
+      if (i !== 0) {
+        while (start < end && p.charCodeAt(start) === 47 /* '/' */) start++;
+      }
+      return p.slice(start, end);
     })
     .filter(p => p.length > 0)
     .join('/');
