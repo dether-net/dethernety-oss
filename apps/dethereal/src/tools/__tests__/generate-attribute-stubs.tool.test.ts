@@ -210,7 +210,6 @@ describe('GenerateAttributeStubsTool', () => {
       attributes: {
         ssl_enabled: true,             // enriched value — must NOT be overwritten
         crown_jewel: true,             // plugin field — must be preserved
-        mitre_attack_techniques: ['T1078'],
       },
     }
     await fs.writeFile(
@@ -246,7 +245,6 @@ describe('GenerateAttributeStubsTool', () => {
 
     // Plugin fields preserved
     expect(attrs.attributes.crown_jewel).toBe(true)
-    expect(attrs.attributes.mitre_attack_techniques).toEqual(['T1078'])
 
     // New template fields added
     expect(attrs.attributes.log_connections).toBeNull()
@@ -805,7 +803,6 @@ describe('GenerateAttributeStubsTool', () => {
           attributes: {
             crown_jewel: true,
             credential_scope: ['db-creds'],
-            mitre_attack_techniques: ['T1078'],
             monitoring_tools: ['SIEM'],
             old_template_field: null,
           },
@@ -838,7 +835,6 @@ describe('GenerateAttributeStubsTool', () => {
       // All plugin fields preserved
       expect(attrs.attributes.crown_jewel).toBe(true)
       expect(attrs.attributes.credential_scope).toEqual(['db-creds'])
-      expect(attrs.attributes.mitre_attack_techniques).toEqual(['T1078'])
       expect(attrs.attributes.monitoring_tools).toEqual(['SIEM'])
       // Old template field removed, new added
       expect(attrs.attributes.old_template_field).toBeUndefined()
