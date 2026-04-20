@@ -98,6 +98,20 @@ If an operation is needed by both Studio and CLI, scales with data, requires gra
 | **Coverage computation** | Agent reads attributes, counts, computes percentages | LLM arithmetic errors in reporting output. |
 | **Class guide/template retrieval** | Agent calls `get_classes(class_id, fields: ['guide'])` per class | Sequential calls for each class that needs enrichment. |
 
+### MITRE tactic coverage derivation
+
+**Decision.** MITRE ATT&CK tactic coverage reported by `/dethereal:surface` §5 is derived from `Exposure.exploitedBy` — the MITRE techniques linked to exposures emitted by OPA policies during platform analysis. The plugin does not maintain a separate client-side technique annotation on component attribute files.
+
+**Rationale.** An earlier version of the enricher wrote `mitre_attack_techniques: string[]` on component attributes using a 3-step anti-hallucination protocol (`search_mitre_attack` → validate → persist). That created a two-source-of-truth problem:
+- Policies in installed modules declare `exploited_by: [T1078, T1190, ...]` on each exposure definition, so every fired exposure already carries its MITRE mapping as evidence (OPA policies fired against real attribute values).
+- A separate hand-maintained technique list on the component is a guess that can diverge from the evidence, and nothing reconciles the two.
+
+The architecturally consistent choice is evidence-over-guess: derive tactic coverage from `Exposure.exploitedBy` and drop the client-side annotation.
+
+**Escape hatch.** If a component appears vulnerable to a technique that no exposure flags, the correct fix is to add or update a module policy so the OPA rule fires — not to hand-annotate the component. `search_mitre_attack` and `get_mitre_defend` MCP tools remain available for interactive technique lookup (e.g., explaining an exposure-surfaced technique to the user), but are no longer part of routine enrichment.
+
+**Pre-analysis UX.** `/dethereal:surface` §5 requires a synced model with a completed analysis run. Before analysis, it prompts the user to `/dethereal:sync push` and `/dethereal:analyse`. The trade-off — losing pre-analysis technique commentary — is accepted: tactic coverage should reflect evidence, not intent.
+
 ---
 
 ## 4. Proposed Backend Services

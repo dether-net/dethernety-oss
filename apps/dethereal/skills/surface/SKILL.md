@@ -182,24 +182,37 @@ Omit this section entirely if `declared_governance_controls` is empty or absent.
 
 ### 5. MITRE ATT&CK Coverage
 
-Scan attribute files for `mitre_attack_techniques` references. Collect all mapped technique IDs and determine which of the 14 Enterprise ATT&CK tactics are covered:
+Tactic coverage is derived from `Exposure.exploitedBy` — MITRE techniques populated by OPA policies during platform analysis. The plugin does not maintain a separate client-side technique annotation (see [BACKEND_DELEGATION §3](../../../../docs/architecture/dethereal/BACKEND_DELEGATION.md#mitre-tactic-coverage-derivation)).
+
+**If synced and exposures returned by §3:** Aggregate the `exploitedBy[].attack_id` values across every exposure fetched in §3. Deduplicate. Determine which of the 14 Enterprise ATT&CK tactics are covered:
 
 1. Reconnaissance, 2. Resource Development, 3. Initial Access, 4. Execution, 5. Persistence, 6. Privilege Escalation, 7. Defense Evasion, 8. Credential Access, 9. Discovery, 10. Lateral Movement, 11. Collection, 12. Exfiltration, 13. Command and Control, 14. Impact
 
-Derive tactic names from technique IDs (e.g., T1566 → Initial Access). Display covered vs. not covered:
+Derive tactic names from technique IDs (e.g., T1566 → Initial Access). If a mapping is uncertain, resolve it via `mcp__dethereal__search_mitre_attack(action: 'technique', attack_id)`. Display covered vs. not covered:
 
 ```
-### MITRE ATT&CK Coverage
-  Techniques mapped: N
-  Tactics covered (M/14): Initial Access, Lateral Movement, Credential Access
+### MITRE ATT&CK Coverage (platform-derived)
+  Techniques mapped: N (from M exposures across K elements)
+  Tactics covered (X/14): Initial Access, Lateral Movement, Credential Access
   Tactics not covered: Reconnaissance, Resource Development, Execution, Persistence,
     Privilege Escalation, Defense Evasion, Discovery, Collection, Exfiltration,
     Command and Control, Impact
 ```
 
-If components have no MITRE mappings because they are unenriched (no attribute files or empty `mitre_attack_techniques`), note: "N components unenriched — tactic coverage may be incomplete. Run `/dethereal:enrich` to add technique mappings."
+**If synced but no exposures returned** (analysis has not run, or modules emit no exposures for this model):
+```
+### MITRE ATT&CK Coverage
+  No exposures — analysis has not produced technique mappings yet.
+  Run /dethereal:analyse to generate exposures (or install a module with policies
+  that cover this model's components).
+```
 
-If no MITRE mappings at all: "No MITRE ATT&CK techniques mapped. Run `/dethereal:enrich` to add technique mappings."
+**If not synced:**
+```
+### MITRE ATT&CK Coverage
+  Model not synced — push to platform and run an analysis for MITRE tactic coverage.
+  Run /dethereal:sync push, then /dethereal:analyse.
+```
 
 ### 6. Credential Topology
 
