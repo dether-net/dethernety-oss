@@ -372,6 +372,59 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Execute a write query in an **implicit (auto-commit) transaction**.
+   *
+   * Use this for Memgraph DDL (`CREATE INDEX`, `CREATE CONSTRAINT`,
+   * `DROP INDEX`, etc.) — those statements are rejected inside the
+   * multi-command transactions that {@link executeWrite} opens via
+   * `session.executeWrite`. Memgraph requires DDL in auto-commit mode,
+   * which is what `session.run(query)` (no surrounding `tx.*` call) gives.
+   *
+   * No retry on transient errors (the underlying `Session.executeWrite`
+   * retry semantics don't apply); DDL is typically idempotent at the
+   * application layer (catch the "already exists" error).
+   */
+  async executeImplicitWrite<T = any>(
+    query: string,
+    parameters?: any,
+    database?: string,
+  ): Promise<Result<T>> {
+    const session = this.getSession(database);
+    const startTime = Date.now();
+
+    try {
+      this.logger.debug('Executing implicit-transaction write', {
+        query: this.maskQuery(query),
+        database: database || this.config.name,
+      });
+
+      const result = await session.run<T>(query, parameters);
+
+      const duration = Date.now() - startTime;
+      this.recordQueryMetrics(query, parameters, duration, true);
+
+      this.logger.debug('Implicit write completed', {
+        duration,
+        recordCount: result.records.length,
+      });
+
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      this.recordQueryMetrics(query, parameters, duration, false, error.message);
+
+      this.logger.error('Implicit write failed', {
+        query: this.maskQuery(query),
+        error: error.message,
+        duration,
+      });
+      throw error;
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
    * Get current database metrics
    */
   getMetrics(): DatabaseMetrics {

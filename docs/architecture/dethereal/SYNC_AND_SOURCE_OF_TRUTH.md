@@ -2,7 +2,7 @@
 
 > **Date**: 2026-03-26
 > **Inputs**: Security Architect, Process Architect, Claude Code Expert, Security UX Designer
-> **Status**: Proposal -- open questions resolved, pending implementation
+> **Status**: Implemented (Sprints 1–6 on `feat/control-library` + `fix/control-library-hardening`; see [CONTROL_LIBRARY.md §11 Decisions](CONTROL_LIBRARY.md#11-decisions) for the per-decision audit trail)
 
 ---
 
@@ -15,6 +15,8 @@ All four reviewers converge on the same recommendation: **neither side is "the" 
 | Concern | Authority | Rationale |
 |---------|-----------|-----------|
 | **Model structure** (components, boundaries, flows, attributes, data items, classifications) | Local filesystem (git-versioned) | Developer-centric, offline-capable, auditable via git log, rollback via git |
+| **Control references** (SUPPORTS edges: which Control applies to which element in *this* model) | Local filesystem (git-versioned) | Part of model structure; captured as `controls[]` arrays in `structure.json` / `dataflows.json` with the `{id, name, source}` shape. |
+| **Control library** (Control nodes, per-instance `IS_INSTANCE_OF` attributes) | Lifecycle-dependent — see [CONTROL_LIBRARY.md](CONTROL_LIBRARY.md) | Greenfield: local file under `controls/<id>.json` is authoritative until first push. Brownfield: platform is authoritative, local file is a cache. Edits to shared brownfield Controls fire the explicit shared-ownership safety prompt ([CONTROL_LIBRARY.md §6](CONTROL_LIBRARY.md#6-shared-ownership-safety)) at `/dethereal:sync push` time, because a single Control is reused across many models. Pull / push / tombstone / set-local-edited drive through `manage_controls` MCP actions; the engine enforces the §4 two-write rule, §7 partial-payload contract, and §6 shared-ownership safety. |
 | **Computed artifacts** (exposures, analysis results, countermeasure-exposure links, OPA/Rego evaluations, cross-model graph analysis) | Platform (graph database) | Requires graph traversal, OPA engine, multi-model composition -- cannot be replicated locally |
 
 ### The Analogy

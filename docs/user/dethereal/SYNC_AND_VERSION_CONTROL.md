@@ -64,11 +64,11 @@ Before any push, the plugin validates Gate 2 (sync-blocking) criteria:
 
 If Gate 2 fails, the push is blocked. Fix the reported issues first.
 
-### Conflict Detection
+### Conflict Detection — Structural
 
 When pushing an update, the plugin checks whether the platform version has elements that your local version doesn't. This can happen when someone edits the model through the platform GUI after your last push.
 
-**If conflicts are found:**
+**If structural conflicts are found:**
 
 ```
 WARNING — Platform has elements not in your local model.
@@ -83,7 +83,55 @@ Options:
   cancel — Cancel push
 ```
 
-This is the most important UX moment in the sync workflow. The plugin shows you exactly what will be lost and lets you choose.
+The plugin shows you exactly what will be lost and lets you choose.
+
+### Shared-Ownership Prompts
+
+If your model contains brownfield Controls (Controls pulled from the platform that other Models also reference), the push pauses **per Control** to confirm the impact of your edits. Editing a shared Control mutates state in models you may not even have open — the plugin refuses to do this silently.
+
+The prompt looks like this:
+
+```
+Brownfield Control "Database Encryption Package" (assigned to 4 Models):
+  - This model: "Payment API"
+  - Co-owners:  "User Service", "Reporting", "Admin Console"
+
+Your changes (pendingEdit on class "Encryption at Rest"):
+  algorithm: AES-128 → AES-256
+  keyRotationDays: 90 → 30
+
+Options (per row):
+  cancel        — Skip this Control. Push everything else.
+  push-anyway   — Apply your changes to all 4 Models. Audit-log entry: force-shared.
+  push-unverified — Apply when the ownership query failed. Audit-log entry: force-unverified.
+  clone-and-swap — Fork into a new Control just for this Model. (V1.1 — not yet implemented)
+```
+
+Choosing `push-anyway` writes a `force-shared` entry to `.dethereal/control-audit.log` so PR review can see who decided to mutate the shared state. Choosing `push-unverified` writes a `force-unverified` entry with the reason the ownership query failed (timeout, forbidden, no-data).
+
+**Per-key resolution.** If only some attribute keys conflict, you can resolve them individually with `keep <n>.<key>` (keep yours), `accept-theirs <n>.<key>`, `merge <n>.<key>`, or `drop <n>.<key>` instead of an all-or-nothing per-Control verb.
+
+**Large payloads.** For lengthy JSON values, stage edits via `merge-from-file <n>.<key> = <path>` instead of pasting inline. The file lives under `.dethereal/merge-staging/` (auto-created).
+
+### External-Edit Guard
+
+If someone else changed a brownfield Control on the platform between your pull and your push, the push aborts with `EXTERNAL_EDIT_DETECTED` rather than silently overwriting their edit. To proceed:
+
+```
+> /dethereal:sync promote-external-edit <controlId> <classId>
+```
+
+This promotes the platform's current state into your local `pendingEdit`, treating the external edit as legitimate operator intent. The next push runs the shared-ownership check against your effective state.
+
+### Recovery Verbs
+
+Three operator recovery paths exist for the control-library workflow:
+
+| Verb | When to use |
+|------|-------------|
+| `/dethereal:sync repair-wal` | Any push/pull/status returned `WAL_REPLAY_FAILED`. Surfaces the stranded `.dethereal/pending-id-rewrite.json` journal and walks through delete-journal / retry-replay / manual-rename. |
+| `/dethereal:sync promote-external-edit <controlId> <classId>` | Push aborted with `EXTERNAL_EDIT_DETECTED`. Promotes the platform's state into your local `pendingEdit`. Purely local — no platform mutation. |
+| `/dethereal:sync tombstone <controlId>` | Retiring a Control locally without waiting for the platform-deletion-detected path. Future pulls won't resurrect it. |
 
 ---
 
@@ -187,6 +235,8 @@ The plugin uses content hashes to determine if local changes exist. Layout prope
 **Always commit:**
 - Model files: `manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`
 - Attribute files: `attributes/**/*.json`
+- Control files: `controls/<id>.json` (one per Control referenced by the model)
+- Control audit log: `.dethereal/control-audit.log` — append-only JSONL ledger of shared-ownership decisions (force-shared, force-unverified). Committed so PR review can see who decided what; grep/jq friendly.
 - Workflow metadata: `.dethereal/state.json`, `.dethereal/quality.json`, `.dethereal/scope.json`
 - Auto-generated README: `README.md`
 - Model registry: `.dethernety/models.json`
@@ -194,7 +244,11 @@ The plugin uses content hashes to determine if local changes exist. Layout prope
 **Always gitignore:**
 - `.dethereal/sync.json` — per-user sync state (different per developer)
 - `.dethereal/discovery.json` — discovery provenance (may contain infrastructure paths and resource identifiers)
+- `.dethereal/pending-id-rewrite.json` — WAL journal (transient; replayed automatically on next skill entry)
+- `.dethereal/merge-staging/` — staging directory for `merge-from-file` payloads
 - `.dethernety/discovery-cache.json` — transient cache
+
+**Note on the audit log.** `.dethereal/control-audit.log` records per-Control decisions verbatim, including the prior `platformAttributes` payload. If your Controls store secret-shaped values (raw API keys, tokens), redact before commit. The log is human-readable, line-oriented JSON.
 
 Token storage (`~/.dethernety/`) is in your home directory, outside the repository — no gitignore entry needed.
 
@@ -206,6 +260,12 @@ Add to your `.gitignore`:
 
 # Discovery provenance (may contain infrastructure details)
 **/.dethereal/discovery.json
+
+# WAL journal (transient — replayed automatically)
+**/.dethereal/pending-id-rewrite.json
+
+# Merge-staging payloads (per-prompt working files)
+**/.dethereal/merge-staging/
 
 # Discovery cache (transient)
 .dethernety/discovery-cache.json

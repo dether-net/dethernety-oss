@@ -280,9 +280,9 @@ Apply all? (yes / modify / skip)
 
 ---
 
-### `/dethereal:enrich [tier1|all|pick] [--focus credentials|monitoring|compliance]`
+### `/dethereal:enrich [tier1|all|pick] [--focus credentials|monitoring|compliance|controls]`
 
-Populate security attributes, credentials, MITRE ATT&CK references, and monitoring tools.
+Populate security attributes, credentials, MITRE ATT&CK references, monitoring tools, and security controls.
 
 **Scope arguments:**
 - `tier1` — crown jewels only (fastest)
@@ -293,6 +293,7 @@ Populate security attributes, credentials, MITRE ATT&CK references, and monitori
 - `--focus credentials` — credential topology only
 - `--focus monitoring` — monitoring tools only
 - `--focus compliance` — compliance-driven prompts only
+- `--focus controls` — control assignment pass (separate invocation, own 40-turn budget). Auto-pulls referenced Controls, lets you edit per-instance attributes, and queues `pendingEdit` blocks for the next push. Greenfield Controls get a temporary ID; brownfield Controls write to `controls/<id>.json`. See [Discovery and Enrichment](DISCOVERY_AND_ENRICHMENT.md#part-4--control-enrichment).
 
 ```
 > /dethereal:enrich tier1
@@ -368,9 +369,9 @@ See [Review and Analysis](REVIEW_AND_ANALYSIS.md) for details.
 
 ## Sync Commands
 
-### `/dethereal:sync push|pull|status [directory-path]`
+### `/dethereal:sync push|pull|status|repair-wal|promote-external-edit|tombstone [...]`
 
-Synchronize local model with the Dethernety platform.
+Synchronize local model with the Dethernety platform, plus four recovery verbs for the control-library workflow.
 
 **Push (publish local to platform):**
 
@@ -378,7 +379,7 @@ Synchronize local model with the Dethernety platform.
 > /dethereal:sync push
 ```
 
-Validates the model (Gate 2 pre-flight), checks for conflicts with the platform version, and publishes. Server-generated IDs are written back to local files.
+Validates the model (Gate 2 pre-flight), checks for conflicts with the platform version, and publishes. Server-generated IDs are written back to local files. If your model has Controls assigned to multiple Models, the push pauses on the **shared-ownership prompt** — you choose `cancel`, `push-anyway`, `push-unverified`, or (V1.1) `clone-and-swap` per Control. Decisions are recorded in `.dethereal/control-audit.log`. See [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
 
 **Pull (import from platform):**
 
@@ -386,7 +387,7 @@ Validates the model (Gate 2 pre-flight), checks for conflicts with the platform 
 > /dethereal:sync pull
 ```
 
-Lists platform models, lets you select one, and exports it to local files. If a local model already exists at the target path, offers to backup, overwrite, or cancel.
+Lists platform models, lets you select one, and exports it to local files. If a local model already exists at the target path, offers to backup, overwrite, or cancel. Pulling also materialises `controls/<id>.json` for every Control referenced by the model.
 
 **Status:**
 
@@ -394,9 +395,31 @@ Lists platform models, lets you select one, and exports it to local files. If a 
 > /dethereal:sync status
 ```
 
-Shows sync state, last push/pull timestamps, and whether local changes have been pushed.
+Shows sync state, last push/pull timestamps, whether local changes have been pushed, and the count of pending shared-edit prompts (Controls with un-pushed `pendingEdit` blocks). If drift between local `attributes` and `platformAttributes` is detected, surfaces a hint to run `promote-external-edit`.
 
-See [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md) for conflict handling and git integration.
+**Recovery verbs (control-library workflow):**
+
+```
+> /dethereal:sync repair-wal [directory-path]
+```
+
+Surface a stranded WAL journal (`.dethereal/pending-id-rewrite.json`) and walk through three recovery actions: delete journal, retry replay, or manually rename. Use when any push/pull/status returns `WAL_REPLAY_FAILED`.
+
+```
+> /dethereal:sync promote-external-edit <controlId> <classId>
+```
+
+Unblock the Step A external-edit guard. When someone else changed the Control on the platform between your pull and push, this promotes the platform's current state into your local `pendingEdit` so the next push runs the shared-ownership check against your effective intent. No platform mutation; purely local.
+
+```
+> /dethereal:sync tombstone <controlId>
+```
+
+Mark a Control as tombstoned locally so future pulls don't resurrect it. Useful when retiring a Control without waiting for the platform-deletion-detected reconciliation path.
+
+**`merge-from-file` (in-prompt verb).** During a shared-ownership prompt with large per-key payloads, the operator can stage edits via `merge-from-file <n>.<key> = <path>` instead of pasting them inline. The file lives under `.dethereal/merge-staging/` (auto-created if absent).
+
+See [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md) for conflict handling and the control-library push flow.
 
 ---
 

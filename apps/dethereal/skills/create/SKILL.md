@@ -11,6 +11,24 @@ argument-hint: "[description or template]"
 
 Create a new Dethernety threat model.
 
+## Implementation Discipline
+
+This skill is local-first: model files are created on disk now and synced to the platform later (via `/dethereal:sync`). Use built-in tools directly — do NOT invent scaffolding scripts, chained shell heredocs, or wrapper utilities.
+
+| Operation | Tool to use |
+|-----------|-------------|
+| Create a directory | `Bash` with `mkdir -p <path>` |
+| Write a JSON/Markdown file | `Write` tool, one call per file |
+| Read an existing file | `Read` tool |
+| Edit an existing file | `Edit` tool |
+| Pull a model from platform (Pull mode only) | `mcp__dethereal__list_models` then `mcp__dethereal__export_model` |
+| Validate the result | `mcp__dethereal__validate_model_json` |
+
+**Do not:**
+- Write a shell or Python script to scaffold the model — call `Write` once per file
+- Use heredocs (`cat <<EOF > file.json`) — use `Write`, which produces a reviewable diff
+- Call `mcp__dethereal__create_threat_model` from this skill — that tool requires platform auth and is invoked by `/dethereal:sync push` once the model is ready to publish
+
 ## Entry Points
 
 If `$ARGUMENTS` is provided, infer the entry point from the content:
@@ -87,16 +105,22 @@ Based on entry point:
 
 ### 3. Write Model Files
 
-Create model directory (default: `./threat-models/<kebab-case-name>/`):
+Default path: `./threat-models/<kebab-case-name>/`.
+
+1. Create the directory tree with one Bash call:
+   ```
+   Bash: mkdir -p <model-path>/.dethereal
+   ```
+2. Write each file individually with the `Write` tool — one tool call per file. No heredocs. No scaffolding scripts.
 
 | File | Content |
 |------|---------|
-| `manifest.json` | Model metadata: name, description, module references |
-| `structure.json` | Boundary and component hierarchy with coordinates |
-| `dataflows.json` | Data flow connections array |
-| `data-items.json` | Empty array `[]` initially |
-| `.dethereal/state.json` | `{ "currentState": "SCOPE_DEFINED", "completedStates": ["INITIALIZED", "SCOPE_DEFINED"], "lastModified": "...", "staleElements": [] }` |
-| `.dethereal/scope.json` | Scope definition from Step 1 |
+| `<model-path>/manifest.json` | Model metadata: name, description, module references, files map |
+| `<model-path>/structure.json` | Boundary and component hierarchy with coordinates |
+| `<model-path>/dataflows.json` | Data flow connections array |
+| `<model-path>/data-items.json` | `[]` initially |
+| `<model-path>/.dethereal/scope.json` | Scope definition from Step 1 |
+| `<model-path>/.dethereal/state.json` | `{ "currentState": "SCOPE_DEFINED", "completedStates": ["INITIALIZED", "SCOPE_DEFINED"], "lastModified": "<ISO 8601>", "staleElements": [] }` |
 
 Use layout guidelines (imported above) for coordinate placement:
 - Position boundaries to avoid overlap with 50px padding
@@ -105,7 +129,7 @@ Use layout guidelines (imported above) for coordinate placement:
 
 ### 4. Register Model
 
-Read or create `.dethernety/models.json` at the project root:
+Use `Read` to load `.dethernety/models.json` at the project root if it exists, then `Write` an updated version. If it does not exist, `Write` a new file:
 
 ```json
 {
@@ -116,7 +140,7 @@ Read or create `.dethernety/models.json` at the project root:
 }
 ```
 
-If the file exists, append the new model entry (preserving existing models).
+Append the new model entry to the existing `models` array (preserve existing entries).
 
 ### 5. Validate
 

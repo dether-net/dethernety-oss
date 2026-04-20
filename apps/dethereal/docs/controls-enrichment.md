@@ -40,7 +40,11 @@ Enforcement controls protect boundaries and their components. Process **one boun
 2. User describes controls as free-text
 3. Write as `{ id: null, name: "...", source: "declared" }`
 
-**Error recovery:** If `rank` fails for a boundary (network error, auth expired), fall back to greenfield prompts for that boundary. Do not retry or stall. Log: "Platform unreachable — switching to name-only control entry for this boundary."
+**Error recovery:** If `rank` fails for a boundary (network error, auth expired), fall back to the greenfield prompts for that boundary. Do not retry or stall. Log: "Platform unreachable — switching to local control entry for this boundary."
+
+**Offline ≠ blocked.** "Platform unreachable" only means `rank` cannot pre-suggest matches and `push` cannot persist right now. Both greenfield paths remain achievable offline:
+- The **name-only** path (`{ id: null, name: "...", source: "declared" }` written into `structure.json`) defers everything to the next online push.
+- The **file-first** path (the recommended one — see [Per-Control Configuration Files](#per-control-configuration-files-controlsidjson) below) lets the operator author `controls/<temp-id>.json` with `lifecycle: "greenfield"`, populate attributes from observed code/IaC, and commit the work locally. The `mcp__dethereal__manage_controls(action: 'create', …)` call happens at the next online `/dethereal:sync push`, atomically as part of the WAL-backed greenfield-promotion flow (CL Appendix A.5). Choose the file-first path whenever attributes matter; choose name-only only when no class binding is desired.
 
 ### Boundary Count Handling
 
@@ -98,6 +102,18 @@ What enforcement controls protect components in this boundary?
 Enter controls or "none" to skip.
 ```
 
+### Control ID vs ControlClass ID — Critical
+
+The `id` in a `controls[]` entry is a **Control ID** (instance from the org's control library), never a **ControlClass ID** (abstract type defined by a module). Mixing them up causes `resolveControls()` to fail with "Could not resolve control" on sync.
+
+| Path | What you have | What to write to `controls[]` |
+|------|---------------|-------------------------------|
+| Brownfield (rank returned candidates) | `controlId` from a candidate row | `{ id: "<controlId>", name: "<controlName>", source: "declared" }` |
+| Greenfield WITH class binding (you want a new Control bound to a specific ControlClass on the platform) | `controlClassId` from a module | **Preferred (Sprint 1+):** use the file-first path documented in [Per-Control Configuration Files](#per-control-configuration-files-controlsidjson) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"` and let `/dethereal:sync push` create the platform Control. **Legacy (still functional):** call `mcp__dethereal__manage_controls(action: 'create', name: "<descriptive name>", class_ids: ["<controlClassId>"], element_ids: ["<element-id>"])` first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>", name: "<descriptive name>", source: "declared" }` to `structure.json`. The legacy path skips the file-first benefits (local iteration on attributes before commit) but works for non-attribute use cases. |
+| Greenfield, name-only (no platform candidate, no class binding desired) | Nothing | `{ id: null, name: "<descriptive name>", source: "declared" }`. Platform creates a Control by name on next sync but it will not be bound to any ControlClass. |
+
+**Never** write `{ id: "<controlClassId>", name: "..." }` — the ID lookup will fail.
+
 ### Assignment Level
 
 Decide where to write control references based on what the control protects:
@@ -115,10 +131,40 @@ For boundary-scoped controls, write to the boundary's `controls[]` — not to ea
 
 After each boundary confirmation, write controls immediately:
 - Read current `structure.json`
-- Merge new control references into the appropriate boundary/component `controls[]` arrays
+- Walk the `defaultBoundary` tree to find the target boundary or component by id
+- Merge new control references into the **boundary's or component's `controls[]` field on the structural object itself** (not into a nested `attributes` field)
 - Write updated `structure.json`
 
 This ensures partial progress survives if the agent hits its turn limit.
+
+**Critical — controls do NOT go in attribute files:** Other enrichment data (encryption_in_transit, monitoring_tools, auth_failure_mode, etc.) is written to `attributes/boundaries/<id>.json` or `attributes/components/<id>.json`. Controls are different — they go in `structure.json` as a top-level field on the element. The sync pipeline only reads `controls[]` from `structure.json` (boundaries and components) and `dataflows.json` (data flows). Controls written to attribute files are silently ignored at sync time and never become Control relationships on the platform.
+
+Example — correct placement in `structure.json`:
+```json
+{
+  "defaultBoundary": {
+    "id": "root",
+    "boundaries": [
+      {
+        "id": "dmz-uuid",
+        "name": "DMZ",
+        "controls": [                                       // ← HERE
+          { "id": null, "name": "WAF", "source": "declared" }
+        ],
+        "components": [
+          {
+            "id": "api-uuid",
+            "name": "API Server",
+            "controls": [                                   // ← OR HERE
+              { "id": "ctrl-encryption", "name": "TLS 1.3", "source": "discovered" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
 
 ## Step 2: Detection Controls (Category 3)
 
@@ -142,7 +188,7 @@ Additional detection controls? (SOC monitoring, NDR, automated response, or "non
 
 3. For confirmed tools from attribute files: `source: "discovered"`
 4. For user-added detection tools: `source: "declared"`
-5. Write detection controls to the appropriate element `controls[]` arrays
+5. Write detection controls to the appropriate element's `controls[]` field in `structure.json` (boundary or component) or `dataflows.json` (data flow). Same destination as enforcement controls — see the Persistence note in Step 1. Detection controls do NOT go in `attributes/<...>/<id>.json`.
 
 ## Step 3: Governance Placeholder (Category 4)
 
@@ -172,6 +218,105 @@ When controls already exist on model elements:
    ```
 3. New controls are additive — never remove existing controls silently
 4. Skip boundaries/components that already have controls unless the user requests modification
+
+## Per-Control Configuration Files (`controls/<id>.json`)
+
+Per-instance ControlClass attributes (the values on each `IS_INSTANCE_OF` edge between a Control and its ControlClass) do **not** go inline in `structure.json` / `dataflows.json`. They live in a separate `controls/<control-id>.json` file per Control. The `controls[]` arrays in `structure.json` / `dataflows.json` continue to carry only the minimal `{ id, name, source }` reference shape.
+
+See [CONTROL_LIBRARY.md §3](../../../docs/architecture/dethereal/CONTROL_LIBRARY.md#3-proposed-layout--controls-folder) for the full layout and [§4](../../../docs/architecture/dethereal/CONTROL_LIBRARY.md#4-per-control-file-schema) for the complete file schema.
+
+### Greenfield Controls (local-authored, not yet on platform)
+
+When you need a Control that does not exist in the org's control library and that you want bound to one or more ControlClasses (so the platform auto-generates countermeasures):
+
+1. Choose a temporary local id: `greenfield-<short-uuid>`.
+2. Write `controls/<temp-id>.json`:
+   ```json
+   {
+     "id": "greenfield-abc",
+     "name": "Customer WAF Policy",
+     "source": "declared",
+     "lifecycle": "greenfield",
+     "classes": [
+       {
+         "classId": "<controlClass-uuid>",
+         "className": "Web Application Firewall",
+         "moduleId": "<module-uuid>",
+         "attributes": {
+           "inbound_firewall_enabled": true,
+           "default_inbound_policy": "log_only"
+         }
+       }
+     ]
+   }
+   ```
+3. Write `{ "id": "greenfield-abc", "name": "Customer WAF Policy", "source": "declared" }` to the element's `controls[]` in `structure.json` (or `dataflows.json`).
+4. Populate `attributes` from observed code/IaC evidence; empty object `{}` is valid if nothing is observed yet.
+
+**On the next `/dethereal:sync push`**, the pipeline creates the Control on the platform, sets attributes per class, assigns SUPPORTS edges, writes the server-generated id back into both the file and all `controls[]` references, and flips `lifecycle: "brownfield"`.
+
+**Atomic ID rebinding (F-35 / F-05 closure).** A naive implementation of the above leaves the operator's local `controls/greenfield-abc.json` file orphaned — the platform issues `ctrl-uuid-123`, the structure is repointed to `ctrl-uuid-123`, but the *file* is still named `greenfield-abc.json`. The Sprint 4 WAL rename (CL Appendix A.9 + the `pending-id-rewrite.json` journal) closes this seam: the engine writes a journal entry **before** invoking `createControl`, then rewrites `structure.json` / `dataflows.json` references AND renames `controls/greenfield-abc.json → controls/ctrl-uuid-123.json` as a single atomic operation. A crash mid-operation leaves the journal on disk; the next push (or `/dethereal:sync repair-wal`) replays it. The operator never sees an orphaned greenfield file.
+
+**Supersedes the old eager-create path.** The previous pattern — calling `mcp__dethereal__manage_controls(action: 'create', class_ids: [...])` during the control pass and writing the returned id — is retained only for non-attribute-binding use cases. For greenfield Controls **with** class bindings, use the file-first path above; it lets you iterate on attributes locally before committing to the platform.
+
+### Brownfield Controls (platform-authoritative)
+
+When you assign an existing platform Control to a model element, the auto-pull at the start of `/dethereal:enrich --focus controls` (Sprint 3 and later) will populate `controls/<id>.json` with the platform's current state. Treat this file as a **read-only cache by default**.
+
+**Do not modify `classes[].attributes` unless the user explicitly asks.** Controls are reusable entities — the same `ctrl-waf-123` may be assigned to five other models. Your local edit will trigger a platform mutation that changes the Control for every model that references it.
+
+If the user asks to update attributes (e.g. "the firewall's default policy is actually `log_only`, not `deny`"):
+
+1. Read the current `classes[<idx>].attributes` values for the keys you're about to change.
+2. Populate `classes[<idx>].pendingEdit`:
+   ```json
+   {
+     "editedBy": "agent",
+     "editedAt": "<iso-timestamp>",
+     "previousAttributes": {
+       "default_inbound_policy": "deny"
+     }
+   }
+   ```
+   The `previousAttributes` block is keyed by the changed attribute name only (NOT the full payload) — on push, this key set determines which keys are sent to the platform (partial payload).
+3. Update `classes[<idx>].attributes` with the new values.
+4. Bump `classes[<idx>].localEditedAt` to the current ISO timestamp.
+5. Warn the user: "This edit will trigger the shared-ownership safety prompt at sync time. Push-anyway writes to every model that references this Control."
+
+**Two-write rule.** If `pendingEdit` already exists on a class entry and you're making a second edit to the *same* key, **do not overwrite** `pendingEdit.previousAttributes[k]` — the original pre-edit value is the operator's intent baseline. Only add entries for keys not already recorded.
+
+### Sync-Owned Fields (Never Touch Directly)
+
+The agent **must not** directly mutate these fields on `controls/<id>.json`:
+
+| Field | Owned by |
+|---|---|
+| `classes[].pushedAt` | Push path (set on successful `setInstantiationAttributes`) |
+| `classes[].platformAttributes` | Pull path (snapshot of last-known-server payload) |
+| `platformState.lastPushedAt` | Push path |
+| `platformState.lastSyncedAt` | Pull path (never bumped by push) |
+| `platformState.assignedModelIds` / `assignedModelCount` | Pull path (cached; never used as source of truth by the safety check) |
+| `lifecycle` | Sync state machine (transitions documented in [CONTROL_LIBRARY.md §5](../../../docs/architecture/dethereal/CONTROL_LIBRARY.md#5-lifecycle-greenfield--brownfield)) |
+
+Touching these fields directly breaks the drift-detection and shared-ownership-safety guarantees the sync pipeline depends on.
+
+### File Discovery
+
+- `controls/<id>.json` exists for every Control (greenfield or brownfield) that any element in this model references.
+- If a `controls[]` entry in `structure.json` / `dataflows.json` has an `id` but no corresponding `controls/<id>.json` file, the sync pipeline will materialise one on the next pull (for brownfield) or reject the push (for greenfield — a greenfield reference without a config file means the operator hand-edited a reference without creating the attributes).
+- Orphan `controls/<id>.json` files (no element references the id) produce a validator warning, not an error — they're kept for operator-driven recovery.
+
+### Division of Labour: `/dethereal:sync pull` vs `/dethereal:enrich --focus controls` (Sprint 5 F-15)
+
+Post-`sprint-5-polish`, the per-Control file lifecycle is owned jointly by two skills:
+
+| Skill | When | What it does to `controls/` |
+|---|---|---|
+| `/dethereal:sync pull` (L4.5) | Every pull | Calls `pull-controls` for every Control id discovered in the freshly-pulled `structure.json` + `dataflows.json`. The local `controls/` directory ends self-consistent with the platform state. |
+| `/dethereal:enrich --focus controls` (Step 1) | Operator-initiated enrichment pass | Calls `pull-controls` for the same id set as a defensive refresh, then iterates classes for sparse-attribute prompts. The pull is largely a no-op when `enrich` runs immediately after a fresh `sync pull`. |
+| `/dethereal:sync push` (P7.1) | Every push | Auto-detects local edits / external drift / partial-pushed state. Uses local `controls/<id>.json` as authoritative; never re-pulls implicitly. |
+
+The motivating bug (RF F-15) was the silent-drift class where `sync pull` refreshed structure/dataflows but left `controls/` stale, so the operator's local view diverged from the platform until the next `enrich --focus controls`. The L4.5 step closes that gap: `sync pull` returns a self-consistent directory.
 
 ## Multi-Class Control Evaluation
 
