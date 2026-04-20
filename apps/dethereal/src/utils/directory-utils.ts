@@ -139,12 +139,12 @@ function buildElementLookup(
   }
   for (const f of dataFlows) {
     lookup.set(`dataFlow:${f.name}`, {
-      id: f.id, name: f.name, elementType: 'dataFlow', classData: (f as Record<string, unknown>).classData as ClassReference | undefined
+      id: f.id, name: f.name, elementType: 'dataFlow', classData: f.classData
     })
   }
   for (const d of dataItems) {
     lookup.set(`dataItem:${d.name}`, {
-      id: d.id, name: d.name, elementType: 'dataItem', classData: (d as Record<string, unknown>).classData as ClassReference | undefined
+      id: d.id, name: d.name, elementType: 'dataItem', classData: d.classData
     })
   }
 
@@ -258,12 +258,22 @@ export async function validatePathConfinement(targetPath: string, baseDir?: stri
     return realPath
   }
 
-  // Check models.json allowlist
+  // Check models.json allowlist (Sprint 4 F-07: each entry must be a
+  // legitimate model directory — manifest.json present and parsable —
+  // before we honour it. Without this check, anything with write access
+  // to ~/.dethernety/models.json (the user's own home dir, /dethereal:create
+  // routine flows, any process running as the user) bypasses CWD
+  // confinement on every subsequent MCP invocation.)
   const allowedPaths = await loadAllowedModelPaths()
   for (const allowed of allowedPaths) {
     const resolvedAllowed = path.resolve(allowed)
     if (realPath.startsWith(resolvedAllowed + path.sep) || realPath === resolvedAllowed) {
-      return realPath
+      // Verify the allowlist entry itself is a real model directory before
+      // trusting it. A poisoned models.json pointing at /tmp would otherwise
+      // pass the substring match.
+      if (await isModelDirectory(resolvedAllowed)) {
+        return realPath
+      }
     }
   }
 

@@ -373,6 +373,8 @@ The most intensive step. The plugin delegates to the **security-enricher** agent
 
 If stale elements exist (from a backward transition), they're enriched first.
 
+**Control assignment is a separate pass.** The default Step 8 enrichment populates the 6 attributes + credentials + MITRE + monitoring. Assigning reusable security Controls (e.g., "Database Encryption Package") to elements is a follow-up pass invoked as `/dethereal:enrich --focus controls` — its own 40-turn budget, auto-pulls referenced Controls, and queues `pendingEdit` blocks for the next push. See [Discovery and Enrichment Part 4](DISCOVERY_AND_ENRICHMENT.md#part-4-control-enrichment).
+
 For details on the enrichment process, see [Discovery and Enrichment](DISCOVERY_AND_ENRICHMENT.md).
 
 **State:** No transition — already at ENRICHING.
@@ -450,6 +452,8 @@ Pushed "Payment API" to platform.
 Server IDs written to local files.
 Commit these changes to preserve sync state.
 ```
+
+**Control-library prompts.** If you ran the control pass (`/dethereal:enrich --focus controls`) and have edits to brownfield Controls assigned to multiple Models, the push pauses on the **shared-ownership prompt** — you confirm `cancel | push-anyway | push-unverified | clone-and-swap` per Control. Decisions land in `.dethereal/control-audit.log`. If someone else changed a Control on the platform between your pull and push, the push aborts with `EXTERNAL_EDIT_DETECTED`; recover with `/dethereal:sync promote-external-edit <controlId> <classId>`.
 
 For details on sync, conflicts, and version control, see [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md).
 

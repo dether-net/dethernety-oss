@@ -467,7 +467,7 @@ The vector ingestion pipeline during module install embeds all five class types 
 
 ### Trust and integrity
 
-**Module trust:** Module authors control class `name`, `description`, and `category` — the fields that get embedded. A poorly-written module could craft descriptions that attract unrelated elements. Module trust is the primary mitigation: modules are installed by platform administrators, not end users. The embedding pipeline does not need adversarial robustness beyond what module review provides.
+**Module trust:** Module authors control class `name`, `description`, and `category` — the fields that get embedded. A poorly-written module could craft descriptions that attract unrelated elements. Module trust is the primary mitigation: modules are installed by platform administrators, not end users. The embedding pipeline does not need adversarial robustness beyond what module review provides. Two further mitigations bound the blast radius if a low-quality module slips through review: `top_n` is capped at 3 (a single bad embedding cannot drown out legitimate matches), and the agent's Pass 2 validates `vector_similarity` matches against boundary context and connected flows before acceptance — semantic suggestions are treated as hypotheses, not assertions.
 
 ### Fallback behavior
 

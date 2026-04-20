@@ -76,7 +76,7 @@ ls -la custom_modules/*/
 grep "Module" logs/app.log
 
 # Test specific module
-curl http://localhost:3000/health/modules/dethernety-module
+curl http://localhost:3003/health/modules/dethernety-module
 ```
 
 ## Monitoring Queries

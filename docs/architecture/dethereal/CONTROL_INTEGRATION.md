@@ -122,7 +122,7 @@ The practical consequence: auto-generated GraphQL mutations for Component/DataFl
 
 ### 3.1 Local JSON supports controls, but the engine ignores them
 
-The split-file schemas define `controls?: ControlReference[]` on Component, Boundary, and DataFlow (`ControlReference = { id: string, name?: string }`). The export pipeline includes these references. But the update pipeline (`DtUpdateSplit`) silently drops them — `updateComponent()`, `updateBoundary()`, and `updateDataFlow()` do not process control references. Import-export round-trip is broken for controls.
+The split-file schemas define `controls?: ControlReference[]` on Component, Boundary, and DataFlow. The historical type is `ControlReference = { id: string, name?: string }`. `source` is documented on `controls[]` references in [§6.4](#64-local-json-format) today but is dropped on export — the [CONTROL_LIBRARY.md §9](CONTROL_LIBRARY.md#9-what-needs-building) work adds passthrough in `dt-export-split.ts` so the type matches reality (`{ id: string, name?: string, source?: 'discovered' | 'declared' | 'both' }`). The export pipeline includes the rest of the reference. But the update pipeline (`DtUpdateSplit`) silently drops them — `updateComponent()`, `updateBoundary()`, and `updateDataFlow()` do not process control references. Import-export round-trip is broken for controls.
 
 Note: The import pipeline (`DtImportSplit`) **does** work — `resolveControls()` resolves references by ID then name and creates SUPPORTS edges via `setElementControlsDirect()`. The gap is specifically in the update path.
 
@@ -261,14 +261,16 @@ Key arguments:
 
 ### 6.1 Two-path control integration
 
+> **Superseded in part by [CONTROL_LIBRARY.md](CONTROL_LIBRARY.md).** The two-path structure (brownfield / greenfield) below is correct, but the **timing** of greenfield Control creation has changed: instead of calling `manage_controls(action: 'create')` eagerly during the control pass, the agent writes a `controls/<temp-id>.json` file with `lifecycle: "greenfield"` and defers the platform create to `/dethereal:sync push`. Per-instance attributes live in that file, not in `structure.json`. The reference shape in [§6.4](#64-local-json-format) (`{id, name, source}`) is unchanged. See [CONTROL_LIBRARY.md §5](CONTROL_LIBRARY.md#5-lifecycle-greenfield--brownfield) for the full lifecycle and [§7](CONTROL_LIBRARY.md#7-sync-flows) for the sync flows.
+
 **Path 1 — Auto-inferred (Category 1):** The analysis engine derives control presence from enrichment attributes. When a component has `encryption_in_transit: TLS 1.3`, the engine treats this as evidence of an encryption control for edge weight computation. No user action required, no Control entity needed.
 
 **Path 2 — Declared (Categories 2-4):** Users explicitly assign Control entities to elements during enrichment. Two sub-paths:
 
-- **Brownfield (existing controls):** The org already has Controls in their platform library with ControlClasses configured and countermeasures auto-generated. The plugin browses, selects, and assigns them to elements (SUPPORTS edge). The countermeasure chain already exists on the Control — assignment is pure linking.
-- **Greenfield (new controls):** The plugin creates a new Control via `manage_controls`, assigns ControlClasses, and configures attributes using the class template/guide (same pattern as component enrichment). The platform auto-generates countermeasures. Then the Control is assigned to elements.
+- **Brownfield (existing controls):** The org already has Controls in their platform library with ControlClasses configured and countermeasures auto-generated. The plugin browses, selects, and assigns them to elements (SUPPORTS edge). The countermeasure chain already exists on the Control — assignment is pure linking. An auto-pull materialises a `controls/<id>.json` file as a local cache ([CONTROL_LIBRARY.md §7](CONTROL_LIBRARY.md#pull-auto-at-start-of-control-pass)).
+- **Greenfield (new controls):** The agent writes `controls/<temp-id>.json` with `lifecycle: "greenfield"`, populates `classes[]` (each with a ControlClass binding and per-instance attributes derived from observed config or the class template/guide), and sets the `controls[]` reference in `structure.json` / `dataflows.json` to the same temp id. On `/dethereal:sync push`, the pipeline creates the Control on the platform, sets attributes per class, assigns SUPPORTS edges, and writes the server-generated id back into the local files. The platform auto-generates countermeasures once the class-bound attributes land.
 
-In both cases, control references are captured as `controls: [{ id, name }]` in local JSON, resolved to platform Controls at sync, and materialized as SUPPORTS edges.
+In both cases, control references in `structure.json` / `dataflows.json` are `{ id, name, source }` — resolved to platform Controls at sync, materialized as SUPPORTS edges. Per-instance attributes are NOT inlined in these files; they live in `controls/<id>.json`.
 
 ### 6.2 Workflow placement
 
@@ -851,7 +853,7 @@ Note: `elementTypes` is an array — the MCP `rank` action passes all element ty
 
 **Dependencies:**
 - P2 must ship first or concurrently (quality score must count `controls[]` from local JSON, not just attributes)
-- C1 from [CLASSIFICATION_ENHANCEMENT.md](CLASSIFICATION_ENHANCEMENT.md) should ship first (establishes `match_classes` pattern in plugin vocabulary)
+- The `match_classes` pattern must be established in plugin vocabulary first (the classify skill's Pass 1 migration shipped in #137 + #139)
 - Gap 8 mitigation (tiered prompts for B>6) is required for launch, not deferred
 
 ### Phase 3 — "Close the loop" (platform integration)
@@ -877,28 +879,6 @@ Fix the update pipeline, add the batch assignment tool, and surface sync warning
 | 1. Fix quality score | P2 | None | Quality score accuracy, attribute-inferred coverage |
 | 2. Start asking | P4, P5, P5b, P5c, P5d | B+2 prompts in `--focus controls` pass (separate invocation) | Control capture, local quality score, deterministic ranking |
 | 3. Close the loop | P1, ~~P3~~, ~~P3b~~, ~~P3c~~, P6 | Sync warnings | Platform integration, two-tier reporting. P3/P3b/P3c done (#137, #140). |
-
-### Cross-document dependency diagram
-
-```
-CLASSIFICATION_ENHANCEMENT.md           CONTROL_INTEGRATION.md
-─────────────────────────────           ──────────────────────
-C1 (classify skill migration)           P2 (quality score fix)
-  │  standalone                           │  standalone, parallel with C1
-  │                                       │
-  ├── C3 (enricher alignment)             │
-  │                                       │
-  └───────────────┐                       │
-                  ▼                       ▼
-              P4/P5/P5b/P5c/P5d (control focus mode)
-              depends on: C1 (match_classes pattern) + P2 (quality score)
-                  │
-                  ▼
-              P1/P6 (platform integration — update pipeline + sync warnings)
-              P3/P3b/P3c already done (#137, #140)
-```
-
-**Critical path:** C1 → P4. C1 is the bottleneck — it establishes `match_classes` in the plugin vocabulary and must ship before the control focus mode can reference `match_classes(classLabel: CONTROL)`. P2 is parallel with C1.
 
 ---
 

@@ -69,7 +69,7 @@ import { DtModel, DtAnalysis, DtUtils } from '@dethernety/dt-core'
 
 // Create Apollo Client
 const apolloClient = new ApolloClient({
-  uri: 'http://localhost:3000/graphql',
+  uri: 'http://localhost:3003/graphql',
   cache: new InMemoryCache(),
 })
 

@@ -11,6 +11,32 @@ argument-hint: "[system description or model path]"
 
 Walk through the complete 11-step threat modeling workflow. Each step builds on the previous, with state checkpoints that allow resuming later. The workflow delegates to specialized subagents for discovery, enrichment, and validation.
 
+## Implementation Discipline
+
+This workflow is local-first: model files are created on disk now and synced to the platform later (Step 10). Use built-in tools directly — do NOT invent scaffolding scripts, chained shell heredocs, or wrapper utilities.
+
+| Operation | Tool to use |
+|-----------|-------------|
+| Create a directory | `Bash` with `mkdir -p <path>` |
+| Write a JSON/YAML/Markdown file | `Write` tool, one call per file |
+| Read a model file | `Read` tool |
+| Edit an existing file | `Edit` tool |
+| Inspect / sample attribute files between steps | `Read` (one call per file, parallelisable) — never `cat`/`head`/`tail` in a Bash loop |
+| Search for a field across attribute files | `Grep` with the field name and `attributes/` path |
+| Check enrichment progress / template coverage | `mcp__dethereal__validate_model_json(action: 'quality')` — never sample files with `head` |
+| Check control coverage / gap analysis | `mcp__dethereal__validate_model_json(action: 'coverage')` |
+| Validate model JSON | `mcp__dethereal__validate_model_json` |
+| Generate attribute stubs | `mcp__dethereal__generate_attribute_stubs` |
+| Match classes for elements | `mcp__dethereal__match_classes` |
+| Push/pull to platform | `mcp__dethereal__create_threat_model` / `update_model` / `export_model` (invoked by `/dethereal:sync` at Step 10) |
+
+**Do not:**
+- Write a shell or Python script to scaffold the model directory — call `Write` once per file instead
+- Use heredocs (`cat <<EOF > file.json`) to create files — use the `Write` tool, which produces a reviewable diff
+- Sample attribute files with `for f in ...; do head -N "$f"; done` to "check progress" — call `validate_model_json(action: 'quality')` for an authoritative per-element coverage report, or `Read`/`Grep` for targeted inspection
+- Try to call `mcp__dethereal__create_threat_model` during Step 1 — that tool requires platform connectivity and is invoked by the sync skill at Step 10
+- Substitute `get_classes` for `match_classes` in classification (D51) unless the offline fallback chain triggers it
+
 ## Entry / Resume Logic
 
 Parse `$ARGUMENTS` to determine whether to start a new model or resume an existing one:
@@ -75,25 +101,27 @@ Collect scope information through conversation — ask naturally, don't present 
 | `trust_assumptions` | no | `[]` | Ask: "What do you explicitly trust?" |
 | `adversary_classes` | no | — | Only for security_review or incident_response intent |
 
-Write scope to `<model-path>/.dethereal/scope.json`.
+Scaffold the model on disk. Default path: `./threat-models/<kebab-case-name>/`.
 
-Create model directory (default: `./threat-models/<kebab-case-name>/`) and initial model files:
-- `manifest.json` — model metadata
-- `structure.json` — empty boundaries/components
-- `dataflows.json` — empty array
-- `data-items.json` — empty array
+1. Create the directory tree with a single Bash call:
+   ```
+   Bash: mkdir -p <model-path>/.dethereal
+   ```
+2. Write each file individually with the `Write` tool (one tool call per file — no scripts, no heredocs):
 
-Write `.dethereal/state.json`:
-```json
-{
-  "currentState": "SCOPE_DEFINED",
-  "completedStates": ["INITIALIZED", "SCOPE_DEFINED"],
-  "lastModified": "<ISO 8601>",
-  "staleElements": []
-}
-```
+| File | Content |
+|------|---------|
+| `<model-path>/manifest.json` | `{ schemaVersion, format: "split", model: { id: null, name, description, defaultBoundaryId }, files: { structure, dataFlows, dataItems, attributes }, modules: [] }` per the schema |
+| `<model-path>/structure.json` | Initial structure with `defaultBoundary` (no children yet) |
+| `<model-path>/dataflows.json` | `[]` |
+| `<model-path>/data-items.json` | `[]` |
+| `<model-path>/.dethereal/scope.json` | The scope object from this step (system_name, description, crown_jewels, compliance_drivers, etc.) |
+| `<model-path>/.dethereal/state.json` | `{ "currentState": "SCOPE_DEFINED", "completedStates": ["INITIALIZED", "SCOPE_DEFINED"], "lastModified": "<ISO 8601>", "staleElements": [] }` |
 
-Register model in `.dethernety/models.json`.
+3. Register the model in `.dethernety/models.json` at the project root:
+   - Use `Read` to load it if it exists, then `Write` the updated JSON; if it does not exist, `Write` a new file with `{ "version": 1, "models": [{ name, path, createdAt }] }`.
+
+Do **not** call `mcp__dethereal__create_threat_model` here — it requires platform auth and is invoked by `/dethereal:sync` at Step 10.
 
 ---
 

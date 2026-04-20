@@ -1,6 +1,6 @@
 ---
 title: 'Agents, Tools, and Hooks'
-description: 'How the 4 AI agents, 20 MCP tools, and 3 lifecycle hooks work together'
+description: 'How the 4 AI agents, 22 MCP tools, and 3 lifecycle hooks work together'
 category: 'documentation'
 position: 9
 navigation: true
@@ -9,7 +9,7 @@ tags: ['dethereal', 'agents', 'mcp', 'tools', 'hooks', 'architecture']
 
 # Agents, Tools, and Hooks
 
-Under the hood, Dethereal uses 4 specialized AI agents, 20 MCP tools for platform communication, and 3 lifecycle hooks for workflow automation. You don't need to know these details to use the plugin — this page is for users who want to understand what's happening behind the scenes.
+Under the hood, Dethereal uses 4 specialized AI agents, 22 MCP tools for platform communication, and 3 lifecycle hooks for workflow automation. You don't need to know these details to use the plugin — this page is for users who want to understand what's happening behind the scenes.
 
 ---
 
@@ -126,7 +126,7 @@ This file-based communication pattern keeps sub-agent responses compact and avoi
 
 ## MCP Tools
 
-The MCP (Model Context Protocol) server exposes 20 tools for platform communication. These tools are used by agents internally — you interact with them through slash commands, not directly.
+The MCP (Model Context Protocol) server exposes 22 tools for platform communication. These tools are used by agents internally — you interact with them through slash commands, not directly.
 
 ### Authentication (3 tools)
 
@@ -165,9 +165,15 @@ Tokens are cached at `~/.dethernety/tokens.json`, keyed by platform URL. Refresh
 
 | Tool | Purpose |
 |------|---------|
-| `get_classes` | Queries available classes from installed modules, with deterministic classification suggestions |
+| `get_classes` | Queries available classes from installed modules. Used for browsing/exploration ("what classes exist?"). Classification workflow uses `match_classes` instead. |
 | `update_attributes` | Incremental attribute updates without full model push |
 | `generate_attribute_stubs` | Deterministically writes class template attribute stubs to disk for classified elements |
+
+### Classification (1 tool)
+
+| Tool | Purpose |
+|------|---------|
+| `match_classes` | Server-side batch class matching. Replaces the per-module `get_classes` loop with a single call that returns ranked candidates per element. Multi-priority pipeline: exact-name → fuzzy-name → vector similarity → type heuristic. Used by the classify skill (Pass 1) and the security-enricher's classification protocol. |
 
 ### MITRE Integration (2 tools)
 
@@ -178,13 +184,14 @@ Tokens are cached at `~/.dethernety/tokens.json`, keyed by platform URL. Refresh
 
 All MITRE data comes from the platform's graph database — the plugin never generates technique IDs from memory.
 
-### Security Elements (3 tools)
+### Security Elements (4 tools)
 
 | Tool | Purpose |
 |------|---------|
 | `manage_exposures` | Read platform-computed exposures (list/get only — exposures are computed by the analysis engine, not created by users) |
-| `manage_controls` | CRUD operations on security controls |
+| `manage_controls` | Multi-action tool for the control library: CRUD (`list`, `get`, `create`, `update`, `delete`), assignment (`assign`), ranking (`rank`), and the control-library workflow (`pull-controls`, `push-greenfield`, `push-brownfield`, `set-local-edited`, `promote-external-edit`, `tombstone`, `inspect-wal`). The control-library actions enforce the two-write rule and the shared-ownership safety check. |
 | `manage_countermeasures` | Link security controls to exposures |
+| `get_control_gaps` | Framework-grounded gap analysis. Walks the chain `Exposure → ATT&CK Technique → ATT&CK Mitigation → Countermeasure → Control` in a single Cypher query and returns unmitigated exposures with recommended controls. Used by `/dethereal:surface`. |
 
 ### Analysis (1 tool)
 

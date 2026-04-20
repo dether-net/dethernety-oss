@@ -34,6 +34,34 @@ import {
 import { AuthorizationContext } from '../interfaces/authorization.interface';
 import { GqlConfig } from '../gql.config';
 
+// Sprint 5 F-26: pre-validate attribute value shapes against the Memgraph
+// property model. Memgraph properties are primitives or homogeneous lists of
+// primitives; nested objects fail at Bolt level with an unhelpful protocol
+// error. Returns a violation message or null when the value is acceptable.
+// Exported for unit testing.
+export function describeNonPrimitiveValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const t = typeof value;
+  if (t === 'string' || t === 'number' || t === 'boolean') return null;
+  if (Array.isArray(value)) {
+    let elemType: string | null = null;
+    for (const elem of value) {
+      if (elem === null || elem === undefined) continue;
+      const et = typeof elem;
+      if (et !== 'string' && et !== 'number' && et !== 'boolean') {
+        return `array elements must be primitives (string|number|boolean|null); got ${et === 'object' ? (Array.isArray(elem) ? 'nested array' : 'nested object') : et}`;
+      }
+      if (elemType === null) {
+        elemType = et;
+      } else if (elemType !== et) {
+        return `array must be homogeneous; saw both ${elemType} and ${et}`;
+      }
+    }
+    return null;
+  }
+  return `value must be a primitive or a list of primitives (Memgraph property model); got ${t === 'object' ? 'nested object' : t}`;
+}
+
 @Injectable()
 export class SetInstantiationAttributesService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SetInstantiationAttributesService.name);
@@ -883,6 +911,17 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       errors.push('attributes is required and must be an object');
     } else if (Object.keys(request.attributes).length === 0) {
       errors.push('attributes cannot be empty');
+    } else {
+      // Sprint 5 F-26: pre-validate value shapes. Memgraph property values are
+      // primitives or homogeneous lists of primitives — nested objects and
+      // mixed-type arrays fail at Bolt level with an unhelpful protocol error.
+      // Catch them here so the operator gets a clean VALIDATION_ERROR.
+      for (const [key, value] of Object.entries(request.attributes)) {
+        const violation = describeNonPrimitiveValue(value);
+        if (violation) {
+          errors.push(`attributes.${key}: ${violation}`);
+        }
+      }
     }
 
     return {

@@ -264,6 +264,65 @@ Gaps in tactic coverage highlight areas where your model may be missing relevant
 
 ---
 
+## Part 4: Control Enrichment
+
+```
+> /dethereal:enrich --focus controls
+```
+
+The control pass is a **separate enrichment invocation** with its own 40-turn budget. Run it after the regular enrichment pass (or whenever your control library changes). It manages the link between elements and the platform's reusable security controls.
+
+### Greenfield vs Brownfield
+
+Two paths exist depending on whether the Control already exists on the platform:
+
+| Path | When | What happens |
+|------|------|--------------|
+| **Greenfield** | You want a new Control that doesn't exist yet | Plugin writes `controls/greenfield-<temp>.json` with `{ id: null, name: ... }` and adds a reference to your element. The next push asks the platform for a UUID and rebinds every reference atomically. |
+| **Brownfield** | The Control already exists on the platform | Plugin pulls `controls/<id>.json` and lets you edit per-(Control, ControlClass) attributes. Edits queue as `pendingEdit` blocks for the next push. |
+
+### Per-Control Files
+
+Each Control referenced by your model gets its own file under `controls/`:
+
+```json
+{
+  "id": "ctrl-encryption-package",
+  "name": "Database Encryption Package",
+  "lifecycle": "brownfield",
+  "classes": [
+    {
+      "classId": "class-encryption-at-rest",
+      "attributes":         { "algorithm": "AES-256", "keyRotationDays": 30 },
+      "platformAttributes": { "algorithm": "AES-128", "keyRotationDays": 90 },
+      "localEditedAt": "2026-04-19T10:21:00Z",
+      "pendingEdit": { "editedBy": "operator", "previousAttributes": {...} }
+    }
+  ]
+}
+```
+
+The `attributes` block is what you edit. The `platformAttributes` block is the raw server-side payload as of the last pull. Drift between them (`attributes !== platformAttributes && !pendingEdit`) is a sign that someone edited the Control on the platform behind your back; `/dethereal:status` flags it.
+
+### The Two-Write Rule
+
+Every edit to `attributes` must (a) bump `localEditedAt` and (b) populate `pendingEdit`. The plugin enforces this via the `set-local-edited` MCP action — **never edit `controls/<id>.json` by hand.** Direct edits bypass the safety check and drop your changes silently on the next reconciliation.
+
+### Push-Time Safety
+
+Pushing edits to a Control assigned to multiple Models pauses on the **shared-ownership prompt** — the operator chooses `cancel`, `push-anyway`, `push-unverified`, or (V1.1) `clone-and-swap` per Control. See [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
+
+### Status Visibility
+
+`/dethereal:status` surfaces:
+
+- The count of pending shared-edit prompts (Controls with un-pushed `pendingEdit` blocks).
+- Drift hints (`attributes !== platformAttributes` without a pendingEdit) and the `promote-external-edit` recovery verb to apply.
+
+This avoids the "branch-switch ambush" case where you forget a queued review screen across days.
+
+---
+
 ## Enrichment Output Example
 
 After enrichment, a component attribute file (`attributes/components/{id}.json`) looks like this:

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/first-session-check.sh"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/first-session-check.sh"
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post-write-validate.sh"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/post-write-validate.sh"
           }
         ]
       }
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact-summary.sh"
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact-summary.sh"
           }
         ]
       }

@@ -60,7 +60,7 @@ pnpm m-ingest    # Load MITRE framework data
 pnpm dev         # Start development servers
 ```
 
-Frontend: `http://localhost:5173` | GraphQL API: `http://localhost:3000/graphql`
+Frontend: `http://localhost:3005` | GraphQL API: `http://localhost:3003/graphql`
 
 ### Production
 
@@ -76,25 +76,31 @@ policy engine, and module installation. See the
 - **MITRE ATT&CK / D3FEND** -- Exposure-to-technique mapping and defensive countermeasure recommendations
 - **File-based persistence** -- Export models as JSON files you can version-control alongside your code, edit offline, and re-import
 - **Issue tracking** -- Create issues from findings with automatic element association, filtering, and merge
-- **MCP server** -- AI agents can create, export, and update threat models via the Model Context Protocol
+- **Dethereal — Claude Code plugin** -- 14 slash commands, 4 specialized AI agents, 22 MCP tools, and an 11-step guided workflow for AI-assisted threat modeling. Includes a per-Control library mirrored to local files (`controls/<id>.json`) with shared-ownership safety prompts on push, an append-only control-decision audit log, and a WAL-protected ID-rebinding mechanism for crash-safe greenfield Controls. See [Dethereal Plugin docs](docs/user/dethereal/README.md).
 
 ## Architecture
 
 ```
-┌─────────────┐     GraphQL/WS     ┌─────────────┐     Bolt/Cypher    ┌─────────────┐
-│   dt-ui     │ <────────────────> │   dt-ws     │ <────────────────> │  Neo4j /    │
-│  (Vue 3)    │                    │  (NestJS)   │                    │  Memgraph   │
-└─────────────┘                    └─────────────┘                    └─────────────┘
-                                         │
-                                    Module System
-                                         │
-                                   ┌─────┴──────┐
-                                   │  Modules   │
-                                   │ (dt-module)│
-                                   └────────────┘
+┌─────────────┐     GraphQL/WS     ┌─────────────┐    Bolt/Cypher    ┌─────────────┐
+│   dt-ui     │ <────────────────> │             │ <───────────────> │  Neo4j /    │
+│  (Vue 3)    │                    │             │                   │  Memgraph   │
+└─────────────┘                    │   dt-ws     │                   └─────────────┘
+                                   │  (NestJS)   │
+┌─────────────┐      GraphQL       │             │
+│  dethereal  │ <────────────────> │             │
+│ (CC plugin) │                    └─────────────┘
+└─────────────┘                           │
+                                     Module System
+                                          │
+                                    ┌─────┴──────┐
+                                    │  Modules   │
+                                    │ (dt-module)│
+                                    └────────────┘
 ```
 
-Built with Vue 3, NestJS, Neo4j/Memgraph, GraphQL, OPA/Rego. OIDC authentication.
+Two complementary frontends share the same GraphQL backend: `dt-ui` for visual modeling in the browser, and `dethereal` (a Claude Code plugin) for AI-assisted modeling driven from your terminal or IDE. The plugin stores models as version-controlled JSON next to the code, fitting a DevSecOps shift-left workflow — threat models reviewed in PRs, evolved with the system, kept honest by the same source-control discipline that gates application code.
+
+Built with Vue 3, NestJS, Neo4j/Memgraph, GraphQL, OPA/Rego, and TypeScript MCP. OIDC authentication end-to-end.
 
 ## Documentation
 
@@ -118,7 +124,7 @@ Built with Vue 3, NestJS, Neo4j/Memgraph, GraphQL, OPA/Rego. OIDC authentication
 | [Frontend](docs/architecture/frontend/FRONTEND_ARCHITECTURE.md) | Vue.js frontend, stores, data flow editor |
 | [Module System](docs/architecture/modules/README.md) | Module interfaces, base classes, packaging |
 | [Data Access Layer](docs/architecture/dt-core/README.md) | Shared TypeScript interfaces and graph operations |
-| [Dethereal](docs/architecture/dethereal/ARCHITECTURE.md) | MCP server internals |
+| [Dethereal](docs/architecture/dethereal/README.md) | Claude Code plugin architecture — skills, agents, MCP tools, control library, sync/publish model |
 | [Architecture Decision Records](docs/architecture/decisions/) | Rationale behind major technical decisions |
 | [Configuration](docs/CONFIGURATION_GUIDE.md) | Environment variables and deployment settings |
 | [Security Model](docs/SECURITY_MODEL.md) | Security architecture and protections |
@@ -139,7 +145,7 @@ dethernety-oss/
 ├── apps/
 │   ├── dt-ui/              Vue 3 frontend (Vuetify + Vue Flow)
 │   ├── dt-ws/              NestJS backend (GraphQL + Bolt/Cypher)
-│   └── dethereal/          MCP server for AI-assisted threat modeling
+│   └── dethereal/          Claude Code plugin (skills, agents, MCP server) for AI-assisted threat modeling
 ├── packages/
 │   ├── dt-core/            Shared TypeScript interfaces and utilities
 │   ├── dt-module/          Module system base classes

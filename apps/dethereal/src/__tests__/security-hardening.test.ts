@@ -73,4 +73,55 @@ describe('Security Hardening (D61)', () => {
       ).not.toThrow()
     })
   })
+
+  describe('Sprint 4 F-02 + F-03 — manage_controls lock + WAL pre-dispatch', () => {
+    it('manage-controls.tool.ts wires acquireLock + applyPendingRewrites for directory-touching actions', async () => {
+      const fs = await import('node:fs/promises')
+      const path = await import('node:path')
+      const toolPath = path.join(import.meta.dirname, '..', 'tools', 'manage-controls.tool.ts')
+      const content = await fs.readFile(toolPath, 'utf-8')
+
+      // F-03: lock primitive imported and acquired before dispatch.
+      expect(content).toContain('acquireLock')
+      expect(content).toContain('releaseLock')
+      expect(content).toContain('LockBusyError')
+      expect(content).toContain('DIRECTORY_TOUCHING_ACTIONS')
+
+      // F-02: WAL replay invoked once per MCP entry.
+      expect(content).toContain('applyPendingRewrites')
+
+      // Lock release must live in a finally — otherwise a thrown action
+      // leaves the lockfile, blocking subsequent invocations until the
+      // operator manually unlinks. Cheap structural assertion.
+      expect(content).toMatch(/finally\s*\{[\s\S]*releaseLock/)
+
+      // Lock-busy must surface a typed error envelope so the skill can
+      // render a useful message rather than a generic exception.
+      expect(content).toContain("error: 'LOCK_BUSY'")
+
+      // F-02 — WAL replay failures must release the lock and surface the
+      // diagnostic; otherwise an ambiguous-state journal silently locks
+      // out future invocations.
+      expect(content).toContain("error: 'WAL_REPLAY_FAILED'")
+    })
+
+    it('Sprint 4 F-01 — set-local-edited Zod enum drops "external"', async () => {
+      const fs = await import('node:fs/promises')
+      const path = await import('node:path')
+      const toolPath = path.join(import.meta.dirname, '..', 'tools', 'manage-controls.tool.ts')
+      const content = await fs.readFile(toolPath, 'utf-8')
+
+      // Defence at the boundary: enum must NOT include 'external'.
+      // Match the edited_by field declaration specifically.
+      const enumMatch = content.match(/edited_by:\s*z\.enum\(\[([^\]]+)\]\)/)
+      expect(enumMatch).not.toBeNull()
+      expect(enumMatch![1]).toContain("'agent'")
+      expect(enumMatch![1]).toContain("'operator'")
+      expect(enumMatch![1]).not.toContain("'external'")
+
+      // Engine guard imported and surfaced as ILLEGAL_EDITED_BY envelope.
+      expect(content).toContain('IllegalEditedByError')
+      expect(content).toContain("error: 'ILLEGAL_EDITED_BY'")
+    })
+  })
 })

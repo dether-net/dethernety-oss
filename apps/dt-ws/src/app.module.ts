@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { ConfigModule } from '@nestjs/config';
 import { GqlModule } from './gql/gql.module';
 import { DatabaseModule } from './database/database.module';
+import { BootstrapModule } from './bootstrap/bootstrap.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { environmentValidation } from './config/environment.validation';
@@ -53,6 +54,7 @@ import { join } from 'path';
     
     // Core modules
     DatabaseModule,
+    BootstrapModule,
     GqlModule,
   ],
   controllers: [AppController, SpaFallbackController],
