@@ -338,10 +338,11 @@ After enrichment, a component attribute file (`attributes/components/{id}.json`)
   "monitoring_tools": ["SIEM", "APM"],
   "auth_failure_mode": "deny",
   "crown_jewel": true,
-  "asset_criticality": "high",
-  "mitre_attack_techniques": ["T1190", "T1078"]
+  "asset_criticality": "high"
 }
 ```
+
+MITRE ATT&CK tactic coverage is not stored on the attribute file. After you push the model and run an analysis, the platform emits `Exposure` nodes with `EXPLOITED_BY` edges to MITRE techniques — `/dethereal:surface` §5 aggregates those techniques and reports tactic coverage (see [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md)).
 
 ---
 

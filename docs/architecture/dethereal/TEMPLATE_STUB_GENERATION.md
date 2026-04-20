@@ -7,7 +7,7 @@ The `generate_attribute_stubs` MCP tool deterministically writes class template 
 Attribute files are a union of two field sources:
 
 1. **Class template fields** — defined by the platform module's JSON Schema (e.g., `ssl_enabled`, `requirepass_present`). OPA policies evaluate these fields to compute exposures.
-2. **Plugin-enrichment fields** — written by the security-enricher agent (e.g., `crown_jewel`, `credential_scope`, `mitre_attack_techniques`). The Analysis Engine reads these for graph algorithms.
+2. **Plugin-enrichment fields** — written by the security-enricher agent (e.g., `crown_jewel`, `credential_scope`, `monitoring_tools`). The Analysis Engine reads these for graph algorithms. MITRE ATT&CK tactic coverage is **not** a plugin-enrichment field — it is derived server-side from `Exposure.exploitedBy` after analysis (see [BACKEND_DELEGATION.md §3](BACKEND_DELEGATION.md#mitre-tactic-coverage-derivation)).
 
 Without template fields on disk, OPA never fires and no exposures are created. The `generate_attribute_stubs` tool closes this gap with a single deterministic call after classification.
 
@@ -162,7 +162,7 @@ When an element changes from Class A to Class B:
 3. Add Class B template fields with new defaults
 4. Update manifest with Class B fields
 
-Plugin fields (`crown_jewel`, `credential_scope`, `mitre_attack_techniques`, `monitoring_tools`) are never in any manifest's `templateFields`, so they are never candidates for removal.
+Plugin fields (`crown_jewel`, `credential_scope`, `monitoring_tools`) are never in any manifest's `templateFields`, so they are never candidates for removal.
 
 **Shared field names** (e.g., both MySQL and PostgreSQL have `max_connections`): if the enriched value is non-null, it survives reclassification. If unenriched, it gets the new class's default.
 

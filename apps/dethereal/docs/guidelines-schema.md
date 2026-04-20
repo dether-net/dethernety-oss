@@ -141,7 +141,7 @@ Per-element attribute files. Written during enrichment in flat format (agent aut
 **Merge principle:** Always read the existing attribute file before writing. Merge new values into the existing content — never overwrite the entire file. Attribute files contain a union of two vocabularies that must coexist:
 
 1. **Class-template fields** — defined by the element's assigned class (e.g., `requirepass_present`, `tls_enabled`). Evaluated by OPA policies to produce exposures and countermeasures.
-2. **Plugin-enrichment fields** — added by the agent (e.g., `crown_jewel`, `credential_scope`, `mitre_attack_techniques`, `monitoring_tools`). Used by the Analysis Engine and local analysis.
+2. **Plugin-enrichment fields** — added by the agent (e.g., `crown_jewel`, `credential_scope`, `monitoring_tools`). Used by the Analysis Engine and local analysis. MITRE ATT&CK techniques are **not** a plugin-enrichment field — tactic coverage is derived server-side from `Exposure.exploitedBy` (see `/dethereal:surface` §5).
 
 Both are stored on the same IS_INSTANCE_OF relationship in the graph. OPA evaluates the fields it knows about (template-defined); extra fields are harmlessly ignored.
 
@@ -179,9 +179,6 @@ Agents write flat key-value files with a type-specific ID field. The file contai
   "crown_jewel": false,
   "credential_scope": ["session-jwt-tokens"],
   "stores_credentials": true,
-  "mitre_attack_techniques": [
-    { "id": "T1078", "name": "Valid Accounts", "rationale": "No authentication required" }
-  ],
   "monitoring_tools": ["None"]
 }
 ```

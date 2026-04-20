@@ -99,7 +99,7 @@ For each classified component in scope (batched by tier):
    - Group questions by component to minimize round-trips
    - Use the guide's suggested values where available
 5. **Set all template attributes** — every field defined by the class template must have a value. No template field left as `null` after enrichment
-6. **Merge** discovered values into the existing attribute file — preserve plugin-enrichment fields (`crown_jewel`, `credential_scope`, `mitre_attack_techniques`, `monitoring_tools`)
+6. **Merge** discovered values into the existing attribute file — preserve plugin-enrichment fields (`crown_jewel`, `credential_scope`, `monitoring_tools`)
 
 Present as a batch confirmation table per tier:
 ```

@@ -353,12 +353,13 @@ Delegate to `Agent(security-enricher)` for comprehensive security attribute enri
 1. Pass model directory path to `Agent(security-enricher)`
 2. The enricher handles:
    - Class-specific template attributes per element — template stubs are already on disk from `generate_attribute_stubs` (run during classification). The enricher reads the configuration guide from `.dethereal/class-cache/<classId>.json`, discovers values from code/IaC, asks the user for undiscoverable attributes, and sets all template fields (100% coverage)
-   - Plugin-enrichment fields preserved via merge (`crown_jewel`, `credential_scope`, `mitre_attack_techniques`, `monitoring_tools`)
+   - Plugin-enrichment fields preserved via merge (`crown_jewel`, `credential_scope`, `monitoring_tools`)
    - Credential enrichment (inventory → map to flows → STORE credential scope)
-   - MITRE ATT&CK integration (3-step verification: search → validate → persist)
    - Auth failure mode capture (`deny`, `fallback`, `fail_open`)
    - Boundary enforcement attributes
    - Processing of `staleElements[]` first (if any exist from backward transitions)
+
+MITRE ATT&CK tactic coverage is derived server-side from `Exposure.exploitedBy` (see `/dethereal:surface` §5). The enricher does not annotate MITRE techniques on attribute files.
 3. Receive compact summary (enriched element count + template coverage metrics)
 4. Read updated attribute files from disk
 
