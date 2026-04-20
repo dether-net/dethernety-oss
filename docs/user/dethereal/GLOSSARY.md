@@ -21,7 +21,7 @@ Plugin-specific terminology. For platform-wide terms, see the [Dethernety Glossa
 
 **Hook** — A lifecycle event handler that runs automatically at specific moments (session start, after file edits, before context compaction).
 
-**MCP Tool** — A function exposed by the MCP (Model Context Protocol) server for platform communication. 20 tools handle authentication, model CRUD, MITRE queries, security elements, and attribute stub generation.
+**MCP Tool** — A function exposed by the MCP (Model Context Protocol) server for platform communication. 22 tools handle authentication, model CRUD, MITRE queries, security elements, classification, control-gap analysis, and attribute stub generation.
 
 **MCP Server** — The TypeScript server (`@dether.net/dethereal`) that implements the Model Context Protocol, exposing platform capabilities as tools that AI agents can use.
 
@@ -98,6 +98,40 @@ Plugin-specific terminology. For platform-wide terms, see the [Dethernety Glossa
 **Exposure** — A platform-computed potential vulnerability specific to a model's structure and attributes. Exposures are read-only from the plugin's perspective — only the analysis engine creates them.
 
 **Countermeasure** — A link between a security control and an exposure, indicating that the control addresses the identified threat. Without linking, the platform's defense coverage analysis cannot credit existing defenses.
+
+---
+
+## Controls and the Control Library
+
+**Control** — A reusable security control (e.g., "Database Encryption Package", "SOC Monitoring") that one or more model elements can reference. Controls live in the platform's library and are mirrored locally as `controls/<id>.json`.
+
+**ControlClass** — A platform-defined class of control (e.g., "Encryption at Rest", "Access Control"). A Control is an *instance* of one or more ControlClasses; per-(Control, Class) attribute payloads describe how the instance is configured.
+
+**Greenfield Control** — A Control created locally that has no platform counterpart yet. Its `controls/<id>.json` file uses a temporary `id` (or `id: null`); the first push asks the platform for a UUID and the plugin atomically rebinds every reference.
+
+**Brownfield Control** — A Control that already exists on the platform and was pulled into the local model. Edits to its attributes go through the shared-ownership safety check on push.
+
+**`pendingEdit`** — A block on a brownfield Control's `classes[idx]` recording an in-flight attribute change. Created when the operator edits attributes; consumed by the next push. Its presence is what the shared-ownership prompt refers to as "your changes."
+
+**`platformAttributes`** — The raw server-side attribute payload as of the last pull, stored alongside the editable `attributes` block on each `controls/<id>.json` class entry. The pair (`attributes` vs `platformAttributes`) is how the plugin detects local edits and shared-ownership conflicts.
+
+**Two-Write Rule** — Every edit to a Control's `attributes` must (a) bump `localEditedAt` and (b) populate `pendingEdit`. The plugin enforces this via the `set-local-edited` MCP action — never edit `controls/<id>.json` by hand.
+
+**Shared-Ownership Prompt** — When pushing a brownfield Control assigned to multiple Models, the plugin shows the operator the list of co-owner Models and offers per-row choices: `cancel`, `push-anyway` (apply your edits to all sharing Models), `push-unverified` (apply when the ownership query failed), `clone-and-swap` (V1.1 — fork into a new Control). See [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
+
+**Force-Shared / Force-Unverified** — Audit-log entry shapes recording the operator's choice when they bypass the shared-ownership default. `force-shared` means "I knowingly mutated a multi-owner Control." `force-unverified` means "I mutated despite a failed ownership query."
+
+**Control Audit Log** — `.dethereal/control-audit.log`. Append-only, line-oriented JSON. Records every shared-ownership decision with operator identity, decision verb, and prior `platformAttributes`. **Committed to git** so PR review can see who decided what; grep/jq friendly.
+
+**External-Edit Guard** — A check on push that aborts if the platform's current `platformAttributes` differ from the snapshot taken at the start of your edit. Surfaces as `EXTERNAL_EDIT_DETECTED`; recovery via `promote-external-edit`.
+
+**`promote-external-edit`** — Recovery verb (`/dethereal:sync promote-external-edit <controlId> <classId>`) that promotes the platform's current state into your local `pendingEdit`, treating the external change as legitimate operator intent. After this, the next push runs the shared-ownership check against your effective state.
+
+**WAL Journal** — `.dethereal/pending-id-rewrite.json`. Pre-write log capturing the planned greenfield ID rebind so a crash mid-push leaves no stranded files. Replayed automatically on every skill entry.
+
+**`repair-wal`** — Recovery verb (`/dethereal:sync repair-wal`) that surfaces a stranded WAL journal's contents and walks the operator through delete-journal / retry-replay / manual-rename. Use when any push/pull/status returns `WAL_REPLAY_FAILED`.
+
+**Tombstone** — Lifecycle state for a Control that should not be re-pulled (deleted on the platform, or operator-retired locally). Set automatically when reconciliation detects platform deletion, or manually via `/dethereal:sync tombstone <controlId>`.
 
 ---
 

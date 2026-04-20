@@ -200,12 +200,16 @@ After creating a model, you'll have a directory structure like this:
 ├── README.md              # Auto-generated summary
 ├── .dethereal/            # Workflow metadata (per-model)
 │   ├── state.json         # Current workflow state
-│   └── scope.json         # Scope definition (crown jewels, compliance)
-└── attributes/            # Security attributes (populated during enrichment)
-    ├── boundaries/
-    ├── components/
-    ├── dataFlows/
-    └── dataItems/
+│   ├── scope.json         # Scope definition (crown jewels, compliance)
+│   └── control-audit.log  # Append-only ledger of shared-ownership decisions
+│                          # (created on first /dethereal:enrich --focus controls; commit)
+├── attributes/            # Security attributes (populated during enrichment)
+│   ├── boundaries/
+│   ├── components/
+│   ├── dataFlows/
+│   └── dataItems/
+└── controls/              # Per-Control library files (created when first Control
+    └── ...                # is referenced by an element; one file per Control)
 ```
 
 The plugin also creates a project-level registry at `.dethernety/models.json` that tracks all local models.

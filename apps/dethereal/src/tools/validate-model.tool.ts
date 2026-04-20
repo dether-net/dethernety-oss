@@ -6,7 +6,12 @@
  */
 
 import { z } from 'zod'
-import { DtControl } from '@dethernety/dt-core'
+import {
+  DtControl,
+  validateControlFile,
+  listControlFiles,
+  readControlFile,
+} from '@dethernety/dt-core'
 import { ClientFreeTool, ToolContext, ToolResult } from './base-tool.js'
 import {
   readModelDirectory,
@@ -1149,6 +1154,87 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       warnings.push({
         file: 'attributes/',
         message: `Could not read attributes: ${(e as Error).message}`
+      })
+    }
+
+    // --- Control library validation (Sprint 3 — S3.1, deferred from S2.6) ---
+    // controls/<id>.json files hold the per-Control state (attributes,
+    // platformAttributes, pendingEdit, lifecycle). Validate each against the
+    // Sprint 2 `validateControlFile` rules, then surface orphan and missing-
+    // file cross-reference warnings against the model's controls[] arrays.
+    try {
+      const controlFileIds = await listControlFiles(dirPath)
+
+      const referencedControlIds = new Set<string>()
+      const collectControlRefs = (b: any): void => {
+        if (Array.isArray(b?.controls)) {
+          for (const c of b.controls) if (c?.id) referencedControlIds.add(c.id)
+        }
+        if (Array.isArray(b?.components)) {
+          for (const comp of b.components) {
+            if (Array.isArray(comp?.controls)) {
+              for (const c of comp.controls) if (c?.id) referencedControlIds.add(c.id)
+            }
+          }
+        }
+        if (Array.isArray(b?.boundaries)) {
+          for (const nested of b.boundaries) collectControlRefs(nested)
+        }
+      }
+      if (validatedStructure) collectControlRefs(validatedStructure.defaultBoundary)
+      if (validatedDataFlows) {
+        for (const flow of validatedDataFlows) {
+          if (Array.isArray((flow as any).controls)) {
+            for (const c of (flow as any).controls) if (c?.id) referencedControlIds.add(c.id)
+          }
+        }
+      }
+
+      for (const controlId of controlFileIds) {
+        try {
+          const controlFile = await readControlFile(dirPath, controlId)
+          if (!controlFile) continue
+          const result = validateControlFile(controlFile)
+          for (const err of result.errors) {
+            errors.push({ file: `controls/${controlId}.json`, message: err })
+          }
+          for (const warn of result.warnings) {
+            warnings.push({ file: `controls/${controlId}.json`, message: warn })
+          }
+        } catch (e) {
+          errors.push({
+            file: `controls/${controlId}.json`,
+            message: `Failed to read/parse: ${(e as Error).message}`,
+          })
+        }
+      }
+
+      if (controlFileIds.length > 0) {
+        filesValidated.push(`controls/ (${controlFileIds.length} files)`)
+      }
+
+      for (const fileId of controlFileIds) {
+        if (!referencedControlIds.has(fileId)) {
+          warnings.push({
+            file: `controls/${fileId}.json`,
+            message: `Orphan control file: ${fileId} (no reference in structure or dataflows)`,
+          })
+        }
+      }
+
+      const controlFileIdSet = new Set(controlFileIds)
+      for (const refId of referencedControlIds) {
+        if (!controlFileIdSet.has(refId)) {
+          warnings.push({
+            file: 'controls/',
+            message: `Missing control file: ${refId} (referenced but not pulled)`,
+          })
+        }
+      }
+    } catch (e) {
+      warnings.push({
+        file: 'controls/',
+        message: `Could not enumerate control files: ${(e as Error).message}`,
       })
     }
 

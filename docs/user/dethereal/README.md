@@ -11,7 +11,7 @@ tags: ['dethereal', 'plugin', 'claude-code', 'threat-modeling', 'overview']
 
 Dethereal is a Claude Code plugin that guides you through building structured threat models using conversational AI. You describe your system in natural language, and the plugin discovers infrastructure, maps trust boundaries and data flows, enriches security attributes, and publishes the model to the Dethernety platform for analysis.
 
-The plugin provides 14 slash commands, 4 specialized AI agents, and an 11-step guided workflow that takes you from a system description to a fully enriched, analysis-ready threat model.
+The plugin provides 14 slash commands, 4 specialized AI agents, 22 MCP tools, and an 11-step guided workflow that takes you from a system description to a fully enriched, analysis-ready threat model. A per-Control library mirrors the platform's reusable security controls into local files (`controls/<id>.json`) with shared-ownership safety prompts on push — see [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
 
 ---
 

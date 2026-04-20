@@ -141,12 +141,9 @@ export const FIND_CONTROLS = gql`
           name
         }
       }
-      elements {
-        ... on Component { id name type }
-        ... on SecurityBoundary { id name }
-        ... on DataFlow { id name }
-        ... on Model { id name }
-      }
+      supportedComponents { id name type }
+      supportedBoundaries { id name }
+      supportedDataFlows { id name }
       countermeasures {
         id
         name
@@ -227,6 +224,60 @@ export const CONTROL_CANDIDATES_FOR_TYPE = gql`
   }
 `
 
+/**
+ * Batched fetch returning class metadata for a set of Control ids.
+ *
+ * Returns `{ id, name, controlClasses: [{ id, name, module: { id } }] }` only —
+ * per-instance IS_INSTANCE_OF edge attributes are NOT exposed by the
+ * auto-generated `controlClasses` resolver. Use
+ * `GET_CONTROL_INSTANTIATION_ATTRIBUTES` for that payload.
+ */
+export const GET_CONTROLS_BY_IDS = gql`
+  query GetControlsByIds($ids: [ID!]!) {
+    controls(where: { id: { in: $ids } }) {
+      id
+      name
+      controlClasses {
+        id
+        name
+        module {
+          id
+          name
+        }
+      }
+    }
+  }
+`
+
+/**
+ * Batched lookup of the live set of Model IDs that reference each given
+ * Control via SUPPORTS edges. Backs the shared-ownership safety check
+ * (CONTROL_LIBRARY.md §6).
+ */
+export const GET_CONTROLS_ASSIGNED_MODELS = gql`
+  query GetControlsAssignedModels($controlIds: [ID!]!) {
+    getControlsAssignedModels(controlIds: $controlIds) {
+      controlId
+      modelIds
+    }
+  }
+`
+
+/**
+ * Batched lookup of per-(Control, ControlClass) instantiation attributes
+ * (IS_INSTANCE_OF edge properties). Backs the control-library pull and the
+ * brownfield push Step B refresh (CONTROL_LIBRARY.md §7).
+ */
+export const GET_CONTROL_INSTANTIATION_ATTRIBUTES = gql`
+  query GetControlInstantiationAttributes($controlIds: [ID!]!) {
+    getControlInstantiationAttributes(controlIds: $controlIds) {
+      controlId
+      classId
+      attributes
+    }
+  }
+`
+
 export const ASSIGN_CONTROL_TO_ELEMENTS = gql`
   mutation AssignControlToElements($controlId: ID!, $input: ControlUpdateInput!) {
     updateControls(
@@ -239,12 +290,9 @@ export const ASSIGN_CONTROL_TO_ELEMENTS = gql`
         description
         type
         category
-        elements {
-          ... on Component { id name type }
-          ... on SecurityBoundary { id name }
-          ... on DataFlow { id name }
-          ... on Model { id name }
-        }
+        supportedComponents { id name type }
+        supportedBoundaries { id name }
+        supportedDataFlows { id name }
         controlClasses {
           id
           name

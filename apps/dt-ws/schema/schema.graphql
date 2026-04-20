@@ -268,16 +268,21 @@ type SecurityBoundary implements Element  @authentication @node {
   allDescendantBoundaries: [SecurityBoundary!]!
     @cypher(
       statement: """
-      MATCH (this)<-[:BELONGS_TO*1..10]-(sb:SecurityBoundary)
+      MATCH (this)<-[:BELONGS_TO*1..50]-(sb:SecurityBoundary)
       RETURN DISTINCT sb
       """,
       columnName: "sb"
     )
+  # Sprint 6 Tier-3 carryover: the L280/L291 *0..50 raise (Sprint 5 F-25)
+  # bounded the same SecurityBoundary nesting class for `allDescendantComponents`
+  # / shared-ownership; this 1-anchored variant gets the symmetrical raise so
+  # operators with deep topologies see the same depth ceiling everywhere
+  # (1-bound used here because allDescendantBoundaries excludes `this`).
   "All components inside this boundary or any nested boundary (computed)"
   allDescendantComponents: [Component!]!
     @cypher(
       statement: """
-      MATCH (this)<-[:BELONGS_TO*0..10]-(sb:SecurityBoundary)
+      MATCH (this)<-[:BELONGS_TO*0..50]-(sb:SecurityBoundary)
       WITH DISTINCT sb
       MATCH (sb)<-[:BELONGS_TO]-(c:Component)
       RETURN DISTINCT c
@@ -288,7 +293,7 @@ type SecurityBoundary implements Element  @authentication @node {
   allDescendantDataFlows: [DataFlow!]!
     @cypher(
       statement: """
-      MATCH (this)<-[:BELONGS_TO*0..10]-(sb:SecurityBoundary)
+      MATCH (this)<-[:BELONGS_TO*0..50]-(sb:SecurityBoundary)
       WITH DISTINCT sb
       MATCH (sb)<-[:BELONGS_TO]-(c:Component)
       WITH DISTINCT c
@@ -341,8 +346,14 @@ type Control implements Element  @authentication @node {
   category: String
   "Class this control is an instance of"
   controlClasses: [ControlClass!]! @relationship(type: "IS_INSTANCE_OF", direction: OUT)
-  "Elements this control is applied to"
+  "Elements this control is applied to (polymorphic). Note: the auto-generated resolver for this interface field has correctness and performance issues against Memgraph — prefer the typed fields below for production queries. Retained for backward compatibility with external consumers."
   elements: [Element!]! @relationship(type: "SUPPORTS", direction: OUT)
+  "Components this control is applied to"
+  supportedComponents: [Component!]! @relationship(type: "SUPPORTS", direction: OUT)
+  "Security boundaries this control is applied to"
+  supportedBoundaries: [SecurityBoundary!]! @relationship(type: "SUPPORTS", direction: OUT)
+  "Data flows this control is applied to"
+  supportedDataFlows: [DataFlow!]! @relationship(type: "SUPPORTS", direction: OUT)
   "Countermeasures provided by this control"
   countermeasures: [Countermeasure!]! @relationship(type: "HAS_COUNTERMEASURE", direction: OUT)
   "Folder containing this control"
@@ -1244,6 +1255,34 @@ type ReindexResult {
   moduleNames: [String!]!
 }
 
+"""
+Set of Model IDs that reference a given Control via SUPPORTS edges.
+
+Used by the control-library push pipeline to gate brownfield attribute edits
+on shared Controls (shared = assigned to more than one model). See
+CONTROL_LIBRARY.md §6 for the shared-ownership safety contract.
+"""
+type ControlAssignedModels {
+  "Control UUID"
+  controlId: ID!
+  "Set of Model UUIDs reachable via SUPPORTS edges (deduplicated across branches)"
+  modelIds: [ID!]!
+}
+
+"""
+Per-(Control, ControlClass) instantiation attribute payload from the
+IS_INSTANCE_OF edge. Backs the control-library pull and push-brownfield
+refresh pipelines. See CONTROL_LIBRARY.md §7.
+"""
+type ControlInstantiationAttribute {
+  "Control UUID"
+  controlId: ID!
+  "ControlClass UUID — null if the Control has no IS_INSTANCE_OF edge to any ControlClass"
+  classId: ID
+  "Edge properties (the per-instance attribute payload). Null when classId is null."
+  attributes: JSON
+}
+
 type Query {
   "Get all exposures attached to a specific element"
   getExposuresForElement(elementId: String!): [Exposure!]!
@@ -1330,6 +1369,71 @@ type Query {
     elementTypes: [ComponentType!]!
     moduleIds: [ID!]
   ): [ControlCandidate!]!
+    @authentication
+
+  """
+  Batched lookup of the live set of Model IDs that reference each given Control
+  via SUPPORTS edges. Used by the brownfield push pipeline's shared-ownership
+  check (CONTROL_LIBRARY.md §6). Per-label indexes on id are required for
+  production-scale performance (see §9 Platform / database).
+
+  Reaches Models via two branches: (1) components/boundaries the Control
+  supports, and (2) DataFlows the Control supports (reached via FLOWS-attached
+  components). Empty modelIds is valid — the Control has no SUPPORTS edges yet.
+  """
+  getControlsAssignedModels(controlIds: [ID!]!): [ControlAssignedModels!]!
+    @cypher(
+      statement: """
+      UNWIND $controlIds AS cid
+      MATCH (c:Control {id: cid})
+      // Branch 1: Component / SecurityBoundary supports — aggregate before
+      // branch 2 to avoid Cartesian inflation when a Control supports both
+      // a Component and a DataFlow.
+      // Sprint 5 F-25: depth bound raised from *0..10 to *0..50 — the prior
+      // bound silently failed open on deeply-nested SecurityBoundary trees
+      // (12+ levels), under-counting assigned models and biasing the
+      // shared-ownership safety check toward "alone" (UX-friendly but
+      // unsafe). 50 is a defensible ceiling pending the V1.1 telemetry-driven
+      // bootstrap warning (see Sprint 6 follow-up).
+      OPTIONAL MATCH (c)-[:SUPPORTS]->(e) WHERE e:Component OR e:SecurityBoundary
+      OPTIONAL MATCH (m1:Model)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(e)
+      WITH cid, c, collect(DISTINCT m1.id) AS ids1
+      // Branch 2: DataFlow supports reach a Model via FLOWS-attached Components.
+      OPTIONAL MATCH (c)-[:SUPPORTS]->(df:DataFlow)
+      OPTIONAL MATCH (df)-[:FLOWS]-(:Component)-[:BELONGS_TO*0..50]->(:SecurityBoundary)<-[:CONTAINS]-(m2:Model)
+      WITH cid, ids1 + collect(DISTINCT m2.id) AS combined
+      // List-comprehension dedup preserves empty-result rows (UNWIND of [] would drop the cid row).
+      // Index-based dedup is the Memgraph-3.x-compatible alternative to apoc.coll.toSet().
+      WITH cid, [m IN combined WHERE m IS NOT NULL] AS filtered
+      WITH cid, [i IN range(0, size(filtered)-1) WHERE NOT filtered[i] IN filtered[0..i] | filtered[i]] AS modelIds
+      RETURN { controlId: cid, modelIds: modelIds } AS result
+      """
+      columnName: "result"
+    )
+    @authentication
+
+  """
+  Batched lookup of per-(Control, ControlClass) instantiation attributes
+  (IS_INSTANCE_OF edge properties) for the given Control IDs. Backs the
+  control-library pull and the brownfield push Step B refresh.
+
+  A Control with no IS_INSTANCE_OF edge returns one row with classId = null
+  and attributes = null. A Control that is an instance of multiple
+  ControlClasses returns one row per (controlId, classId) pair.
+  """
+  getControlInstantiationAttributes(controlIds: [ID!]!): [ControlInstantiationAttribute!]!
+    @cypher(
+      statement: """
+      MATCH (c:Control) WHERE c.id IN $controlIds
+      OPTIONAL MATCH (c)-[r:IS_INSTANCE_OF]->(cc:ControlClass)
+      // Memgraph 3.x quirk: properties(null) returns {} not null. Explicit
+      // CASE ensures attributes is genuinely null when the edge doesn't exist
+      // — required by the §7 brownfield-pull contract (the wrapper distinguishes
+      // "instance with empty attributes" from "no instance").
+      RETURN { controlId: c.id, classId: cc.id, attributes: CASE WHEN r IS NULL THEN null ELSE properties(r) END } AS result
+      """
+      columnName: "result"
+    )
     @authentication
 }
 

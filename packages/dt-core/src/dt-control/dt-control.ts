@@ -1,7 +1,7 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
-import { gql } from 'graphql-tag'
+import { DtClass } from '../dt-class/dt-class.js'
 import * as Apollo from '@apollo/client'
-import { Class, Control, ControlCandidate, ControlGapsResult } from '../interfaces/core-types-interface.js'
+import { Class, Control, ControlCandidate, ControlGapsResult, Element as DtElement } from '../interfaces/core-types-interface.js'
 import {
   CREATE_CONTROL,
   DELETE_CONTROL,
@@ -12,15 +12,20 @@ import {
   CONTROL_GAPS,
   CONTROL_CANDIDATES_FOR_TYPE,
   ASSIGN_CONTROL_TO_ELEMENTS,
+  GET_CONTROLS_BY_IDS,
+  GET_CONTROLS_ASSIGNED_MODELS,
+  GET_CONTROL_INSTANTIATION_ATTRIBUTES,
 } from './dt-control-gql.js'
 
 export class DtControl {
   private dtUtils: DtUtils
+  private dtClass: DtClass
   private apolloClient: Apollo.ApolloClient
 
   constructor(apolloClient: Apollo.ApolloClient) {
     this.apolloClient = apolloClient
     this.dtUtils = new DtUtils(this.apolloClient)
+    this.dtClass = new DtClass(this.apolloClient)
   }
 
   /**
@@ -402,15 +407,22 @@ export class DtControl {
     if (!controlId || !elementIds || elementIds.length === 0) return null
 
     try {
+      // Broadcast all element IDs to all three typed connect paths.
+      // Each connect's WHERE filter is type-scoped (e.g. supportedComponents
+      // only matches Component nodes), so non-matching IDs are silently
+      // skipped. This avoids a pre-flight type lookup and works because the
+      // SUPPORTS edge is the same regardless of the target node's label.
+      const connects = elementIds.map(id => ({
+        where: { node: { id: { eq: id } } },
+      }))
+
       const variables = {
         controlId,
         input: {
-          elements: {
-            connect: elementIds.map(id => ({
-              where: { node: { id: { eq: id } } }
-            }))
-          }
-        }
+          supportedComponents: { connect: connects },
+          supportedBoundaries: { connect: connects },
+          supportedDataFlows: { connect: connects },
+        },
       }
 
       const result = await this.dtUtils.performMutation<Control>({
@@ -422,8 +434,17 @@ export class DtControl {
       })
 
       if (result) {
+        // Synthesize the polymorphic `elements` array from the typed responses
+        // so existing callers that read `control.elements` keep working.
+        const elements: DtElement[] = [
+          ...(result.supportedComponents ?? []),
+          ...(result.supportedBoundaries ?? []),
+          ...(result.supportedDataFlows ?? []),
+        ]
+
         return {
           ...result,
+          elements,
           folder: result.folder && Array.isArray(result.folder) && result.folder.length > 0
             ? result.folder[0]
             : result.folder,
@@ -496,5 +517,154 @@ export class DtControl {
     } catch (error) {
       throw error
     }
+  }
+
+  /**
+   * Batched fetch returning class metadata for a list of Control ids.
+   * Returns `{ id, name, controlClasses: [{ id, name, module: { id } }] }` only —
+   * per-instance IS_INSTANCE_OF edge attributes come from
+   * `getControlInstantiationAttributes`. Short-circuits on empty input without
+   * a Bolt round-trip.
+   *
+   * @param ids - The control ids to fetch (deduplicated client-side)
+   * @returns Array of Controls with class metadata; empty array if input is empty
+   */
+  getControlsByIds = async ({ ids }: { ids: string[] }): Promise<Control[]> => {
+    if (!ids?.length) return []
+    const dedupedIds = Array.from(new Set(ids))
+    try {
+      const response = await this.dtUtils.performQuery<{ controls: Control[] }>({
+        query: GET_CONTROLS_BY_IDS,
+        variables: { ids: dedupedIds },
+        action: 'getControlsByIds',
+        fetchPolicy: 'network-only'
+      })
+      if (!response.controls) return []
+      return response.controls.map((control: Control) => ({
+        ...control,
+        controlClasses: control.controlClasses?.map((controlClass: Class) => ({
+          ...controlClass,
+          module: controlClass.module && Array.isArray(controlClass.module) && controlClass.module.length > 0
+            ? controlClass.module[0]
+            : controlClass.module,
+        })),
+      }))
+    } catch (error) {
+      throw error
+    }
+  }
+
+  /**
+   * Batched lookup of the live set of Model IDs that reference each given
+   * Control via SUPPORTS edges. Backs the shared-ownership safety check
+   * (CONTROL_LIBRARY.md §6).
+   *
+   * Returns a Map keyed by controlId (never positional — Memgraph returns rows
+   * in index-scan order, not input order). Ids absent from the platform result
+   * get an empty-array entry in the Map; Sprint 2's DtControlLibrary applies
+   * lifecycle-aware reconciliation (brownfield/partially-pushed absent ⇒
+   * tombstone; greenfield absence is expected).
+   *
+   * Short-circuits on empty input without a Bolt round-trip — `UNWIND null`
+   * errors with `Argument of UNWIND must be a list` on Memgraph.
+   *
+   * @param ids - The control ids to query (deduplicated client-side)
+   * @returns Map<controlId, modelIds[]>
+   */
+  getControlsAssignedModels = async ({ ids }: { ids: string[] }): Promise<Map<string, string[]>> => {
+    const result = new Map<string, string[]>()
+    if (!ids?.length) return result
+    const dedupedIds = Array.from(new Set(ids))
+    // Initialise all requested ids to empty arrays so callers can differentiate
+    // "0 SUPPORTS edges" from "id missing from platform" via Map.has().
+    for (const id of dedupedIds) result.set(id, [])
+    try {
+      const response = await this.dtUtils.performQuery<{
+        getControlsAssignedModels: { controlId: string, modelIds: string[] }[]
+      }>({
+        query: GET_CONTROLS_ASSIGNED_MODELS,
+        variables: { controlIds: dedupedIds },
+        action: 'getControlsAssignedModels',
+        fetchPolicy: 'network-only'
+      })
+      for (const row of response.getControlsAssignedModels ?? []) {
+        result.set(row.controlId, row.modelIds ?? [])
+      }
+      return result
+    } catch (error) {
+      throw error
+    }
+  }
+
+  /**
+   * Batched lookup of per-(Control, ControlClass) instantiation attributes
+   * (IS_INSTANCE_OF edge properties) for the given Control ids. Backs the
+   * control-library pull and the brownfield push Step B refresh
+   * (CONTROL_LIBRARY.md §7).
+   *
+   * Short-circuits on empty input without a Bolt round-trip (same Memgraph
+   * null-UNWIND constraint as {@link getControlsAssignedModels}).
+   *
+   * @param controlIds - The control ids to query (deduplicated client-side)
+   * @returns Array of `{ controlId, classId, attributes }` rows; one row per
+   *          (Control, ControlClass) pair. A Control with no IS_INSTANCE_OF
+   *          edge returns one row with `classId === null, attributes === null`.
+   */
+  getControlInstantiationAttributes = async ({ controlIds }: { controlIds: string[] }): Promise<{
+    controlId: string
+    classId: string | null
+    attributes: Record<string, unknown> | null
+  }[]> => {
+    if (!controlIds?.length) return []
+    const dedupedIds = Array.from(new Set(controlIds))
+    try {
+      const response = await this.dtUtils.performQuery<{
+        getControlInstantiationAttributes: {
+          controlId: string
+          classId: string | null
+          attributes: Record<string, unknown> | null
+        }[]
+      }>({
+        query: GET_CONTROL_INSTANTIATION_ATTRIBUTES,
+        variables: { controlIds: dedupedIds },
+        action: 'getControlInstantiationAttributes',
+        fetchPolicy: 'network-only'
+      })
+      return response.getControlInstantiationAttributes ?? []
+    } catch (error) {
+      throw error
+    }
+  }
+
+  /**
+   * Set per-instance attributes on the IS_INSTANCE_OF edge between a Control
+   * and its ControlClass.
+   *
+   * Thin pass-through to {@link DtClass.setInstantiationAttributes} — the
+   * underlying platform mutation is element-agnostic, and dt-class.ts is the
+   * single source of truth for the mutation path. Exposed on dt-control.ts so
+   * control-library code paths can call it through a Control-scoped seam.
+   *
+   * **Partial-payload contract (CONTROL_LIBRARY.md DEC-CL-11).** The platform
+   * uses `r += $attributes` (Cypher property merge), so keys not present in
+   * `attributes` are left unchanged on the edge. Callers that want to clear
+   * a key must either push it explicitly with a tombstone value (when the
+   * schema allows) or use a separate mutation — dropping a key from the
+   * payload does NOT remove it on the platform.
+   *
+   * @param controlId - Control UUID (the element-side of IS_INSTANCE_OF)
+   * @param classId - ControlClass UUID
+   * @param attributes - Partial payload of per-instance attributes to merge
+   * @returns True on success, false on failure
+   */
+  setInstantiationAttributes = async (
+    { controlId, classId, attributes }:
+    { controlId: string, classId: string, attributes: Record<string, unknown> }
+  ): Promise<boolean> => {
+    return this.dtClass.setInstantiationAttributes({
+      componentId: controlId,
+      classId,
+      attributes,
+    })
   }
 }

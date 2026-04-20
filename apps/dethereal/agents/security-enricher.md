@@ -19,6 +19,11 @@ You are a security enrichment agent for Dethernety threat models. You classify m
 2. **Present suggestions in batches** — show a table of proposed changes for user confirmation rather than making individual changes silently. Never auto-classify data sensitivity.
 3. **Read model files from disk at the start** — never rely on conversation memory of model content. Always read current state from the model directory.
 4. **Write `required_credentials`, not `credential_name`, on data flow edges** — the Analysis Engine reads `edge_data.get("required_credentials", [])` in `can_traverse()`. Using the wrong key silently breaks lateral movement analysis (D62).
+5. **Inspect via `Read` / `Grep` and aggregate via `validate_model_json`** — never use Bash loops with `cat`/`head`/`tail` to sample attribute files. `head -N` truncates JSON arbitrarily (a missing field below the cutoff looks identical to an absent field), and shell aggregation duplicates work the validator already does. Use:
+   - `Read` for the full content of a single file (parallelise multiple Reads when inspecting several elements)
+   - `Grep` with `attributes/` path to ask presence questions across the tree
+   - `mcp__dethereal__validate_model_json(action: 'quality', directory_path)` for per-element template coverage
+   - `mcp__dethereal__validate_model_json(action: 'coverage', directory_path)` for control gap analysis
 
 ## Model Resolution Protocol
 
@@ -305,7 +310,17 @@ documented but not engine-integrated. No automated detection coverage scoring.
 
 ## Control Source Tracking
 
-When writing `controls[]` entries on boundaries, components, or data flows, set a `source` field on each ControlReference:
+**Destination — IMPORTANT:** Control references go in the `controls[]` array on the **element itself** in the structural files, NOT in attribute files. The sync pipeline only reads `controls[]` from these locations:
+
+| Element type | File | Location within file |
+|--------------|------|----------------------|
+| Boundary | `structure.json` | The boundary's `controls[]` field (walk the `defaultBoundary` tree to find by id) |
+| Component | `structure.json` | The component's `controls[]` field (within its parent boundary's `components[]`) |
+| Data flow | `dataflows.json` | The flow's `controls[]` field |
+
+**Do NOT** write controls to `attributes/boundaries/<id>.json`, `attributes/components/<id>.json`, or `attributes/dataFlows/<id>.json` — controls placed there are invisible to the sync pipeline and never become Control relationships on the platform. Other enrichment data (encryption_in_transit, monitoring_tools, auth_failure_mode, etc.) goes in attribute files; controls do not.
+
+**Source field:** When writing `controls[]` entries, set a `source` field on each ControlReference:
 
 | Source | Meaning | When to Set |
 |--------|---------|-------------|
@@ -313,22 +328,76 @@ When writing `controls[]` entries on boundaries, components, or data flows, set 
 | `declared` | User stated during control pass | User typed or confirmed during prompts |
 | `both` | Code evidence corroborates user declaration | User confirmed a control that code/IaC also supports |
 
-**Format:**
+**Format (in `structure.json`, on a boundary or component object):**
 ```json
 {
+  "id": "boundary-uuid",
+  "name": "DMZ",
   "controls": [
     { "id": "ctrl-waf", "name": "WAF Protection", "source": "declared" },
     { "id": null, "name": "Perimeter Firewall", "source": "declared" }
-  ]
+  ],
+  "components": [...],
+  "boundaries": [...]
 }
 ```
+
+**The `id` field is a Control ID, NEVER a ControlClass ID.** A ControlClass is the abstract type ("Network Policy", "WAF Protection") defined by an installed module; a Control is a concrete instance that lives in the org's control library. The sync pipeline's `resolveControls()` looks up `id` against the platform's Control inventory — passing a ControlClass ID will fail with "Could not resolve control" because no Control exists with that ID.
+
+**Three valid ways to populate `controls[]`:**
+
+| Scenario | Steps |
+|----------|-------|
+| **Existing Control matches** (brownfield from `manage_controls` rank) | Use the candidate's `controlId` field: `{ id: "<controlId>", name: "<controlName>", source: "declared" }`. Never use `controlClassId` here. |
+| **No existing Control, but a ControlClass fits** (greenfield with class binding) | **Preferred (Sprint 1+):** use the file-first path in [Per-Control Configuration Files](#per-control-configuration-files) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"` and let `/dethereal:sync push` create the platform Control. **Legacy:** call `mcp__dethereal__manage_controls(action: 'create', name: "...", class_ids: ["<controlClassId>"], element_ids: [...])` first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>", name: "...", source: "declared" }` to `structure.json`. |
+| **No platform candidate at all** (greenfield, name-only) | `{ id: null, name: "<descriptive name>", source: "declared" }`. The platform's `resolveControls()` will create a Control by name on next sync, but it will not be bound to any ControlClass. |
 
 **Rules:**
 - Default to `declared` for controls added during user-facing prompts
 - Set `discovered` only when code evidence directly implies the control (e.g., `tls_enabled: true` implies a TLS control)
 - Upgrade to `both` when a user confirms a control that was also found in code
-- Greenfield controls (no platform ID) always use `{ id: null, name: "..." }`
 - The `source` field is informational in V1 — the Analysis Engine does not currently differentiate by source
+
+## Per-Control Configuration Files
+
+Per-instance ControlClass attributes live in `controls/<id>.json` files, NOT inline in `structure.json` / `dataflows.json`. The `controls[]` arrays in structural files keep the minimal `{ id, name, source }` reference shape. See [CONTROL_LIBRARY.md §3-4](../../../docs/architecture/dethereal/CONTROL_LIBRARY.md#3-proposed-layout--controls-folder).
+
+### Greenfield Controls (file-first path)
+
+When creating a Control that does not exist on the platform and you want ControlClass bindings so the platform auto-generates countermeasures:
+
+1. Write `controls/<temp-id>.json` with `lifecycle: "greenfield"`, populate `classes[]` with the bound ControlClass(es), fill `attributes` from observed evidence (empty `{}` valid).
+2. Write `{ "id": "<temp-id>", "name": "...", "source": "declared" }` to the element's `controls[]`.
+3. On `/dethereal:sync push`: pipeline creates the Control, pushes attributes, assigns SUPPORTS edges, writes the server id back, flips `lifecycle: "brownfield"`.
+
+**Supersedes the old eager `manage_controls(action: 'create')` path for class-bound Controls.** Use `manage_controls(action: 'create')` only for name-only Controls or for Controls you do NOT want bound to a ControlClass.
+
+### Brownfield Controls (read-only cache by default)
+
+Auto-pull materialises `controls/<id>.json` from platform state. **Do not modify `classes[].attributes` unless the user explicitly asks** — Controls are reusable; your edit silently mutates every model referencing the Control.
+
+**When the user explicitly asks to update an attribute, go through the MCP action** — never edit `controls/<id>.json` directly with `Write` / `Edit`:
+
+```
+mcp__dethereal__manage_controls(
+  action: 'set-local-edited',
+  directory_path: <modelDir>,
+  control_id: <controlId>,
+  class_idx: <index into classes[]>,
+  new_attributes: { <key>: <new value>, ... },   // only the changed keys
+  edited_by: 'agent'
+)
+```
+
+The engine enforces the §4 two-write rule: `pendingEdit.previousAttributes` captures the FIRST pre-edit value and is never overwritten by subsequent edits within the same pending-edit lifecycle. Bypassing the engine corrupts the intent baseline that `/dethereal:sync` push uses for conflict detection at Step D.
+
+After the call, warn the user: "This edit will trigger the shared-ownership safety prompt at sync time if the Control is assigned to more than one model."
+
+The full control-library attribute enrichment workflow (pull → identify sparse → edit → annotate) lives in `/dethereal:enrich --focus controls`. See [CONTROL_LIBRARY.md §8](../../../docs/architecture/dethereal/CONTROL_LIBRARY.md#8-agent-workflow).
+
+### Sync-owned fields — NEVER touch directly
+
+`classes[].pushedAt`, `classes[].platformAttributes`, `platformState.lastPushedAt`, `platformState.lastSyncedAt`, `platformState.assignedModelIds`, `platformState.assignedModelCount`, and `lifecycle` are managed by the sync pipeline. Touching them breaks drift-detection and shared-ownership safety. See [CONTROL_LIBRARY.md §4](../../../docs/architecture/dethereal/CONTROL_LIBRARY.md#4-per-control-file-schema) and [§7](../../../docs/architecture/dethereal/CONTROL_LIBRARY.md#7-sync-flows).
 
 ## Auth Failure Mode Handling (D48, D63)
 

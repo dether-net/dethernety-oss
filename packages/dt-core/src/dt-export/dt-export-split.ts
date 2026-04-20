@@ -155,6 +155,7 @@ export class DtExportSplit {
         .map(ctrl => ({
           id: ctrl.id!,
           name: ctrl.name,
+          source: ctrl.source as 'discovered' | 'declared' | 'both' | undefined,
         }))
     }
 
@@ -221,6 +222,7 @@ export class DtExportSplit {
         .map(ctrl => ({
           id: ctrl.id!,
           name: ctrl.name,
+          source: ctrl.source as 'discovered' | 'declared' | 'both' | undefined,
         }))
     }
 
@@ -275,6 +277,7 @@ export class DtExportSplit {
         .map(ctrl => ({
           id: ctrl.id!,
           name: ctrl.name,
+          source: ctrl.source as 'discovered' | 'declared' | 'both' | undefined,
         }))
     }
 

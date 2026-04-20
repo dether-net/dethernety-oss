@@ -98,6 +98,13 @@ export interface ControlReference {
   id: UUID;
   /** Human-readable control name */
   name?: string;
+  /**
+   * Origin/confirmation source for this control reference.
+   * - `discovered`: inferred from IaC/code attributes
+   * - `declared`: user stated during the control pass
+   * - `both`: code evidence corroborates user declaration
+   */
+  source?: 'discovered' | 'declared' | 'both';
 }
 
 /**

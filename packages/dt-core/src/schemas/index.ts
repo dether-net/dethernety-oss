@@ -63,6 +63,17 @@ export {
   type Identifiable,
 } from './common.schema.js';
 
+// Control library (per-Control configuration files under controls/<id>.json)
+export {
+  type ControlFile,
+  type ControlFileClassEntry,
+  type ControlFilePlatformState,
+  type PendingEditBlock,
+  type PendingEditAuthor,
+  type ControlLifecycle,
+  type ControlSource,
+} from './control-file.schema.js';
+
 // Manifest
 export {
   type ModelManifest,

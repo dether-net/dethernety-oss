@@ -1,4 +1,19 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+
+// F-07 — `loadAllowedModelPaths` reads `~/.dethernety/models.json` via
+// `os.homedir()`. On macOS, `homedir()` ignores `process.env.HOME` and
+// reads from `getpwuid_r`, so a HOME override at the env level doesn't
+// redirect the read. Mock the os module to point homedir at our temp dir
+// so the F-07 test runs hermetically.
+let mockedHome = ''
+vi.mock('node:os', async () => {
+  const actual = await vi.importActual<typeof import('node:os')>('node:os')
+  return {
+    ...actual,
+    homedir: () => mockedHome || actual.homedir(),
+  }
+})
+
 import { validatePathConfinement, isFlatFormat, normalizeFlatAttribute } from '../directory-utils.js'
 import type { ModelStructure, ClassReference } from '@dethernety/dt-core'
 import { flattenStructure } from '@dethernety/dt-core'
@@ -44,6 +59,69 @@ describe('validatePathConfinement', () => {
   it('should accept nested subdirectories', async () => {
     const result = await validatePathConfinement('/home/user/models/a/b/c', baseDir)
     expect(result).toBe('/home/user/models/a/b/c')
+  })
+})
+
+describe('Sprint 4 F-07 — allowlist poisoning resistance', () => {
+  // The bug: prior to F-07, anything in ~/.dethernety/models.json was trusted
+  // unconditionally. A process running as the user could rewrite models.json
+  // (it's a plain world-readable file) to point at /tmp or any other directory,
+  // and every subsequent MCP-invoked control-library action would honour it.
+  // Fix: each allowlist entry must itself be a legitimate model directory
+  // (manifest.json present + parsable) before we honour it.
+
+  let tempHome: string
+  let poisonedTarget: string
+
+  beforeEach(async () => {
+    const fs = await import('node:fs/promises')
+    const os = await import('node:os')
+    const path = await import('node:path')
+
+    tempHome = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'dtcl-home-')))
+    mockedHome = tempHome // see vi.mock at top of file
+
+    // Poisoned target — a real directory but NOT a model directory
+    // (no manifest.json). Mirrors what an attacker would create. Use
+    // realpath so symlinked tmpdirs (macOS /var → /private/var) match the
+    // realpath-canonicalised value validatePathConfinement compares against.
+    poisonedTarget = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'poisoned-')))
+
+    // Write a models.json under the temp HOME pointing at the poisoned target.
+    const dethernetyDir = path.join(tempHome, '.dethernety')
+    await fs.mkdir(dethernetyDir, { recursive: true })
+    await fs.writeFile(
+      path.join(dethernetyDir, 'models.json'),
+      JSON.stringify({ paths: [poisonedTarget] }),
+    )
+  })
+
+  afterEach(async () => {
+    const fs = await import('node:fs/promises')
+    mockedHome = ''
+    await fs.rm(tempHome, { recursive: true, force: true })
+    await fs.rm(poisonedTarget, { recursive: true, force: true })
+  })
+
+  it('refuses an allowlisted path that lacks manifest.json (poisoned models.json)', async () => {
+    // Without F-07, the substring match alone would honour poisonedTarget.
+    // With F-07, isModelDirectory(poisonedTarget) returns false → no honour.
+    await expect(validatePathConfinement(poisonedTarget, '/nonexistent/cwd')).rejects.toThrow(
+      'outside the allowed directory',
+    )
+  })
+
+  it('honours an allowlisted path that has manifest.json', async () => {
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    // Promote the poisoned target to a legitimate model directory by
+    // writing a manifest.json. The same path now passes confinement.
+    await fs.writeFile(
+      path.join(poisonedTarget, 'manifest.json'),
+      JSON.stringify({ id: 'legitimate', name: 'legitimate' }),
+    )
+    const result = await validatePathConfinement(poisonedTarget, '/nonexistent/cwd')
+    expect(result).toBe(poisonedTarget)
   })
 })
 

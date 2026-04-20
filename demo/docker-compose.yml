@@ -125,6 +125,7 @@ services:
       - EMBEDDING_MODEL=nomic-embed-text
       # Auth-less mode — deliberate opt-in (no OIDC provider needed for demo)
       - ENABLE_NOAUTH=true
+      - LANGGRAPH_API_URL=http://host.docker.internal:8123
     depends_on:
       memgraph:
         condition: service_healthy

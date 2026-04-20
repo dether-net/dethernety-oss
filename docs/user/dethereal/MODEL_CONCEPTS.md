@@ -240,16 +240,19 @@ threat-models/my-system/
 │   ├── scope.json         # Scope definition
 │   ├── quality.json       # Quality score cache
 │   ├── discovery.json     # Discovery provenance (gitignore)
-│   └── sync.json          # Sync metadata (gitignore)
-└── attributes/            # Per-element security attributes
-    ├── boundaries/
-    │   └── {id}.json
-    ├── components/
-    │   └── {id}.json
-    ├── dataFlows/
-    │   └── {id}.json
-    └── dataItems/
-        └── {id}.json
+│   ├── sync.json          # Sync metadata (gitignore)
+│   └── control-audit.log  # Append-only control-decision ledger (commit)
+├── attributes/            # Per-element security attributes
+│   ├── boundaries/
+│   │   └── {id}.json
+│   ├── components/
+│   │   └── {id}.json
+│   ├── dataFlows/
+│   │   └── {id}.json
+│   └── dataItems/
+│       └── {id}.json
+└── controls/              # Per-Control library files (one per referenced Control)
+    └── {id}.json
 ```
 
 ### manifest.json
@@ -271,6 +274,10 @@ An array of data classification items attached to data flows. Captures what sens
 ### attributes/
 
 Per-element attribute files containing security properties. Each element type has its own subdirectory. Attribute files are created during classification (as stubs) and populated during enrichment.
+
+### controls/
+
+Per-Control files for the control library. Each Control referenced by the model (via `controls[]` on a component, boundary, or flow in `structure.json` / `dataflows.json`) gets a file here. See [Controls and the Control Library](#controls-and-the-control-library) below.
 
 ### ID Handling
 
@@ -301,6 +308,52 @@ Per-model workflow metadata inside each model directory:
 - **`quality.json`** — cached quality score (deleted on backward transitions)
 - **`discovery.json`** — discovery provenance (gitignore — may contain infrastructure details)
 - **`sync.json`** — sync metadata (gitignore — per-user state)
+
+---
+
+## Controls and the Control Library
+
+Controls are reusable security controls (e.g., "Database Encryption Package", "SOC Monitoring") that one or more model elements reference. They live in the platform's library and are mirrored locally as `controls/<id>.json` — one file per Control referenced by your model. References from elements live in `controls[]` arrays on components, boundaries, and flows.
+
+### Why Controls are separate from attributes
+
+The 6 key security attributes (authentication, encryption in transit, etc.) describe each element's *intrinsic* posture. Controls describe *how* that posture is achieved — and the same Control can apply to many elements across many Models. Editing the control's configuration in one Model affects every other Model that uses it, which is why Controls have their own file per Control and a safety check on push (see [shared-ownership prompts](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts)).
+
+### ControlClass and per-instance attributes
+
+A Control is an instance of one or more **ControlClasses** (e.g., "Encryption at Rest", "Access Control"). Each `(Control, ControlClass)` pair has its own attribute payload describing how that instance is configured (algorithm, key rotation, audit retention, etc.).
+
+```json
+{
+  "id": "ctrl-encryption-package",
+  "name": "Database Encryption Package",
+  "lifecycle": "brownfield",
+  "classes": [
+    {
+      "classId": "class-encryption-at-rest",
+      "attributes":         { "algorithm": "AES-256", "keyRotationDays": 30 },
+      "platformAttributes": { "algorithm": "AES-128", "keyRotationDays": 90 }
+    }
+  ]
+}
+```
+
+The `attributes` block is what the operator edits. The `platformAttributes` block is the raw server-side payload as of the last pull. The pair is how the plugin detects local edits and shared-ownership conflicts.
+
+### Lifecycle states
+
+| State | Meaning |
+|-------|---------|
+| `greenfield` | Created locally; no platform counterpart yet. Push assigns a UUID and rebinds. |
+| `brownfield` | Pulled from the platform. Edits queue as `pendingEdit` blocks for the next push. |
+| `partially-pushed` | Mid-flight state during a push that touched multiple class entries. |
+| `tombstoned` | Will not be re-pulled (deleted on platform, or operator-retired locally). |
+
+### The Two-Write Rule
+
+Every edit to `attributes` must (a) bump `localEditedAt` and (b) populate `pendingEdit`. The plugin enforces this via the `set-local-edited` MCP action — **never edit `controls/<id>.json` by hand.** Direct edits bypass the safety check and drop your changes silently on the next reconciliation.
+
+For the full control workflow, see [Discovery and Enrichment Part 4](DISCOVERY_AND_ENRICHMENT.md#part-4-control-enrichment). For the push-time safety mechanics, see [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md#shared-ownership-prompts).
 
 ---
 

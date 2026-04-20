@@ -1,7 +1,7 @@
 ---
 name: sync
 description: Push local model to platform, pull platform model to local, or check sync status
-argument-hint: "push|pull|status [directory-path]"
+argument-hint: "push|pull|status|promote-external-edit|tombstone|repair-wal [directory-path]"
 ---
 
 Synchronize a Dethernety threat model between local files and the platform. Push publishes your local model for analysis; pull imports a platform model for local enrichment.
@@ -15,12 +15,21 @@ Route `$ARGUMENTS` to the correct subcommand:
 - `push [directory-path]` → **Push flow** (publish local model to platform)
 - `pull [model-id-or-name]` → **Pull flow** (import platform model to local)
 - `status [directory-path]` → **Status display** (sync state summary)
+- `promote-external-edit <controlId> <classId>` → **Recovery verb** (unblocks the Step A external-edit guard after someone else changed the Control on the platform between your pull and push; see §Promote External Edit below)
+- `tombstone <controlId>` → **Recovery verb** (Sprint 4 F-10) — flip a control's lifecycle to `tombstoned` locally so future pulls don't resurrect it; useful for retiring a Control without waiting for platform-deletion-detected reconciliation. See §Tombstone Recovery Verb below.
+- `repair-wal` → **Recovery verb** (Sprint 5 F-20) — surface the stranded WAL journal contents and walk the operator through the three available recovery actions (delete journal, retry replay, or manually rename). Use when any push/pull/status action returns `WAL_REPLAY_FAILED`. See §Repair WAL Recovery Verb below.
 - No arguments or unrecognized → show usage hint:
   ```
-  Usage: /dethereal:sync <push|pull|status> [options]
-    push [directory-path]     Publish local model to platform
-    pull [model-id-or-name]   Import platform model to local files
-    status [directory-path]   Show sync state and local changes
+  Usage: /dethereal:sync <push|pull|status|promote-external-edit|tombstone|repair-wal> [options]
+    push [directory-path]                        Publish local model to platform
+    pull [model-id-or-name]                      Import platform model to local files
+    status [directory-path]                      Show sync state and local changes
+    promote-external-edit <controlId> <classId>  Promote platform state into local pendingEdit
+                                                 (recovery for the Step A external-edit guard)
+    tombstone <controlId>                        Mark a control as tombstoned locally
+                                                 (decouples from future pulls)
+    repair-wal [directory-path]                  Inspect + recover from a stranded WAL journal
+                                                 (after WAL_REPLAY_FAILED)
   ```
 
 For push and status: resolve the model directory using the Model Resolution Protocol. For pull: resolve the target model from the platform.
@@ -205,11 +214,536 @@ If user chooses **cancel**: stop.
    If "keep": no change. Warning noted for manual review.
 
 6. If countermeasures exist in the model: "Run `/dethereal:surface` after analysis to link controls to exposures."
-7. Post-action footer:
+
+(The P6 footer is merged into P7's footer below — it covers both the structural push and the control-library push in one summary.)
+
+### P7. Control Library Push (CL §7 Steps 0–F)
+
+> Runs AFTER P5/P6 structural push succeeds. Drives per-Control attribute edits (from the `pendingEdit` blocks populated by `/dethereal:enrich --focus controls`) through the Steps 0–F safety pipeline with full shared-ownership UX.
+
+#### P7.1 — Pre-flight Gather
+
+Enumerate `<modelDir>/controls/<id>.json` files. Sort each into one of three buckets:
+
+1. **Brownfield with pending edits** (the canonical case): `lifecycle === 'brownfield'` AND any `classes[].pendingEdit` populated. Routes through P7.2–P7.6 below.
+
+2. **Greenfield / partially-pushed** (Sprint 4 F-05): `lifecycle === 'greenfield' || lifecycle === 'partially-pushed'`. Routes through the **Greenfield push branch** (P7.G below) — these are locally-authored Controls that need to be created on the platform with WAL-protected id rewrite. Pre-Sprint-4 these were silently skipped, leaving the file-first greenfield workflow unreachable.
+
+3. **External-edit drift** (Sprint 4 F-06): `lifecycle === 'brownfield' || lifecycle === 'partially-pushed'`, AND `attributes != platformAttributes` for any class entry, AND that class entry has NO `pendingEdit` block. Pre-Sprint-4 these were silently skipped — a hand-edited control file would never trigger the Step A external-edit guard because the engine was never invoked. Render as a **pre-flight error** before any P7.2 fetch:
    ```
-   [done] Push complete. Quality: X/100.
-   [next] Commit changes to git, then /dethereal:review (assess quality)
+   External edit detected on control(s):
+     - "<name>" [class "<className>"]: attributes diverge from platformAttributes with no pendingEdit.
+       Recovery: /dethereal:sync promote-external-edit <controlId> <classId>
+   Aborting P7 — re-run after promoting the external edits (the safety guard exists so untracked
+   changes cannot silently overwrite the platform).
    ```
+   Stop P7 entirely; do not proceed to P7.2 even if other Controls have valid pending edits in the same batch. Forcing the operator to resolve drift before any further pushes mirrors the engine's Step A guard.
+
+If all three buckets are empty, skip P7 entirely — proceed to the footer (P7.6) with control-library counts zeroed. **Do not surface noise** when the common case (no pending edits, no drift, no greenfield files) applies.
+
+#### P7.2 — Batched Fresh-Fetch
+
+Refresh `platformAttributes` and `platformState.assignedModelIds` for the touched controls in a single batched round-trip:
+
+```
+mcp__dethereal__manage_controls(
+  action: 'pull-controls',
+  directory_path: <modelDir>,
+  control_ids: [ <touchedId1>, <touchedId2>, ... ]
+)
+```
+
+`pull-controls` preserves `pendingEdit` when it exists on disk — only `platformAttributes` and `platformState.assignedModelIds` are overwritten. Re-read each touched file from disk; the skill now has the three inputs the engine needs per control:
+
+- `freshPlatformAttrs`: `Map<classId, Record<string, unknown>>` built from each class entry's refreshed `platformAttributes`.
+- `liveAssignedModelIds`: the refreshed `platformState.assignedModelIds`.
+- `thisModelId`: read from `manifest.json` `model.id`.
+
+If `pull-controls` reconciled one of the ids to `tombstoned` (the control was deleted on the platform between enrich and sync), surface it in the next render and skip the push for that control.
+
+#### P7.3 — Classify Per-Control State
+
+For each touched control, classify its state locally (no extra round-trips) using the refreshed data:
+
+| State | Detection | Action |
+|---|---|---|
+| `alone` | `assignedModelIds.length === 0` OR `assignedModelIds.length === 1 && assignedModelIds[0] === thisModelId` | Push without prompt (default `decision.sharedOwnership: 'push-anyway'` but no prompt — alone is always safe). |
+| `shared` | `assignedModelIds.length > 1` | Prompt for `sharedOwnership` decision. |
+| `query-failed` | The `pull-controls` call errored for this id (rare, but handle defensively) | Offer `push-unverified` or `cancel` per-row. |
+| `tombstoned` | `lifecycle === 'tombstoned'` after reconciliation | Surface as "Control deleted on platform; skip or re-create locally." No push. |
+
+Within each state, compute per-key conflicts: for each `entry.pendingEdit.previousAttributes` key `k`, check whether `freshPlatformAttrs[classId][k] !== pendingEdit.previousAttributes[k]`. Conflicting keys require a `decision.perKey[<classIdx>.<key>]` resolution (Step D Case 3).
+
+#### P7.4 — Render Operator Prompt
+
+**Case A — 1 control needs decision** — render the CL §6 single-control prompt verbatim:
+
+```
+Shared Control: <controlName> (<thisModelName>)
+This Control is also assigned to <M> other models (<M+1> total):
+  - <modelName2>
+  - <modelName3>
+  (and <X> more — full list with `show models 1`)
+
+You are about to change these attributes on the IS_INSTANCE_OF edge to ControlClass "<className>":
+
+  <key1>:   <platformValue>  →  <yourValue>   (you proposed)
+  <key2>:   <platformValue>  →  <yourValue>   (you proposed)
+
+  No other attributes will be touched (push uses partial payload; see DEC-CL-11).
+
+Affected ControlClass: <className> (<i> of <N> classes on this Control)
+
+Choose:
+  cancel        Leave platform attributes unchanged. Local edits stay; prompt fires again next push.
+  push-anyway   Apply YOUR changes to all <M+1> models. Audit-log entry written. Server keys you
+                did not propose to change are left untouched.
+  clone         Create a new Control as a fork of this one and repoint this model only;
+                other models keep the original Control unchanged.
+```
+
+**Case B — ≥2 controls need decision** — render the batched review screen per CL §6, with the row format and verb table grouped for scannability under panic load (UX-reviewed):
+
+```
+Shared-Control review (<P> of <T> controls require approval):
+
+  Prompted (require your decision):
+    #1  <controlName>     [shared: <M> models]   [conflict: <key1>, <key2>]
+                                                 [intent:   <key3>]
+    #2  <controlName>     [shared: <M> models]   [intent:   <key1>, <key2>, <key3>, <key4>]
+    #3  <controlName>     [query failed: <reason>]
+
+  Safe-to-push (alone on platform OR only assigned to this model — no other models affected):
+    #4  <controlName>
+    #5  <controlName>
+
+Verbs (grouped by scope):
+
+  Per-row decisions:
+    cancel <n>           leave Control #n unchanged on the platform
+    push-anyway <n>      apply YOUR intended changes to Control #n (writes force-shared)
+    push-unverified <n>  apply YOUR intended changes despite failed ownership query (force-unverified)
+    clone <n>            fork Control #n and repoint this model only
+    retry-query <n>      re-run the ownership query for Control #n
+
+  Per-key decisions (use when row has [conflict: ...]):
+    keep <n>.<key>             push your intended new value (overwrites server)
+    accept-theirs <n>.<key>    drop the key from outbound payload; copy server value local
+    merge <n>.<key> = <json>   push the typed value (JSON literal; "string"|true|42|{"k":"v"})
+    drop <n>.<key>             remove the key from outbound payload AND from pendingEdit.previousAttributes
+
+  Bulk shortcuts:
+    keep-all <n>          apply 'keep' to every conflicting key on Control #n
+    accept-theirs-all <n> apply 'accept-theirs' to every conflicting key on Control #n
+    clone-all             fork ALL prompted rows (safe-to-push group untouched)
+    cancel-all            cancel ALL prompted rows (safe-to-push group will still push)
+    cancel-everything     cancel ALL rows including safe-to-push (full abort — nothing pushes)
+
+  Inspection (read-only — does not commit anything):
+    show <n>              expand row <n> to the full single-control prompt
+    show all              expand every prompted row (warns if >4 prompted)
+    show failed           expand only query-failed rows
+    show models <n>       list every model that references Control #n
+
+  When ready:
+    done                  proceed to push with the decisions made so far
+```
+
+**Row format rules:**
+
+- The `[conflict: ...]` segment lists conflicting key names inline when the conflicting-key count is ≤ 3. When > 3, render `[conflict: 4+ keys — show <n> to expand]`. This eliminates the forced `show <n>` round-trip for 80% of cases.
+- `[intent: ...]` follows the same rule but applies to non-conflicting intended keys (the keys the operator wants to push that the server agrees on the pre-edit value for).
+- Always indent continuation lines by exactly the column width of the row label so the eye can scan vertically.
+
+**`cancel-all` vs `cancel-everything`:**
+
+- `cancel-all` cancels only the *prompted* rows (the ones the operator was being asked about). The safe-to-push group still pushes when the operator types `done`.
+- `cancel-everything` aborts the entire P7 step — no pushes at all, including safe-to-push. Use for "kill all control-library writes this session."
+
+The asymmetric default exists so an operator can deal with the prompts without inadvertently blocking the safe-to-push group; the explicit `cancel-everything` is the kill switch.
+
+**Per-key conflict rendering** (Step D Case 3) — when the operator types `show <n>` or for every 3-way conflict the single-control prompt expands inline:
+
+```
+  <key> (<type>):
+    <yourValue>        →  <yourProposed>         (you proposed)
+    <serverValue>                                (server changed since your pull)
+    Per-key choice:  keep <n>.<key>
+                   | accept-theirs <n>.<key>
+                   | merge <n>.<key> = <value>
+```
+
+Parse operator input iteratively until `done` is issued. Maintain a `decisions` map keyed by control index; carry forward unresolved conflicts (treat any conflicting key without a per-key decision as `cancel` for the entire control row per CL §6).
+
+**Key-name syntax with dots / hyphens / spaces:** When a key contains a dot (`tls.min_version`), wrap the key in double quotes:
+```
+keep 3."tls.min_version"
+```
+Without quoting, the dot is parsed as the row/key separator and `keep 3.tls.min_version` is rejected as ambiguous.
+
+**`show models <n>` sub-verb** renders cached `platformState.assignedModelIds` with the V1 limitation note per CL §6:
+
+```
+Models assigned to "<controlName>" (<M> total, cached from last pull):
+  - <modelId1>
+  - <modelId2>
+  ...
+  (model freshness/ownership not shown — V1 limitation)
+For history of this control's local edits:
+  git log --follow controls/<controlId>.json
+```
+
+The `--follow` flag matters because `controls/` files get renamed when class IDs change (greenfield → brownfield WAL id rewrite).
+
+**`merge <n>.<key> = <json>` — JSON literal validation with helpful error:**
+
+When `JSON.parse(<json>)` throws, render the parse error verbatim plus the input plus three example forms (covers ~95% of attribute types in the template schema):
+
+```
+Invalid JSON literal: <error message from JSON.parse>
+Got:   <user input>
+Try:   "string"            (string)         |   true / false   (boolean)
+       42                  (number)         |   {"k":"v"}      (object)
+       ["a","b"]           (string array)
+```
+
+Then re-prompt. Without the type hint, operators retype the same broken input (most common: typing `strict` instead of `"strict"`).
+
+**`show all` cost guard:** When prompted-control count > 4, render `show all` as `show all (will print ~<N×~5> lines)` so the operator can prefer `show 1` then iterate.
+
+#### P7.4a — Compact rendering mode (Sprint 5 S5.13)
+
+Under realistic operator load (5+ shared Controls × 3+ conflicting keys each), even the Case B batched render becomes a wall of text — multi-line `[shared:...]`/`[conflict:...]`/`[intent:...]` per row × N rows × per-key conflict expansion. Auto-engage **compact mode** when EITHER threshold is met:
+
+- **≥5 prompted Controls**, OR
+- **≥10 total conflicting keys** across all prompted Controls.
+
+(The row threshold is intentionally generous — a 3- or 4-row table reads cleanly verbose; the wall-of-text emerges around 5+. The conflicting-key threshold is the load-bearing axis since per-key prompts dominate vertical space.)
+
+Render rules in compact mode:
+
+- Strip the per-row `[shared: ...]` / `[intent: ...]` segments. Keep only `[!<N> conflicts]` as a badge when N>0; emit nothing for rows with no conflicts.
+- For query-failed rows, keep a one-word category tag: `[query failed: timeout]` / `[query failed: forbidden]` / `[query failed: no-data]` (the category drives whether the operator picks `push-unverified` or retries; the verbose reason is reached via `show <n>`).
+- Replace the multi-line Verbs block with a one-line hint that includes the display toggle: `Verbs: per-row (cancel|push-anyway|clone|push-unverified <n>) | per-key (keep|accept-theirs|merge|drop <n>.<key>) | bulk (keep-all|accept-theirs-all|cancel-all|cancel-everything <n>?) | inspect (show <n>|show all|show failed|show models <n>) | display (verbose|compact) | done. Use 'show <n>' for full row detail.`
+- Always render `show <n>` and `show all` outputs in **verbose mode** (compact is for the at-a-glance summary; the operator reaches for full detail when they need it).
+
+Example compact render under load (6 prompted, 14 conflicting keys):
+```
+Shared-Control review (6 of 8 controls require approval):
+
+  Prompted:
+    #1  TLS minimum version            [!3 conflicts]
+    #2  WAF rate-limit                 [!4 conflicts]
+    #3  Database encryption-at-rest    [!2 conflicts]
+    #4  S3 bucket public-access-block  [!1 conflict]
+    #5  Lambda IAM least-privilege     [!4 conflicts]
+    #6  CloudFront geo-restriction     [query failed: timeout]
+
+  Safe-to-push:
+    #7  ECS task-role permissions
+    #8  Secrets Manager rotation
+
+Verbs: per-row (cancel|push-anyway|clone|push-unverified <n>) | per-key (keep|accept-theirs|merge|drop <n>.<key>) | bulk (keep-all|accept-theirs-all|cancel-all|cancel-everything <n>?) | inspect (show <n>|show all|show failed|show models <n>) | display (verbose|compact) | done
+Use 'show <n>' for full row detail (per-key conflicts, models list, intent breakdown).
+```
+
+The thresholds are V1 defaults pending operator-load telemetry. They can be revisited in a Sprint 6 iteration without code changes (skill prose only). Operator override: typing `verbose` once flips back to Case B rendering for the rest of the session; `compact` flips back. The toggle is also surfaced in the Verbs hint above so it's discoverable in-band.
+
+#### P7.4b — `merge-from-file` for large JSON payloads (Sprint 5 S5.14)
+
+For attribute values larger than ~120 characters (long allow-lists, certificate PEMs, multi-paragraph descriptions), pasting the JSON literal at the prompt is error-prone (newline handling, shell quoting, paste truncation). Add a file-backed variant:
+
+```
+merge-from-file <n>.<key> = <path>
+```
+
+Where `<path>` is a path **relative to the model directory** (for path-confinement safety — see Sprint 4 F-07). The skill:
+
+1. **Validate path confinement** — reject any absolute path or path containing `..`. Acceptable forms: `controls/<id>.merged-foo.json`, `.dethereal/merge-staging/<key>.json`. Render `Invalid path '<path>': must be a relative path within the model directory. Try staging the file at .dethereal/merge-staging/<basename>.` on rejection (suggesting the canonical staging path so the operator learns the convention without trial-and-error).
+2. **Auto-create the staging dir on demand (Sprint 6 Tier-3 carryover).** When `<path>` is exactly under `.dethereal/merge-staging/` and the directory does not yet exist, `mkdir -p .dethereal/merge-staging/` before reading. Render the one-line confirmation `Created .dethereal/merge-staging/ (gitignored).` so the operator knows the side-effect happened. Skip both the directory creation AND the confirmation when the path is anywhere else (e.g. `controls/<id>.merged-foo.json`) — only the canonical staging dir is auto-provisioned. Reuses the Sprint 4 `validatePathConfinement` helper for the path check; the `mkdir` is a thin wrapper that respects the confinement decision.
+3. **Read the file** — if absent, render `File not found: <modelDir>/<path>. Stage the JSON literal at this path and retry.` and re-prompt.
+4. **Parse + validate** — `JSON.parse(content)`. On error, surface the same parse-error rendering as inline `merge` (line 398-410 above) but with **offset-aware context** when `JSON.parse` provides a position (most engines do via `error.message` matching `at position N`):
+   ```
+   Invalid JSON literal at offset N: <error message>
+   Got (around offset N):
+     ...<60 chars before the error>HERE>><60 chars after>...
+   ```
+   Falls back to `Got: <first 80 chars of content>...` when offset extraction fails.
+5. **Apply** — substitute the parsed value as the `decision.perKey[<n>.<key>].merged` payload.
+
+Render confirmation, branching on parsed type so the count makes sense:
+
+| Parsed type | Confirmation line |
+|---|---|
+| Array | `Parsed array (<N> entries) from <path>. Staged as the merge value for #<n>.<key>.` |
+| Object | `Parsed object (<N> top-level keys) from <path>. Staged as the merge value for #<n>.<key>.` |
+| String | `Parsed string (<N> chars) from <path>. Staged as the merge value for #<n>.<key>.` |
+| Number/boolean/null | `Parsed <type> (<value>) from <path>. Staged as the merge value for #<n>.<key>.` |
+
+The on-disk staging file is the operator's responsibility to clean up (the skill doesn't unlink). Suggested convention: stage under `.dethereal/merge-staging/` so it's gitignored and obvious it's transient.
+
+#### P7.5 — Apply Decisions
+
+Iterate touched controls in stable (lexicographic by id) order. For each control whose decision is NOT `cancel`:
+
+```
+mcp__dethereal__manage_controls(
+  action: 'push-brownfield',
+  directory_path: <modelDir>,
+  control_id: <id>,
+  decision: {
+    sharedOwnership: '<cancel|push-anyway|clone-and-swap|push-unverified>',
+    perKey: { '<classIdx>.<key>': { chosen: '<keep|accept-theirs|merge>', merged?: <value> }, ... },
+    queryFailureReason: '<...>',   // only for push-unverified
+    queryAttempts: <n>             // only for push-unverified
+  },
+  fresh_platform_attrs: { '<classId>': { <key>: <value>, ... }, ... },
+  live_assigned_model_ids: [ <modelId>, ... ],
+  this_model_id: '<manifest.model.id>'
+)
+```
+
+**Error handling**:
+
+- `success: false, error: 'EXTERNAL_EDIT_DETECTED'` — the skill knows the row index from the current `decisions` map, so render with copyable shorthand:
+  ```
+  Control "<name>" [class "<classId>"]: platform state drifted outside your edit history.
+  Recovery (pick one):
+    promote-external-edit <n>           — same-session shortcut (n = row index)
+    /dethereal:sync promote-external-edit <controlId> <classId>   — out-of-session
+  ```
+  When the operator types `promote-external-edit <n>` *during the same prompt session*, resolve `<n>` to (controlId, classId) from the `decisions` map and invoke `mcp__dethereal__manage_controls(action: 'promote-external-edit', ...)` directly without dropping out of the prompt loop. This collapses the recovery from "copy two UUIDs from the error message into a separate skill invocation" to one keystroke.
+
+- `success: false, error: 'CLONE_AND_SWAP_NOT_IMPLEMENTED'` → render with `cancel` recommended first (clone-and-swap was chosen *because* the operator didn't want to mutate the shared Control; `push-anyway` is the *opposite* of that intent):
+  ```
+  Control "<name>": clone-and-swap is a V1.1 feature.
+  V1 fallback (recommended):
+    cancel           Leave the Control unchanged on the platform. Manually create a
+                     separate Control via /dethereal:enrich --focus controls (the
+                     equivalent of clone-and-swap).
+  V1 fallback (last resort — destructive):
+    push-anyway      WILL overwrite the shared Control on every model that references it.
+                     Only choose this if that's actually your intent.
+    push-unverified  Same as push-anyway but with a force-unverified audit entry.
+                     Only when the ownership query failed AND you accept the blast radius.
+  ```
+  Control left unchanged on the platform until the operator re-runs the row with one of these.
+
+- Other errors → render control-scoped failure and continue with the next control (one failure does not abort the batch).
+
+For each successful `push-anyway` / `push-unverified` (i.e., an audit entry was written), render:
+
+```
+Control "<name>" [class "<className>"]: attributes pushed (audit logged, force-shared).
+```
+
+Once per sync session (first audit entry), render the log pointer plus the secret-handling reminder and the V1-trust-model nudge:
+
+```
+Audit log: .dethereal/control-audit.log (append-only JSONL; query with jq).
+NOTE: The audit log records attribute values verbatim. If your control attributes
+contain secret-like values (api_key, password, vault_token_ref, etc.), add
+controls/control-audit.log to .gitignore for this repo OR redact the offending
+attribute on the platform before pushing. The log is committed to the repo per CL §6.
+
+V1 trust model: the log is plain JSONL with no hash chaining. Tamper-evidence
+relies on you committing it to git. Run:
+  git add .dethereal/control-audit.log && git commit -m "audit: control-library push"
+V1.1 will hash-chain entries so tampering with one entry breaks the chain
+without requiring a separate git commit.
+```
+
+#### P7.6 — Combined Footer
+
+Merge P6's structural counts with P7's control-library counts:
+
+```
+[done] Push complete. <N> structural elements + <P> control edits pushed (Q force-shared, R force-unverified, S reverted, T cancelled). Quality: X/100.
+[next] Commit changes to git, then /dethereal:review (assess quality) or /dethereal:status (inspect lifecycle distribution)
+```
+
+If P7 had no work (empty gather in P7.1), keep the original P6 footer:
+
+```
+[done] Push complete. Quality: X/100.
+[next] Commit changes to git, then /dethereal:review (assess quality)
+```
+
+#### P7.G — Greenfield Push Branch (Sprint 4 F-05)
+
+> Pre-Sprint-4 the engine had a working `pushGreenfieldControl` method but no skill called it. A `controls/greenfield-foo.json` file authored by `/dethereal:enrich --focus controls` was silently skipped at P7.1, leaving the file-first greenfield workflow unreachable from the CLI. This branch closes that gap.
+
+For each control file in P7.1's bucket 2 (`lifecycle === 'greenfield' || lifecycle === 'partially-pushed'`):
+
+**Step G1 — derive `supporting_element_ids`** (also addresses RF F-13 documentation gap). Walk both `structure.json` and `dataflows.json`, collecting the id of every element whose `controls[]` array contains the new control's id (or its temp `greenfield-...` id, prior to platform creation):
+
+```
+supportingElementIds = []
+for each boundary, component, flow in structure + dataflows:
+  if element.controls?.some(c => c.id === <control.id>):
+    supportingElementIds.push(element.id)
+```
+
+If `supportingElementIds` is empty, render a warning before pushing:
+```
+Greenfield control "<name>" has no supporting elements in structure or dataflows.
+The Control will be created on the platform with no SUPPORTS edges. If that's not
+intended, edit structure.json / dataflows.json to add controls[] references first,
+then re-run /dethereal:sync.
+Continue anyway? (y/n)
+```
+
+**Step G2 — pre-fetch `liveAssignedModelIds`** for the new id. For greenfield this is always `[]` (the Control doesn't exist on the platform yet — Step E sees it as alone). Pass `[]` explicitly rather than the empty default to make caller intent visible.
+
+**Step G3 — invoke**:
+
+```
+mcp__dethereal__manage_controls(
+  action: 'push-greenfield',
+  directory_path: <modelDir>,
+  control_id: <greenfieldId>,
+  supporting_element_ids: [...],
+  folder_id: <optional folder>,
+  live_assigned_model_ids: []
+)
+```
+
+The engine drives Steps A→D from CL §7 greenfield: create-on-platform, WAL-protected id rewrite (file rename + every `controls[]` reference in structure/dataflows rewritten from temp id to server id), per-class `setInstantiationAttributes`, lifecycle flip to `brownfield`. The WAL replay invoked by the F-02 pre-dispatch handles crash-recovery if the rewrite is interrupted.
+
+On success, render:
+```
+Greenfield Control "<name>": created on platform (<serverId>), <K> SUPPORTS edge(s) attached, lifecycle → brownfield.
+```
+
+On failure, surface the engine's error and continue to the next greenfield file (one failure does not abort the batch). The on-disk file remains in `greenfield` or `partially-pushed` state for the next sync attempt.
+
+**Counts**: include greenfield successes in P7.6's combined footer as `<G> greenfield Controls created`.
+
+---
+
+## Tombstone Recovery Verb (Sprint 4 F-10)
+
+> `/dethereal:sync tombstone <controlId>` — flip a control's lifecycle to `tombstoned` locally, decoupling it from future pulls and signalling to the operator that the Control should not be re-pulled. Useful when an operator wants to retire a Control locally (e.g., after deciding the platform-side Control is the wrong choice) without waiting for the platform-deletion-detected path.
+
+1. **Auth + lock** — uses the F-03 lock automatically via the MCP boundary.
+2. **Read** the control file via `readControlFile(directory_path, controlId)`. If absent, render:
+   ```
+   Control <controlId> not found locally. Nothing to tombstone.
+   ```
+   and stop.
+3. **Confirm** — render:
+   ```
+   Marking "<controlName>" (<lifecycle>) as tombstoned. This control will not be
+   re-pulled and will be excluded from future push gathers. The on-disk file is
+   preserved (not deleted) — re-pull-controls would resurrect it.
+   Proceed? (y/n)
+   ```
+   Stop on `n`.
+4. **Invoke** `mcp__dethereal__manage_controls(action: 'tombstone', directory_path, control_id)`.
+5. **Render**:
+   ```
+   Control "<controlName>" tombstoned. Lifecycle → tombstoned; pendingEdit (if any) preserved
+   for forensic reference. To re-activate, /dethereal:enrich --focus controls and edit the file.
+   ```
+
+This verb is local-only: the platform-side Control is not deleted. Use the platform UI for that.
+
+---
+
+## Repair WAL Recovery Verb (Sprint 5 F-20)
+
+> `/dethereal:sync repair-wal [directory-path]` — recover from a stranded WAL journal that `applyPendingRewrites` refused to replay (`WAL_REPLAY_FAILED`). Surfaces the journal contents, the on-disk state of every operation, and walks the operator through the three available recovery actions. Use when any push/pull/status returned `WAL_REPLAY_FAILED` (typically the macOS overlay-FS / network-FS ambiguous-state case described in `wal-helper.ts:34-38`).
+
+1. **Resolve directory** — same Model Resolution Protocol as `sync push`. Default to current working directory if no `[directory-path]`.
+
+2. **Inspect** — invoke `mcp__dethereal__manage_controls(action: 'inspect-wal', directory_path)`. The engine returns:
+   ```json
+   {
+     "present": true,
+     "journalPath": "<modelDir>/.dethereal/pending-id-rewrite.json",
+     "operations": [
+       {
+         "kind": "greenfield-id-rewrite",
+         "tempId": "greenfield-abc",
+         "serverId": "550e8400-...",
+         "controlFileRename": { "from": "controls/greenfield-abc.json", "to": "controls/550e8400-...json" },
+         "fromExists": true,
+         "toExists": true,
+         "ambiguous": true,
+         "filePaths": [
+           { "path": "structure.json", "exists": true, "containsTempId": false, "containsServerId": true },
+           { "path": "dataflows.json", "exists": true, "containsTempId": true, "containsServerId": false }
+         ],
+         "createdAt": "2026-04-19T..."
+       }
+     ]
+   }
+   ```
+   If `present: false`, render `No stranded WAL journal at <journalPath>. Nothing to repair.` and stop.
+
+3. **Render** — for each operation, summarise the state and recovery options. Example for an ambiguous greenfield rewrite:
+   ```
+   Stranded WAL journal at .dethereal/pending-id-rewrite.json
+     Created: <createdAt>
+     Operation 1 of 1: greenfield-id-rewrite
+       tempId    = greenfield-abc
+       serverId  = 550e8400-...
+       Control file rename:
+         from: controls/greenfield-abc.json   [present]
+         to:   controls/550e8400-...json      [present]
+         [!] AMBIGUOUS — both files exist. Replay halted; operator must resolve.
+       Reference rewrites:
+         structure.json    serverId present, tempId absent   [ok]      rewritten
+         dataflows.json    tempId present, serverId absent   [pending] not yet rewritten
+
+   Recovery options:
+     1. cancel           — leave the journal in place; investigate manually. (default)
+     2. retry-replay     — re-run applyPendingRewrites. Safe iff you've already
+                           manually resolved the ambiguous file pair (deleted
+                           one of the two control files).
+     3. clear-journal    — delete the journal without applying. Local files left
+                           as-is; you'll need to manually reconcile (likely:
+                           keep controls/<serverId>.json + finish rewriting
+                           dataflows.json, or restore from git).
+
+   Choose [1/2/3, default 1]:
+   ```
+   Order rationale (Sprint 5 cross-review): under WAL-recovery stress operators are fatigued; the safest option (cancel) is `1` and is the default on empty input. The destructive option (clear-journal) is `3` and requires verbatim confirmation below.
+
+4. **Apply operator's choice** (empty input → `1`):
+   - **`1` (cancel)** — render `Journal preserved. Re-run /dethereal:sync repair-wal when ready.` and stop.
+   - **`2` (retry-replay)** — invoke any directory-touching MCP action (e.g. `mcp__dethereal__manage_controls(action: 'pull-controls', directory_path, control_ids: [])`); the F-02 pre-dispatch will replay the journal. If replay still fails, render the new error with `(attempt N of 2)` in the prompt label and offer options 1/2/3 again. After 2 retry attempts force the operator to choose 1 or 3.
+
+     Re-inspect before each retry — the WAL state may have changed since the operator's prior inspect (another shell could have run `clear-wal` or pushed new operations). Render the freshly-inspected state alongside the retry prompt so the operator's mental model is current.
+
+   - **`3` (clear-journal)** — destructive; require **verbatim confirmation**:
+     ```
+     Deleting the journal will leave .dethereal/pending-id-rewrite.json absent.
+     Local files (controls/, structure.json, dataflows.json) are NOT modified.
+     You are responsible for reconciling them manually.
+
+     Type 'clear-journal' to confirm (anything else cancels):
+     ```
+     On exact match `clear-journal` invoke `mcp__dethereal__manage_controls(action: 'clear-wal', directory_path)`. Anything else (including `y`, blank, `clear`, etc.) is treated as cancel. On success render:
+     ```
+     WAL journal deleted. Local file reconciliation is now manual.
+
+     Run /dethereal:sync status NOW before any other directory-touching action —
+     the lock has been released; another shell may write a new WAL journal in
+     the interim, and your next push/pull would auto-replay it without warning.
+
+     Suggested manual checks:
+       - Verify exactly one of {controls/<tempId>.json, controls/<serverId>.json} exists
+       - grep -r "<tempId>" structure.json dataflows.json   (should return no hits)
+     ```
+
+5. **Re-run** `/dethereal:sync status` after a successful repair to confirm the directory is clean.
+
+**Caveats:**
+- `repair-wal` is the operator's escape hatch — it cannot guess the right resolution. The skill's job is to surface the state honestly and confirm intent.
+- The lock is held for the duration of inspect-wal / clear-wal so two operators can't repair the same directory concurrently.
+- The platform-side Control was already created (that's how the journal got a `serverId`). Clearing the journal does not delete the platform Control; if the operator decides the local rewrite shouldn't have been started, the platform-side cleanup is manual.
+- **ASCII-only rendering convention (Sprint 6 Tier-3 carryover).** Every glyph the `repair-wal` flow renders — `[!]`, `[ok]`, `[pending]`, `[?]`, the bracketed prompt indicator above — is drawn from the same hard-coded ASCII palette used throughout this skill. Do NOT inject emoji, smart quotes, or non-ASCII separators when interpolating operator-supplied strings (e.g. `tempId` / `serverId` from a journal authored on a different host) into the rendered output: pass them through verbatim, but keep the surrounding skill prose ASCII-only so the recovery prompt stays legible in restricted terminals (CI logs, SSH-from-Windows-cmd, screen-readers).
 
 ---
 
@@ -276,6 +810,36 @@ Call `mcp__dethereal__export_model` with:
 - `directory_path`: the target directory
 
 The tool writes: `manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`, `attributes/`, and `.dethereal/sync.json`.
+
+### L4.5. Materialize Control Library Files (Sprint 5 F-15)
+
+`export_model` writes `structure.json` and `dataflows.json` with `controls[]` references but does NOT write the per-control files at `controls/<id>.json`. Without this step, the local view shows Control references that have no local backing file — `/dethereal:enrich --focus controls` would re-pull each one individually, and the `controls/` directory drifts silently from `structure.json` between pulls.
+
+**Discover the Control id set** by walking the freshly-pulled structure + dataflows:
+
+```
+controlIds = new Set()
+for each component / boundary / flow in structure.json + dataflows.json:
+  for each ref in element.controls[] (if any):
+    controlIds.add(ref.id)
+```
+
+If `controlIds.size === 0`: skip this step entirely (no Controls referenced).
+
+Otherwise invoke `mcp__dethereal__manage_controls(action: 'pull-controls', directory_path, control_ids: Array.from(controlIds))`. The MCP action:
+
+- Refreshes (or creates) `controls/<id>.json` for each id with the platform's current state.
+- Preserves any in-flight `pendingEdit` block on existing files (CL Appendix A.5 — caller's local edits are not silently overwritten).
+- Reconciles tombstoned ids by flipping `lifecycle: 'tombstoned'` rather than deleting the file.
+
+Render a one-line confirmation in the post-pull summary:
+```
+Controls library: <K> file(s) refreshed under controls/.
+```
+
+If `pull-controls` returns an error for a specific id (e.g. tombstoned + lifecycle mismatch), surface as a warning in the summary; do not abort the pull. The structure/dataflows files are already on disk in their refreshed state.
+
+**Why this lives in pull and not enrich**: post-Sprint-5 the rule is "`/dethereal:sync pull` returns a self-consistent model directory — no follow-up `pull-controls` required." `/dethereal:enrich --focus controls` still calls `pull-controls` for newly-discovered Control references during enrichment, but a fresh pull no longer leaves `controls/` empty against a populated `structure.json`.
 
 ### L5. State Inference
 
@@ -380,12 +944,29 @@ Pulled "<model-name>" from platform.
   dataflows.json       <K> data flows
   data-items.json      <J> data items
   attributes/          <A> attribute files
+  controls/            <C> control file(s) refreshed
 
   Quality: <score>/100 (<label>)
   State:   <STATE> (inferred from content)
 
   This is now your working copy.
   Edit locally, then /dethereal:sync push to send changes back.
+```
+
+**Callout when any control file had a `pendingEdit` block preserved** (the L4.5 `pull-controls` reconciliation path — CL Appendix A.5). The operator needs to see this because the pull deliberately did NOT overwrite their in-flight local edits:
+```
+  Preserved in-flight edits on <P> control file(s) — your uncommitted pendingEdit
+  blocks were kept; only platformAttributes was refreshed. Next push will compute
+  conflict detection against the freshly-pulled platform state. (See CL A.5)
+```
+
+**Callout when structure/dataflows referenced a Control id that the platform no longer returns** (tombstoned server-side between the export_model call and the pull-controls call — the documented F-15 race, process-architect T2-1):
+```
+  Note: <Q> Control reference(s) in structure/dataflows had no matching entry
+  in the platform response — likely tombstoned server-side after the structure
+  pull. These ids have no local controls/<id>.json; next /dethereal:sync push
+  will prompt for per-reference removal. Re-run /dethereal:sync pull once
+  tombstone state has propagated if unexpected.
 ```
 
 **Scope absence note** (show once per pull):
@@ -400,6 +981,73 @@ Post-action footer:
 [done] Pulled "<model-name>" (<STATE>, <score>/100 quality). <N> boundaries, <M> components, <K> flows.
 [next] /dethereal:enrich (fill enrichment gaps) or /dethereal:review (assess quality)
 ```
+
+---
+
+## Promote External Edit (Recovery Verb)
+
+> Unblocks the Step A external-edit guard (CL §7 Step A). When the local `controls/<id>.json` `attributes` field diverges from `platformAttributes` *without* a `pendingEdit` block recording the change (e.g., the operator hand-edited the JSON, or some external tool wrote to the file), `push-brownfield` refuses to continue.
+>
+> This verb writes a `pendingEdit` block that records the divergence as the operator's deliberate intent so the next push proceeds. **It does NOT re-pull** — re-pulling would overwrite the local `attributes` divergence the operator is trying to promote.
+
+### R1. Parse Arguments
+
+`/dethereal:sync promote-external-edit <controlId> <classId>` — both required. If either is missing, render the usage hint and stop.
+
+Resolve the model directory via the Model Resolution Protocol.
+
+### R2. Resolve `class_idx`
+
+Read `controls/<controlId>.json` from disk. If the file does not exist, render:
+
+```
+No local file for Control <controlId>. Run /dethereal:enrich --focus controls
+to pull the control first, then re-try.
+```
+and stop.
+
+Locate the class entry whose `classId === <classId>` and capture its 0-based **index** (`class_idx`). If no class matches, render the available class IDs and stop.
+
+### R3. Promote (single MCP call)
+
+```
+mcp__dethereal__manage_controls(
+  action: 'promote-external-edit',
+  directory_path: <modelDir>,
+  control_id: <controlId>,
+  class_idx: <classIdx>
+)
+```
+
+The engine method (`DtControlLibrary.promoteExternalEdit`):
+- Computes the divergence between local `attributes` and `platformAttributes` for this class entry.
+- Writes a `pendingEdit` block whose `previousAttributes` contains ONLY the keys that diverge (not a full snapshot — a full snapshot would push every key on the next push).
+- Sets `editedBy: 'external'` and bumps `localEditedAt`.
+- Persists via the WAL helper's atomic write.
+- Local `attributes` is **untouched** — the operator's intended values stay.
+
+**Error handling**:
+
+- `success: false, error: 'NO_DIVERGENCE'` → render:
+  ```
+  Control <controlId> [class <classId>] has no divergence between local attributes
+  and platformAttributes. Step A guard would not have fired — no recovery needed.
+  Run /dethereal:status to inspect the current state.
+  ```
+  and stop.
+
+### R4. Footer
+
+```
+[done] Promoted external edit on <controlId> [class <classId>] (editedBy: external).
+       The local divergence is now recorded as a pendingEdit; Step A guard cleared.
+[next] /dethereal:sync push — re-run the push to send the promoted edit to the platform.
+       /dethereal:status (inspect the resulting pending-edit state)
+```
+
+The audit entry written by the next successful `push-brownfield` will carry `editedBy: 'external'` so an auditor can distinguish this reconciliation from a deliberate operator overwrite (CL §6 audit-log schema).
+
+> **Stale `platformAttributes` note.** If your last `pull-controls` call was a while ago, `platformAttributes` in the local file may be stale — i.e., the platform has changed again since. The next `/dethereal:sync push` runs P7.2 (fresh batched fetch) before the engine's Step E mutation, so the conflict-detection step will catch any new server-side drift and re-prompt for per-key resolution at that point. You don't need to pull manually before invoking this verb.
 
 ---
 

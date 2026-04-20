@@ -7,13 +7,97 @@
  */
 
 import { z } from 'zod'
-import { DtControl } from '@dethernety/dt-core'
+import {
+  DtControl,
+  DtControlLibrary,
+  ExternalEditDetectedError,
+  CloneAndSwapNotImplemented,
+  IllegalEditedByError,
+  LockBusyError,
+  acquireLock,
+  releaseLock,
+  applyPendingRewrites,
+  inspectPendingRewrite,
+  clearPendingRewrite,
+  type LockHandle,
+  readControlFile,
+} from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
+import { validatePathConfinement } from '../utils/directory-utils.js'
+
+/**
+ * Actions that touch the model directory and therefore go through the
+ * lock + WAL-replay pre-dispatch (Sprint 4 F-02 + F-03). Read-only
+ * actions on the platform (`list`, `get`, `rank`) and pure CRUD that
+ * doesn't touch local files (`create`, `update`, `delete`, `assign`)
+ * skip both — they don't share state with concurrent control-library
+ * writes.
+ */
+const DIRECTORY_TOUCHING_ACTIONS = new Set([
+  'pull-controls',
+  'push-greenfield',
+  'push-brownfield',
+  'tombstone',
+  'set-local-edited',
+  'promote-external-edit',
+  // Sprint 5 F-20 — WAL repair recovery. Lock-acquired (no concurrent
+  // mutation while operator inspects/clears) but the WAL pre-replay is
+  // explicitly skipped (the operator's intent is to observe or discard
+  // the stranded journal, not to apply it).
+  'inspect-wal',
+  'clear-wal',
+])
+
+const SKIPS_WAL_REPLAY = new Set(['inspect-wal', 'clear-wal'])
+
+/**
+ * Decode the `email` / `sub` claim from a JWT (Sprint 4 F-04). No
+ * signature verification — the platform itself authenticated the token
+ * before issuing the Apollo client; we only need the identity claim for
+ * audit attribution.
+ *
+ * Returns `undefined` on any failure (malformed token, no payload
+ * segment, base64 error, JSON parse error, missing claim) — the caller
+ * treats `undefined` as "audit log entry written with only the local
+ * `operator` field, no `authnOperator`".
+ */
+function decodeJwtIdentity(token: string | undefined): string | undefined {
+  if (!token) return undefined
+  try {
+    const segments = token.split('.')
+    if (segments.length < 2) return undefined
+    // base64url → base64 → JSON
+    const padded = segments[1].replace(/-/g, '+').replace(/_/g, '/').padEnd(
+      segments[1].length + ((4 - (segments[1].length % 4)) % 4),
+      '='
+    )
+    const json = Buffer.from(padded, 'base64').toString('utf-8')
+    const payload = JSON.parse(json) as { email?: unknown; sub?: unknown }
+    if (typeof payload.email === 'string' && payload.email) return payload.email
+    if (typeof payload.sub === 'string' && payload.sub) return payload.sub
+    return undefined
+  } catch {
+    return undefined
+  }
+}
 
 const InputSchema = z.object({
-  action: z.enum(['list', 'get', 'create', 'update', 'delete', 'assign', 'rank']).describe('Action to perform'),
+  action: z.enum([
+    'list', 'get', 'create', 'update', 'delete', 'assign', 'rank',
+    // Sprint 3 — control-library actions backed by DtControlLibrary
+    'pull-controls', 'push-greenfield', 'push-brownfield', 'tombstone', 'set-local-edited',
+    'promote-external-edit',
+    // Sprint 5 F-20 — WAL repair recovery
+    'inspect-wal', 'clear-wal',
+  ]).describe('Action to perform'),
   folder_id: z.string().optional().describe('Folder ID for listing or creating controls'),
-  control_id: z.string().optional().describe('Control ID (required for get, update, delete, assign)'),
+  // Security: control_id is interpolated into filesystem paths
+  // (controls/<id>.json) by the engine. Restrict to characters that cannot
+  // form path traversal — letters, digits, underscore, hyphen. UUIDs and
+  // greenfield-* prefixes both satisfy this. Anything containing `/`, `.`,
+  // or backslash is rejected at the MCP boundary so it never reaches
+  // getControlFilePath.
+  control_id: z.string().regex(/^[A-Za-z0-9_-]+$/, 'control_id must contain only [A-Za-z0-9_-] (no path separators or .. segments)').optional().describe('Control ID (required for get, update, delete, assign, push-*, tombstone, set-local-edited)'),
   class_ids: z.array(z.string()).optional().describe('Control class IDs for filtering (list) or assignment (create/update)'),
   name: z.string().optional().describe('Control name — required for create, substring filter for list'),
   description: z.string().optional().describe('Control description'),
@@ -23,6 +107,19 @@ const InputSchema = z.object({
   module_name: z.string().optional().describe('Module name filter (for list action)'),
   element_types: z.array(z.string()).optional().describe('Element types for rank action (e.g. PROCESS, STORE, EXTERNAL_ENTITY)'),
   top_n: z.number().optional().describe('Number of top candidates to return for rank action (default 5)'),
+  // Control-library (Sprint 3)
+  directory_path: z.string().optional().describe('Path to the model directory (required for pull-controls / push-* / tombstone / set-local-edited)'),
+  // Same security constraint as control_id — pull-controls writes one
+  // controls/<id>.json per id, so each must be safe for filesystem use.
+  control_ids: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/, 'control_ids[] entries must contain only [A-Za-z0-9_-]')).optional().describe('Control IDs to pull in a single batched call (pull-controls)'),
+  supporting_element_ids: z.array(z.string()).optional().describe('Element IDs to attach via SUPPORTS edges during push-greenfield'),
+  live_assigned_model_ids: z.array(z.string()).nullable().optional().describe('Pre-fetched assignedModelIds — caller passes result of getControlsAssignedModels to avoid a redundant round-trip'),
+  this_model_id: z.string().optional().describe('The id of the model being synced (push-brownfield Step E — recognises alone-vs-shared)'),
+  decision: z.any().optional().describe('BrownfieldDecision object: { sharedOwnership: "cancel"|"push-anyway"|"clone-and-swap"|"push-unverified", perKey?: Record<`${classIdx}.${key}`, { chosen: "keep"|"accept-theirs"|"merge", merged? }>, queryFailureReason?, queryAttempts? }'),
+  fresh_platform_attrs: z.record(z.string(), z.record(z.string(), z.any())).optional().describe('Map<classId, Record<attrKey, value>> — fresh server attributes from the pre-push batched fetch (push-brownfield Step B)'),
+  class_idx: z.number().int().nonnegative().optional().describe('Index into classes[] for set-local-edited'),
+  new_attributes: z.record(z.string(), z.any()).optional().describe('Attribute map to merge into classes[class_idx].attributes (set-local-edited)'),
+  edited_by: z.enum(['agent', 'operator']).optional().describe('Author of the pending edit (set-local-edited). Only "agent" or "operator" — the "external" discriminator is reserved for the dedicated promote-external-edit recovery action (Sprint 4 F-01: closing the audit-discriminator spoofing surface).'),
 }).superRefine((data, ctx) => {
   if (['get', 'update', 'delete'].includes(data.action) && !data.control_id) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_id" is required for this action', path: ['control_id'] })
@@ -36,19 +133,143 @@ const InputSchema = z.object({
   if (data.action === 'rank' && (!data.element_types || data.element_types.length === 0)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"element_types" is required for "rank" action', path: ['element_types'] })
   }
+  // Control-library actions
+  if (data.action === 'pull-controls') {
+    if (!data.directory_path) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"directory_path" is required for "pull-controls"', path: ['directory_path'] })
+    if (!data.control_ids) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_ids" is required for "pull-controls" (empty array is OK — short-circuits)', path: ['control_ids'] })
+  }
+  if (data.action === 'push-greenfield') {
+    if (!data.directory_path) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"directory_path" is required for "push-greenfield"', path: ['directory_path'] })
+    if (!data.control_id) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_id" is required for "push-greenfield" (local temp greenfield-* id)', path: ['control_id'] })
+    if (!data.supporting_element_ids) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"supporting_element_ids" is required for "push-greenfield" (empty array OK)', path: ['supporting_element_ids'] })
+    if (data.live_assigned_model_ids === undefined || data.live_assigned_model_ids === null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"live_assigned_model_ids" is required for "push-greenfield" — caller pre-fetches via getControlsAssignedModels', path: ['live_assigned_model_ids'] })
+  }
+  if (data.action === 'push-brownfield') {
+    if (!data.directory_path) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"directory_path" is required for "push-brownfield"', path: ['directory_path'] })
+    if (!data.control_id) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_id" is required for "push-brownfield"', path: ['control_id'] })
+    if (!data.decision) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"decision" (BrownfieldDecision shape) is required for "push-brownfield"', path: ['decision'] })
+    if (!data.fresh_platform_attrs) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"fresh_platform_attrs" is required for "push-brownfield" — caller pre-fetches via getControlInstantiationAttributes', path: ['fresh_platform_attrs'] })
+    if (data.live_assigned_model_ids === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"live_assigned_model_ids" is required for "push-brownfield" (pass null when the query failed and you are pushing unverified)', path: ['live_assigned_model_ids'] })
+    if (!data.this_model_id) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"this_model_id" is required for "push-brownfield"', path: ['this_model_id'] })
+  }
+  if (data.action === 'tombstone') {
+    if (!data.directory_path) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"directory_path" is required for "tombstone"', path: ['directory_path'] })
+    if (!data.control_id) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_id" is required for "tombstone"', path: ['control_id'] })
+  }
+  if (data.action === 'set-local-edited') {
+    if (!data.directory_path) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"directory_path" is required for "set-local-edited"', path: ['directory_path'] })
+    if (!data.control_id) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_id" is required for "set-local-edited"', path: ['control_id'] })
+    if (data.class_idx === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"class_idx" is required for "set-local-edited"', path: ['class_idx'] })
+    if (!data.new_attributes) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"new_attributes" is required for "set-local-edited"', path: ['new_attributes'] })
+    if (!data.edited_by) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"edited_by" is required for "set-local-edited" (one of: agent, operator)', path: ['edited_by'] })
+  }
+  if (data.action === 'promote-external-edit') {
+    if (!data.directory_path) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"directory_path" is required for "promote-external-edit"', path: ['directory_path'] })
+    if (!data.control_id) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_id" is required for "promote-external-edit"', path: ['control_id'] })
+    if (data.class_idx === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"class_idx" is required for "promote-external-edit"', path: ['class_idx'] })
+  }
+  // Sprint 5 F-20 — WAL repair recovery
+  if (data.action === 'inspect-wal' || data.action === 'clear-wal') {
+    if (!data.directory_path) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `"directory_path" is required for "${data.action}"`, path: ['directory_path'] })
+  }
 })
 
 type ManageControlsInput = z.infer<typeof InputSchema>
 
 export class ManageControlsTool extends ClientDependentTool<ManageControlsInput, unknown> {
   readonly name = 'manage_controls'
-  readonly description = 'Create, read, update, delete, assign, and rank security controls on the Dethernety platform. Controls can be assigned to component classes, linked to exposures via countermeasures, and assigned to model elements. Use "list" with filters (name, class_type, element_ids, module_name) for flexible search. Use "rank" with element_types to get pre-scored control candidates for a boundary or element set.'
+  readonly description = 'Create, read, update, delete, assign, and rank security controls on the Dethernety platform. Controls can be assigned to component classes, linked to exposures via countermeasures, and assigned to model elements. Use "list" with filters (name, class_type, element_ids, module_name) for flexible search. Use "rank" with element_types to get pre-scored control candidates for a boundary or element set. Control-library actions (require directory_path): "pull-controls" materialises controls/<id>.json files for the given control_ids; "push-greenfield" drives a local temp-id Control through create + WAL-protected id rewrite + setInstantiationAttributes + assignControlToElements; "push-brownfield" runs the §7 Steps 0–F safety pipeline (caller passes fresh_platform_attrs, live_assigned_model_ids, decision); "tombstone" flips lifecycle to tombstoned while preserving pendingEdit; "set-local-edited" applies an edit through the two-write rule (caller MUST use this rather than editing controls/<id>.json directly so pendingEdit semantics are preserved).'
   readonly inputSchema = InputSchema
 
   async execute(input: ManageControlsInput, context: ToolContext): Promise<ToolResult<unknown>> {
+    // Sprint 4 F-02 + F-03: serialise concurrent invocations against the
+    // same model directory and replay any stranded WAL journal before the
+    // action runs. The lock is held only for actions that touch the model
+    // directory; pure GraphQL CRUD bypasses both.
+    //
+    // Security: validate path confinement BEFORE acquireLock. Without this,
+    // a caller controlling input.directory_path (e.g. via prompt injection
+    // on the agent) could cause acquireLock -> fs.mkdir to create
+    // <attacker_path>/.dethereal/.control-library.lock anywhere the operator
+    // can write. The confinement check rejects paths outside CWD or the
+    // registered models allowlist before any filesystem mutation.
+    let lockHandle: LockHandle | undefined
+    if (DIRECTORY_TOUCHING_ACTIONS.has(input.action) && input.directory_path) {
+      try {
+        await validatePathConfinement(input.directory_path)
+      } catch (err) {
+        return {
+          success: false,
+          error: 'PATH_CONFINEMENT_VIOLATION',
+          data: {
+            modelDir: input.directory_path,
+            message: err instanceof Error ? err.message : String(err),
+          },
+        } as ToolResult<unknown>
+      }
+      try {
+        lockHandle = await acquireLock(input.directory_path)
+      } catch (err) {
+        if (err instanceof LockBusyError) {
+          return {
+            success: false,
+            error: 'LOCK_BUSY',
+            data: {
+              modelDir: input.directory_path,
+              holderPid: err.holderPid,
+              holderAcquiredAt: err.holderAcquiredAt,
+              message: err.message,
+            },
+          } as ToolResult<unknown>
+        }
+        throw err
+      }
+      // F-02: with the lock held (so two concurrent sessions don't replay
+      // the same journal twice), apply any stranded greenfield id-rewrite
+      // operations. Idempotent — no-op when the journal is absent.
+      // Sprint 5 F-20: skip the auto-replay for inspect-wal / clear-wal —
+      // those are the operator's escape hatch when replay itself fails.
+      if (!SKIPS_WAL_REPLAY.has(input.action)) try {
+        await applyPendingRewrites(input.directory_path)
+      } catch (err) {
+        // Replay aborted with an ambiguous-state diagnostic. Sprint 5 F-20
+        // ships the /dethereal:sync repair-wal verb backed by the inspect-wal
+        // and clear-wal MCP actions. Release the lock and surface the
+        // recovery hint so the skill can render guidance without
+        // string-matching the error code.
+        if (lockHandle) await releaseLock(lockHandle)
+        return {
+          success: false,
+          error: 'WAL_REPLAY_FAILED',
+          data: {
+            modelDir: input.directory_path,
+            recoveryHint: 'repair-wal',
+            recoveryMessage:
+              `WAL replay failed for ${input.directory_path}. Journal at ` +
+              `.dethereal/pending-id-rewrite.json is in an ambiguous state. ` +
+              `Run /dethereal:sync repair-wal to inspect the journal and choose ` +
+              `a recovery action (delete journal, retry replay, or manual rename).`,
+            message: err instanceof Error ? err.message : String(err),
+          },
+        } as ToolResult<unknown>
+      }
+    }
+
     try {
-      if (!context.apolloClient) {
-        return { success: false, error: 'Apollo client not available. Please ensure you are authenticated.' }
+      // Sprint 5 F-42: removed redundant apolloClient guard. ManageControlsTool
+      // extends ClientDependentTool, so base-tool.ts:86-91 already short-circuits
+      // with a clearer "call login first" message before execute() runs. The
+      // !apolloClient branch here was dead code.
+
+      // Sprint 4 F-04: decode JWT identity once for audit attribution.
+      // Sprint 4 Tier-2 cross-review (threat-modeler): use the explicit
+      // 'unauthenticated' sentinel when token decode fails, so an auditor
+      // can distinguish a Sprint-4 audit entry whose token was missing /
+      // malformed (sentinel present, attribution provably impossible)
+      // from a Sprint-3 entry that pre-dates the field (field absent
+      // entirely). Without the sentinel, both look operationally identical.
+      if (context.authnOperator === undefined) {
+        context.authnOperator = decodeJwtIdentity(context.token) ?? 'unauthenticated'
       }
 
       const dtControl = new DtControl(context.apolloClient)
@@ -175,6 +396,209 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           return { success: true, data: { candidates: scored, total: scored.length } }
         }
 
+        // -----------------------------------------------------------------
+        // Sprint 3 — control-library actions (S3.1)
+        // Each delegates to DtControlLibrary. The engine owns the invariants
+        // (two-write rule, external-edit guard, partial-payload semantic,
+        // shared-ownership check, audit-log writes); the MCP boundary only
+        // translates the typed errors into ToolResult envelopes the sync
+        // skill recognises.
+        // -----------------------------------------------------------------
+
+        case 'pull-controls': {
+          await validatePathConfinement(input.directory_path!)
+          const lib = new DtControlLibrary(context.apolloClient)
+          const files = await lib.pullControls({
+            modelDir: input.directory_path!,
+            controlIds: input.control_ids!,
+          })
+          return { success: true, data: { files, pulled: files.length } }
+        }
+
+        case 'push-greenfield': {
+          await validatePathConfinement(input.directory_path!)
+          const file = await readControlFile(input.directory_path!, input.control_id!)
+          if (!file) {
+            return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
+          }
+          const lib = new DtControlLibrary(context.apolloClient)
+          // Sprint 5 F-39: superRefine already enforces presence + non-null on
+          // push-greenfield, so the `?? []` fallback was dead but masked
+          // contract violations. Pass the value through strictly — any path
+          // that reaches here without a populated array indicates a Zod /
+          // refine inconsistency that should fail loudly.
+          const result = await lib.pushGreenfieldControl({
+            modelDir: input.directory_path!,
+            file,
+            supportingElementIds: input.supporting_element_ids!,
+            folderId: input.folder_id,
+            liveAssignedModelIds: input.live_assigned_model_ids as string[],
+          })
+          return { success: true, data: { file: result } }
+        }
+
+        case 'push-brownfield': {
+          await validatePathConfinement(input.directory_path!)
+          const file = await readControlFile(input.directory_path!, input.control_id!)
+          if (!file) {
+            return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
+          }
+          const freshMap = new Map<string, Record<string, unknown>>(
+            Object.entries(input.fresh_platform_attrs as Record<string, Record<string, unknown>>)
+          )
+          const lib = new DtControlLibrary(context.apolloClient)
+          try {
+            const result = await lib.pushBrownfieldControl({
+              modelDir: input.directory_path!,
+              file,
+              decision: input.decision,
+              freshPlatformAttrs: freshMap,
+              liveAssignedModelIds: input.live_assigned_model_ids ?? [],
+              thisModelId: input.this_model_id!,
+              authnOperator: context.authnOperator,
+            })
+            return { success: true, data: result }
+          } catch (err) {
+            if (err instanceof ExternalEditDetectedError) {
+              return {
+                success: false,
+                error: 'EXTERNAL_EDIT_DETECTED',
+                data: {
+                  controlId: err.controlId,
+                  classId: err.classId,
+                  recoveryHint: err.recoveryHint,
+                  message: err.message,
+                },
+              } as ToolResult<unknown>
+            }
+            if (err instanceof CloneAndSwapNotImplemented) {
+              return {
+                success: false,
+                error: 'CLONE_AND_SWAP_NOT_IMPLEMENTED',
+                data: {
+                  controlId: input.control_id,
+                  hint: 'V1.1 feature; choose cancel, push-anyway, or push-unverified',
+                  message: err.message,
+                },
+              } as ToolResult<unknown>
+            }
+            throw err
+          }
+        }
+
+        case 'tombstone': {
+          await validatePathConfinement(input.directory_path!)
+          const file = await readControlFile(input.directory_path!, input.control_id!)
+          if (!file) {
+            return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
+          }
+          const lib = new DtControlLibrary(context.apolloClient)
+          const tombstoned = await lib.markTombstoned({ modelDir: input.directory_path!, file })
+          return { success: true, data: { file: tombstoned } }
+        }
+
+        case 'set-local-edited': {
+          await validatePathConfinement(input.directory_path!)
+          const file = await readControlFile(input.directory_path!, input.control_id!)
+          if (!file) {
+            return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
+          }
+          const lib = new DtControlLibrary(context.apolloClient)
+          try {
+            const updated = await lib.setLocalEdited({
+              modelDir: input.directory_path!,
+              file,
+              classIdx: input.class_idx!,
+              newAttributes: input.new_attributes!,
+              editedBy: input.edited_by!,
+            })
+            return { success: true, data: { file: updated } }
+          } catch (err) {
+            if (err instanceof IllegalEditedByError) {
+              // Defence-in-depth — Zod already drops 'external' at the
+              // boundary, but engine guard catches a future caller that
+              // bypasses Zod (e.g. a programmatic test). Sprint 4 F-01.
+              return {
+                success: false,
+                error: 'ILLEGAL_EDITED_BY',
+                data: {
+                  controlId: input.control_id,
+                  classIdx: input.class_idx,
+                  message: err.message,
+                },
+              } as ToolResult<unknown>
+            }
+            throw err
+          }
+        }
+
+        case 'promote-external-edit': {
+          // Sprint 3 recovery verb (CL §7 Step A unblock). Synthesises a
+          // pendingEdit block whose previousAttributes mirror platformAttributes
+          // for the keys where local attributes already diverge — does NOT
+          // re-pull (re-pulling would destroy the local divergence the
+          // operator wants to promote). The caller (skill) is expected to
+          // have refreshed the file via `pull-controls` BEFORE the divergence
+          // happened, OR to be operating against a stale local platformAttributes
+          // snapshot (in which case the next push's P7.2 fresh-fetch picks up
+          // the live state).
+          await validatePathConfinement(input.directory_path!)
+          const file = await readControlFile(input.directory_path!, input.control_id!)
+          if (!file) {
+            return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
+          }
+          const lib = new DtControlLibrary(context.apolloClient)
+          try {
+            const promoted = await lib.promoteExternalEdit({
+              modelDir: input.directory_path!,
+              file,
+              classIdx: input.class_idx!,
+            })
+            return { success: true, data: { file: promoted } }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            if (msg.includes('no divergence')) {
+              return {
+                success: false,
+                error: 'NO_DIVERGENCE',
+                data: {
+                  controlId: input.control_id,
+                  classIdx: input.class_idx,
+                  message: msg,
+                },
+              } as ToolResult<unknown>
+            }
+            throw err
+          }
+        }
+
+        case 'inspect-wal': {
+          // Sprint 5 F-20: read-only inspector. Surfaces the WAL journal
+          // contents + per-operation on-disk state so the skill can render
+          // recovery options to the operator.
+          await validatePathConfinement(input.directory_path!)
+          const inspection = await inspectPendingRewrite(input.directory_path!)
+          return { success: true, data: inspection }
+        }
+
+        case 'clear-wal': {
+          // Sprint 5 F-20: hard-delete the WAL journal without applying.
+          // Skill confirms with the operator before invoking; engine has no
+          // confirmation gate — calling this discards the journal.
+          await validatePathConfinement(input.directory_path!)
+          const cleared = await clearPendingRewrite(input.directory_path!)
+          return {
+            success: true,
+            data: {
+              modelDir: input.directory_path,
+              cleared,
+              message: cleared
+                ? 'WAL journal deleted. Local files left as-is — manual reconciliation may be required.'
+                : 'No WAL journal present (already cleared, or never staged).',
+            },
+          }
+        }
+
         default:
           return { success: false, error: `Unknown action: ${input.action}` }
       }
@@ -182,6 +606,12 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Control operation failed'
+      }
+    } finally {
+      // Sprint 4 F-03: always release. ENOENT on release (already removed
+      // by another writer's recovery path) is swallowed inside releaseLock.
+      if (lockHandle) {
+        await releaseLock(lockHandle)
       }
     }
   }

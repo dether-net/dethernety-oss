@@ -64,9 +64,25 @@ export interface Control extends Element {
   description?: string;
   type?: string;
   category?: string;
+  /**
+   * Origin/confirmation source for this control reference.
+   * Carried on `controls[]` entries in split-file models; round-trips through
+   * dt-export-split.ts. See CONTROL_LIBRARY.md §6 and controls-enrichment.md.
+   */
+  source?: 'discovered' | 'declared' | 'both';
   folder?: Folder
   controlClasses?: Class[]
+  /**
+   * Polymorphic union of supported elements. Synthesized from the typed fields
+   * below by `assignControlToElements()` and `findControls()`. The platform's
+   * auto-generated resolver for the `elements` GraphQL field has correctness
+   * issues against Memgraph (returns aggregated results across Controls), so
+   * dt-core queries the typed fields and merges them locally.
+   */
   elements?: Element[]
+  supportedComponents?: Element[]
+  supportedBoundaries?: Element[]
+  supportedDataFlows?: Element[]
   // eslint-disable-next-line no-use-before-define
   countermeasures?: Countermeasure[]
 }

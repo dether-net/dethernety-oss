@@ -10,6 +10,7 @@ export * from './dt-class/dt-class.js'
 export * from './dt-mitreattack/dt-mitreattack.js'
 export * from './dt-mitredefend/dt-mitredefend.js'
 export * from './dt-control/dt-control.js'
+export * from './dt-control-library/dt-control-library.js'
 export * from './dt-countermeasure/dt-countermeasure.js'
 export * from './dt-module/dt-module.js'
 export * from './dt-analysis/dt-analysis.js'
@@ -59,6 +60,13 @@ export type {
   ClassReference,
   ModelReference,
   ControlReference,
+  ControlFile,
+  ControlFileClassEntry,
+  ControlFilePlatformState,
+  PendingEditBlock,
+  PendingEditAuthor,
+  ControlLifecycle,
+  ControlSource,
   Position,
   Dimensions,
   Attributes,

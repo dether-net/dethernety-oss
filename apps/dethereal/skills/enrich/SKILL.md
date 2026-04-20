@@ -9,6 +9,26 @@ argument-hint: "[tier1|all|pick] [--focus credentials|monitoring|compliance|cont
 
 Enrich a Dethernety threat model with security attributes, credential topology, MITRE ATT&CK technique references, compliance-driven data classification, and monitoring tool coverage.
 
+## Implementation Discipline
+
+Use built-in tools and the Dethereal MCP tools — do NOT shell out to inspect or aggregate model state. The model directory is a normal JSON tree; reading it through Bash with `cat`/`head`/`tail` or `for` loops loses structure (truncated JSON), bypasses the validator, and produces a fragmentary picture of one slice instead of an authoritative pass/fail across the model.
+
+| Operation | Tool to use |
+|-----------|-------------|
+| Inspect a single attribute file | `Read` (one call per file; multiple Reads in parallel) |
+| Search for a field across attribute files | `Grep` with the field name and `attributes/` path |
+| Aggregate enrichment progress (per-element template coverage) | `mcp__dethereal__validate_model_json(action: 'quality', directory_path)` |
+| Aggregate control coverage / gaps | `mcp__dethereal__validate_model_json(action: 'coverage', directory_path)` |
+| Schema validation | `mcp__dethereal__validate_model_json(action: 'validate', directory_path)` |
+| Discover the template schema for a class | `mcp__dethereal__get_classes(class_id, fields: ['attributes', 'guide'])` (or `.dethereal/class-cache/<class-id>.json` if present) |
+| Write enrichment results | `Write` (full file) or `Edit` (targeted change) |
+| Match elements to classes | `mcp__dethereal__match_classes` |
+
+**Do not:**
+- Run `for f in attributes/...; do head -N "$f"; done` to "check progress" — call `validate_model_json(action: 'quality')` instead. It returns per-element coverage and unenriched-field lists.
+- Sample attribute files via `cat`/`head`/`tail` to assess what's filled in — `Read` returns the entire file, and `Grep` answers presence questions across the tree without truncation.
+- Write Python or shell scripts to walk `attributes/` — the validator already does this and returns a structured result.
+
 ## Prerequisites
 
 1. **Resolve model path** using the Model Resolution Protocol
@@ -322,4 +342,111 @@ The control pass is a **separate agent invocation** with its own 40-turn budget.
 ```
 [done] Control pass complete. N enforcement, M detection, K governance controls assigned. Quality: X/100.
 [next] /dethereal:review (quality assessment) or /dethereal:sync push (publish to platform)
+```
+
+---
+
+### Control Library Attribute Enrichment (`--focus controls`, continuation)
+
+> Runs AFTER the three-step control pass above. Pulls per-Control state from the platform into `controls/<id>.json` files, identifies classes with sparse per-instance attributes, and queues operator-confirmed edits via the engine's two-write rule (CL §8).
+
+This step only executes when there is at least one `controls[]` entry with a non-null `id` (controls that exist on the platform). Name-only refs (`id: null`) are deferred to `/dethereal:sync push` where `manage_controls(action: 'list', name)` resolves them.
+
+> **Sprint 5 F-15 boundary note.** As of `sprint-5-polish`, `/dethereal:sync pull` (L4.5) auto-materialises `controls/<id>.json` for every Control referenced in the freshly-pulled structure/dataflows. So when this step runs immediately after a fresh pull, the `pull-controls` call below is largely a no-op (engine returns early per-id when the local file matches platform state). The pull-controls call is still required because `--focus controls` enrichment may run *after* operator edits, where the local files may have diverged from platform state and need reconciliation.
+
+#### Step 1 — Pull
+
+Enumerate the non-null control IDs referenced in `structure.json` (boundaries, components) and `dataflows.json` (flows). Collapse duplicates.
+
+```
+mcp__dethereal__manage_controls(
+  action: 'pull-controls',
+  directory_path: <modelDir>,
+  control_ids: [ <id1>, <id2>, ... ]
+)
+```
+
+The engine performs three batched GraphQL calls in parallel (`getControlsByIds` + `getControlInstantiationAttributes` + `getControlsAssignedModels`) and writes `<modelDir>/controls/<id>.json` for each. Each file materialises with `lifecycle: 'brownfield'`, `attributes == platformAttributes`, and `pendingEdit` absent.
+
+Surface one status line: `Pulled N controls into controls/`.
+
+#### Step 2 — Identify Sparse Classes
+
+For each `controls/<id>.json`, iterate `classes[]`. For every class entry:
+
+1. Fetch the ControlClass template via `mcp__dethereal__get_classes(class_ids: [<classId>], fields: ['attributes', 'guide'])` (reuse `.dethereal/class-cache/<classId>.json` when present — the template rarely changes).
+2. Compute `sparse_keys = template.properties.keys() - Object.keys(entry.attributes)`.
+3. Record the per-Control summary.
+
+Render one row per Control (not per class — consolidate when a Control has multiple classes):
+
+```
+Control library attribute coverage:
+
+  Control                              Class (N entries)                     Status
+  ───────────────────────────────────  ────────────────────────────────────  ──────────────
+  Azure Firewall (MCE/MCETest Hub)     Firewall Policy (1)                   5 sparse keys
+  NSG Least-Privilege Ingress          Network Access Control (2)            0 sparse keys  (skip)
+  TLS 1.3 (API Gateway)                TLS Config (1)                        3 sparse keys
+
+Enrich 8 sparse attributes across 2 Controls? (yes / pick / skip)
+```
+
+Controls with zero sparse keys are skipped automatically — no further prompts.
+
+#### Step 3 — Edit
+
+For each Control-class pair with sparse keys, apply the same evidence → ask pattern used by the main enrichment flow:
+
+1. Search code / IaC for evidence using the template `guide.how_to_obtain` entries.
+2. For remaining undiscoverable keys, ask the operator in a batched table (group by Control, not by key).
+3. For each operator-confirmed change, call:
+
+   ```
+   mcp__dethereal__manage_controls(
+     action: 'set-local-edited',
+     directory_path: <modelDir>,
+     control_id: <controlId>,
+     class_idx: <index into classes[] — 0-based>,
+     new_attributes: { <key>: <value>, ... },   // only the changed keys
+     edited_by: 'agent'
+   )
+   ```
+
+**Do NOT edit `controls/<id>.json` directly with `Write`/`Edit`.** The MCP action enforces the §4 two-write rule: `pendingEdit.previousAttributes` captures the FIRST pre-edit value and is never overwritten by subsequent edits within the same pending-edit lifecycle. Bypassing the engine corrupts the intent baseline that `/dethereal:sync` push uses for conflict detection.
+
+#### Step 4 — Annotate
+
+After all edits are written, read every `controls/<id>.json` that now has a `pendingEdit` block and identify which ones will be shared at push time (`platformState.assignedModelCount > 1`). Emit a passive annotation — NOT a blocking prompt (per CL §8):
+
+```
+[!] Pending shared-edits: 2 controls will trigger a shared-ownership prompt at
+    /dethereal:sync push: Azure Firewall (MCE/MCETest Hub) [Firewall Policy],
+    NSG Least-Privilege Ingress [Network Access Control].
+```
+
+If no shared-ownership prompts will fire, skip the annotation entirely.
+
+##### Post-edit drift sweep (defensive)
+
+Belt-and-braces check (Sprint 6 F-36): re-read every `controls/<id>.json` touched in this pass. For each `classes[idx]`, if `JSON.stringify(attributes) !== JSON.stringify(platformAttributes)` AND `pendingEdit` is absent, the file is in an "external-edit-like" state — `attributes` diverges from the platform snapshot but no engine-recorded baseline exists. The Step 3 flow should never produce this state (`set-local-edited` always populates `pendingEdit.previousAttributes`); detection here means either an out-of-band write happened mid-pass or a pre-existing drift survived from before the enrich invocation.
+
+Emit the same hint the status skill renders, parallel wording:
+
+```
+[!] Drift detected on 1 control after enrichment:
+    Azure Firewall (MCE/MCETest Hub) [Firewall Policy] — local attributes diverge
+    from platformAttributes with no pendingEdit baseline.
+    Recover with: /dethereal:sync promote-external-edit <controlId> <classId>
+```
+
+Do not auto-correct or block; the operator decides whether to promote the divergence as a real external edit (`promote-external-edit`) or hand-revert the file. Skip silently when no drift is detected.
+
+#### Footer (when attribute enrichment ran)
+
+```
+[done] Control pass complete. N enforcement, M detection, K governance controls assigned.
+       Attribute enrichment: P controls updated, Q keys edited across R classes.
+[next] /dethereal:sync push (publish edits; operator will be prompted for shared controls)
+       /dethereal:status (inspect pending edits and lifecycle distribution)
 ```
