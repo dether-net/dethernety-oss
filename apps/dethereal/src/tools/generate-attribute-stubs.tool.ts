@@ -19,7 +19,14 @@ import { z } from 'zod'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { DtClass } from '@dethernety/dt-core'
-import type { Class } from '@dethernety/dt-core'
+import type {
+  Class,
+  ClassReference,
+  StructureBoundary,
+  StructureComponent,
+  DataFlow,
+  SchemaDataItem as DataItem,
+} from '@dethernety/dt-core'
 import { flattenStructure } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 import {
@@ -29,6 +36,7 @@ import {
   readDataItems,
   isFlatFormat,
   normalizeFlatAttribute,
+  type ElementInfo,
 } from '../utils/directory-utils.js'
 
 // =============================================================================
@@ -60,7 +68,7 @@ interface ClassifiedElement {
   id: string
   name: string
   elementType: 'component' | 'boundary' | 'dataFlow' | 'dataItem'
-  classData: { id: string; name: string; [key: string]: unknown }
+  classData: ClassReference
 }
 
 /** Maps element type to attribute subdirectory and classType for getClassById */
@@ -328,17 +336,17 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
    * If element_ids is provided, filter to only those elements.
    */
   private collectClassifiedElements(
-    boundaries: Array<{ id: string; name: string; classData?: { id: string; name: string; [key: string]: unknown } }>,
-    components: Array<{ id: string; name: string; classData?: { id: string; name: string; [key: string]: unknown } }>,
-    dataFlows: Array<{ id: string; name: string; classData?: { id: string; name: string; [key: string]: unknown } }>,
-    dataItems: Array<{ id: string; name: string; classData?: { id: string; name: string; [key: string]: unknown } }>,
+    boundaries: StructureBoundary[],
+    components: StructureComponent[],
+    dataFlows: DataFlow[],
+    dataItems: DataItem[],
     elementIds?: string[],
   ): ClassifiedElement[] {
     const elements: ClassifiedElement[] = []
     const idFilter = elementIds ? new Set(elementIds) : null
 
     const addElements = (
-      source: Array<{ id: string; name: string; classData?: { id: string; name: string; [key: string]: unknown } }>,
+      source: Array<{ id: string; name: string; classData?: ClassReference }>,
       elementType: ClassifiedElement['elementType'],
     ) => {
       for (const el of source) {
@@ -348,15 +356,15 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
           id: el.id,
           name: el.name,
           elementType,
-          classData: el.classData as ClassifiedElement['classData'],
+          classData: el.classData,
         })
       }
     }
 
     addElements(components, 'component')
     addElements(boundaries, 'boundary')
-    addElements(dataFlows as any[], 'dataFlow')
-    addElements(dataItems as any[], 'dataItem')
+    addElements(dataFlows, 'dataFlow')
+    addElements(dataItems, 'dataItem')
 
     return elements
   }
@@ -463,12 +471,12 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
    * Keys: `{elementType}:{name}` (e.g., `component:PostgreSQL`)
    */
   private buildElementLookup(
-    boundaries: Array<{ id: string; name: string; classData?: unknown }>,
-    components: Array<{ id: string; name: string; classData?: unknown }>,
-    dataFlows: Array<{ id: string; name: string; classData?: unknown }>,
-    dataItems: Array<{ id: string; name: string; classData?: unknown }>,
-  ): Map<string, { id: string; name: string; elementType: string; classData?: unknown }> {
-    const lookup = new Map<string, { id: string; name: string; elementType: string; classData?: unknown }>()
+    boundaries: StructureBoundary[],
+    components: StructureComponent[],
+    dataFlows: DataFlow[],
+    dataItems: DataItem[],
+  ): Map<string, ElementInfo> {
+    const lookup = new Map<string, ElementInfo>()
 
     for (const b of boundaries) {
       lookup.set(`boundary:${b.name}`, { id: b.id, name: b.name, elementType: 'boundary', classData: b.classData })
@@ -477,10 +485,10 @@ export class GenerateAttributeStubsTool extends ClientDependentTool<GenerateStub
       lookup.set(`component:${c.name}`, { id: c.id, name: c.name, elementType: 'component', classData: c.classData })
     }
     for (const f of dataFlows) {
-      lookup.set(`dataFlow:${f.name}`, { id: f.id, name: f.name, elementType: 'dataFlow', classData: (f as Record<string, unknown>).classData })
+      lookup.set(`dataFlow:${f.name}`, { id: f.id, name: f.name, elementType: 'dataFlow', classData: f.classData })
     }
     for (const d of dataItems) {
-      lookup.set(`dataItem:${d.name}`, { id: d.id, name: d.name, elementType: 'dataItem', classData: (d as Record<string, unknown>).classData })
+      lookup.set(`dataItem:${d.name}`, { id: d.id, name: d.name, elementType: 'dataItem', classData: d.classData })
     }
 
     return lookup
