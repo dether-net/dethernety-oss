@@ -48,7 +48,7 @@ No default agent (D64). Users invoke via skills or `@dethereal:agent-name`.
 
 ## Skills (Slash Commands)
 
-### Foundation (Sprint 2)
+### Foundation 
 | Skill | Description |
 |-------|-------------|
 | `/dethereal:status` | Connection status, auth state, local model summary |
@@ -56,7 +56,7 @@ No default agent (D64). Users invoke via skills or `@dethereal:agent-name`.
 | `/dethereal:help` | Context-aware command list with suggestions |
 | `/dethereal:view` | Model summary (tree/json/yaml format) |
 
-### Modeling (Sprint 3)
+### Modeling
 | Skill | Description |
 |-------|-------------|
 | `/dethereal:create` | Create or import a new threat model |
@@ -64,18 +64,18 @@ No default agent (D64). Users invoke via skills or `@dethereal:agent-name`.
 | `/dethereal:add` | Add components, boundaries, flows incrementally |
 | `/dethereal:remove` | Remove elements with dependency checking |
 
-### Classification & Enrichment (Sprint 4)
+### Classification & Enrichment
 | Skill | Description |
 |-------|-------------|
 | `/dethereal:classify` | Assign classes with two-pass classification and crown jewel tagging |
 | `/dethereal:enrich` | Security attributes, MITRE ATT&CK, credentials, monitoring tools |
 
-### Sync (Sprint 5)
+### Sync
 | Skill | Description |
 |-------|-------------|
 | `/dethereal:sync` | Push/pull model to/from platform, sync status |
 
-### Review & Integration (Sprint 6)
+### Review & Integration
 | Skill | Description |
 |-------|-------------|
 | `/dethereal:review` | Quality dashboard, structural validation, readiness assessment |
