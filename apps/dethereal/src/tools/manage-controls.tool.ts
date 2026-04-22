@@ -65,10 +65,11 @@ function decodeJwtIdentity(token: string | undefined): string | undefined {
   if (!token) return undefined
   try {
     const segments = token.split('.')
-    if (segments.length < 2) return undefined
+    const payloadSegment = segments[1]
+    if (!payloadSegment) return undefined
     // base64url → base64 → JSON
-    const padded = segments[1].replace(/-/g, '+').replace(/_/g, '/').padEnd(
-      segments[1].length + ((4 - (segments[1].length % 4)) % 4),
+    const padded = payloadSegment.replace(/-/g, '+').replace(/_/g, '/').padEnd(
+      payloadSegment.length + ((4 - (payloadSegment.length % 4)) % 4),
       '='
     )
     const json = Buffer.from(padded, 'base64').toString('utf-8')
@@ -272,7 +273,11 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
         context.authnOperator = decodeJwtIdentity(context.token) ?? 'unauthenticated'
       }
 
-      const dtControl = new DtControl(context.apolloClient)
+      // Sprint 5 F-42: ClientDependentTool.run() guarantees apolloClient is set
+      // before execute() runs (base-tool.ts:86-91). Narrow once for the action
+      // dispatch instead of asserting at every call site.
+      const apolloClient = context.apolloClient!
+      const dtControl = new DtControl(apolloClient)
 
       switch (input.action) {
         case 'list': {
@@ -407,7 +412,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
 
         case 'pull-controls': {
           await validatePathConfinement(input.directory_path!)
-          const lib = new DtControlLibrary(context.apolloClient)
+          const lib = new DtControlLibrary(apolloClient)
           const files = await lib.pullControls({
             modelDir: input.directory_path!,
             controlIds: input.control_ids!,
@@ -421,7 +426,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           if (!file) {
             return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
           }
-          const lib = new DtControlLibrary(context.apolloClient)
+          const lib = new DtControlLibrary(apolloClient)
           // Sprint 5 F-39: superRefine already enforces presence + non-null on
           // push-greenfield, so the `?? []` fallback was dead but masked
           // contract violations. Pass the value through strictly — any path
@@ -446,7 +451,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           const freshMap = new Map<string, Record<string, unknown>>(
             Object.entries(input.fresh_platform_attrs as Record<string, Record<string, unknown>>)
           )
-          const lib = new DtControlLibrary(context.apolloClient)
+          const lib = new DtControlLibrary(apolloClient)
           try {
             const result = await lib.pushBrownfieldControl({
               modelDir: input.directory_path!,
@@ -492,7 +497,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           if (!file) {
             return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
           }
-          const lib = new DtControlLibrary(context.apolloClient)
+          const lib = new DtControlLibrary(apolloClient)
           const tombstoned = await lib.markTombstoned({ modelDir: input.directory_path!, file })
           return { success: true, data: { file: tombstoned } }
         }
@@ -503,7 +508,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           if (!file) {
             return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
           }
-          const lib = new DtControlLibrary(context.apolloClient)
+          const lib = new DtControlLibrary(apolloClient)
           try {
             const updated = await lib.setLocalEdited({
               modelDir: input.directory_path!,
@@ -547,7 +552,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
           if (!file) {
             return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
           }
-          const lib = new DtControlLibrary(context.apolloClient)
+          const lib = new DtControlLibrary(apolloClient)
           try {
             const promoted = await lib.promoteExternalEdit({
               modelDir: input.directory_path!,

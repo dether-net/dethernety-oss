@@ -552,7 +552,8 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     const monitoring: CategoryCoverage = { covered: 0, total: 0, missing: [] }
 
     // Per-tier formal coverage
-    const tiers: Record<string, TierCoverage> = {
+    type TierKey = 'tier_1' | 'tier_2' | 'tier_3' | 'tier_4'
+    const tiers: Record<TierKey, TierCoverage> = {
       tier_1: { total: 0, with_controls: 0, gaps: [] },
       tier_2: { total: 0, with_controls: 0, gaps: [] },
       tier_3: { total: 0, with_controls: 0, gaps: [] },
@@ -615,7 +616,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
 
       // Per-tier formal coverage — assign to highest priority tier only
       const isCrownJewel = compAttrs?.crown_jewel === true || compAttrs?.attributes?.crown_jewel === true
-      let tier: string
+      let tier: TierKey
       if (isCrownJewel) {
         tier = 'tier_1'
       } else if (crossBoundaryIds.has(compId)) {

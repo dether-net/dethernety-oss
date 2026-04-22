@@ -108,7 +108,7 @@ export function isFlatFormat(rawJson: Record<string, unknown>): boolean {
           'flowId' in rawJson || 'dataItemId' in rawJson)
 }
 
-interface ElementInfo {
+export interface ElementInfo {
   id: string
   name: string
   elementType: AttributeElementType
