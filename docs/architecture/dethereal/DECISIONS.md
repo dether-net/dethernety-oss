@@ -1,6 +1,6 @@
 # Dethereal Plugin -- Architecture Decisions
 
-> Decisions identified during the architecture planning exercise. D1-D12, D14-D19 resolved by accepting recommendations (batch resolution). D13 resolved through R4 (effectively implemented in architecture). D20-D25 resolved through multi-agent review R1 (mapping vs. analysis boundary). D26-D32 resolved through R2 (plugin structure, MCP schemas, quality calibration). D33-D37 resolved through R3 (cross-document consistency, UX trust, documentation completeness). D38-D43 resolved through R4 (spec completeness, UX patterns, gate timing). D44-D54 resolved through R5 (token efficiency, overengineering, operational gaps). D55-D60 resolved through R7 (model decomposition for complex systems). D61-D66 resolved through R8 (pre-implementation security and UX review). **All 66 decisions resolved.**
+> Decisions identified during the architecture planning exercise. D1-D12, D14-D19 resolved by accepting recommendations (batch resolution). D13 resolved through R4 (effectively implemented in architecture). D20-D25 resolved through multi-agent review R1 (mapping vs. analysis boundary). D26-D32 resolved through R2 (plugin structure, MCP schemas, quality calibration). D33-D37 resolved through R3 (cross-document consistency, UX trust, documentation completeness). D38-D43 resolved through R4 (spec completeness, UX patterns, gate timing). D44-D54 resolved through R5 (token efficiency, overengineering, operational gaps). D55-D60 resolved through R7 (model decomposition for complex systems). D61-D66 resolved through R8 (pre-implementation security and UX review). D67 covers the drift-detection feature design. **All 67 decisions resolved.**
 
 ---
 
@@ -74,6 +74,7 @@
 | D64 | [Plugin defaults and state management](#d64-plugin-defaults-and-state-management) | Default agent vs. explicit invocation; sign-off behavior on backward transitions | No default agent (invoke via skills/`@`); clear `model_signed_off` and invalidate `quality.json` on backward transitions | Low — clean separation of concerns | **Resolved** |
 | D65 | [UX hardening: discovery, session break, undo, decomposition](#d65-ux-hardening) | Various options per sub-finding | Sources-checked summary; size-calibrated session break; git-based undo with LLM guidance; cross-model gap warning at decomposition; commit recommendation at STRUCTURE_COMPLETE | Medium — UX gaps that compound on large models | **Resolved** |
 | D66 | [monitoring_tools V1 scope](#d66-monitoring_tools-v1-scope) | Engine integration vs. human review only vs. defer capture | V1: capture for human review only. No engine integration point exists. Engine integration is a future capability | Low — documented as human review, no false expectations | **Resolved** |
+| D67 | [Drift detection — simplified design](#d67-drift-detection--simplified-design) | Earlier complex implementation (verb-language grammar, ledger, advisory locks) vs. routing the delta through existing modeling skills | Adopt the simplified design per `DRIFT_DETECTION.md` | Low — earlier implementation is preserved at `archive/drift-reconciliation-v1-overengineered` and remains `git checkout`-able if needed | **Resolved** |
 
 ---
 
@@ -1416,5 +1417,42 @@ The plugin captures `monitoring_tools` as a component attribute. The detection f
 **Boundary:** Operational requirements, engine scope.
 
 **Risk if wrong:** Low — documented limitation prevents wasted implementation effort.
+
+**Status: Resolved**
+
+---
+
+### D67: Drift Detection — Simplified Design
+
+**Context:** An earlier first-pass drift-reconciliation feature was implemented but never merged. Review surfaced that the design bundled two distinct products into one feature: **filesystem-drift detection** (legitimate, narrow — "I edited code; flag what diverged from my model") and **live-source reconciliation** (continuous infra observability against running K8s/AWS/GCP — a different product entirely). Stripping the second product collapses the design substantially, with most of the defensive machinery (verb-language grammar, intent ledger, advisory locks, batch-split, telemetry) becoming unnecessary because the existing modeling skills already provide the equivalent operations.
+
+**Options considered:**
+
+- (a) Merge the earlier complex design as-is and iterate.
+- (b) Adopt a simplified core that routes through existing modeling skills.
+- (c) Defer the feature entirely.
+
+**Decision: (b) Simplified design.** Per [`DRIFT_DETECTION.md`](DRIFT_DETECTION.md): git-diff filtered by source-globs → scoped scout in `discover elements` mode → four-way delta (REMOVED / ADDED / CHANGED-substrate / CHANGED-attribute-only) → route each item through the existing `/dethereal:add` / `/dethereal:remove` / `/dethereal:enrich` skills. State surface adds one optional field (`state.lastReconcileCommit`); no schema migration.
+
+**Why this design:**
+
+- **Parsimony.** Total surface is small enough to read in one sitting and test exhaustively.
+- **Prose-driven orchestration.** The orchestrator lives as prose in skill bodies, not as a typed runtime — the pattern every other modeling skill uses.
+- **Git as audit trail.** `git diff $lastReconcileCommit..HEAD -M -C` is the substrate. The operator audits drift via `git log` / `git diff` against the baseline SHA — same audit trail they already use for code review.
+- **Routing into existing skills.** The four-way delta routes through the existing modeling skills' UX. No reconciliation-specific verb language; no parallel safety system.
+
+**What this is not:**
+
+- No live-source reconciliation (continuous infra observability is a different product).
+- No multi-operator concurrency defenses — threat modeling is a single-operator activity by nature.
+
+**Reference:**
+
+- Design: [`DRIFT_DETECTION.md`](DRIFT_DETECTION.md).
+- Earlier implementation preserved at `archive/drift-reconciliation-v1-overengineered` for inspection if the simplification proves insufficient.
+
+**Boundary:** Drift detection mechanism, reconciliation flow, modeling-skill composition.
+
+**Risk if wrong:** Low — the archive branch remains `git checkout`-able. If a specific scenario covered by the earlier design turns out to be load-bearing, the recovery path is to scope a targeted addition rather than wholesale revert.
 
 **Status: Resolved**

@@ -49,6 +49,21 @@ Before removal, scan for elements that depend on the target:
 
 ### 4. Show Dependencies and Confirm
 
+**Crown-jewel pre-check.** Before drafting the dependency table, read the element's attribute file (`attributes/components/<id>.json`, `attributes/dataFlows/<id>.json`, `attributes/dataItems/<id>.json`, or `attributes/boundaries/<id>.json` per element kind). If `crown_jewel === true` (top-level, pre-import) **or** `attributes.crown_jewel === true` (nested, post-import), the element is tagged as a crown jewel — elevate the prompt:
+
+```
+Removing [STORE] "Customer DB" — this element is tagged as a CROWN JEWEL.
+
+Removing it from the model means the threat-modeling output will no
+longer treat it as a security-critical asset. Confirm only if the asset
+has genuinely been retired or relocated, not because it became
+inconvenient to model.
+
+Proceed? (yes / no)
+```
+
+If the user declines on the crown-jewel prompt, stop without showing dependencies — the safety prompt is the gate. If the user accepts (or the element is untagged), continue with the dependency table below. The dependency-removal cascade still applies for tagged elements once the crown-jewel prompt is accepted.
+
 If dependencies exist, show them before proceeding:
 
 ```

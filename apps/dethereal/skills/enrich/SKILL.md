@@ -2,7 +2,7 @@
 name: enrich
 description: Populate security attributes, MITRE ATT&CK references, credentials, and monitoring tools
 agent: security-enricher
-argument-hint: "[tier1|all|pick] [--focus credentials|monitoring|compliance|controls]"
+argument-hint: "[tier1|all|pick] [--focus credentials|monitoring|compliance|controls] [--pick <element-id>]"
 ---
 
 @../../docs/controls-enrichment.md
@@ -47,6 +47,7 @@ Use built-in tools and the Dethereal MCP tools — do NOT shell out to inspect o
 - `tier1` — crown jewels only (fastest, highest-value enrichment)
 - `all` — all components in tier order (default if no argument)
 - `pick` — present full component list for manual selection
+- `--pick <element-id>` — target a single element by id, skipping the interactive selector. Used by the drift orchestrator after a CHANGED-substrate or CHANGED-attribute-only delta item; functionally equivalent to `pick` followed by selecting `<element-id>`. If the id does not resolve in the model, surface "element <id> not found" and stop. **Combined forms:** if the user passes both `pick` (positional) and `--pick <id>` (flag), the flag wins and the interactive selector is skipped — they're not contradictory, the flag just makes the selection explicit. If the user passes `tier1` or `all` together with `--pick <id>`, the flag wins (the targeted form has higher specificity than the scope keyword).
 
 **Focus** (which enrichment sub-workflow to run):
 - `credentials` — credential inventory and mapping only

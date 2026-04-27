@@ -142,9 +142,12 @@ INITIALIZED → SCOPE_DEFINED → DISCOVERED → STRUCTURE_COMPLETE → ENRICHIN
   "currentState": "ENRICHING",
   "completedStates": ["INITIALIZED", "SCOPE_DEFINED", "DISCOVERED", "STRUCTURE_COMPLETE"],
   "lastModified": "2026-03-27T14:30:00Z",
-  "staleElements": []
+  "staleElements": [],
+  "lastReconcileCommit": "abc1234..."
 }
 ```
+
+`lastReconcileCommit` is optional — set by `/dethereal:discover` at the end of discovery (initial baseline) and advanced by the `/dethereal:threat-model` resume path at the end of a successful drift-loop reconcile (subsequent baselines). Used as the baseline for the next `git diff`. Omitted when the project is not a git repo. See [`docs/architecture/dethereal/DRIFT_DETECTION.md`](../../../docs/architecture/dethereal/DRIFT_DETECTION.md).
 
 **`<model-path>/.dethereal/quality.json`** — Quality score cache
 

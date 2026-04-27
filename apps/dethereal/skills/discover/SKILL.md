@@ -126,10 +126,11 @@ If this is the first discovery in the project, write `.dethernety/discovery-cach
 
 ### 9. Update State
 
-Update `<model-path>/.dethereal/state.json`:
+Update `<model-path>/.dethereal/state.json` via `Edit`:
 - `currentState`: `DISCOVERED`
 - `completedStates`: add `DISCOVERED`
 - `lastModified`: current timestamp
+- `lastReconcileCommit`: `<git rev-parse HEAD>` — establishes the drift-detection baseline so subsequent `/dethereal:threat-model` runs surface in-scope file changes since this SHA. Resolve via `Bash(git -C <model-path> rev-parse HEAD)`; if the command exits non-zero (not a git repo, no commits), omit the field — drift detection skips on resume with a "no baseline — run /dethereal:discover" hint until the operator re-runs this skill in a git repo. Re-running `/dethereal:discover` on an existing model overwrites the field; that is the explicit re-baseline path (after a history rewrite, a `--full-scan`, or any other reason the operator wants to re-anchor).
 
 ### 10. Validate and Footer
 
