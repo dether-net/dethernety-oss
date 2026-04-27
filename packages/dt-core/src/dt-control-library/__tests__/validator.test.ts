@@ -228,6 +228,131 @@ describe('validateControlFile — external-edit warning', () => {
   });
 });
 
+describe('validateControlFile — Sprint 7 firstWriteKeys', () => {
+  it('accepts a valid firstWriteKeys array (no overlap, no platform staleness)', () => {
+    const r = validateControlFile(
+      brownfieldFile({
+        classes: [
+          {
+            classId: VALID_CLASS_ID,
+            attributes: { fwk1: 'A', fwk2: 'B', fwk3: 'C' },
+            platformAttributes: {},
+            localEditedAt: '2026-04-27T11:00:00Z',
+            pendingEdit: {
+              editedBy: 'agent',
+              editedAt: '2026-04-27T11:00:00Z',
+              previousAttributes: {},
+              firstWriteKeys: ['fwk1', 'fwk2', 'fwk3'],
+            },
+          },
+        ],
+      }),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.warnings.filter(w => /firstWriteKeys/.test(w))).toEqual([]);
+  });
+
+  it('errors when firstWriteKeys contains a non-string element', () => {
+    const r = validateControlFile(
+      brownfieldFile({
+        classes: [
+          {
+            classId: VALID_CLASS_ID,
+            attributes: { fwk1: 'A' },
+            platformAttributes: {},
+            localEditedAt: '2026-04-27T11:00:00Z',
+            pendingEdit: {
+              editedBy: 'agent',
+              editedAt: '2026-04-27T11:00:00Z',
+              previousAttributes: {},
+              firstWriteKeys: ['valid', 42 as unknown as string],
+            },
+          },
+        ],
+      }),
+    );
+    expect(
+      r.errors.some(e => /firstWriteKeys must be an array of strings/.test(e)),
+    ).toBe(true);
+  });
+
+  it('errors when a key appears in BOTH firstWriteKeys and previousAttributes (mutual exclusivity)', () => {
+    const r = validateControlFile(
+      brownfieldFile({
+        classes: [
+          {
+            classId: VALID_CLASS_ID,
+            attributes: { conflicting: 'new' },
+            platformAttributes: { conflicting: 'old' },
+            localEditedAt: '2026-04-27T11:00:00Z',
+            pendingEdit: {
+              editedBy: 'agent',
+              editedAt: '2026-04-27T11:00:00Z',
+              previousAttributes: { conflicting: 'old' },
+              firstWriteKeys: ['conflicting'],
+            },
+          },
+        ],
+      }),
+    );
+    expect(r.errors.some(e => /must be disjoint/.test(e))).toBe(true);
+  });
+
+  it('warns (not errors) when firstWriteKeys is also present in platformAttributes (stale local file)', () => {
+    const r = validateControlFile(
+      brownfieldFile({
+        classes: [
+          {
+            classId: VALID_CLASS_ID,
+            attributes: { stale: 'local' },
+            platformAttributes: { stale: 'platform-already-has-it' },
+            localEditedAt: '2026-04-27T11:00:00Z',
+            pendingEdit: {
+              editedBy: 'agent',
+              editedAt: '2026-04-27T11:00:00Z',
+              previousAttributes: {},
+              firstWriteKeys: ['stale'],
+            },
+          },
+        ],
+      }),
+    );
+    expect(r.errors.filter(e => /firstWriteKeys/.test(e))).toEqual([]);
+    expect(r.warnings.some(w => /local file may be stale/.test(w))).toBe(true);
+  });
+
+  it('errors on hand-edit spoof: editedBy="external" with non-empty firstWriteKeys (Sprint 7 hardening)', () => {
+    // This shape cannot be produced by the legitimate promoteExternalEdit
+    // recovery verb (which synthesises previousAttributes from
+    // platformAttributes for diverging keys and never emits firstWriteKeys).
+    // The validator must surface this hand-edit pattern as a hard error so
+    // /dethereal:status and validate-model catch it before push.
+    const r = validateControlFile(
+      brownfieldFile({
+        classes: [
+          {
+            classId: VALID_CLASS_ID,
+            attributes: { spoofed: 'value' },
+            platformAttributes: {},
+            localEditedAt: '2026-04-27T11:00:00Z',
+            pendingEdit: {
+              editedBy: 'external',
+              editedAt: '2026-04-27T11:00:00Z',
+              previousAttributes: {},
+              firstWriteKeys: ['spoofed'],
+            },
+          },
+        ],
+      }),
+    );
+    expect(
+      r.errors.some(e =>
+        /editedBy='external' must NOT carry firstWriteKeys/.test(e),
+      ),
+    ).toBe(true);
+  });
+});
+
 describe('validateControlFile — class entry attributes', () => {
   it('errors when attributes is null', () => {
     const r = validateControlFile(

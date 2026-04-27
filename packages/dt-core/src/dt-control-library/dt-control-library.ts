@@ -52,6 +52,7 @@ import type {
   ControlFile,
   ControlFileClassEntry,
   PendingEditAuthor,
+  PendingEditBlock,
 } from '../schemas/control-file.schema.js';
 
 // =======================================================================
@@ -686,7 +687,15 @@ export class DtControlLibrary {
       const entry = working.classes[i];
       if (!entry.pendingEdit) continue;
 
-      const changedKeys = Object.keys(entry.pendingEdit.previousAttributes);
+      // Sprint 7 — first-write keys join previousAttributes keys to form the
+      // full set of keys the operator intended to change. They go through the
+      // same outbound-payload assembly but skip the platformAttrs presence
+      // check (there's no prior value to conflict with — that's the whole
+      // point of "first-write").
+      const previousKeys = Object.keys(entry.pendingEdit.previousAttributes);
+      const firstWriteKeys = entry.pendingEdit.firstWriteKeys ?? [];
+      const firstWriteKeysSet = new Set(firstWriteKeys);
+      const changedKeys = [...previousKeys, ...firstWriteKeys];
       const outboundPayload: Record<string, unknown> = {};
       const blockedKeys: string[] = [];
       const conflictKeys: string[] = [];
@@ -695,9 +704,28 @@ export class DtControlLibrary {
       for (const k of changedKeys) {
         outboundPayload[k] = entry.attributes[k];
 
+        if (firstWriteKeysSet.has(k)) {
+          // First-write key: by definition no prior value on either side. The
+          // 'absent-and-unknown schema drift' guard does NOT apply here — that
+          // guard catches mismatches between a recorded prior value in
+          // previousAttributes and an absent server-side key (genuine drift).
+          // First-write keys have no recorded prior; the schema status is
+          // simply "key didn't exist anywhere yet, now it will." Push as-is.
+          //
+          // If `(k in platformAttrs)` happens to be true here (operator's
+          // local file is stale and the platform actually does have a value),
+          // the engine downgrades silently to a normal brownfield update —
+          // there's no conflict baseline to detect drift against, so the
+          // partial-payload `r += $attributes` merge wins. The validator
+          // surfaces this stale-state pattern as a warning at write time
+          // (Sprint 7) so it's visible before push.
+          continue;
+        }
+
         if (!(k in platformAttrs)) {
           // Sprint 2 deferral: collapse 'absent-but-known' into 'absent-and-unknown'.
-          // Block the push for this key.
+          // Block the push for this key. (Does not apply to first-write keys —
+          // those are handled above.)
           blockedKeys.push(k);
           delete outboundPayload[k];
         } else {
@@ -854,16 +882,19 @@ export class DtControlLibrary {
       liveAssignedModelIds.length === 0 ||
       (liveAssignedModelIds.length === 1 && liveAssignedModelIds[0] === thisModelId);
 
-    let auditKind: AuditLogEntry['kind'] | null = null;
+    // Per-control shared-ownership signal. Per-class auditKind in Step F
+    // uses this when set; otherwise falls back to 'first-write' (Sprint 7)
+    // when the class push contains first-write keys.
+    let sharedAuditKind: AuditLogEntry['kind'] | null = null;
     if (!isAlone) {
       switch (decision.sharedOwnership) {
         case 'cancel':
           return { file: working, auditEntries, mutated: false };
         case 'push-anyway':
-          auditKind = 'force-shared';
+          sharedAuditKind = 'force-shared';
           break;
         case 'push-unverified':
-          auditKind = 'force-unverified';
+          sharedAuditKind = 'force-unverified';
           break;
         case 'clone-and-swap':
           throw new CloneAndSwapNotImplemented(working.id);
@@ -932,6 +963,18 @@ export class DtControlLibrary {
         pendingEdit: undefined,
       };
 
+      // Per-class audit kind. Shared-ownership signals (force-shared /
+      // force-unverified) take precedence over first-write because they're
+      // the higher-stakes governance discriminator (operator deliberately
+      // overwriting another team's keys vs. a benign new attribute write).
+      // First-write information is still captured via the entry's
+      // `firstWriteKeys` field regardless of which `kind` won.
+      const fwKeysInPush = (entry.pendingEdit?.firstWriteKeys ?? []).filter(
+        k => k in plan.outboundPayload,
+      );
+      const auditKind: AuditLogEntry['kind'] | null =
+        sharedAuditKind ?? (fwKeysInPush.length > 0 ? 'first-write' : null);
+
       if (auditKind) {
         // Sprint 4 Tier-2 cross-review (threat-modeler F-01 hand-edit bypass):
         // coerce editedBy='external' → 'operator' when previousAttributes
@@ -943,14 +986,27 @@ export class DtControlLibrary {
         // legitimate promote-external-edit path is unaffected because
         // its previousAttributes are synthesised from platformAttributes
         // verbatim.
+        //
+        // Sprint 7 — second hand-edit shape: editedBy='external' + non-empty
+        // firstWriteKeys. promoteExternalEdit never produces firstWriteKeys,
+        // so this combination is a hand-edit by construction. Defense-in-depth
+        // backstop for cases that bypassed the validator.
         let auditEditedBy = entry.pendingEdit?.editedBy;
-        if (auditEditedBy === 'external' && entry.pendingEdit && entry.platformAttributes) {
-          const prev = entry.pendingEdit.previousAttributes;
-          const platform = entry.platformAttributes;
-          const looksLikePromoteExternal = Object.keys(prev).every(
-            k => JSON.stringify(prev[k]) === JSON.stringify(platform[k]),
-          );
-          if (!looksLikePromoteExternal) {
+        if (auditEditedBy === 'external' && entry.pendingEdit) {
+          const hasFirstWriteSpoof =
+            Array.isArray(entry.pendingEdit.firstWriteKeys) &&
+            entry.pendingEdit.firstWriteKeys.length > 0;
+
+          let looksLikePromoteExternal = true;
+          if (entry.platformAttributes) {
+            const prev = entry.pendingEdit.previousAttributes;
+            const platform = entry.platformAttributes;
+            looksLikePromoteExternal = Object.keys(prev).every(
+              k => JSON.stringify(prev[k]) === JSON.stringify(platform[k]),
+            );
+          }
+
+          if (hasFirstWriteSpoof || !looksLikePromoteExternal) {
             auditEditedBy = 'operator';
           }
         }
@@ -962,7 +1018,14 @@ export class DtControlLibrary {
           className: entry.className ?? entry.classId,
           modelId: thisModelId,
           liveAssignedModelIds: auditKind === 'force-unverified' ? null : liveAssignedModelIds,
-          intendedKeys: Object.keys(entry.pendingEdit?.previousAttributes ?? {}),
+          // Sprint 7: intendedKeys is the union of recorded prior keys AND
+          // first-write keys — the full set of keys the operator/agent
+          // intended to change in the originating pendingEdit lifecycle.
+          intendedKeys: [
+            ...Object.keys(entry.pendingEdit?.previousAttributes ?? {}),
+            ...(entry.pendingEdit?.firstWriteKeys ?? []),
+          ],
+          firstWriteKeys: fwKeysInPush.length > 0 ? fwKeysInPush : undefined,
           attributesPushed: plan.outboundPayload,
           previousAttributes: entry.pendingEdit?.previousAttributes ?? {},
           // Propagate the originating pendingEdit author so an auditor
@@ -1049,8 +1112,19 @@ export class DtControlLibrary {
    * operator's FIRST pre-edit value as the intent baseline across
    * subsequent edits within the same pendingEdit lifecycle.
    *
+   * **First-write keys (Sprint 7).** When a changed key has no prior
+   * value in `entry.attributes` (the value is `undefined`), recording
+   * it in `previousAttributes` would serialise as a missing key (JSON
+   * drops `undefined`) — leaving the engine unable to distinguish "no
+   * prior value, intentionally pushing for the first time" from "no
+   * intent recorded at all." Such keys are tracked in
+   * `pendingEdit.firstWriteKeys` instead. The two arrays are mutually
+   * exclusive (a key is either first-write OR has a prior value, never
+   * both). The two-write rule still applies: a key already pinned in
+   * either array is not re-recorded by subsequent edits.
+   *
    * Single source of truth for `localEditedAt` + `pendingEdit`. All
-   * Sprint 3 callers (skills, manual operator edits via the MCP tool)
+   * Sprint 3+ callers (skills, manual operator edits via the MCP tool)
    * must go through this function.
    *
    * **Sprint 5 F-23 — Throws**:
@@ -1098,23 +1172,40 @@ export class DtControlLibrary {
       return working;
     }
 
-    // Two-write rule: preserve the FIRST pre-edit value.
+    // Two-write rule: preserve the FIRST pre-edit value (or first-write status)
+    // across subsequent edits within the same pendingEdit lifecycle.
     const previousAttributes = { ...(entry.pendingEdit?.previousAttributes ?? {}) };
+    const firstWriteKeysSet = new Set<string>(entry.pendingEdit?.firstWriteKeys ?? []);
     for (const k of changedKeys) {
-      if (!(k in previousAttributes)) {
+      // Skip if the key is already pinned by an earlier edit (either as a
+      // recorded prior value or as a first-write).
+      if (k in previousAttributes || firstWriteKeysSet.has(k)) continue;
+
+      if (k in entry.attributes) {
+        // Real prior value exists — record it as the §4 baseline.
         previousAttributes[k] = entry.attributes[k];
+      } else {
+        // No prior value on disk. Track as first-write rather than
+        // serialising `undefined` into previousAttributes (where JSON
+        // would drop it, producing a key the engine cannot recover).
+        firstWriteKeysSet.add(k);
       }
+    }
+
+    const pendingEdit: PendingEditBlock = {
+      editedBy,
+      editedAt: now,
+      previousAttributes,
+    };
+    if (firstWriteKeysSet.size > 0) {
+      pendingEdit.firstWriteKeys = [...firstWriteKeysSet];
     }
 
     working.classes[classIdx] = {
       ...entry,
       attributes: { ...entry.attributes, ...newAttributes },
       localEditedAt: now,
-      pendingEdit: {
-        editedBy,
-        editedAt: now,
-        previousAttributes,
-      },
+      pendingEdit,
     };
 
     await writeControlFile(modelDir, working);

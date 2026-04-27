@@ -7,8 +7,8 @@
     "declaration": true,      // This enables the generation of .d.ts files
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": ["node"]
   },
-  "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/**/__tests__/**"]
+  "include": ["src"]
 }

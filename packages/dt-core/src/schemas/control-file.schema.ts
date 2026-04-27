@@ -45,8 +45,28 @@ export interface PendingEditBlock {
    * Keyed by attribute name. Two-write semantic: a subsequent edit to the
    * same key MUST NOT overwrite the original pre-edit value already recorded
    * here — that value represents the operator's intent baseline.
+   *
+   * Keys recorded here are mutually exclusive with {@link firstWriteKeys}:
+   * a key is either first-write (no prior value existed) OR has a prior
+   * value recorded here — never both.
    */
   previousAttributes: Record<string, unknown>;
+  /**
+   * Keys the operator/agent intended to set for which no prior value
+   * existed in `attributes` at the time of the first `setLocalEdited`
+   * call. These keys are pushed to the platform without conflict
+   * detection (there's nothing to conflict with), and the
+   * `(k in platformAttributes)` "absent-and-unknown schema drift"
+   * guard does NOT apply to them.
+   *
+   * Optional / absent on Sprint-3-era files (back-compat — read sites
+   * use `?? []`). Engine writes the field only when non-empty so
+   * unaffected files keep their pre-Sprint-7 shape on disk.
+   *
+   * Mutually exclusive with {@link previousAttributes} keys. The
+   * validator rejects overlap.
+   */
+  firstWriteKeys?: string[];
 }
 
 /**
