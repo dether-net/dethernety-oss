@@ -577,6 +577,19 @@ Enrichment data on existing elements is preserved — only the new elements need
 
 ---
 
+## Drift detection on resume
+
+When you re-run `/dethereal:threat-model` on a model that already has a baseline, the skill detects drift between your last reconcile point and the current git working tree. If in-scope source files have changed since the baseline commit, the resume path surfaces a four-way delta — REMOVED, ADDED, CHANGED-substrate, CHANGED-attribute-only — and routes each item through the existing `/dethereal:add`, `/dethereal:remove`, or `/dethereal:enrich` flows. You review drift via the same UX you used to author the model.
+
+Two operator-facing details:
+
+- **`/dethereal:threat-model --full-scan`** bypasses drift detection entirely and re-runs `/dethereal:discover` end-to-end. Use this when history was rewritten past the baseline (e.g., a force-push or a branch-switch that orphaned the prior reconcile commit), or when you want to re-baseline against the current source tree.
+- **Crown-jewel removal triggers an elevated confirm.** When the drift detector proposes removing an element tagged `crown_jewel: true`, `/dethereal:remove` shows an explicit "this element is tagged as a CROWN JEWEL" prompt before applying. Untagged removals fall through to the standard confirmation.
+
+For the full mechanism (git-diff substrate, scoped scout invocation, four-way delta routing), see [`oss/docs/architecture/dethereal/DRIFT_DETECTION.md`](../../architecture/dethereal/DRIFT_DETECTION.md).
+
+---
+
 ## Tips
 
 - **Commit at the session break** — Step 5 is a natural checkpoint. Committing here gives you a clean revert point if enrichment needs to be redone.

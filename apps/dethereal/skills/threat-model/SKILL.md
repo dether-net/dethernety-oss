@@ -2,7 +2,7 @@
 name: threat-model
 description: Guided end-to-end threat modeling workflow — scope through validation and sync
 agent: threat-modeler
-argument-hint: "[system description or model path]"
+argument-hint: "[system description or model path] [--full-scan]"
 ---
 
 @../../docs/guidelines-layout.md
@@ -53,12 +53,21 @@ Parse `$ARGUMENTS` to determine whether to start a new model or resume an existi
 If `.dethereal/state.json` exists and `currentState` is not `REVIEWED`:
 
 1. Read `state.json`, `quality.json` (if exists), and model files
-2. Compute the step cursor from `currentState` (see step-to-state mapping in the Guided Workflow Orchestration section of the threat-modeler agent)
-3. Auto-detect prior work:
+2. **Drift detection.** If `state.lastReconcileCommit` is present and the user did **not** pass `--full-scan`, run the Drift Orchestration Protocol from the threat-modeler agent before computing the cursor:
+   - Invoke `Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/detect-drift.js" --model-dir <model-path>)`. If `${CLAUDE_PLUGIN_ROOT}` is not propagated to the shell (variable expands empty), resolve the plugin root via `node -e "console.log(require.resolve('@dether.net/dethereal/package.json').replace(/\/package\.json$/, ''))"` and reissue the command. Parse stdout JSON `{ baseline, scoped }`; on non-zero exit, surface stderr `message` + `hint` and stop drift logic.
+   - If `scoped` is empty, emit `[info] No drift since last reconcile (commit <baseline>).` and skip to step 3.
+   - Else, read `.dethereal/discovery.json`. If absent, emit `[info] No prior discovery provenance; drift detection skipped. Run /dethereal:discover to set a baseline.` and skip to step 3.
+   - Else, derive `priorElements_in_scope` (elements whose `sources[].file` ⊆ `scoped`), invoke `Agent(infrastructure-scout-scoped)` in `discover elements` mode with the file allowlist, and compute the four-way delta (REMOVED / ADDED / CHANGED-substrate / CHANGED-attribute-only) by name-joining against `newElements` and comparing `suggestedClass.id`.
+   - Emit a one-line pre-loop summary: `[drift] <R> removed (<C> crown-jewel-tagged), <A> added, <S> reclassified, <T> attribute-changed since <baseline>.`
+   - Iterate the delta items, emitting `/dethereal:remove <id>` for REMOVED, `/dethereal:add <description>` for ADDED, `mcp__dethereal__match_classes` + `Edit` on `structure.json` + `/dethereal:enrich --pick <id>` for CHANGED-substrate, and `/dethereal:enrich --pick <id>` for CHANGED-attribute-only.
+   - **After every delta item resolves**, write `state.lastReconcileCommit = <git rev-parse HEAD>` and update `lastModified` via `Edit`. Do **not** advance the baseline mid-loop — the deferred advance is the entire crash-safety story.
+   - If the user passed `--full-scan`, skip drift entirely; emit `[info] Full scan requested; running /dethereal:discover end-to-end.` and invoke `/dethereal:discover` instead of the cursor.
+3. Compute the step cursor from `currentState` (see step-to-state mapping in the Guided Workflow Orchestration section of the threat-modeler agent)
+4. Auto-detect prior work:
    - Classification rate > 80% from quality.json → mark Step 6 as `[done]`
    - `attribute_completion_rate` > 0 → note "Step 8 partially complete"
    - Show auto-detection decisions to the user for confirmation
-4. Display progress table:
+5. Display progress table:
 
 ```
 Progress: "<Model Name>" (Quality: X/100)
@@ -139,7 +148,7 @@ Delegate to `Agent(infrastructure-scout)` per the Discovery Orchestration Protoc
 8. After confirmation, write `structure.json` and `dataflows.json`
 9. Call `mcp__dethereal__validate_model_json` to check structural validity
 10. Update `.dethernety/discovery-cache.json` if this is a multi-model project
-11. Update state: `currentState` → `DISCOVERED`, add `DISCOVERED` to `completedStates`
+11. Update state via `Edit` on `.dethereal/state.json`: `currentState` → `DISCOVERED`, add `DISCOVERED` to `completedStates`, refresh `lastModified`, and write `lastReconcileCommit = <git rev-parse HEAD>` to establish the drift-detection baseline (resolve via `Bash(git -C <model-path> rev-parse HEAD)`; on non-zero exit, omit the field — drift detection will skip on resume until the operator re-runs discovery in a git repo)
 
 If the model was created from a description (not IaC), discovery still scans the codebase for IaC corroboration. If no codebase context is available, skip to Step 3 with the description-derived structure.
 

@@ -280,20 +280,23 @@ Apply all? (yes / modify / skip)
 
 ---
 
-### `/dethereal:enrich [tier1|all|pick] [--focus credentials|monitoring|compliance|controls]`
+### `/dethereal:enrich [tier1|all|pick] [--focus credentials|monitoring|compliance|controls] [--pick <element-id>]`
 
 Populate security attributes, credentials, MITRE ATT&CK references, monitoring tools, and security controls.
 
 **Scope arguments:**
 - `tier1` — crown jewels only (fastest)
 - `all` — all components in tier order (default)
-- `pick` — manual selection
+- `pick` — manual selection (interactive list)
 
 **Focus arguments:**
 - `--focus credentials` — credential topology only
 - `--focus monitoring` — monitoring tools only
 - `--focus compliance` — compliance-driven prompts only
 - `--focus controls` — control assignment pass (separate invocation, own 40-turn budget). Auto-pulls referenced Controls, lets you edit per-instance attributes, and queues `pendingEdit` blocks for the next push. Greenfield Controls get a temporary ID; brownfield Controls write to `controls/<id>.json`. See [Discovery and Enrichment](DISCOVERY_AND_ENRICHMENT.md#part-4--control-enrichment).
+
+**Targeted flag:**
+- `--pick <element-id>` — target a single element by id, skipping the interactive selector. Used by the drift orchestrator (CHANGED-substrate and CHANGED-attribute-only delta items route here); also available for direct invocation when you know the element id.
 
 ```
 > /dethereal:enrich tier1
@@ -425,7 +428,7 @@ See [Sync and Version Control](SYNC_AND_VERSION_CONTROL.md) for conflict handlin
 
 ## Guided Workflow
 
-### `/dethereal:threat-model [system description or model path]`
+### `/dethereal:threat-model [system description or model path] [--full-scan]`
 
 The complete 11-step guided workflow — scope definition through validation and platform sync.
 
@@ -440,6 +443,10 @@ Or to resume an existing model:
 ```
 
 This is the recommended approach for new models. It chains together discovery, classification, enrichment, validation, and sync with checkpoints between phases. You can stop at any point and resume later.
+
+**Resume + drift detection.** When resuming a model with a prior baseline (`state.lastReconcileCommit` set at end of discovery), the workflow detects in-scope file changes since the baseline and routes them through `/dethereal:add` / `/dethereal:remove` / `/dethereal:enrich`. See [Drift detection on resume](GUIDED_WORKFLOW.md#drift-detection-on-resume).
+
+**`--full-scan`** bypasses drift detection and re-runs `/dethereal:discover` end-to-end. Use this after a history rewrite, when the baseline is no longer in your branch's ancestry, or when you want to re-baseline against the current source tree.
 
 See [The 11-Step Guided Workflow](GUIDED_WORKFLOW.md) for the complete walkthrough.
 
