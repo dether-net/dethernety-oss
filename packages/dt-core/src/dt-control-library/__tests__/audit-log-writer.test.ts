@@ -170,6 +170,13 @@ describe('audit-log writer — computeEffective', () => {
     ];
     expect(computeEffective('force-shared', resolutions)).toBe('theirs');
   });
+
+  // Sprint 7 — first-write entries always derive 'novel' (no prior values
+  // exist on either side, so neither 'ours' nor 'theirs' applies).
+  it('returns "novel" for first-write regardless of conflictResolutions', () => {
+    expect(computeEffective('first-write', undefined)).toBe('novel');
+    expect(computeEffective('first-write', [])).toBe('novel');
+  });
 });
 
 describe('audit-log writer — buildAuditEntry', () => {
@@ -211,6 +218,52 @@ describe('audit-log writer — buildAuditEntry', () => {
     expect(ts).toBeGreaterThanOrEqual(before);
     expect(ts).toBeLessThanOrEqual(after);
     expect(entry.operator).toBeTruthy();
+  });
+
+  // Sprint 7 — first-write entry shape: empty previousAttributes,
+  // populated firstWriteKeys, effective='novel'.
+  it('first-write entry threads firstWriteKeys and derives effective=novel', async () => {
+    const entry = await buildAuditEntry({
+      kind: 'first-write',
+      controlId: 'ctrl-tls',
+      controlName: 'TLS 1.2+ in transit',
+      classId: 'cls-encryption-in-transit',
+      className: 'Encryption in Transit',
+      modelId: 'model-this',
+      liveAssignedModelIds: ['model-this'],
+      intendedKeys: ['tls_version', 'weak_ciphers', 'key_length'],
+      attributesPushed: { tls_version: 'TLS_1_2', weak_ciphers: false, key_length: 2048 },
+      previousAttributes: {},
+      firstWriteKeys: ['tls_version', 'weak_ciphers', 'key_length'],
+    });
+    expect(entry.kind).toBe('first-write');
+    expect(entry.firstWriteKeys?.sort()).toEqual(
+      ['key_length', 'tls_version', 'weak_ciphers'].sort(),
+    );
+    expect(entry.previousAttributes).toEqual({});
+    expect(entry.effective).toBe('novel');
+  });
+
+  it('force-shared entry can carry firstWriteKeys as a sibling field', async () => {
+    // When a push is shared-ownership-forced AND contains first-write keys,
+    // the engine sets kind='force-shared' (governance signal wins) but still
+    // records firstWriteKeys for the audit reader.
+    const entry = await buildAuditEntry({
+      kind: 'force-shared',
+      controlId: 'c',
+      controlName: 'C',
+      classId: 'cl',
+      className: 'CL',
+      modelId: 'm',
+      liveAssignedModelIds: ['m', 'other'],
+      intendedKeys: ['existing', 'new'],
+      attributesPushed: { existing: 'updated', new: 'value' },
+      previousAttributes: { existing: 'old' },
+      firstWriteKeys: ['new'],
+    });
+    expect(entry.kind).toBe('force-shared');
+    expect(entry.firstWriteKeys).toEqual(['new']);
+    expect(entry.previousAttributes).toEqual({ existing: 'old' });
   });
 
   it('reverted entry has effective=null and empty attributesPushed', async () => {

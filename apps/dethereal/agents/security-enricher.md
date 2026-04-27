@@ -336,11 +336,13 @@ documented but not engine-integrated. No automated detection coverage scoring.
 
 **Three valid ways to populate `controls[]`:**
 
+The decision tree below should be read alongside the path selection table in [controls-enrichment.md §"Path Selection"](../docs/controls-enrichment.md#path-selection) — they encode the same rules.
+
 | Scenario | Steps |
 |----------|-------|
-| **Existing Control matches** (brownfield from `manage_controls` rank) | Use the candidate's `controlId` field: `{ id: "<controlId>", name: "<controlName>", source: "declared" }`. Never use `controlClassId` here. |
-| **No existing Control, but a ControlClass fits** (greenfield with class binding) | **Preferred (Sprint 1+):** use the file-first path in [Per-Control Configuration Files](#per-control-configuration-files) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"` and let `/dethereal:sync push` create the platform Control. **Legacy:** call `mcp__dethereal__manage_controls(action: 'create', name: "...", class_ids: ["<controlClassId>"], element_ids: [...])` first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>", name: "...", source: "declared" }` to `structure.json`. |
-| **No platform candidate at all** (greenfield, name-only) | `{ id: null, name: "<descriptive name>", source: "declared" }`. The platform's `resolveControls()` will create a Control by name on next sync, but it will not be bound to any ControlClass. |
+| **`rank` returned candidates** (brownfield from `manage_controls` rank) | Use the candidate's `controlId` field: `{ id: "<controlId>", name: "<controlName>", source: "declared" }`. Never use `controlClassId` here. |
+| **`rank` returned empty AND the element has an assigned class** (greenfield with class binding) | **Default:** use the file-first path in [Per-Control Configuration Files](#per-control-configuration-files) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"` and let `/dethereal:sync push` create the platform Control. **Legacy alternative:** call `mcp__dethereal__manage_controls(action: 'create', name: "...", class_ids: ["<controlClassId>"], element_ids: [...])` first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>", name: "...", source: "declared" }` to `structure.json`. |
+| **`rank` returned empty AND the element has no assigned class**, OR platform unreachable (greenfield, name-only) | `{ id: null, name: "<descriptive name>", source: "declared" }`. The platform's `resolveControls()` will create a Control by name on next sync, but it will not be bound to any ControlClass. |
 
 **Rules:**
 - Default to `declared` for controls added during user-facing prompts

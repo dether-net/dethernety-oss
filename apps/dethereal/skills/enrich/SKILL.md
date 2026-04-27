@@ -443,6 +443,21 @@ Emit the same hint the status skill renders, parallel wording:
 
 Do not auto-correct or block; the operator decides whether to promote the divergence as a real external edit (`promote-external-edit`) or hand-revert the file. Skip silently when no drift is detected.
 
+##### Pre-footer integrity check
+
+If platform reachability was confirmed during this pass (any `manage_controls` action returned successfully), count the `controls[]` entries written by this pass with `id: null` versus entries with a non-null `id`. If the null count exceeds the non-null count AND any element with a `null` entry has an assigned class, surface a warning before the footer:
+
+```
+[warn] N control references written as {id: null} despite the platform being reachable
+       and elements having assigned classes. These will be created as name-only Controls
+       (no ControlClass binding) on the next /dethereal:sync push, and the analysis engine
+       cannot derive countermeasures from them. To bind them to a ControlClass, use the
+       file-first greenfield path: write controls/<temp-id>.json with lifecycle: "greenfield"
+       and a classes[] entry referencing the ControlClass id.
+```
+
+This is advisory, not blocking — the operator may have legitimate reasons (e.g. a control without a matching ControlClass in any active module). Skip silently when the count condition is not met.
+
 #### Footer (when attribute enrichment ran)
 
 ```

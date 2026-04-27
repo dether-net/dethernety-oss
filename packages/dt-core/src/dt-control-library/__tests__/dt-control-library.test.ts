@@ -42,7 +42,7 @@ beforeEach(async () => {
   modelDir = await fs.mkdtemp(join(os.tmpdir(), 'dtcl-test-'));
   // Apollo client is unused for these tests; the methods we invoke don't
   // call DtControl. Cast through unknown to satisfy the constructor.
-  lib = new DtControlLibrary({} as unknown as Parameters<typeof DtControlLibrary['prototype']['constructor']>[0]);
+  lib = new DtControlLibrary({} as unknown as ConstructorParameters<typeof DtControlLibrary>[0]);
   // Sprint 4 Tier-2: pushBrownfieldControl Step B inline re-fetch (F-09)
   // calls getControlInstantiationAttributes via the Apollo-bound dtControl.
   // The narrowed catch only swallows network-class transient errors — the
@@ -51,7 +51,7 @@ beforeEach(async () => {
   // remains the de-facto Step B input. Tests that need to observe the
   // inline-fetch behaviour explicitly override this with their own spy.
   vi.spyOn(
-    (lib as unknown as { dtControl: { getControlInstantiationAttributes: typeof Function } }).dtControl,
+    (lib as unknown as { dtControl: { getControlInstantiationAttributes: (...args: any[]) => any } }).dtControl,
     'getControlInstantiationAttributes',
   ).mockResolvedValue([]);
 });
@@ -188,13 +188,135 @@ describe('setLocalEdited — two-write semantic (CL §4)', () => {
         file,
         classIdx: 0,
         newAttributes: { foo: 'attempt-spoof' },
-        // @ts-expect-error — purposely bypassing the type to simulate a
-        // bad caller; the engine guard must catch it.
+        // 'external' is in the PendingEditAuthor union (it's the legitimate
+        // promoteExternalEdit author tag), so this typechecks. The engine's
+        // runtime guard at setLocalEdited's entry point is what rejects it.
         editedBy: 'external',
       }),
     ).rejects.toBeInstanceOf(IllegalEditedByError);
     // File must NOT have been written (refused before persistence).
     expect(await readControlFile(modelDir, VALID_UUID)).toBeNull();
+  });
+});
+
+describe('setLocalEdited — Sprint 7 first-write semantic', () => {
+  // Bug-fix scenario: fresh Control just created on the platform with no
+  // IS_INSTANCE_OF edge attributes. The local file was materialised via
+  // pull-controls with `attributes: {}` and `platformAttributes: {}`. The
+  // first set-local-edited call must record every key as first-write rather
+  // than serialising `undefined` into previousAttributes (where JSON drops it).
+  it('records first-write keys when entry.attributes had no prior value for them', async () => {
+    const file = brownfieldFile({
+      classes: [
+        {
+          classId: VALID_CLASS_ID,
+          attributes: {},
+          platformAttributes: {},
+        },
+      ],
+    });
+    const result = await lib.setLocalEdited({
+      modelDir,
+      file,
+      classIdx: 0,
+      newAttributes: { tls_version: 'TLS_1_2', weak_ciphers: false },
+      editedBy: 'agent',
+    });
+    const entry = result.classes[0];
+    expect(entry.attributes).toEqual({ tls_version: 'TLS_1_2', weak_ciphers: false });
+    expect(entry.pendingEdit?.previousAttributes).toEqual({});
+    expect(entry.pendingEdit?.firstWriteKeys?.sort()).toEqual(['tls_version', 'weak_ciphers'].sort());
+    expect(entry.localEditedAt).toBeDefined();
+
+    // Round-trip through disk to confirm firstWriteKeys survives JSON serialisation.
+    const reread = await readControlFile(modelDir, VALID_UUID);
+    expect(reread?.classes[0].pendingEdit?.firstWriteKeys?.sort()).toEqual(
+      ['tls_version', 'weak_ciphers'].sort(),
+    );
+  });
+
+  it('mixes first-write and prior-value keys correctly when entry.attributes has partial coverage', async () => {
+    // Operator pulled a Control where the platform had set `foo` but not
+    // `bar`. The next set-local-edited touches both: foo gets recorded as
+    // a normal previousAttributes entry, bar as a first-write key.
+    const file = brownfieldFile({
+      classes: [
+        {
+          classId: VALID_CLASS_ID,
+          attributes: { foo: 'old-foo' },
+          platformAttributes: { foo: 'old-foo' },
+        },
+      ],
+    });
+    const result = await lib.setLocalEdited({
+      modelDir,
+      file,
+      classIdx: 0,
+      newAttributes: { foo: 'new-foo', bar: 42 },
+      editedBy: 'agent',
+    });
+    const entry = result.classes[0];
+    expect(entry.attributes).toEqual({ foo: 'new-foo', bar: 42 });
+    expect(entry.pendingEdit?.previousAttributes).toEqual({ foo: 'old-foo' });
+    expect(entry.pendingEdit?.firstWriteKeys).toEqual(['bar']);
+  });
+
+  it('preserves first-write status across subsequent edits (two-write rule)', async () => {
+    // First edit: bar is first-write (no prior value). Second edit changes
+    // bar's value again — the engine must NOT promote bar to previousAttributes
+    // (which would lose the first-write status and re-trigger the absent-and-
+    // unknown blocked-key path on push).
+    const file = brownfieldFile({
+      classes: [
+        {
+          classId: VALID_CLASS_ID,
+          attributes: {},
+          platformAttributes: {},
+        },
+      ],
+    });
+    const after1st = await lib.setLocalEdited({
+      modelDir,
+      file,
+      classIdx: 0,
+      newAttributes: { bar: 1 },
+      editedBy: 'agent',
+    });
+    expect(after1st.classes[0].pendingEdit?.firstWriteKeys).toEqual(['bar']);
+
+    const after2nd = await lib.setLocalEdited({
+      modelDir,
+      file: after1st,
+      classIdx: 0,
+      newAttributes: { bar: 2 },
+      editedBy: 'agent',
+    });
+    expect(after2nd.classes[0].attributes).toEqual({ bar: 2 });
+    expect(after2nd.classes[0].pendingEdit?.previousAttributes).toEqual({});
+    expect(after2nd.classes[0].pendingEdit?.firstWriteKeys).toEqual(['bar']);
+  });
+
+  it('omits firstWriteKeys field when no keys are first-write (back-compat shape)', async () => {
+    // Pre-Sprint-7 file shape: pendingEdit has only previousAttributes, no
+    // firstWriteKeys field on disk. Engine writes the field only when the
+    // set is non-empty.
+    const file = brownfieldFile();
+    const result = await lib.setLocalEdited({
+      modelDir,
+      file,
+      classIdx: 0,
+      newAttributes: { foo: 'updated' },
+      editedBy: 'agent',
+    });
+    expect(result.classes[0].pendingEdit?.previousAttributes).toEqual({ foo: 'bar' });
+    expect(result.classes[0].pendingEdit?.firstWriteKeys).toBeUndefined();
+
+    // Confirm on-disk shape too.
+    const raw = await fs.readFile(
+      join(modelDir, 'controls', `${VALID_UUID}.json`),
+      'utf-8',
+    );
+    expect(raw).not.toContain('firstWriteKeys');
   });
 });
 
@@ -382,7 +504,7 @@ describe('pushBrownfieldControl — Step A external-edit guard', () => {
     });
     // Mock setInstantiationAttributes via the dtControl property.
     const setSpy = vi
-      .spyOn((lib as unknown as { dtControl: { setInstantiationAttributes: typeof Function } }).dtControl, 'setInstantiationAttributes')
+      .spyOn((lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl, 'setInstantiationAttributes')
       .mockResolvedValue(true);
     const result = await lib.pushBrownfieldControl({
       modelDir,
@@ -488,7 +610,7 @@ describe('pushBrownfieldControl — Step E shared-ownership', () => {
       ],
     });
     vi.spyOn(
-      (lib as unknown as { dtControl: { setInstantiationAttributes: typeof Function } }).dtControl,
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
     ).mockResolvedValue(true);
 
@@ -528,7 +650,7 @@ describe('pushBrownfieldControl — Step E shared-ownership', () => {
       ],
     });
     vi.spyOn(
-      (lib as unknown as { dtControl: { setInstantiationAttributes: typeof Function } }).dtControl,
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
     ).mockResolvedValue(true);
 
@@ -552,6 +674,386 @@ describe('pushBrownfieldControl — Step E shared-ownership', () => {
   });
 });
 
+describe('pullControls — Sprint 7 firstWriteKeys preservation', () => {
+  it('preserves pendingEdit.firstWriteKeys when platform state matches existing platformAttributes', async () => {
+    // Pre-condition: local file has pendingEdit with firstWriteKeys.
+    // Mock the three Apollo calls so platform state matches what's already on
+    // disk → no drift → pullControls preserves the existing pendingEdit
+    // (including firstWriteKeys) wholesale per CL Appendix A.5.
+    const initial: ControlFile = {
+      id: VALID_UUID,
+      name: 'Test Control',
+      source: 'declared',
+      lifecycle: 'brownfield',
+      classes: [
+        {
+          classId: VALID_CLASS_ID,
+          attributes: { staged_value: 'X' },
+          platformAttributes: {},
+          localEditedAt: '2026-04-27T11:00:00Z',
+          pendingEdit: {
+            editedBy: 'agent',
+            editedAt: '2026-04-27T11:00:00Z',
+            previousAttributes: {},
+            firstWriteKeys: ['staged_value'],
+          },
+        },
+      ],
+      platformState: {
+        lastSyncedAt: '2026-04-27T10:00:00Z',
+        assignedModelIds: ['model-this'],
+      },
+    };
+    await writeControlFile(modelDir, initial);
+
+    const dtControl = (lib as unknown as {
+      dtControl: Record<string, (...args: any[]) => any>;
+    }).dtControl;
+    vi.spyOn(dtControl, 'getControlsByIds').mockResolvedValue([
+      {
+        id: VALID_UUID,
+        name: 'Test Control',
+        controlClasses: [{ id: VALID_CLASS_ID, name: 'Test Class' }],
+      },
+    ]);
+    vi.spyOn(dtControl, 'getControlInstantiationAttributes').mockResolvedValue([
+      { controlId: VALID_UUID, classId: VALID_CLASS_ID, attributes: {} },
+    ]);
+    vi.spyOn(dtControl, 'getControlsAssignedModels').mockResolvedValue(
+      new Map([[VALID_UUID, ['model-this']]]),
+    );
+
+    await lib.pullControls({ modelDir, controlIds: [VALID_UUID] });
+
+    // Re-read and assert pendingEdit.firstWriteKeys survived.
+    const reread = await readControlFile(modelDir, VALID_UUID);
+    expect(reread?.classes[0].pendingEdit?.firstWriteKeys).toEqual(['staged_value']);
+    expect(reread?.classes[0].pendingEdit?.previousAttributes).toEqual({});
+    expect(reread?.classes[0].attributes).toEqual({ staged_value: 'X' });
+    expect(reread?.classes[0].platformAttributes).toEqual({});
+    expect(reread?.classes[0].localEditedAt).toBe('2026-04-27T11:00:00Z');
+  });
+});
+
+describe('pushBrownfieldControl — Sprint 7 first-write path', () => {
+  // Bug-fix scenario: 22 fresh Controls created on the platform with empty
+  // platformAttributes, set-local-edited populates `attributes` from observed
+  // evidence. Previously, push-brownfield short-circuited at Step C (changedKeys
+  // = Object.keys(previousAttributes) = []) and returned mutated:false.
+  // After the Sprint 7 fix, first-write keys flow through Step C → Step F
+  // and the platform mutation lands.
+
+  it('pure first-write (alone Control) pushes all keys and writes a first-write audit entry', async () => {
+    const file = brownfieldFile({
+      classes: [
+        {
+          classId: VALID_CLASS_ID,
+          attributes: { tls_version: 'TLS_1_2', weak_ciphers: false, key_length: 2048 },
+          platformAttributes: {},
+          localEditedAt: '2026-04-27T06:46:01Z',
+          pendingEdit: {
+            editedBy: 'agent',
+            editedAt: '2026-04-27T06:46:01Z',
+            previousAttributes: {},
+            firstWriteKeys: ['tls_version', 'weak_ciphers', 'key_length'],
+          },
+        },
+      ],
+    });
+    const setSpy = vi
+      .spyOn(
+        (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
+        'setInstantiationAttributes',
+      )
+      .mockResolvedValue(true);
+
+    const result = await lib.pushBrownfieldControl({
+      modelDir,
+      file,
+      decision: { sharedOwnership: 'push-anyway' },
+      freshPlatformAttrs: new Map([[VALID_CLASS_ID, {}]]),
+      liveAssignedModelIds: ['model-this'],
+      thisModelId: 'model-this',
+    });
+
+    expect(result.mutated).toBe(true);
+    // All three first-write keys reach the platform mutation.
+    expect(setSpy).toHaveBeenCalledWith({
+      controlId: VALID_UUID,
+      classId: VALID_CLASS_ID,
+      attributes: { tls_version: 'TLS_1_2', weak_ciphers: false, key_length: 2048 },
+    });
+    // Audit entry: kind=first-write, previousAttributes empty, firstWriteKeys populated,
+    // intendedKeys = full union, effective = 'novel'.
+    expect(result.auditEntries).toHaveLength(1);
+    const ae = result.auditEntries[0];
+    expect(ae.kind).toBe('first-write');
+    expect(ae.previousAttributes).toEqual({});
+    expect(ae.firstWriteKeys?.sort()).toEqual(['key_length', 'tls_version', 'weak_ciphers']);
+    expect(ae.intendedKeys.sort()).toEqual(['key_length', 'tls_version', 'weak_ciphers']);
+    expect(ae.attributesPushed).toEqual({
+      tls_version: 'TLS_1_2',
+      weak_ciphers: false,
+      key_length: 2048,
+    });
+    expect(ae.effective).toBe('novel');
+
+    // Local file: pendingEdit cleared, platformAttributes populated.
+    const reread = await readControlFile(modelDir, VALID_UUID);
+    expect(reread?.classes[0].pendingEdit).toBeUndefined();
+    expect(reread?.classes[0].platformAttributes).toEqual({
+      tls_version: 'TLS_1_2',
+      weak_ciphers: false,
+      key_length: 2048,
+    });
+  });
+
+  it('mixed first-write + brownfield-update (alone Control) pushes both, audit kind = first-write', async () => {
+    // foo had a prior value (recorded in previousAttributes); bar is new.
+    // Both end up in the outbound payload; audit kind defaults to first-write
+    // because there's at least one first-write key in the push.
+    const file = brownfieldFile({
+      classes: [
+        {
+          classId: VALID_CLASS_ID,
+          attributes: { foo: 'updated', bar: 42 },
+          platformAttributes: { foo: 'old' },
+          localEditedAt: '2026-04-27T11:00:00Z',
+          pendingEdit: {
+            editedBy: 'agent',
+            editedAt: '2026-04-27T11:00:00Z',
+            previousAttributes: { foo: 'old' },
+            firstWriteKeys: ['bar'],
+          },
+        },
+      ],
+    });
+    vi.spyOn(
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
+      'setInstantiationAttributes',
+    ).mockResolvedValue(true);
+
+    const result = await lib.pushBrownfieldControl({
+      modelDir,
+      file,
+      decision: { sharedOwnership: 'push-anyway' },
+      freshPlatformAttrs: new Map([[VALID_CLASS_ID, { foo: 'old' }]]),
+      liveAssignedModelIds: ['model-this'],
+      thisModelId: 'model-this',
+    });
+
+    expect(result.mutated).toBe(true);
+    expect(result.auditEntries).toHaveLength(1);
+    expect(result.auditEntries[0].kind).toBe('first-write');
+    expect(result.auditEntries[0].firstWriteKeys).toEqual(['bar']);
+    expect(result.auditEntries[0].previousAttributes).toEqual({ foo: 'old' });
+    expect(result.auditEntries[0].attributesPushed).toEqual({ foo: 'updated', bar: 42 });
+  });
+
+  it('first-write on shared Control: force-shared kind wins, firstWriteKeys still recorded', async () => {
+    // Sprint 7 §2 design decision: shared-ownership force is the higher-stakes
+    // governance signal, so it takes precedence in the audit `kind`. The
+    // first-write information is still captured as a sibling field.
+    const file = brownfieldFile({
+      classes: [
+        {
+          classId: VALID_CLASS_ID,
+          attributes: { policy_id: 'p-1', enabled: true },
+          platformAttributes: {},
+          localEditedAt: '2026-04-27T11:00:00Z',
+          pendingEdit: {
+            editedBy: 'agent',
+            editedAt: '2026-04-27T11:00:00Z',
+            previousAttributes: {},
+            firstWriteKeys: ['policy_id', 'enabled'],
+          },
+        },
+      ],
+    });
+    vi.spyOn(
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
+      'setInstantiationAttributes',
+    ).mockResolvedValue(true);
+
+    const result = await lib.pushBrownfieldControl({
+      modelDir,
+      file,
+      decision: { sharedOwnership: 'push-anyway' },
+      freshPlatformAttrs: new Map([[VALID_CLASS_ID, {}]]),
+      liveAssignedModelIds: ['model-this', 'model-other'],
+      thisModelId: 'model-this',
+    });
+
+    expect(result.mutated).toBe(true);
+    expect(result.auditEntries).toHaveLength(1);
+    const ae = result.auditEntries[0];
+    expect(ae.kind).toBe('force-shared');
+    expect(ae.liveAssignedModelIds).toEqual(['model-this', 'model-other']);
+    expect(ae.firstWriteKeys?.sort()).toEqual(['enabled', 'policy_id']);
+  });
+
+  it('Step A external-edit guard still fires when pendingEdit is absent (first-write fix does not weaken Step A)', async () => {
+    // Defensive: the schema-drift / hand-edit detection at Step A must remain
+    // intact. Local attributes diverge from platformAttributes with no
+    // pendingEdit recording the change → ExternalEditDetectedError.
+    const file = brownfieldFile({
+      classes: [
+        {
+          classId: VALID_CLASS_ID,
+          attributes: { foo: 'rogue' },
+          platformAttributes: { foo: 'bar' },
+          // pendingEdit deliberately absent
+        },
+      ],
+    });
+    await expect(
+      lib.pushBrownfieldControl({
+        modelDir,
+        file,
+        decision: { sharedOwnership: 'push-anyway' },
+        freshPlatformAttrs: new Map([[VALID_CLASS_ID, { foo: 'bar' }]]),
+        liveAssignedModelIds: ['model-this'],
+        thisModelId: 'model-this',
+      }),
+    ).rejects.toBeInstanceOf(ExternalEditDetectedError);
+  });
+
+  it('absent-and-unknown schema drift guard still fires for keys NOT in firstWriteKeys', async () => {
+    // Defence-in-depth: if previousAttributes records a real prior value for
+    // key `ghost` but the platform now has no record of it (schema drift),
+    // the existing block-list path must still fire — first-write fix must not
+    // accidentally relax this guard for non-first-write keys.
+    const file = brownfieldFile({
+      classes: [
+        {
+          classId: VALID_CLASS_ID,
+          attributes: { ghost: 'new-ghost' },
+          platformAttributes: {}, // ghost absent on platform
+          localEditedAt: '2026-04-27T11:00:00Z',
+          pendingEdit: {
+            editedBy: 'agent',
+            editedAt: '2026-04-27T11:00:00Z',
+            previousAttributes: { ghost: 'old-ghost' }, // prior value recorded
+            // No firstWriteKeys — `ghost` was a real prior value, not a first-write.
+          },
+        },
+      ],
+    });
+    await expect(
+      lib.pushBrownfieldControl({
+        modelDir,
+        file,
+        decision: { sharedOwnership: 'push-anyway' },
+        freshPlatformAttrs: new Map([[VALID_CLASS_ID, {}]]),
+        liveAssignedModelIds: ['model-this'],
+        thisModelId: 'model-this',
+      }),
+    ).rejects.toThrow(/absent-and-unknown/);
+  });
+
+  it('back-compat: pre-Sprint-7 file with no firstWriteKeys field pushes normally', async () => {
+    // Pre-Sprint-7 files have only previousAttributes on pendingEdit.
+    // The engine must read `firstWriteKeys ?? []` and behave identically
+    // to the legacy path.
+    const file = brownfieldFile({
+      classes: [
+        {
+          classId: VALID_CLASS_ID,
+          attributes: { foo: 'edited' },
+          platformAttributes: { foo: 'bar' },
+          localEditedAt: '2026-04-18T11:00:00Z',
+          pendingEdit: {
+            editedBy: 'agent',
+            editedAt: '2026-04-18T11:00:00Z',
+            previousAttributes: { foo: 'bar' },
+            // firstWriteKeys deliberately absent — legacy file shape
+          },
+        },
+      ],
+    });
+    vi.spyOn(
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
+      'setInstantiationAttributes',
+    ).mockResolvedValue(true);
+
+    const result = await lib.pushBrownfieldControl({
+      modelDir,
+      file,
+      decision: { sharedOwnership: 'push-anyway' },
+      freshPlatformAttrs: new Map([[VALID_CLASS_ID, { foo: 'bar' }]]),
+      liveAssignedModelIds: ['model-this'],
+      thisModelId: 'model-this',
+    });
+    // Alone Control with no first-write keys → no audit entry (existing behaviour).
+    expect(result.mutated).toBe(true);
+    expect(result.auditEntries).toHaveLength(0);
+  });
+
+  it('multi-class Control: only the class with first-write keys gets an audit entry (alone)', async () => {
+    // Class A is pure first-write; Class B is a normal brownfield update.
+    // Alone Control, no shared-ownership force. Expected outcome:
+    //   - Both classes hit setInstantiationAttributes (mutated:true)
+    //   - Class A produces a kind='first-write' audit entry
+    //   - Class B produces NO audit entry (alone + no first-write keys =
+    //     audit-silent — existing Sprint 6 behaviour preserved per-class)
+    const CLASS_A = '11111111-1111-1111-1111-111111111111';
+    const CLASS_B = '22222222-2222-2222-2222-222222222222';
+    const file = brownfieldFile({
+      classes: [
+        {
+          classId: CLASS_A,
+          attributes: { fwk1: 'A1', fwk2: 'A2' },
+          platformAttributes: {},
+          localEditedAt: '2026-04-27T11:00:00Z',
+          pendingEdit: {
+            editedBy: 'agent',
+            editedAt: '2026-04-27T11:00:00Z',
+            previousAttributes: {},
+            firstWriteKeys: ['fwk1', 'fwk2'],
+          },
+        },
+        {
+          classId: CLASS_B,
+          attributes: { existing: 'updated' },
+          platformAttributes: { existing: 'old' },
+          localEditedAt: '2026-04-27T11:00:00Z',
+          pendingEdit: {
+            editedBy: 'agent',
+            editedAt: '2026-04-27T11:00:00Z',
+            previousAttributes: { existing: 'old' },
+          },
+        },
+      ],
+    });
+    const setSpy = vi
+      .spyOn(
+        (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
+        'setInstantiationAttributes',
+      )
+      .mockResolvedValue(true);
+
+    const result = await lib.pushBrownfieldControl({
+      modelDir,
+      file,
+      decision: { sharedOwnership: 'push-anyway' },
+      freshPlatformAttrs: new Map([
+        [CLASS_A, {}],
+        [CLASS_B, { existing: 'old' }],
+      ]),
+      liveAssignedModelIds: ['model-this'],
+      thisModelId: 'model-this',
+    });
+
+    expect(result.mutated).toBe(true);
+    expect(setSpy).toHaveBeenCalledTimes(2);
+    // Exactly one audit entry — Class A (first-write).
+    expect(result.auditEntries).toHaveLength(1);
+    expect(result.auditEntries[0].kind).toBe('first-write');
+    expect(result.auditEntries[0].classId).toBe(CLASS_A);
+    expect(result.auditEntries[0].firstWriteKeys?.sort()).toEqual(['fwk1', 'fwk2']);
+  });
+});
+
 describe('pushBrownfieldControl — partial-payload (DEC-CL-11)', () => {
   it('sends ONLY changed keys to setInstantiationAttributes', async () => {
     const file = brownfieldFile({
@@ -571,7 +1073,7 @@ describe('pushBrownfieldControl — partial-payload (DEC-CL-11)', () => {
     });
     const setSpy = vi
       .spyOn(
-        (lib as unknown as { dtControl: { setInstantiationAttributes: typeof Function } }).dtControl,
+        (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
         'setInstantiationAttributes',
       )
       .mockResolvedValue(true);
@@ -613,7 +1115,7 @@ describe('pushBrownfieldControl — Step D conflict resolution', () => {
     });
     const setSpy = vi
       .spyOn(
-        (lib as unknown as { dtControl: { setInstantiationAttributes: typeof Function } }).dtControl,
+        (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
         'setInstantiationAttributes',
       )
       .mockResolvedValue(true);
@@ -647,7 +1149,7 @@ describe('pushBrownfieldControl — Step D conflict resolution', () => {
       ],
     });
     vi.spyOn(
-      (lib as unknown as { dtControl: { setInstantiationAttributes: typeof Function } }).dtControl,
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
     ).mockResolvedValue(true);
 
@@ -686,7 +1188,7 @@ describe('pushBrownfieldControl — Step D conflict resolution', () => {
     });
     const setSpy = vi
       .spyOn(
-        (lib as unknown as { dtControl: { setInstantiationAttributes: typeof Function } }).dtControl,
+        (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
         'setInstantiationAttributes',
       )
       .mockResolvedValue(true);
@@ -755,12 +1257,12 @@ describe('Sprint 4 Tier-2 — F-01 hand-edit coercion at audit-write site', () =
       ],
     });
     vi.spyOn(
-      (lib as unknown as { dtControl: { getControlInstantiationAttributes: typeof Function } })
+      (lib as unknown as { dtControl: { getControlInstantiationAttributes: (...args: any[]) => any } })
         .dtControl,
       'getControlInstantiationAttributes',
     ).mockResolvedValue([{ controlId: VALID_UUID, classId: VALID_CLASS_ID, attributes: { foo: 'real-server-value' } }]);
     vi.spyOn(
-      (lib as unknown as { dtControl: { setInstantiationAttributes: typeof Function } }).dtControl,
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
     ).mockResolvedValue(true);
 
@@ -805,12 +1307,12 @@ describe('Sprint 4 Tier-2 — F-01 hand-edit coercion at audit-write site', () =
       ],
     });
     vi.spyOn(
-      (lib as unknown as { dtControl: { getControlInstantiationAttributes: typeof Function } })
+      (lib as unknown as { dtControl: { getControlInstantiationAttributes: (...args: any[]) => any } })
         .dtControl,
       'getControlInstantiationAttributes',
     ).mockResolvedValue([{ controlId: VALID_UUID, classId: VALID_CLASS_ID, attributes: { foo: 'platform-state' } }]);
     vi.spyOn(
-      (lib as unknown as { dtControl: { setInstantiationAttributes: typeof Function } }).dtControl,
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
     ).mockResolvedValue(true);
 
@@ -876,12 +1378,12 @@ describe('Sprint 4 F-09 — TOCTOU per-control fresh-fetch in Step B', () => {
     // Spy returns the LIVE state (operator B's mutation) — different from
     // what the caller passes in freshPlatformAttrs.
     const reFetchSpy = vi.spyOn(
-      (lib as unknown as { dtControl: { getControlInstantiationAttributes: typeof Function } })
+      (lib as unknown as { dtControl: { getControlInstantiationAttributes: (...args: any[]) => any } })
         .dtControl,
       'getControlInstantiationAttributes',
     ).mockResolvedValue([{ controlId: VALID_UUID, classId: VALID_CLASS_ID, attributes: { foo: 'new-server' } }]);
     const setAttrsSpy = vi.spyOn(
-      (lib as unknown as { dtControl: { setInstantiationAttributes: typeof Function } }).dtControl,
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
     ).mockResolvedValue(true);
 
@@ -931,12 +1433,12 @@ describe('Sprint 4 F-09 — TOCTOU per-control fresh-fetch in Step B', () => {
       ],
     });
     vi.spyOn(
-      (lib as unknown as { dtControl: { getControlInstantiationAttributes: typeof Function } })
+      (lib as unknown as { dtControl: { getControlInstantiationAttributes: (...args: any[]) => any } })
         .dtControl,
       'getControlInstantiationAttributes',
     ).mockRejectedValue(new Error('Bolt ServiceUnavailable: connection refused'));
     vi.spyOn(
-      (lib as unknown as { dtControl: { setInstantiationAttributes: typeof Function } }).dtControl,
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
     ).mockResolvedValue(true);
 
@@ -974,7 +1476,7 @@ describe('Sprint 4 F-09 — TOCTOU per-control fresh-fetch in Step B', () => {
       ],
     });
     vi.spyOn(
-      (lib as unknown as { dtControl: { getControlInstantiationAttributes: typeof Function } })
+      (lib as unknown as { dtControl: { getControlInstantiationAttributes: (...args: any[]) => any } })
         .dtControl,
       'getControlInstantiationAttributes',
     ).mockRejectedValue(new Error('Authentication required: token expired'));
@@ -1010,7 +1512,7 @@ describe('Sprint 4 F-04 — authnOperator propagation to audit log', () => {
       ],
     });
     vi.spyOn(
-      (lib as unknown as { dtControl: { setInstantiationAttributes: typeof Function } }).dtControl,
+      (lib as unknown as { dtControl: { setInstantiationAttributes: (...args: any[]) => any } }).dtControl,
       'setInstantiationAttributes',
     ).mockResolvedValue(true);
 

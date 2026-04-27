@@ -2,7 +2,7 @@
  * Append-only audit-log writer for control-library cross-model writes and
  * considered-but-discarded edits.
  *
- * Three entry kinds, all defined in CONTROL_LIBRARY.md §6 "Audit log":
+ * Four entry kinds, all defined in CONTROL_LIBRARY.md §6 "Audit log":
  *
  * - **`force-shared`** — operator chose "Push anyway" on a shared-ownership
  *   prompt. Records `liveAssignedModelIds`, attribute diff, mutation
@@ -14,6 +14,16 @@
  *   pre-edit state before push. Captures the "we considered this and
  *   decided not to" governance signal that would otherwise vanish silently
  *   when `pendingEdit` is cleared. `attributesPushed = {}, effective: null`.
+ * - **`first-write`** — at least one key in the outbound payload had no
+ *   prior value on either the local file or the platform's IS_INSTANCE_OF
+ *   edge before this push (recorded in `pendingEdit.firstWriteKeys`).
+ *   Captures "this Control–ControlClass binding was newly populated."
+ *   Records `firstWriteKeys` and the values pushed under those keys.
+ *   `previousAttributes` is `{}` when every key in the push was first-write.
+ *   Shared-ownership signals (`force-shared` / `force-unverified`) take
+ *   precedence in the `kind` field — for those entries, `firstWriteKeys`
+ *   appears as a sibling field so the first-write information is still
+ *   captured without losing the higher-stakes governance discriminator.
  *
  * Path: `<modelDir>/.dethereal/control-audit.log` per CL §6 + DEC-CL-12.
  * **Committed to the repository** (not gitignored — overrides the typical
@@ -170,7 +180,7 @@ export interface AuditLogEntry {
    * identity (legitimate, but worth flagging for investigation).
    */
   authnOperator?: string;
-  kind: 'force-shared' | 'force-unverified' | 'reverted';
+  kind: 'force-shared' | 'force-unverified' | 'reverted' | 'first-write';
   controlId: string;
   controlName: string;
   classId: string;
@@ -178,12 +188,29 @@ export interface AuditLogEntry {
   modelId: string;
   /** `null` only on `force-unverified` (the unknown-blast-radius marker). */
   liveAssignedModelIds: string[] | null;
-  /** Equal to `keys(pendingEdit.previousAttributes)` at push time. */
+  /**
+   * Equal to `keys(pendingEdit.previousAttributes) ∪ pendingEdit.firstWriteKeys`
+   * at push time — the union of "keys with a prior value" and "keys that had
+   * no prior value but were intended to be set."
+   */
   intendedKeys: string[];
   /** `intendedKeys` projected through `attributes` after Step D resolution. */
   attributesPushed: Record<string, unknown>;
   /** Pre-edit snapshot from `pendingEdit.previousAttributes`. */
   previousAttributes: Record<string, unknown>;
+  /**
+   * Subset of `intendedKeys` that had no prior value at the time of the
+   * first `setLocalEdited` call (no entry in `previousAttributes` because
+   * none existed locally). Surfaced on `first-write` entries (where every
+   * key in the push is first-write) AND on `force-shared` / `force-unverified`
+   * entries that happen to include first-write keys — keeps the first-write
+   * information in the audit trail regardless of which `kind` won.
+   *
+   * Optional / absent on Sprint-3-era entries and on entries where every
+   * pushed key had a prior value (the common `force-shared` / `force-unverified`
+   * case). Sprint 7 addition.
+   */
+  firstWriteKeys?: string[];
   /** Derived field for cheap auditor readability. See {@link computeEffective}. */
   effective: 'ours' | 'theirs' | 'novel' | null;
   /**
@@ -252,7 +279,9 @@ export async function appendAuditEntry(
  * - `'ours'` if every conflicting key resolved to `keep` AND no merge
  *   produced a value matching the server state.
  * - `'novel'` if any merge produced a value not equal to either
- *   `ours` or `theirs`.
+ *   `ours` or `theirs`, OR for `first-write` entries where every key
+ *   is genuinely new on both sides (no `ours` / `theirs` distinction
+ *   applies).
  * - `null` for `force-unverified` (no conflict detection ran) and for
  *   `reverted` (no push happened).
  */
@@ -261,6 +290,7 @@ export function computeEffective(
   conflictResolutions: ConflictResolution[] | undefined,
 ): 'ours' | 'theirs' | 'novel' | null {
   if (kind === 'force-unverified' || kind === 'reverted') return null;
+  if (kind === 'first-write') return 'novel';
   if (!conflictResolutions || conflictResolutions.length === 0) {
     // No conflicts detected — the push was straightforward "ours".
     return 'ours';
@@ -387,6 +417,7 @@ export async function buildAuditEntry(
     intendedKeys: partial.intendedKeys,
     attributesPushed: partial.attributesPushed,
     previousAttributes: partial.previousAttributes,
+    firstWriteKeys: partial.firstWriteKeys,
     effective: computeEffective(partial.kind, partial.conflictResolutions),
     editedBy: partial.editedBy,
     conflictResolutions: partial.conflictResolutions,

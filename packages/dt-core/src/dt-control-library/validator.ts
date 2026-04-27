@@ -252,6 +252,28 @@ function validateClassEntry(
         );
       }
     }
+    // Sprint 7 — promoteExternalEdit synthesises previousAttributes from
+    // platformAttributes for diverging keys; it NEVER produces firstWriteKeys.
+    // A pendingEdit claiming editedBy='external' with non-empty firstWriteKeys
+    // is necessarily a hand-edit spoofing the discriminator. Hard error so
+    // /dethereal:status and validate-model surface it before push. Independent
+    // of the previous check (platformAttributes presence is irrelevant here —
+    // the spoof is detectable from the editedBy + firstWriteKeys combination
+    // alone).
+    if (
+      entry.pendingEdit.editedBy === 'external' &&
+      Array.isArray(entry.pendingEdit.firstWriteKeys) &&
+      entry.pendingEdit.firstWriteKeys.length > 0
+    ) {
+      errors.push(
+        `${ctx}.pendingEdit: editedBy='external' must NOT carry firstWriteKeys — ` +
+          `the promote-external-edit recovery verb (the only legitimate producer ` +
+          `of editedBy='external') synthesises previousAttributes from ` +
+          `platformAttributes and never emits firstWriteKeys. This pattern indicates ` +
+          `a hand-edit; reset pendingEdit and re-run /dethereal:sync pull or use ` +
+          `set-local-edited to record the intent.`,
+      );
+    }
     if (typeof entry.pendingEdit.editedAt !== 'string') {
       errors.push(`${ctx}.pendingEdit: editedAt must be an ISO-8601 string`);
     }
@@ -262,6 +284,51 @@ function validateClassEntry(
       errors.push(
         `${ctx}.pendingEdit: previousAttributes must be an object keyed by attribute name`,
       );
+    }
+    // Sprint 7 — first-write keys must be a string array, mutually exclusive
+    // with previousAttributes keys. The engine writes the field only when
+    // non-empty; pre-Sprint-7 files have no field (back-compat — undefined
+    // is fine).
+    if (entry.pendingEdit.firstWriteKeys !== undefined) {
+      if (
+        !Array.isArray(entry.pendingEdit.firstWriteKeys) ||
+        !entry.pendingEdit.firstWriteKeys.every(k => typeof k === 'string')
+      ) {
+        errors.push(
+          `${ctx}.pendingEdit: firstWriteKeys must be an array of strings (Sprint 7 — first-write key tracking)`,
+        );
+      } else if (
+        typeof entry.pendingEdit.previousAttributes === 'object' &&
+        entry.pendingEdit.previousAttributes !== null
+      ) {
+        const prevKeys = new Set(Object.keys(entry.pendingEdit.previousAttributes));
+        const overlap = entry.pendingEdit.firstWriteKeys.filter(k => prevKeys.has(k));
+        if (overlap.length > 0) {
+          errors.push(
+            `${ctx}.pendingEdit: keys [${overlap.join(', ')}] appear in both ` +
+              `previousAttributes and firstWriteKeys — these sets must be disjoint ` +
+              `(a key is either first-write OR has a prior value, never both).`,
+          );
+        }
+        // Soft warning: firstWriteKeys also present in platformAttributes
+        // suggests the local file is stale (operator should /dethereal:sync pull
+        // before pushing). Engine still copes — pushBrownfieldControl falls
+        // through to the partial-payload `r += $attributes` semantic for these
+        // keys — but the operator should know.
+        if (entry.platformAttributes && typeof entry.platformAttributes === 'object') {
+          const stale = entry.pendingEdit.firstWriteKeys.filter(
+            k => k in (entry.platformAttributes as Record<string, unknown>),
+          );
+          if (stale.length > 0) {
+            warnings.push(
+              `${ctx}.pendingEdit: firstWriteKeys [${stale.join(', ')}] also appear in ` +
+                `platformAttributes — local file may be stale; consider /dethereal:sync ` +
+                `pull before pushing. The engine will downgrade to a normal brownfield ` +
+                `update for these keys at push time.`,
+            );
+          }
+        }
+      }
     }
     if (!entry.localEditedAt) {
       errors.push(

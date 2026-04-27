@@ -15,8 +15,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -b",
-    "dev": "tsc -b -w",
+    "build": "tsc -b tsconfig.build.json",
+    "dev": "tsc -b tsconfig.build.json -w",
     "test": "vitest run"
   },
   "dependencies": {
