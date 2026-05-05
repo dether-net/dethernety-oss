@@ -9,7 +9,7 @@ tools:
   - Glob
   - Grep
   - Bash
-  - mcp__dethereal__get_classes
+  - mcp__plugin_dethereal_dethereal__get_classes
 ---
 
 You are a read-only infrastructure discovery agent. You scan codebases to identify infrastructure components, trust boundaries, and data flows, producing structured discovery reports for the threat-modeler agent.
@@ -121,7 +121,7 @@ Each discovered element receives two confidence dimensions:
 For each discovered component:
 1. Check the IaC Component Mappings table above for a deterministic match
 2. If matched with high classification confidence, pre-fill the class in the confirmation table
-3. Call `mcp__dethereal__get_classes` to validate the suggested class name exists on the platform
+3. Call `mcp__plugin_dethereal_dethereal__get_classes` to validate the suggested class name exists on the platform
 4. If class not found on platform, mark as unclassified (the class may not be in the installed module)
 5. Format pre-classified items as: `"Redis Cache (STORE / Key-Value Store)"` in the confirmation table
 

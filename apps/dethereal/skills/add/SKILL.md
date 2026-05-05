@@ -35,7 +35,7 @@ If ambiguous, ask the user to clarify the element type.
 - Name and type (PROCESS, STORE, or EXTERNAL_ENTITY)
 - Parent boundary — infer from context or ask
 - Position coordinates relative to parent boundary (using layout guidelines)
-- Suggested class — call `mcp__dethereal__get_classes` if platform is connected
+- Suggested class — call `mcp__plugin_dethereal_dethereal__get_classes` if platform is connected
 - Generate a temporary reference ID (UUID)
 
 **For boundaries:**
@@ -92,7 +92,7 @@ Update the relevant model file(s):
 
 ### 7. Validate and Footer
 
-Call `mcp__dethereal__validate_model_json` to check structural validity.
+Call `mcp__plugin_dethereal_dethereal__validate_model_json` to check structural validity.
 
 ```
 [done] Added [STORE] "Redis Cache" to Data Tier. Quality: X/100.

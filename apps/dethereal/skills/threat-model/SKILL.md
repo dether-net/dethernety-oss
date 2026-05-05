@@ -23,18 +23,18 @@ This workflow is local-first: model files are created on disk now and synced to 
 | Edit an existing file | `Edit` tool |
 | Inspect / sample attribute files between steps | `Read` (one call per file, parallelisable) — never `cat`/`head`/`tail` in a Bash loop |
 | Search for a field across attribute files | `Grep` with the field name and `attributes/` path |
-| Check enrichment progress / template coverage | `mcp__dethereal__validate_model_json(action: 'quality')` — never sample files with `head` |
-| Check control coverage / gap analysis | `mcp__dethereal__validate_model_json(action: 'coverage')` |
-| Validate model JSON | `mcp__dethereal__validate_model_json` |
-| Generate attribute stubs | `mcp__dethereal__generate_attribute_stubs` |
-| Match classes for elements | `mcp__dethereal__match_classes` |
-| Push/pull to platform | `mcp__dethereal__create_threat_model` / `update_model` / `export_model` (invoked by `/dethereal:sync` at Step 10) |
+| Check enrichment progress / template coverage | `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'quality')` — never sample files with `head` |
+| Check control coverage / gap analysis | `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'coverage')` |
+| Validate model JSON | `mcp__plugin_dethereal_dethereal__validate_model_json` |
+| Generate attribute stubs | `mcp__plugin_dethereal_dethereal__generate_attribute_stubs` |
+| Match classes for elements | `mcp__plugin_dethereal_dethereal__match_classes` |
+| Push/pull to platform | `mcp__plugin_dethereal_dethereal__create_threat_model` / `update_model` / `export_model` (invoked by `/dethereal:sync` at Step 10) |
 
 **Do not:**
 - Write a shell or Python script to scaffold the model directory — call `Write` once per file instead
 - Use heredocs (`cat <<EOF > file.json`) to create files — use the `Write` tool, which produces a reviewable diff
 - Sample attribute files with `for f in ...; do head -N "$f"; done` to "check progress" — call `validate_model_json(action: 'quality')` for an authoritative per-element coverage report, or `Read`/`Grep` for targeted inspection
-- Try to call `mcp__dethereal__create_threat_model` during Step 1 — that tool requires platform connectivity and is invoked by the sync skill at Step 10
+- Try to call `mcp__plugin_dethereal_dethereal__create_threat_model` during Step 1 — that tool requires platform connectivity and is invoked by the sync skill at Step 10
 - Substitute `get_classes` for `match_classes` in classification (D51) unless the offline fallback chain triggers it
 
 ## Entry / Resume Logic
@@ -59,7 +59,7 @@ If `.dethereal/state.json` exists and `currentState` is not `REVIEWED`:
    - Else, read `.dethereal/discovery.json`. If absent, emit `[info] No prior discovery provenance; drift detection skipped. Run /dethereal:discover to set a baseline.` and skip to step 3.
    - Else, derive `priorElements_in_scope` (elements whose `sources[].file` ⊆ `scoped`), invoke `Agent(infrastructure-scout-scoped)` in `discover elements` mode with the file allowlist, and compute the four-way delta (REMOVED / ADDED / CHANGED-substrate / CHANGED-attribute-only) by name-joining against `newElements` and comparing `suggestedClass.id`.
    - Emit a one-line pre-loop summary: `[drift] <R> removed (<C> crown-jewel-tagged), <A> added, <S> reclassified, <T> attribute-changed since <baseline>.`
-   - Iterate the delta items, emitting `/dethereal:remove <id>` for REMOVED, `/dethereal:add <description>` for ADDED, `mcp__dethereal__match_classes` + `Edit` on `structure.json` + `/dethereal:enrich --pick <id>` for CHANGED-substrate, and `/dethereal:enrich --pick <id>` for CHANGED-attribute-only.
+   - Iterate the delta items, emitting `/dethereal:remove <id>` for REMOVED, `/dethereal:add <description>` for ADDED, `mcp__plugin_dethereal_dethereal__match_classes` + `Edit` on `structure.json` + `/dethereal:enrich --pick <id>` for CHANGED-substrate, and `/dethereal:enrich --pick <id>` for CHANGED-attribute-only.
    - **After every delta item resolves**, write `state.lastReconcileCommit = <git rev-parse HEAD>` and update `lastModified` via `Edit`. Do **not** advance the baseline mid-loop — the deferred advance is the entire crash-safety story.
    - If the user passed `--full-scan`, skip drift entirely; emit `[info] Full scan requested; running /dethereal:discover end-to-end.` and invoke `/dethereal:discover` instead of the cursor.
 3. Compute the step cursor from `currentState` (see step-to-state mapping in the Guided Workflow Orchestration section of the threat-modeler agent)
@@ -130,7 +130,7 @@ Scaffold the model on disk. Default path: `./threat-models/<kebab-case-name>/`.
 3. Register the model in `.dethernety/models.json` at the project root:
    - Use `Read` to load it if it exists, then `Write` the updated JSON; if it does not exist, `Write` a new file with `{ "version": 1, "models": [{ name, path, createdAt }] }`.
 
-Do **not** call `mcp__dethereal__create_threat_model` here — it requires platform auth and is invoked by `/dethereal:sync` at Step 10.
+Do **not** call `mcp__plugin_dethereal_dethereal__create_threat_model` here — it requires platform auth and is invoked by `/dethereal:sync` at Step 10.
 
 ---
 
@@ -146,7 +146,7 @@ Delegate to `Agent(infrastructure-scout)` per the Discovery Orchestration Protoc
 6. Present batch confirmation table (boundaries + components + flows)
 7. Run post-discovery blind spots interview (consolidated prompt)
 8. After confirmation, write `structure.json` and `dataflows.json`
-9. Call `mcp__dethereal__validate_model_json` to check structural validity
+9. Call `mcp__plugin_dethereal_dethereal__validate_model_json` to check structural validity
 10. Update `.dethernety/discovery-cache.json` if this is a multi-model project
 11. Update state via `Edit` on `.dethereal/state.json`: `currentState` → `DISCOVERED`, add `DISCOVERED` to `completedStates`, refresh `lastModified`, and write `lastReconcileCommit = <git rev-parse HEAD>` to establish the drift-detection baseline (resolve via `Bash(git -C <model-path> rev-parse HEAD)`; on non-zero exit, omit the field — drift detection will skip on resume until the operator re-runs discovery in a git repo)
 
@@ -157,7 +157,7 @@ If the model was created from a description (not IaC), discovery still scans the
 Select which platform modules provide classes for classification and enrichment.
 
 1. Read `.dethereal/discovery.json` — extract `recommendedModules` and source type patterns
-2. Query available modules on the platform: call `mcp__dethereal__match_classes` or `mcp__dethereal__get_classes(fields: ['module'])` with no module filter to list all installed modules
+2. Query available modules on the platform: call `mcp__plugin_dethereal_dethereal__match_classes` or `mcp__plugin_dethereal_dethereal__get_classes(fields: ['module'])` with no module filter to list all installed modules
 3. Map discovery source patterns to recommended modules using the infrastructure-scout's Source Type → Module Mapping table
 4. Always include the baseline module — match by name `General` or `dethernety-module` (non-removable)
 5. Present a confirmation table:
@@ -198,7 +198,7 @@ No state transition — stays at `DISCOVERED` (same as Step 3).
 
 Run deterministic Pass 1 classification and review the discovered model.
 
-1. Read `activeModules` from `.dethereal/scope.json`. Call `mcp__dethereal__match_classes` with element names, types, and descriptions from the model, scoped to active module IDs (`moduleIds`). Auto-accept `exact_name` matches; present others for confirmation. If `activeModules` is absent, call `match_classes` without `moduleIds` (searches all installed modules). Prefer classes from specialized modules over baseline (dethernety-module/General) when both match — specialized classes have more targeted attribute schemas (D51)
+1. Read `activeModules` from `.dethereal/scope.json`. Call `mcp__plugin_dethereal_dethereal__match_classes` with element names, types, and descriptions from the model, scoped to active module IDs (`moduleIds`). Auto-accept `exact_name` matches; present others for confirmation. If `activeModules` is absent, call `match_classes` without `moduleIds` (searches all installed modules). Prefer classes from specialized modules over baseline (dethernety-module/General) when both match — specialized classes have more targeted attribute schemas (D51)
 2. For components not matched by the deterministic pass, match by name, type, and description against available classes from active modules
 3. If the component was discovered from IaC (check `.dethereal/discovery.json`), use the pre-classification from IaC mapping
 4. Check decomposition thresholds (21+ components, 9+ boundaries, 36+ flows, 19+ cross-boundary) — follow Decomposition Protocol if exceeded (D56: decomposition check runs after Step 3, not Step 2, because the blind spots interview may add components)
@@ -217,7 +217,7 @@ Confirm classifications? (yes / modify / skip)
 ```
 
 5. Write confirmed classifications to `structure.json` (set `classData` on elements)
-6. Call `mcp__dethereal__generate_attribute_stubs(directory_path)` to write class template attribute stubs for all classified elements
+6. Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path)` to write class template attribute stubs for all classified elements
 
 No state transition — stays at `DISCOVERED`.
 
@@ -263,7 +263,7 @@ Connect components with data flows to complete the structural model.
    - Avoid handle conflicts with existing flows
    - Set description and protocol
 5. Write new flows to `dataflows.json`
-6. Validate: `mcp__dethereal__validate_model_json`
+6. Validate: `mcp__plugin_dethereal_dethereal__validate_model_json`
 
 Update state: `currentState` → `ENRICHING`, add `ENRICHING` to `completedStates`. Per the canonical Phase-to-Step Mapping, Steps 5-8 all operate within the ENRICHING state.
 
@@ -326,7 +326,7 @@ Delegate classification to `Agent(security-enricher)` per the classify skill wor
 4. Crown jewel tagging: match free-text crown jewel names from `scope.json` to components
 5. Present batch confirmation table (same format as `/dethereal:classify`)
 6. Quality gate: 100% STORE classification, 80% overall classification
-6. Write classifications and crown jewel tags to model files. Call `mcp__dethereal__generate_attribute_stubs(directory_path)` to write class template attribute stubs for all classified elements
+6. Write classifications and crown jewel tags to model files. Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path)` to write class template attribute stubs for all classified elements
 
 State: no transition — already at ENRICHING from Step 5.
 
@@ -434,7 +434,7 @@ Push the model to the platform for analysis.
 
 ### Gate 2 Pre-Flight Check
 
-Before pushing, verify Gate 2 (sync-blocking) criteria: manifest completeness, structure validity (≥1 boundary, ≥1 component, ≥1 data flow), reference integrity, no orphaned attribute files. Call `mcp__dethereal__validate_model_json(action: 'validate')`. If Gate 2 fails, show the specific failures and stop — do not push a broken model.
+Before pushing, verify Gate 2 (sync-blocking) criteria: manifest completeness, structure validity (≥1 boundary, ≥1 component, ≥1 data flow), reference integrity, no orphaned attribute files. Call `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'validate')`. If Gate 2 fails, show the specific failures and stop — do not push a broken model.
 
 ### Auth Check
 
@@ -448,8 +448,8 @@ Read `~/.dethernety/tokens.json`. Find the entry keyed by the platform URL (`DET
 
 Check `manifest.model.id`:
 
-- **First push** (no model.id): call `mcp__dethereal__import_model` with `directory_path`
-- **Update** (has model.id): follow the sync skill's push flow — reconstruct sync.json if missing, run pre-push conflict detection, execute `mcp__dethereal__update_model` with `delete_orphaned: true`
+- **First push** (no model.id): call `mcp__plugin_dethereal_dethereal__import_model` with `directory_path`
+- **Update** (has model.id): follow the sync skill's push flow — reconstruct sync.json if missing, run pre-push conflict detection, execute `mcp__plugin_dethereal_dethereal__update_model` with `delete_orphaned: true`
 
 ### Post-Push
 
@@ -479,7 +479,7 @@ Skip to README generation.
 
 **If countermeasures exist:**
 
-1. Call `mcp__dethereal__manage_exposures(action: 'list')` to get platform-computed exposures
+1. Call `mcp__plugin_dethereal_dethereal__manage_exposures(action: 'list')` to get platform-computed exposures
 2. If no exposures yet (analysis hasn't run): "Analysis results not available yet. Linking will be possible after the analysis engine processes this model. Proceed to finish."
 3. If exposures exist, present a batch linking table:
    ```
@@ -494,7 +494,7 @@ Skip to README generation.
    Link all? (yes / modify / defer)
    ```
 4. If user defers: "Analysis will undercount your defenses — defense coverage analysis will not credit existing controls until exposures are linked to countermeasures."
-5. If user confirms: call `mcp__dethereal__manage_countermeasures` to create the links
+5. If user confirms: call `mcp__plugin_dethereal_dethereal__manage_countermeasures` to create the links
 
 ---
 

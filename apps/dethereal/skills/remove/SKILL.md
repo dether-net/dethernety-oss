@@ -115,7 +115,7 @@ If the model is at ENRICHING or later state, a structural change triggers backwa
 
 ### 7. Validate and Footer
 
-Call `mcp__dethereal__validate_model_json` to check structural validity after removal.
+Call `mcp__plugin_dethereal_dethereal__validate_model_json` to check structural validity after removal.
 
 ```
 [done] Removed [PROCESS] "API Server" and 3 dependent data flows. Quality: X/100.

@@ -79,7 +79,7 @@ That is the only persisted detection state.
 
 In a non-git folder, neither writer fires (both check `git rev-parse HEAD` and omit the field on non-zero exit). Drift detection skips on resume and the operator gets a "no baseline — run /dethereal:discover" hint until they re-run discovery in a git repo.
 
-`.dethereal/state.json` is read and written as raw JSON from skill bodies via `Read` / `Edit` / `Write`. The field is documented as an optional schema entry in [`docs/guidelines-core.md`](../../../apps/dethereal/docs/guidelines-core.md) alongside the other state-file fields (`currentState`, `completedStates`, `staleElements`, `model_signed_off`). `mcp__dethereal__validate_model_json` does not validate `state.json`, only the model-data files.
+`.dethereal/state.json` is read and written as raw JSON from skill bodies via `Read` / `Edit` / `Write`. The field is documented as an optional schema entry in [`docs/guidelines-core.md`](../../../apps/dethereal/docs/guidelines-core.md) alongside the other state-file fields (`currentState`, `completedStates`, `staleElements`, `model_signed_off`). `mcp__plugin_dethereal_dethereal__validate_model_json` does not validate `state.json`, only the model-data files.
 
 ## Reconciliation
 
@@ -118,7 +118,7 @@ if drift detected (scoped non-empty):
 
 The drift orchestrator's job is sequencing, not UX. The operator sees the same accept/decline prompts they see when authoring a model from scratch. If a modeling skill's UX is wrong for some case, fix it in the modeling skill — not in drift logic.
 
-**Skill composition is prose-driven.** Claude Code does not have a "skill calls skill" primitive. The orchestrator lives in the [`/dethereal:threat-model` SKILL.md](../../../apps/dethereal/skills/threat-model/SKILL.md) resume body as prose; the [threat-modeler agent](../../../apps/dethereal/agents/threat-modeler.md) walks that prose and invokes `Bash` (for `detect-drift.js`), `Read`/`Write`/`Edit` (for state.json + model files), MCP tools (e.g. `mcp__dethereal__match_classes` for substrate-flip re-classification), and other slash-commands as the prose instructs. The agent — not a runtime — drives sequencing. This is the same pattern every other skill on the plugin uses.
+**Skill composition is prose-driven.** Claude Code does not have a "skill calls skill" primitive. The orchestrator lives in the [`/dethereal:threat-model` SKILL.md](../../../apps/dethereal/skills/threat-model/SKILL.md) resume body as prose; the [threat-modeler agent](../../../apps/dethereal/agents/threat-modeler.md) walks that prose and invokes `Bash` (for `detect-drift.js`), `Read`/`Write`/`Edit` (for state.json + model files), MCP tools (e.g. `mcp__plugin_dethereal_dethereal__match_classes` for substrate-flip re-classification), and other slash-commands as the prose instructs. The agent — not a runtime — drives sequencing. This is the same pattern every other skill on the plugin uses.
 
 ### Element identity
 
@@ -128,7 +128,7 @@ Same source path = same model element. File renames are `git diff --find-renames
 
 A substrate flip (e.g. Terraform module previously `managed-cloud:eks-managed-nodes`, now `managed-cloud:eks-fargate`) is **not** an enrichment update — it's a different threat surface (node-level controls vs. Fargate-managed). The orchestrator branches `CHANGED` on `suggestedClass.id` *or* `suggestedComponentType` inequality and routes substrate flips through the existing classification step before re-enriching. Pure attribute changes go straight to `/dethereal:enrich --pick <id>`.
 
-When both prior and new sides resolve to the same baseline / `dethernety-module` `General` class, class-id equality is not proof of substrate equivalence. In that case the orchestrator forces a `mcp__dethereal__match_classes` call against the new file content and uses its output as the comparison source. Documented as a runtime predicate in the [threat-modeler agent's](../../../apps/dethereal/agents/threat-modeler.md) §"Drift Orchestration Protocol" step 9.
+When both prior and new sides resolve to the same baseline / `dethernety-module` `General` class, class-id equality is not proof of substrate equivalence. In that case the orchestrator forces a `mcp__plugin_dethereal_dethereal__match_classes` call against the new file content and uses its output as the comparison source. Documented as a runtime predicate in the [threat-modeler agent's](../../../apps/dethereal/agents/threat-modeler.md) §"Drift Orchestration Protocol" step 9.
 
 ### Crash safety and idempotency
 
@@ -171,7 +171,7 @@ Used when:
 | Targeted enrich flag | [`skills/enrich/SKILL.md`](../../../apps/dethereal/skills/enrich/SKILL.md) (`--pick <id>`) |
 | Scoped scout (`discover elements` mode) | [`agents/infrastructure-scout-scoped.md`](../../../apps/dethereal/agents/infrastructure-scout-scoped.md) |
 | Drift Orchestration Protocol | [`agents/threat-modeler.md`](../../../apps/dethereal/agents/threat-modeler.md) §"Drift Orchestration Protocol" |
-| Substrate classification | `mcp__dethereal__match_classes` (LLM-backed; covers all providers uniformly) |
+| Substrate classification | `mcp__plugin_dethereal_dethereal__match_classes` (LLM-backed; covers all providers uniformly) |
 | Decision record | [`DECISIONS.md` §D67](DECISIONS.md#d67-drift-detection--simplified-design) |
 
 ## Testing

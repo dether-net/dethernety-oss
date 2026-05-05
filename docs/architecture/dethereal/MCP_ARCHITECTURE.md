@@ -70,7 +70,7 @@
 │                                                                             │
 │  5. PLUGIN INTEGRATION                                                      │
 │     ─────────────────────────                                               │
-│     Skills and agents invoke tools via mcp__dethereal__<tool_name>.         │
+│     Skills and agents invoke tools via mcp__plugin_dethereal_dethereal__<tool_name>.         │
 │     Tool confirmations are handled by Claude Code's built-in MCP            │
 │     permission system. Tools are designed for agent consumption              │
 │     (structured JSON output, compact summaries).                            │
@@ -88,7 +88,7 @@
 │                (Claude Code CLI / VS Code / Claude Desktop)                   │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
 │  │  Skills (/dethereal:*)  │  Agents (threat-modeler, etc.)              │  │
-│  │  invoke tools as mcp__dethereal__<name>                               │  │
+│  │  invoke tools as mcp__plugin_dethereal_dethereal__<name>                               │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 └───────────────────────────────────┬──────────────────────────────────────────┘
                                     │ stdio (JSON-RPC)

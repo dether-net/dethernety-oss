@@ -21,13 +21,13 @@ This skill is local-first: model files are created on disk now and synced to the
 | Write a JSON/Markdown file | `Write` tool, one call per file |
 | Read an existing file | `Read` tool |
 | Edit an existing file | `Edit` tool |
-| Pull a model from platform (Pull mode only) | `mcp__dethereal__list_models` then `mcp__dethereal__export_model` |
-| Validate the result | `mcp__dethereal__validate_model_json` |
+| Pull a model from platform (Pull mode only) | `mcp__plugin_dethereal_dethereal__list_models` then `mcp__plugin_dethereal_dethereal__export_model` |
+| Validate the result | `mcp__plugin_dethereal_dethereal__validate_model_json` |
 
 **Do not:**
 - Write a shell or Python script to scaffold the model — call `Write` once per file
 - Use heredocs (`cat <<EOF > file.json`) — use `Write`, which produces a reviewable diff
-- Call `mcp__dethereal__create_threat_model` from this skill — that tool requires platform auth and is invoked by `/dethereal:sync push` once the model is ready to publish
+- Call `mcp__plugin_dethereal_dethereal__create_threat_model` from this skill — that tool requires platform auth and is invoked by `/dethereal:sync push` once the model is ready to publish
 
 ## Entry Points
 
@@ -99,8 +99,8 @@ Based on entry point:
 - Present discovered components for confirmation
 
 **Pull from platform:**
-- Call `mcp__dethereal__list_models` to show available platform models
-- After user selection, call `mcp__dethereal__export_model` to pull the model
+- Call `mcp__plugin_dethereal_dethereal__list_models` to show available platform models
+- After user selection, call `mcp__plugin_dethereal_dethereal__export_model` to pull the model
 - Register locally and bootstrap state (see Sync skill for state inference)
 
 ### 3. Write Model Files
@@ -144,7 +144,7 @@ Append the new model entry to the existing `models` array (preserve existing ent
 
 ### 5. Validate
 
-Call `mcp__dethereal__validate_model_json` to check structural validity.
+Call `mcp__plugin_dethereal_dethereal__validate_model_json` to check structural validity.
 
 ### 6. Generate README
 

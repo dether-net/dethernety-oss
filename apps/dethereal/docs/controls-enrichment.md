@@ -20,7 +20,7 @@ Before starting the control pass:
 1. Read `structure.json` — count boundaries (B), extract element types per boundary
 2. Read existing `controls[]` arrays on boundaries, components, and data flows
 3. Read component attribute files — collect `monitoring_tools` values (seeds detection controls)
-4. Check platform connectivity: attempt `mcp__dethereal__manage_controls(action: 'list')`. If it succeeds, use the **brownfield** path. If it fails, use the **greenfield** path.
+4. Check platform connectivity: attempt `mcp__plugin_dethereal_dethereal__manage_controls(action: 'list')`. If it succeeds, use the **brownfield** path. If it fails, use the **greenfield** path.
 
 ## Step 1: Enforcement Controls (Category 2)
 
@@ -41,7 +41,7 @@ Three factors determine the path: **platform reachability**, **`rank` outcome**,
 
 **Path 1 procedure (brownfield):**
 1. For each boundary, collect all element types within it (PROCESS, STORE, EXTERNAL_ENTITY, etc.)
-2. Call `mcp__dethereal__manage_controls(action: 'rank', element_types: [...], module_id: '<active-module-id>')`
+2. Call `mcp__plugin_dethereal_dethereal__manage_controls(action: 'rank', element_types: [...], module_id: '<active-module-id>')`
 3. Present the pre-ranked batch table (see format below). User confirms, modifies, or adds additional controls.
 4. If all candidates are `weak`, recommend creating a new control rather than reusing a poor match — drop into Path 2 for that boundary.
 
@@ -58,7 +58,7 @@ Three factors determine the path: **platform reachability**, **`rank` outcome**,
 
 **Error recovery:** If `rank` fails for a boundary (network error, auth expired), treat the platform as unreachable — fall back to Path 3 for that boundary. Do not retry or stall. Log: "Platform unreachable — switching to local control entry for this boundary."
 
-**Offline ≠ blocked.** "Platform unreachable" only means `rank` cannot pre-suggest matches and `push` cannot persist right now. Path 2 (file-first) remains achievable offline — author the `controls/<temp-id>.json` locally and the `mcp__dethereal__manage_controls(action: 'create', …)` call happens at the next online `/dethereal:sync push`, atomically as part of the WAL-backed greenfield-promotion flow (CL Appendix A.5). Choose Path 2 whenever attributes matter and the element has a class; choose Path 3 only when no class binding is desired.
+**Offline ≠ blocked.** "Platform unreachable" only means `rank` cannot pre-suggest matches and `push` cannot persist right now. Path 2 (file-first) remains achievable offline — author the `controls/<temp-id>.json` locally and the `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', …)` call happens at the next online `/dethereal:sync push`, atomically as part of the WAL-backed greenfield-promotion flow (CL Appendix A.5). Choose Path 2 whenever attributes matter and the element has a class; choose Path 3 only when no class binding is desired.
 
 ### Boundary Count Handling
 
@@ -123,7 +123,7 @@ The `id` in a `controls[]` entry is a **Control ID** (instance from the org's co
 | Path | What you have | What to write to `controls[]` |
 |------|---------------|-------------------------------|
 | Path 1 — Brownfield (`rank` returned candidates) | `controlId` from a candidate row | `{ id: "<controlId>", name: "<controlName>", source: "declared" }` |
-| Path 2 — Greenfield with class binding (`rank` empty AND element has assigned class) | `controlClassId` from the element's class assignment | **Default:** use the file-first path documented in [Per-Control Configuration Files](#per-control-configuration-files-controlsidjson) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"` and let `/dethereal:sync push` create the platform Control. **Legacy alternative:** call `mcp__dethereal__manage_controls(action: 'create', name: "<descriptive name>", class_ids: ["<controlClassId>"], element_ids: ["<element-id>"])` first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>", name: "<descriptive name>", source: "declared" }` to `structure.json`. The legacy path skips the file-first benefits (local iteration on attributes before commit) but works for non-attribute use cases. |
+| Path 2 — Greenfield with class binding (`rank` empty AND element has assigned class) | `controlClassId` from the element's class assignment | **Default:** use the file-first path documented in [Per-Control Configuration Files](#per-control-configuration-files-controlsidjson) — write `controls/<temp-id>.json` with `lifecycle: "greenfield"` and let `/dethereal:sync push` create the platform Control. **Legacy alternative:** call `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', name: "<descriptive name>", class_ids: ["<controlClassId>"], element_ids: ["<element-id>"])` first; the tool returns `{ control: { id, name } }`; THEN write `{ id: "<new-control-id>", name: "<descriptive name>", source: "declared" }` to `structure.json`. The legacy path skips the file-first benefits (local iteration on attributes before commit) but works for non-attribute use cases. |
 | Path 3 — Greenfield name-only (`rank` empty AND element has no class, OR platform unreachable) | Nothing | `{ id: null, name: "<descriptive name>", source: "declared" }`. Platform creates a Control by name on next sync but it will not be bound to any ControlClass. |
 
 **Never** write `{ id: "<controlClassId>", name: "..." }` — the ID lookup will fail.
@@ -271,7 +271,7 @@ When you need a Control that does not exist in the org's control library and tha
 
 **Atomic ID rebinding (F-35 / F-05 closure).** A naive implementation of the above leaves the operator's local `controls/greenfield-abc.json` file orphaned — the platform issues `ctrl-uuid-123`, the structure is repointed to `ctrl-uuid-123`, but the *file* is still named `greenfield-abc.json`. The Sprint 4 WAL rename (CL Appendix A.9 + the `pending-id-rewrite.json` journal) closes this seam: the engine writes a journal entry **before** invoking `createControl`, then rewrites `structure.json` / `dataflows.json` references AND renames `controls/greenfield-abc.json → controls/ctrl-uuid-123.json` as a single atomic operation. A crash mid-operation leaves the journal on disk; the next push (or `/dethereal:sync repair-wal`) replays it. The operator never sees an orphaned greenfield file.
 
-**Supersedes the old eager-create path.** The previous pattern — calling `mcp__dethereal__manage_controls(action: 'create', class_ids: [...])` during the control pass and writing the returned id — is retained only for non-attribute-binding use cases. For greenfield Controls **with** class bindings, use the file-first path above; it lets you iterate on attributes locally before committing to the platform.
+**Supersedes the old eager-create path.** The previous pattern — calling `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', class_ids: [...])` during the control pass and writing the returned id — is retained only for non-attribute-binding use cases. For greenfield Controls **with** class bindings, use the file-first path above; it lets you iterate on attributes locally before committing to the platform.
 
 ### Brownfield Controls (platform-authoritative)
 
