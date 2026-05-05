@@ -28,10 +28,10 @@
   },
   "dependencies": {
     "@dethernety/dt-core": "workspace:*",
-    "@langchain/langgraph-sdk": "^1.8.9",
+    "@langchain/langgraph-sdk": "^1.8.10",
     "@nestjs/common": "^11.1.19",
     "@open-policy-agent/opa": "^2.0.0",
-    "axios": "^1.15.0",
+    "axios": "^1.16.0",
     "graphql": "^16.13.2",
     "graphql-subscriptions": "^3.0.0",
     "json-logic-js": "^2.0.5"
