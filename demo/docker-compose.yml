@@ -19,7 +19,7 @@
 services:
   # --- Graph database ---------------------------------------------------
   memgraph:
-    image: memgraph/memgraph-mage:3.6.2
+    image: memgraph/memgraph-mage:3.8.1
     container_name: demo-memgraph
     networks:
       - demo-network
