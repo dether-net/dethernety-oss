@@ -154,7 +154,7 @@ def ingest_attack():
 
     parser = MitreAttackParser()
     parser.parse_url(
-        "https://github.com/mitre-attack/attack-stix-data/raw/master/enterprise-attack/enterprise-attack.json"
+        "https://github.com/mitre-attack/attack-stix-data/raw/master/enterprise-attack/enterprise-attack-18.1.json"
     )
 
     driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
