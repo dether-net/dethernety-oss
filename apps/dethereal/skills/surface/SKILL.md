@@ -57,7 +57,7 @@ Highlight any unencrypted, unauthenticated, or fail-open cross-boundary flows �
 
 Check `manifest.model.id` to determine if the model has been synced to the platform.
 
-**If synced:** Call `mcp__dethereal__manage_exposures(action: 'list')` with the model ID. Group exposures by component. Display:
+**If synced:** Call `mcp__plugin_dethereal_dethereal__manage_exposures(action: 'list')` with the model ID. Group exposures by component. Display:
 ```
 ### Exposures
   N exposures across M components.
@@ -79,7 +79,7 @@ This step produces a two-tier coverage report: inferred coverage (from enrichmen
 
 **If model is synced** (`manifest.model.id` is set and non-null):
 
-1. Call `mcp__dethereal__get_control_gaps(model_id)` for MITRE-chain-grounded gap analysis
+1. Call `mcp__plugin_dethereal_dethereal__get_control_gaps(model_id)` for MITRE-chain-grounded gap analysis
 2. If the call succeeds, present:
    - **Unmitigated exposures** grouped by element — addressable gaps where MITRE ATT&CK Mitigations exist and installed modules have matching ControlClasses
    - **Unaddressable exposures** — no installed ControlClass covers these MITRE mitigations (module gap)
@@ -109,7 +109,7 @@ Skip this section. Gap analysis requires platform exposure data.
 
 #### 4b. Inferred Coverage (from enrichment attributes)
 
-Call `mcp__dethereal__validate_model_json(action: 'coverage', directory_path: <model-path>)` to compute the per-category inferred coverage breakdown.
+Call `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'coverage', directory_path: <model-path>)` to compute the per-category inferred coverage breakdown.
 
 ```
 ### Inferred Coverage (from enrichment attributes)
@@ -188,7 +188,7 @@ Tactic coverage is derived from `Exposure.exploitedBy` — MITRE techniques popu
 
 1. Reconnaissance, 2. Resource Development, 3. Initial Access, 4. Execution, 5. Persistence, 6. Privilege Escalation, 7. Defense Evasion, 8. Credential Access, 9. Discovery, 10. Lateral Movement, 11. Collection, 12. Exfiltration, 13. Command and Control, 14. Impact
 
-Derive tactic names from technique IDs (e.g., T1566 → Initial Access). If a mapping is uncertain, resolve it via `mcp__dethereal__search_mitre_attack(action: 'technique', attack_id)`. Display covered vs. not covered:
+Derive tactic names from technique IDs (e.g., T1566 → Initial Access). If a mapping is uncertain, resolve it via `mcp__plugin_dethereal_dethereal__search_mitre_attack(action: 'technique', attack_id)`. Display covered vs. not covered:
 
 ```
 ### MITRE ATT&CK Coverage (platform-derived)

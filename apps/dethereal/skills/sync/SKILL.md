@@ -50,7 +50,7 @@ Read the token store at `~/.dethernety/tokens.json`. Find the entry keyed by the
 1. **Resolve model path** using the Model Resolution Protocol
 2. If no model exists, suggest `/dethereal:create` first and stop
 3. Read model files from disk: `manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`
-4. Call `mcp__dethereal__validate_model_json` to check structural validity
+4. Call `mcp__plugin_dethereal_dethereal__validate_model_json` to check structural validity
 5. If validation fails, show errors and stop — do not push a broken model
 6. **Empty model guard**: If the model has 0 components and 0 boundaries (beyond the default boundary), warn: "Model has no components. Push will create/update an empty model on the platform. Continue?" If the user declines, stop.
 
@@ -67,7 +67,7 @@ Read `.dethereal/sync.json` from the model directory.
 
 If `sync.json` **does not exist** but `manifest.model.id` is set (model was synced before but sync metadata was lost — e.g., gitignored file not present after clone):
 
-1. Call `mcp__dethereal__export_model` with `model_id` from manifest to a temporary directory
+1. Call `mcp__plugin_dethereal_dethereal__export_model` with `model_id` from manifest to a temporary directory
 2. Read the exported `structure.json`, `dataflows.json`, and `data-items.json` to collect platform element IDs (boundaries, components, flows, data items)
 3. Write `.dethereal/sync.json` with `platform_model_id` and `baseline_element_ids` from the exported files
 4. Show: "Reconstructed sync baseline from platform state. Previous sync history is unavailable."
@@ -78,7 +78,7 @@ If `sync.json` **does not exist** but `manifest.model.id` is set (model was sync
 Detect whether the platform has elements not present locally (C1 — platform additions that would be deleted on push).
 
 **Step 1 — Get platform element IDs:**
-Call `mcp__dethereal__export_model` with `model_id` to a temporary directory (or reuse the P3 export if it was just performed). Read the exported files to collect platform element IDs **and element names** by type (boundaries, components, flows, dataItems). Retain the names so the conflict UX (P4a) can display human-readable labels, not UUIDs.
+Call `mcp__plugin_dethereal_dethereal__export_model` with `model_id` to a temporary directory (or reuse the P3 export if it was just performed). Read the exported files to collect platform element IDs **and element names** by type (boundaries, components, flows, dataItems). Retain the names so the conflict UX (P4a) can display human-readable labels, not UUIDs.
 
 **Step 2 — Collect element inventories:**
 - `local_ids` — IDs from local `structure.json`, `dataflows.json`, `data-items.json`
@@ -158,11 +158,11 @@ If user chooses **cancel**: stop.
 ### P5. Execute Push
 
 **First push** (no `manifest.model.id`):
-- Call `mcp__dethereal__import_model` with `directory_path`
+- Call `mcp__plugin_dethereal_dethereal__import_model` with `directory_path`
 - The tool handles: ID mapping (writes server UUIDs back to local files), sync.json creation
 
 **Update** (has `manifest.model.id`):
-- Call `mcp__dethereal__update_model` with `directory_path` and `delete_orphaned: true`
+- Call `mcp__plugin_dethereal_dethereal__update_model` with `directory_path` and `delete_orphaned: true`
 - The tool handles: structural diff, applying changes, sync.json update
 - `delete_orphaned` is always `true` because at this point the user has either confirmed deletion of platform additions (P4a → push), or no platform additions exist (P4 → no conflicts). The conflict resolution decision happens at the skill level (push/pull/cancel), not at the tool parameter level.
 
@@ -192,7 +192,7 @@ If user chooses **cancel**: stop.
 
 4. **Control ID Pinning:** After successful push, check local model files for name-only control references (`id: null`).
    If any exist:
-   - Call `mcp__dethereal__manage_controls(action: 'list')` to get the platform control inventory
+   - Call `mcp__plugin_dethereal_dethereal__manage_controls(action: 'list')` to get the platform control inventory
    - For each name-only control reference in `structure.json` and `dataflows.json`, match by name against platform controls
    - If matched: write the resolved platform ID back to the local JSON file:
      `{ id: null, name: "WAF", source: "declared" }` → `{ id: "ctrl-xyz", name: "WAF", source: "declared" }`
@@ -246,7 +246,7 @@ If all three buckets are empty, skip P7 entirely — proceed to the footer (P7.6
 Refresh `platformAttributes` and `platformState.assignedModelIds` for the touched controls in a single batched round-trip:
 
 ```
-mcp__dethereal__manage_controls(
+mcp__plugin_dethereal_dethereal__manage_controls(
   action: 'pull-controls',
   directory_path: <modelDir>,
   control_ids: [ <touchedId1>, <touchedId2>, ... ]
@@ -487,7 +487,7 @@ The on-disk staging file is the operator's responsibility to clean up (the skill
 Iterate touched controls in stable (lexicographic by id) order. For each control whose decision is NOT `cancel`:
 
 ```
-mcp__dethereal__manage_controls(
+mcp__plugin_dethereal_dethereal__manage_controls(
   action: 'push-brownfield',
   directory_path: <modelDir>,
   control_id: <id>,
@@ -512,7 +512,7 @@ mcp__dethereal__manage_controls(
     promote-external-edit <n>           — same-session shortcut (n = row index)
     /dethereal:sync promote-external-edit <controlId> <classId>   — out-of-session
   ```
-  When the operator types `promote-external-edit <n>` *during the same prompt session*, resolve `<n>` to (controlId, classId) from the `decisions` map and invoke `mcp__dethereal__manage_controls(action: 'promote-external-edit', ...)` directly without dropping out of the prompt loop. This collapses the recovery from "copy two UUIDs from the error message into a separate skill invocation" to one keystroke.
+  When the operator types `promote-external-edit <n>` *during the same prompt session*, resolve `<n>` to (controlId, classId) from the `decisions` map and invoke `mcp__plugin_dethereal_dethereal__manage_controls(action: 'promote-external-edit', ...)` directly without dropping out of the prompt loop. This collapses the recovery from "copy two UUIDs from the error message into a separate skill invocation" to one keystroke.
 
 - `success: false, error: 'CLONE_AND_SWAP_NOT_IMPLEMENTED'` → render with `cancel` recommended first (clone-and-swap was chosen *because* the operator didn't want to mutate the shared Control; `push-anyway` is the *opposite* of that intent):
   ```
@@ -598,7 +598,7 @@ Continue anyway? (y/n)
 **Step G3 — invoke**:
 
 ```
-mcp__dethereal__manage_controls(
+mcp__plugin_dethereal_dethereal__manage_controls(
   action: 'push-greenfield',
   directory_path: <modelDir>,
   control_id: <greenfieldId>,
@@ -639,7 +639,7 @@ On failure, surface the engine's error and continue to the next greenfield file 
    Proceed? (y/n)
    ```
    Stop on `n`.
-4. **Invoke** `mcp__dethereal__manage_controls(action: 'tombstone', directory_path, control_id)`.
+4. **Invoke** `mcp__plugin_dethereal_dethereal__manage_controls(action: 'tombstone', directory_path, control_id)`.
 5. **Render**:
    ```
    Control "<controlName>" tombstoned. Lifecycle → tombstoned; pendingEdit (if any) preserved
@@ -656,7 +656,7 @@ This verb is local-only: the platform-side Control is not deleted. Use the platf
 
 1. **Resolve directory** — same Model Resolution Protocol as `sync push`. Default to current working directory if no `[directory-path]`.
 
-2. **Inspect** — invoke `mcp__dethereal__manage_controls(action: 'inspect-wal', directory_path)`. The engine returns:
+2. **Inspect** — invoke `mcp__plugin_dethereal_dethereal__manage_controls(action: 'inspect-wal', directory_path)`. The engine returns:
    ```json
    {
      "present": true,
@@ -712,7 +712,7 @@ This verb is local-only: the platform-side Control is not deleted. Use the platf
 
 4. **Apply operator's choice** (empty input → `1`):
    - **`1` (cancel)** — render `Journal preserved. Re-run /dethereal:sync repair-wal when ready.` and stop.
-   - **`2` (retry-replay)** — invoke any directory-touching MCP action (e.g. `mcp__dethereal__manage_controls(action: 'pull-controls', directory_path, control_ids: [])`); the F-02 pre-dispatch will replay the journal. If replay still fails, render the new error with `(attempt N of 2)` in the prompt label and offer options 1/2/3 again. After 2 retry attempts force the operator to choose 1 or 3.
+   - **`2` (retry-replay)** — invoke any directory-touching MCP action (e.g. `mcp__plugin_dethereal_dethereal__manage_controls(action: 'pull-controls', directory_path, control_ids: [])`); the F-02 pre-dispatch will replay the journal. If replay still fails, render the new error with `(attempt N of 2)` in the prompt label and offer options 1/2/3 again. After 2 retry attempts force the operator to choose 1 or 3.
 
      Re-inspect before each retry — the WAL state may have changed since the operator's prior inspect (another shell could have run `clear-wal` or pushed new operations). Render the freshly-inspected state alongside the retry prompt so the operator's mental model is current.
 
@@ -724,7 +724,7 @@ This verb is local-only: the platform-side Control is not deleted. Use the platf
 
      Type 'clear-journal' to confirm (anything else cancels):
      ```
-     On exact match `clear-journal` invoke `mcp__dethereal__manage_controls(action: 'clear-wal', directory_path)`. Anything else (including `y`, blank, `clear`, etc.) is treated as cancel. On success render:
+     On exact match `clear-journal` invoke `mcp__plugin_dethereal_dethereal__manage_controls(action: 'clear-wal', directory_path)`. Anything else (including `y`, blank, `clear`, etc.) is treated as cancel. On success render:
      ```
      WAL journal deleted. Local file reconciliation is now manual.
 
@@ -760,7 +760,7 @@ Read the token store at `~/.dethernety/tokens.json`. Find the entry keyed by the
 
 If `$ARGUMENTS` contains a model ID or name, use it directly. Otherwise, present a selection table:
 
-1. Call `mcp__dethereal__list_models`
+1. Call `mcp__plugin_dethereal_dethereal__list_models`
 2. If no models are returned: "No models found on the platform. Create a model locally with `/dethereal:create`, then push with `/dethereal:sync push`." Stop.
 3. Display:
    ```
@@ -805,7 +805,7 @@ If the target directory already exists:
 
 ### L4. Execute Export
 
-Call `mcp__dethereal__export_model` with:
+Call `mcp__plugin_dethereal_dethereal__export_model` with:
 - `model_id`: the selected platform model ID
 - `directory_path`: the target directory
 
@@ -826,7 +826,7 @@ for each component / boundary / flow in structure.json + dataflows.json:
 
 If `controlIds.size === 0`: skip this step entirely (no Controls referenced).
 
-Otherwise invoke `mcp__dethereal__manage_controls(action: 'pull-controls', directory_path, control_ids: Array.from(controlIds))`. The MCP action:
+Otherwise invoke `mcp__plugin_dethereal_dethereal__manage_controls(action: 'pull-controls', directory_path, control_ids: Array.from(controlIds))`. The MCP action:
 
 - Refreshes (or creates) `controls/<id>.json` for each id with the platform's current state.
 - Preserves any in-flight `pendingEdit` block on existing files (CL Appendix A.5 — caller's local edits are not silently overwritten).
@@ -891,7 +891,7 @@ The `completedStates` array should include all states up to and including the cu
 
 ### L6. Quality Computation
 
-Call `mcp__dethereal__validate_model_json` with `action: 'quality'` and the model directory path.
+Call `mcp__plugin_dethereal_dethereal__validate_model_json` with `action: 'quality'` and the model directory path.
 
 Write the quality result to `.dethereal/quality.json`.
 
@@ -1011,7 +1011,7 @@ Locate the class entry whose `classId === <classId>` and capture its 0-based **i
 ### R3. Promote (single MCP call)
 
 ```
-mcp__dethereal__manage_controls(
+mcp__plugin_dethereal_dethereal__manage_controls(
   action: 'promote-external-edit',
   directory_path: <modelDir>,
   control_id: <controlId>,

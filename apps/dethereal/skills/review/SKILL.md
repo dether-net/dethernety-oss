@@ -28,8 +28,8 @@ Otherwise, proceed with **Full Review Mode**.
 
 ### 1. Run Validation and Quality
 
-1. Call `mcp__dethereal__validate_model_json(action: 'validate')` for structural checks
-2. Call `mcp__dethereal__validate_model_json(action: 'quality')` for the 7-factor quality assessment
+1. Call `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'validate')` for structural checks
+2. Call `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'quality')` for the 7-factor quality assessment
 
 ### 2. Display Quality Score
 
@@ -190,7 +190,7 @@ Run each check and display as `[PASS]`, `[FAIL]`, or `[WARN]`:
 4. **Orphaned components** — components with no inbound or outbound data flows (warning, not failure)
 5. **Empty boundaries** — boundaries with no child components or sub-boundaries (warning)
 6. **Orphaned attribute files** — attribute files in `attributes/` whose element ID no longer exists in model files (warning)
-7. **Schema compliance** — call `mcp__dethereal__validate_model_json(action: 'validate')` for full schema validation
+7. **Schema compliance** — call `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'validate')` for full schema validation
 
 ### Output
 

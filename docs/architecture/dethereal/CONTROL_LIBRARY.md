@@ -892,7 +892,7 @@ When the agent identifies a control that does not exist in the platform library:
 1. Choose a temporary local id (e.g. `greenfield-<short-uuid>`).
 2. Write `controls/<temp-id>.json`:
    - `lifecycle: "greenfield"`
-   - `classes[]` populated from the bound ControlClass(es) (template fetched via `mcp__dethereal__get_classes`)
+   - `classes[]` populated from the bound ControlClass(es) (template fetched via `mcp__plugin_dethereal_dethereal__get_classes`)
    - `attributes` populated from observed code/IaC evidence; empty `{}` if nothing observed yet
 3. Write `{ id: "<temp-id>", name, source: "declared" }` to `structure.json` / `dataflows.json`.
 4. On `/dethereal:sync push`: pipeline creates the Control, sets attributes, assigns SUPPORTS, writes server id back, flips lifecycle.

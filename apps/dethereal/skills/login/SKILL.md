@@ -7,7 +7,7 @@ Authenticate with the Dethernety platform using browser-based OAuth.
 
 ## Steps
 
-1. Call the `mcp__dethereal__login` tool with no arguments.
+1. Call the `mcp__plugin_dethereal_dethereal__login` tool with no arguments.
 
 2. Interpret the result:
 

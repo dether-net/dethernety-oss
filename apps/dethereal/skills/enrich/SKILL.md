@@ -17,12 +17,12 @@ Use built-in tools and the Dethereal MCP tools — do NOT shell out to inspect o
 |-----------|-------------|
 | Inspect a single attribute file | `Read` (one call per file; multiple Reads in parallel) |
 | Search for a field across attribute files | `Grep` with the field name and `attributes/` path |
-| Aggregate enrichment progress (per-element template coverage) | `mcp__dethereal__validate_model_json(action: 'quality', directory_path)` |
-| Aggregate control coverage / gaps | `mcp__dethereal__validate_model_json(action: 'coverage', directory_path)` |
-| Schema validation | `mcp__dethereal__validate_model_json(action: 'validate', directory_path)` |
-| Discover the template schema for a class | `mcp__dethereal__get_classes(class_id, fields: ['attributes', 'guide'])` (or `.dethereal/class-cache/<class-id>.json` if present) |
+| Aggregate enrichment progress (per-element template coverage) | `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'quality', directory_path)` |
+| Aggregate control coverage / gaps | `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'coverage', directory_path)` |
+| Schema validation | `mcp__plugin_dethereal_dethereal__validate_model_json(action: 'validate', directory_path)` |
+| Discover the template schema for a class | `mcp__plugin_dethereal_dethereal__get_classes(class_id, fields: ['attributes', 'guide'])` (or `.dethereal/class-cache/<class-id>.json` if present) |
 | Write enrichment results | `Write` (full file) or `Edit` (targeted change) |
-| Match elements to classes | `mcp__dethereal__match_classes` |
+| Match elements to classes | `mcp__plugin_dethereal_dethereal__match_classes` |
 
 **Do not:**
 - Run `for f in attributes/...; do head -N "$f"; done` to "check progress" — call `validate_model_json(action: 'quality')` instead. It returns per-element coverage and unenriched-field lists.
@@ -91,7 +91,7 @@ Processing: all tiers in order. Confirm? (yes / tier1 only / pick)
 For each classified component in scope (batched by tier):
 
 1. **Read existing attribute file** — the stub created by `generate_attribute_stubs` during classification contains template field names with null values (or schema defaults). These null fields ARE the enrichment checklist — every null field must be resolved to a concrete value
-2. **Read class guide from cache** — read `.dethereal/class-cache/<class-id>.json` (populated by `generate_attribute_stubs` during classification). The cache contains the JSON Schema `template` and configuration `guide`. If the cache file is missing for a class, fall back to `mcp__dethereal__get_classes(class_id: '<class-id>', fields: ['attributes', 'guide'])`
+2. **Read class guide from cache** — read `.dethereal/class-cache/<class-id>.json` (populated by `generate_attribute_stubs` during classification). The cache contains the JSON Schema `template` and configuration `guide`. If the cache file is missing for a class, fall back to `mcp__plugin_dethereal_dethereal__get_classes(class_id: '<class-id>', fields: ['attributes', 'guide'])`
 3. **Discover attribute values using the guide** — the guide's `how_to_obtain` entries tell you where to find each value:
    - Search code, IaC, and config files for attribute values (e.g., `postgresql.conf` for `ssl = on`, Terraform for `tls_enabled`)
    - Use grep/read tools to find concrete evidence
@@ -281,9 +281,9 @@ Components within are reachable from adjacent boundaries.
 
 During enrichment, identify relevant ATT&CK techniques for components based on type and boundary position. Follow the **3-step verification protocol** — never generate technique IDs from memory:
 
-1. **Search** — use `mcp__dethereal__search_mitre_attack` with descriptive queries (e.g., "credential theft", "lateral movement"). Never guess IDs.
-2. **Validate** — confirm each candidate with `mcp__dethereal__search_mitre_attack(action: 'technique', attack_id: '...')`. Regex: `^T\d{4}(\.\d{3})?$`. Drop any ID that fails validation.
-3. **Persist** — only write verified IDs to the model. For each technique, check D3FEND countermeasures via `mcp__dethereal__get_mitre_defend`.
+1. **Search** — use `mcp__plugin_dethereal_dethereal__search_mitre_attack` with descriptive queries (e.g., "credential theft", "lateral movement"). Never guess IDs.
+2. **Validate** — confirm each candidate with `mcp__plugin_dethereal_dethereal__search_mitre_attack(action: 'technique', attack_id: '...')`. Regex: `^T\d{4}(\.\d{3})?$`. Drop any ID that fails validation.
+3. **Persist** — only write verified IDs to the model. For each technique, check D3FEND countermeasures via `mcp__plugin_dethereal_dethereal__get_mitre_defend`.
 
 Present techniques in batch table for confirmation before persisting.
 
@@ -300,7 +300,7 @@ If already in `ENRICHING`, stay there — re-running enrich is additive.
 
 ### 14. Validate and Footer
 
-Call `mcp__dethereal__validate_model_json` to check structural validity.
+Call `mcp__plugin_dethereal_dethereal__validate_model_json` to check structural validity.
 
 ```
 [done] Enriched N components (M attributes, K credentials mapped, J data items classified). Quality: X/100.
@@ -322,7 +322,7 @@ The control pass is a **separate agent invocation** with its own 40-turn budget.
 **Three-step sequence:**
 
 1. **Enforcement controls (Category 2)** — batched per boundary:
-   - Platform reachable: call `mcp__dethereal__manage_controls(action: 'rank', element_types: [...])`, present pre-ranked table, user confirms
+   - Platform reachable: call `mcp__plugin_dethereal_dethereal__manage_controls(action: 'rank', element_types: [...])`, present pre-ranked table, user confirms
    - Platform unreachable: greenfield prompts, `{ id: null, name: "..." }` format
    - B=0: single global enforcement prompt
    - B>6: tiered prompt — crown-jewel boundaries first
@@ -360,7 +360,7 @@ This step only executes when there is at least one `controls[]` entry with a non
 Enumerate the non-null control IDs referenced in `structure.json` (boundaries, components) and `dataflows.json` (flows). Collapse duplicates.
 
 ```
-mcp__dethereal__manage_controls(
+mcp__plugin_dethereal_dethereal__manage_controls(
   action: 'pull-controls',
   directory_path: <modelDir>,
   control_ids: [ <id1>, <id2>, ... ]
@@ -375,7 +375,7 @@ Surface one status line: `Pulled N controls into controls/`.
 
 For each `controls/<id>.json`, iterate `classes[]`. For every class entry:
 
-1. Fetch the ControlClass template via `mcp__dethereal__get_classes(class_ids: [<classId>], fields: ['attributes', 'guide'])` (reuse `.dethereal/class-cache/<classId>.json` when present — the template rarely changes).
+1. Fetch the ControlClass template via `mcp__plugin_dethereal_dethereal__get_classes(class_ids: [<classId>], fields: ['attributes', 'guide'])` (reuse `.dethereal/class-cache/<classId>.json` when present — the template rarely changes).
 2. Compute `sparse_keys = template.properties.keys() - Object.keys(entry.attributes)`.
 3. Record the per-Control summary.
 
@@ -404,7 +404,7 @@ For each Control-class pair with sparse keys, apply the same evidence → ask pa
 3. For each operator-confirmed change, call:
 
    ```
-   mcp__dethereal__manage_controls(
+   mcp__plugin_dethereal_dethereal__manage_controls(
      action: 'set-local-edited',
      directory_path: <modelDir>,
      control_id: <controlId>,

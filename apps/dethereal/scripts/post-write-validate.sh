@@ -47,5 +47,5 @@ IS_MODEL_FILE=$(node -e "
 " "$MODELS_FILE" "$FILE_PATH" 2>/dev/null || echo "no")
 
 if [ "$IS_MODEL_FILE" = "yes" ]; then
-  echo "[dethereal] Model file changed. Consider running validation: mcp__dethereal__validate_model_json"
+  echo "[dethereal] Model file changed. Consider running validation: mcp__plugin_dethereal_dethereal__validate_model_json"
 fi

@@ -36,7 +36,7 @@ Delegate scanning to `Agent(infrastructure-scout)`:
 
 From the scout's report:
 - The scout has already performed pre-classification using its IaC mapping table — do not re-run the mapping logic
-- Validate pre-classified components: confirm suggested class names still exist on the platform via `mcp__dethereal__get_classes`
+- Validate pre-classified components: confirm suggested class names still exist on the platform via `mcp__plugin_dethereal_dethereal__get_classes`
 - Flag any components the scout could not pre-classify for manual review during the confirmation step
 
 ### 4. Present Sources-Checked Summary
@@ -134,7 +134,7 @@ Update `<model-path>/.dethereal/state.json` via `Edit`:
 
 ### 10. Validate and Footer
 
-Call `mcp__dethereal__validate_model_json` to check structural validity.
+Call `mcp__plugin_dethereal_dethereal__validate_model_json` to check structural validity.
 
 ```
 [done] Discovery complete. N components, M boundaries, K data flows confirmed. Quality: X/100.

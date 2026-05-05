@@ -236,7 +236,7 @@ Models are stored at user-chosen visible paths (e.g., `./threat-models/productio
 | Skill | `user-invocable` | `agent` | `context` | `argument-hint` | Notes |
 |-------|:-:|---------|---------|-----------------|-------|
 | `status` | yes | -- | -- | -- | Reads files and calls MCP tools |
-| `login` | yes | -- | -- | -- | Calls `mcp__dethereal__login` |
+| `login` | yes | -- | -- | -- | Calls `mcp__plugin_dethereal_dethereal__login` |
 | `help` | yes | -- | -- | -- | Runs `help-context.js` helper |
 | `create` | yes | threat-modeler | -- | `[description or template]` | Onboarding mode when no models exist |
 | `discover` | yes | threat-modeler | -- | `[scope] [path]` | Delegates scanning to Agent(infrastructure-scout); threat-modeler handles file writes per subagent write convention |
@@ -315,7 +315,7 @@ When no model exists, "Suggested now" shows only `create` and `discover`. When n
 
 **Purpose:** Creates and edits Dethernety threat models through conversation.
 
-**Tools:** Read, Write, Edit, Glob, Grep, Bash, Agent(infrastructure-scout), Agent(security-enricher), Agent(model-reviewer), `mcp__dethereal__*`
+**Tools:** Read, Write, Edit, Glob, Grep, Bash, Agent(infrastructure-scout), Agent(security-enricher), Agent(model-reviewer), `mcp__plugin_dethereal_dethereal__*`
 
 **Frontmatter:**
 
@@ -336,7 +336,7 @@ tools:
   - Agent(infrastructure-scout)
   - Agent(security-enricher)
   - Agent(model-reviewer)
-  - mcp__dethereal__*
+  - mcp__plugin_dethereal_dethereal__*
 ---
 ```
 
@@ -353,7 +353,7 @@ tools:
 
 **Purpose:** Scans codebases for infrastructure components, identifies trust boundaries, and produces draft model skeletons.
 
-**Tools:** Read, Glob, Grep, Bash, `mcp__dethereal__get_classes`
+**Tools:** Read, Glob, Grep, Bash, `mcp__plugin_dethereal_dethereal__get_classes`
 Bash is permitted for read-only inspection commands (listing containers, parsing configs, checking service versions) but must not modify files or project state.
 **Disallowed tools:** Write, Edit (read-only -- the calling skill handles file writing)
 
@@ -371,7 +371,7 @@ tools:
   - Glob
   - Grep
   - Bash
-  - mcp__dethereal__get_classes
+  - mcp__plugin_dethereal_dethereal__get_classes
 ---
 ```
 
@@ -392,7 +392,7 @@ tools:
 
 **Purpose:** Enriches threat models with MITRE ATT&CK techniques, D3FEND countermeasures, security controls, and exposure identification.
 
-**Tools:** Read, Write, Edit, `mcp__dethereal__*`
+**Tools:** Read, Write, Edit, `mcp__plugin_dethereal_dethereal__*`
 
 **Frontmatter:**
 
@@ -407,7 +407,7 @@ tools:
   - Read
   - Write
   - Edit
-  - mcp__dethereal__*
+  - mcp__plugin_dethereal_dethereal__*
 ---
 ```
 
@@ -422,7 +422,7 @@ tools:
 
 **Purpose:** Audits threat models for completeness, correctness, and security coverage. Produces quality reports.
 
-**Tools:** Read, Glob, Grep, `mcp__dethereal__validate_model_json`, `mcp__dethereal__get_classes`, `mcp__dethereal__manage_exposures`, `mcp__dethereal__manage_countermeasures`
+**Tools:** Read, Glob, Grep, `mcp__plugin_dethereal_dethereal__validate_model_json`, `mcp__plugin_dethereal_dethereal__get_classes`, `mcp__plugin_dethereal_dethereal__manage_exposures`, `mcp__plugin_dethereal_dethereal__manage_countermeasures`
 **Disallowed tools:** Write, Edit, Bash (read-only reviewer)
 
 **Frontmatter:**
@@ -438,10 +438,10 @@ tools:
   - Read
   - Glob
   - Grep
-  - mcp__dethereal__validate_model_json
-  - mcp__dethereal__get_classes
-  - mcp__dethereal__manage_exposures
-  - mcp__dethereal__manage_countermeasures
+  - mcp__plugin_dethereal_dethereal__validate_model_json
+  - mcp__plugin_dethereal_dethereal__get_classes
+  - mcp__plugin_dethereal_dethereal__manage_exposures
+  - mcp__plugin_dethereal_dethereal__manage_countermeasures
 ---
 ```
 
