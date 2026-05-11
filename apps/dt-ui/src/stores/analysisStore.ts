@@ -145,14 +145,24 @@ export const useAnalysisStore = defineStore('analysis', () => {
     // `temp-${Date.now()}` placeholder swapped post-create would defeat
     // the dedupe key in `dtAnalysis.createAnalysis`.
     const id = crypto.randomUUID()
+    // Look up the class so the optimistic row carries the same `analysisClass.name`
+    // the real record will have — otherwise it briefly lands in an `undefined`-keyed
+    // phantom group and the v-data-table re-mounts group headers when the real
+    // record replaces it.
+    const analysisClass = analysisClasses.value.find(c => c.id === analysisClassId)
     const optimisticAnalysis = {
       id,
       elementId,
       name: name.trim(),
       description: description || '',
-      type: type || '',
-      category: category || '',
-      analysisClass: { id: analysisClassId },
+      type: type || analysisClass?.type || '',
+      category: category || analysisClass?.category || '',
+      analysisClass: {
+        id: analysisClassId,
+        name: analysisClass?.name,
+        type: analysisClass?.type,
+        category: analysisClass?.category,
+      },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       pending: true

@@ -46,6 +46,22 @@
 
   const analysisClasses = computed(() => analysisStore.analysisClasses)
 
+  // Tracks group keys we've already auto-opened, so re-mounts caused by the
+  // 5s poll (which replaces analyses by reference) don't re-toggle them shut.
+  const autoOpenedGroups = new Set<string>()
+  // Typed loosely — Vuetify's Group<any> type isn't part of the public exports,
+  // and we only need the `value`/`key` fields for our Set lookup.
+  const autoOpenGroup = (
+    item: any,
+    toggleGroup: (item: any) => void,
+    isGroupOpen: (item: any) => boolean,
+  ) => {
+    const key = String(item?.key ?? item?.value ?? '')
+    if (autoOpenedGroups.has(key)) return
+    autoOpenedGroups.add(key)
+    if (!isGroupOpen(item)) toggleGroup(item)
+  }
+
   // Track which item is being edited
   const editingNameItem = ref<string | null>(null)
   const editingDescriptionItem = ref<string | null>(null)
@@ -189,7 +205,7 @@
                         size="small"
                         variant="outlined"
                         @click="toggleGroup(item)"
-                        @vue:mounted="toggleGroup(item)"
+                        @vue:mounted="autoOpenGroup(item, toggleGroup, isGroupOpen)"
                       />
                       <span class="ms-4">Analyzed by '{{ item.value }}'</span>
                     </div>
