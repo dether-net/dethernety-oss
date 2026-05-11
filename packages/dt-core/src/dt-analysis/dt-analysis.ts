@@ -19,6 +19,18 @@ import {
   START_ANALYSIS_CHAT,
 } from './dt-analysis-gql.js'
 
+// Unwrap a Cypher relation (which always comes back as an array) into a single
+// object, preserving every field — name/type/category/module. Stripping fields
+// here breaks UI consumers like the analysis table's group-by-class.
+const unwrapAnalysisClass = (
+  raw: AnalysisClass | AnalysisClass[] | null | undefined,
+): AnalysisClass => {
+  if (Array.isArray(raw)) {
+    return raw.length > 0 ? { ...raw[0] } : { id: '' } as AnalysisClass
+  }
+  return raw ?? ({ id: '' } as AnalysisClass)
+}
+
 export class DtAnalysis {
   private dtUtils: DtUtils
   private apolloClient: Apollo.ApolloClient
@@ -135,9 +147,7 @@ export class DtAnalysis {
       if (response.analyses) {
         const analyses = response.analyses.map((analysis: Analysis) => ({
           ...analysis,
-          analysisClass: analysis.analysisClass && Array.isArray(analysis.analysisClass) && analysis.analysisClass.length > 0
-            ? { id: analysis.analysisClass[0].id }
-            : { id: analysis.analysisClass?.id || '' },
+          analysisClass: unwrapAnalysisClass(analysis.analysisClass),
           element: [
             ...(Array.isArray(analysis.model) ? analysis.model : []),
             ...(Array.isArray(analysis.component) ? analysis.component : []),
@@ -183,9 +193,7 @@ export class DtAnalysis {
       if (response) {
         return {
           ...response,
-          analysisClass: response.analysisClass && Array.isArray(response.analysisClass) && response.analysisClass.length > 0
-            ? { id: response.analysisClass[0].id, name: response.analysisClass[0].name }
-            : { id: (response.analysisClass as { id?: string } | undefined)?.id || '', name: (response.analysisClass as { name?: string } | undefined)?.name || '' },
+          analysisClass: unwrapAnalysisClass(response.analysisClass),
         }
       }
       return null
@@ -238,9 +246,7 @@ export class DtAnalysis {
         if (response && response.length > 0) {
           return {
             ...response[0],
-            analysisClass: response[0].analysisClass && Array.isArray(response[0].analysisClass) && response[0].analysisClass.length > 0
-              ? { id: response[0].analysisClass[0].id, name: response[0].analysisClass[0].name }
-              : { id: response[0].analysisClass?.id || '', name: response[0].analysisClass?.name || '' },
+            analysisClass: unwrapAnalysisClass(response[0].analysisClass),
           }
         }
         return null
