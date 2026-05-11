@@ -30,7 +30,7 @@
     "graphql-tag": "^2.12.6",
     "graphql-ws": "^6.0.8",
     "jwt-decode": "^4.0.0",
-    "mermaid": "^11.14.0",
+    "mermaid": "^11.15.0",
     "pinia-plugin-persistedstate": "^4.7.1",
     "roboto-fontface": "^0.10.0",
     "rollup-plugin-visualizer": "^7.0.1",
