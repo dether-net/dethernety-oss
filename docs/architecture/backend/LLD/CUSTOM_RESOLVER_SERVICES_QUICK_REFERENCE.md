@@ -9,6 +9,7 @@
 | IssueResolverService | Issue synchronization | Real-time sync with external systems | No | Yes |
 | AnalysisResolverService | AI analysis operations | Long-running sessions, subscriptions | Yes* | Yes |
 | SetInstantiationAttributesService | Component attributes | Batch processing, concurrency control | No | Yes |
+| ClassIdentityResolverService | Class-identity admin surface | Admin gate + audit log; rebind conflicts, orphan reconciliation, identity migration | No | Yes |
 
 *\* Caching only for Neo4j database operations, not module responses*
 
@@ -127,6 +128,25 @@ getStatistics(): SetInstantiationAttributesOperationStatistics
 resetStatistics(): void
 getHealthStatus(): HealthStatus
 ```
+
+### ClassIdentityResolverService
+
+```typescript
+// Field resolvers (Module)
+Module.rebindConflicts: Promise<RebindConflictDetail[]>   // joins lastInstallClassIds vs DB
+Module.constraintsHealthy: boolean
+
+// Query (admin-gated)
+classIdentityEvents(kind?, moduleName?, since?): ClassIdentityEvent[]
+
+// Mutations (admin-gated — every call goes through requireAdmin(ctx))
+migrateClassId({moduleName, className, classKind, newId}): Promise<boolean>
+reviveOrphanedClass({classId, classKind}): Promise<boolean>
+deleteOrphanedClass({classId, classKind, cascade}): Promise<boolean>      // capped at 1000 incidents
+runIdentityMigration({dryRun}): Promise<IdentityMigrationReport>
+```
+
+Authz: every operation gated by `requireAdmin(ctx)` at resolver entry — see [`is-admin.ts`](../../../../apps/dt-ws/src/common/guards/is-admin.ts). Every mutation emits a `Logger.warn` audit entry before doing the work.
 
 ---
 

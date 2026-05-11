@@ -128,15 +128,90 @@ interface Module extends Element {
   id: string
   name: string
   description?: string
-  componentClasses?: Class[]        // Component type definitions
-  securityBoundaryClasses?: Class[] // Boundary type definitions
-  dataFlowClasses?: Class[]         // Data flow type definitions
-  dataClasses?: Class[]             // Data classification definitions
-  controlClasses?: Class[]          // Control type definitions
-  issueClasses?: Class[]            // Issue type definitions
-  analysisClasses?: Class[]         // Analysis type definitions
+  componentClasses?: Class[]        // Active component type definitions
+  securityBoundaryClasses?: Class[] // Active boundary type definitions
+  dataFlowClasses?: Class[]         // Active data flow type definitions
+  dataClasses?: Class[]             // Active data classification definitions
+  controlClasses?: Class[]          // Active control type definitions
+  issueClasses?: Class[]            // Active issue type definitions
+  analysisClasses?: Class[]         // Active analysis type definitions
   attributes?: string               // Module configuration (JSON)
   template?: string                 // Default template (JSON)
+
+  // ── Class-identity admin surface ─────────────────────────────────────
+  // Populated by DtClassIdentity.getModulesWithIdentity(). Absent on the
+  // basic DtModule.getModules() path.
+  idRebindPolicy?: string                          // 'audit' | 'strict' | 'silent'
+  lastInstallStatus?: string                       // 'authoritative' | 'partial' | 'unavailable' | 'error'
+  lastAttemptedInstall?: string                    // ISO timestamp
+  lastAuthoritativeInstall?: string                // ISO timestamp of last clean install
+  rebindConflicts?: RebindConflictDetail[]         // strict-mode conflicts from last install
+  constraintsHealthy?: boolean                     // bootstrap constraint state
+
+  // Classes retired by the module that still have existing instances
+  // (HAS_CLASS → HAS_ORPHANED_CLASS at the graph level).
+  orphanedComponentClasses?: OrphanedClass[]
+  orphanedDataFlowClasses?: OrphanedClass[]
+  orphanedSecurityBoundaryClasses?: OrphanedClass[]
+  orphanedControlClasses?: OrphanedClass[]
+  orphanedDataClasses?: OrphanedClass[]
+  orphanedAnalysisClasses?: OrphanedClass[]
+  orphanedIssueClasses?: OrphanedClass[]
+}
+```
+
+> **Breaking change (PR #224)**: `Module.classesWithRebindConflicts: string[]` was renamed to `Module.rebindConflicts: RebindConflictDetail[]`. Clean break — no compatibility shim, since there are no external consumers. Callers must move from the bare class-name array to the structured `RebindConflictDetail` records (which also carry `dbId` and `moduleDeclaredId`).
+
+#### Class-identity types
+
+Supporting types for the class-identity admin surface. Source: [`packages/dt-core/src/interfaces/core-types-interface.ts`](../../../packages/dt-core/src/interfaces/core-types-interface.ts).
+
+```typescript
+interface OrphanedClass {
+  id: string
+  name: string
+  orphanedAt?: string              // ISO timestamp of HAS_CLASS → HAS_ORPHANED_CLASS flip
+  incomingInstanceCount: number    // count of :IS_INSTANCE_OF edges
+  incomingInstancesByType?: TypeCount[]  // per-parent-label breakdown
+}
+
+interface RebindConflictDetail {
+  className: string                // stable identifier across rebinds
+  classKind: string                // 'ComponentClass' | 'AnalysisClass' | ...
+  dbId: string                     // current id of the class in the DB
+  moduleDeclaredId: string         // id the module declared at last install (from Module.lastInstallClassIds)
+}
+
+interface TypeCount {
+  type: string                     // parent node label (e.g., 'Analysis', 'Component')
+  count: number                    // number of incoming :IS_INSTANCE_OF edges from this label
+}
+
+interface IdentityMigrationReport {
+  dryRun: boolean
+  totalActions: number             // 'planned' if dryRun, 'applied' otherwise
+  details: string[]                // per-action log lines
+}
+
+interface ClassIdentityEvent {
+  kind: string                     // 'rebind' | 'rebind-conflict' | 'collision' | 'orphan' | 'revive'
+  timestamp: string
+  moduleName?: string              // null for collision events (see firstModuleName/secondModuleName)
+  classKind?: string               // pluralized key: 'componentClasses' | ...
+  className?: string
+  // rebind / rebind-conflict
+  oldId?: string
+  newId?: string
+  moduleDeclaredId?: string
+  dbId?: string
+  policy?: string                  // 'audit' | 'silent' | 'strict'
+  // orphan / revive
+  classId?: string
+  reason?: string                  // 'absent-from-metadata' | 'legacy-id-superseded'
+  // collision
+  firstModuleName?: string
+  secondModuleName?: string
+  collidingId?: string
 }
 ```
 

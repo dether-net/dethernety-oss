@@ -10,6 +10,7 @@
 - [DtDataItem](#dtdataitem)
 - [DtClass](#dtclass)
 - [DtModule](#dtmodule)
+- [DtClassIdentity](#dtclassidentity)
 - [DtControl](#dtcontrol)
 - [DtFolder](#dtfolder)
 - [DtAnalysis](#dtanalysis)
@@ -321,6 +322,53 @@ Manages module registry and frontend bundles.
 | `resetModule` | Reset module to defaults | `{ moduleId }` | `Promise<void>` |
 | `getAvailableFrontendModules` | List frontend bundles | `none` | `Promise<string[]>` |
 | `getModuleFrontendBundle` | Get bundle code | `{ moduleId }` | `Promise<string \| null>` |
+
+---
+
+## DtClassIdentity
+
+**Source:** [`packages/dt-core/src/dt-class-identity/`](../../../packages/dt-core/src/dt-class-identity/)
+
+Class-identity admin surface — modules with install lifecycle + orphaned-class lists, the in-memory event log, and the four admin mutations that back the **Operations** tab of the modules page. Every method targets an admin-gated server operation; calls fail with `ForbiddenException` if the caller does not have the admin role.
+
+### Methods
+
+| Method | Description | Parameters | Returns |
+|--------|-------------|------------|---------|
+| `getModulesWithIdentity` | Modules augmented with `idRebindPolicy`, `lastInstallStatus`, `lastAttemptedInstall`, `lastAuthoritativeInstall`, `rebindConflicts`, `constraintsHealthy`, and the seven `orphaned*Classes` lists | `none` | `Promise<Module[]>` |
+| `getClassIdentityEvents` | Events from the in-memory ring buffer (max 1000, drop-oldest, process-local) | `{ kind?, moduleName?, since? }` | `Promise<ClassIdentityEvent[]>` |
+| `migrateClassId` | Admin: align the DB id of a `(Module, *Class)` pair to a new id. Server-side: `requireAdmin(ctx)`; emits audit log + `kind: 'rebind', policy: 'audit'` event | `{ moduleName, className, classKind, newId }` | `Promise<boolean>` |
+| `reviveOrphanedClass` | Admin: revive an orphaned class (HAS_ORPHANED_CLASS → HAS_CLASS). Idempotent. Server-side: `requireAdmin(ctx)`; emits audit log + `kind: 'revive'` event | `{ classId, classKind }` | `Promise<boolean>` |
+| `deleteOrphanedClass` | Admin: hard-delete an orphaned class. `cascade=false` (default) refuses with a non-zero incident count. `cascade=true` DETACH DELETEs the class AND every incident instance — capped at 1000 server-side. Server-side: `requireAdmin(ctx)` | `{ classId, classKind, cascade }` | `Promise<boolean>` |
+| `runIdentityMigration` | Admin: re-run the idempotent class-identity cleanup. `dryRun=true` reports planned actions without writing. Server-side: `requireAdmin(ctx)` | `{ dryRun }` | `Promise<IdentityMigrationReport>` |
+
+**Authz model.** Every method maps to a server operation gated by `requireAdmin(ctx)` at resolver entry — UI gating in the Modules page is defence-in-depth, the server gate is the only enforcement. See the backend [`ClassIdentityResolverService`](../backend/LLD/CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#6-classidentityresolverservice) for the audit-log + admin-check details.
+
+### Example Usage
+
+```typescript
+import { DtClassIdentity } from '@dethernety/dt-core'
+
+const dtClassIdentity = new DtClassIdentity(apolloClient)
+
+// Fetch modules with the admin surface populated
+const modules = await dtClassIdentity.getModulesWithIdentity()
+const blocked = modules.filter(m => m.lastInstallStatus === 'unavailable')
+
+// Resolve a strict-mode rebind conflict by adopting the module-declared id
+for (const conflict of blocked[0].rebindConflicts ?? []) {
+  await dtClassIdentity.migrateClassId({
+    moduleName: blocked[0].name,
+    className: conflict.className,
+    classKind: conflict.classKind,
+    newId: conflict.moduleDeclaredId,
+  })
+}
+
+// Re-run the cleanup migration (dry-run first)
+const plan = await dtClassIdentity.runIdentityMigration({ dryRun: true })
+console.log(`${plan.totalActions} actions planned`)
+```
 
 ---
 

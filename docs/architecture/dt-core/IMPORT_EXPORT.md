@@ -435,47 +435,75 @@ private resolveModuleIds = async (modules: any[]): Promise<string[]> => {
 
 ### Class Resolution (3-level priority)
 
+Implemented by `DtImport.resolveClass` in [`dt-import.ts`](../../../packages/dt-core/src/dt-import/dt-import.ts). The resolver walks three priorities in order, then surfaces an unresolved-class warning if all of them miss.
+
 ```typescript
-private resolveClassId = async (
-  classData: any,
-  classType: 'component' | 'boundary' | 'dataflow' | 'data'
+private resolveClass = async (
+  classData: ExportedClassData,
+  entityType: 'COMPONENT' | 'BOUNDARY' | 'DATA_FLOW' | 'DATA'
 ): Promise<string | null> => {
-  // Priority 1: Match by ID
+  if (!classData) return null
+
+  // Priority 1: Match by ID across all modules (id lookup is enough — class
+  // ids are globally unique within a deployment).
   if (classData.id) {
-    const exists = await this.dtClass.getClassById({ classId: classData.id })
-    if (exists) return classData.id
+    const modules = await this.dtModule.getModules()
+    for (const module of modules) {
+      const list = pickListForEntityType(module, entityType)
+      if (list?.some(c => c.id === classData.id)) return classData.id
+    }
   }
 
-  // Priority 2: Match by module ID + class name
-  if (classData.name && classData.moduleId) {
-    const moduleClasses = await this.dtClass.getClassesByModule({
-      moduleId: classData.moduleId,
-      classType
-    })
-    const match = moduleClasses.find(c => c.name === classData.name)
-    if (match) return match.id
-  }
-
-  // Priority 3: Match by module name + class name
-  if (classData.name && classData.moduleName) {
-    const module = await this.dtModule.getModuleByName({
-      moduleName: classData.moduleName
-    })
-    if (module) {
-      const moduleClasses = await this.dtClass.getClassesByModule({
-        moduleId: module.id,
-        classType
-      })
-      const match = moduleClasses.find(c => c.name === classData.name)
+  // Priority 2: Match by module ID + class name. Reaches the right module
+  // even when ids have been re-keyed (e.g. by `migrateClassId` or a strict-
+  // mode rebind resolved with `adopt-module-id`).
+  if (classData.module?.id && classData.name) {
+    const modules = await this.dtModule.getModules()
+    const owner = modules.find(m => m.id === classData.module!.id)
+    if (owner) {
+      const match = await this.findClassInModule(owner, classData.name, entityType)
       if (match) return match.id
     }
   }
 
-  // No match
-  this.warnings.push(`Could not resolve class: ${classData.name || classData.id}`)
+  // Priority 3: Match by module name + class name. The graceful fallback
+  // when both id and module id have moved.
+  if (classData.module?.name && classData.name) {
+    const modules = await this.dtModule.getModules()
+    const owner = modules.find(m => m.name === classData.module!.name)
+    if (owner) {
+      const match = await this.findClassInModule(owner, classData.name, entityType)
+      if (match) return match.id
+    }
+  }
+
+  // No match — surface as a warning so the import dialog can show it.
+  // Silently dropping a class link was the failure mode that bit us after
+  // class ids became stable+migratable: an export's id may no longer exist
+  // locally (operator ran `migrateClassId`), and Priority 2/3 are unreachable
+  // when the export omitted `module`. Surface it instead.
+  this.warnings.push(
+    `Could not resolve ${entityType.toLowerCase()} class ` +
+    `(id=${classData.id ?? '<missing>'}, name=${classData.name ?? '<missing>'}, ` +
+    `module=${classData.module?.name ?? classData.module?.id ?? '<missing from export>'}); ` +
+    `instance will be created without an IS_INSTANCE_OF edge.`
+  )
   return null
 }
 ```
+
+**`ExportedClassData` shape** — the disambiguator that makes Priority 2/3 reachable:
+
+```typescript
+// packages/dt-core/src/dt-export/dt-export.ts
+export interface ExportedClassData {
+  id: string
+  name: string
+  module?: Pick<Module, 'id' | 'name'>   // origin module — required for re-keyed-id fallback
+}
+```
+
+Every `classData` written by `DtExport` (and `DtExportSplit`) carries `module: { id, name }` for components, boundaries, data flows, and data items. PR #225 closed the gap where some export paths emitted `classData` without the `module` reference — without that field, an export taken before a `migrateClassId` could not be re-imported after the rebind, because Priority 1 misses on the stale id and Priority 2/3 have nothing to match against.
 
 ### Control Resolution (4-level fuzzy matching)
 
