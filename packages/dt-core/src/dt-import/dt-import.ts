@@ -969,7 +969,7 @@ export class DtImport {
       if (classData.module?.name && classData.name) {
         const modules = await this.dtModule.getModules()
         const matchingModule = modules.find(m => m.name === classData.module.name)
-        
+
         if (matchingModule) {
           const matchingClass = await this.findClassInModule(matchingModule, classData.name, entityType)
           if (matchingClass) {
@@ -978,6 +978,19 @@ export class DtImport {
         }
       }
 
+      // Silently dropping a class link is the failure mode that bit us
+      // after S6 made class ids stable+migratable: an export's id may no
+      // longer exist locally (operator ran `migrateClassId`), and Priority
+      // 2/3 are unreachable if the export omitted `module`. Surface it so
+      // the import dialog can show it as a warning.
+      const idHint = classData.id ? `id=${classData.id}` : 'id=<missing>'
+      const nameHint = classData.name ? `name=${classData.name}` : 'name=<missing>'
+      const moduleHint = classData.module
+        ? `module=${classData.module.name || classData.module.id}`
+        : 'module=<missing from export>'
+      this.warnings.push(
+        `Could not resolve ${entityType.toLowerCase()} class (${idHint}, ${nameHint}, ${moduleHint}); instance will be created without an IS_INSTANCE_OF edge.`
+      )
       return null
 
     } catch (error) {

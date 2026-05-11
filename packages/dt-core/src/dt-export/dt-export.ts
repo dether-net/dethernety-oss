@@ -1,27 +1,37 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
-import { Model, ComponentData, BoundaryData, DataFlowData, DataItem, Module, Class } from '../interfaces/core-types-interface.js'
+import { Model, ComponentData, BoundaryData, DataFlowData, DataItem, Module } from '../interfaces/core-types-interface.js'
 import { DtModel } from '../dt-model/dt-model.js'
 import { DtClass } from '../dt-class/dt-class.js'
 import { DtComponent } from '../dt-component/dt-component.js'
 import { DtBoundary } from '../dt-boundary/dt-boundary.js'
 import { DtDataflow } from '../dt-dataflow/dt-dataflow.js'
 
+// Captures the originating module so import can disambiguate when class
+// ids have been re-keyed (e.g. via `migrateClassId` or a strict-mode
+// rebind resolved with `adopt-module-id`). Without `module`, import's
+// fallback-by-name branch in `resolveClass` is unreachable.
+export interface ExportedClassData {
+  id: string
+  name: string
+  module?: Pick<Module, 'id' | 'name'>
+}
+
 export interface ExportedDataItem extends Omit<DataItem, 'dataClass' | 'elements'> {
-  classData?: Pick<Class, 'id' | 'name'>
+  classData?: ExportedClassData
   attributes?: any
 }
 
 export interface ExportedDataFlow extends Omit<DataFlowData, '__typename'> {
   dataItemIds?: string[]
-  classData?: Pick<Class, 'id' | 'name'>
+  classData?: ExportedClassData
   attributes?: any
 }
 
 export interface ExportedComponent extends Omit<ComponentData, '__typename'> {
   dataItemIds?: string[]
-  classData?: Pick<Class, 'id' | 'name'>
+  classData?: ExportedClassData
   attributes?: any
   representedModel?: Omit<Model, '__typename'> | null
 }
@@ -30,7 +40,7 @@ export interface ExportedBoundary extends Omit<BoundaryData, '__typename'> {
   dataItemIds?: string[]
   components?: ExportedComponent[]
   boundaries?: ExportedBoundary[]
-  classData?: Pick<Class, 'id' | 'name'>
+  classData?: ExportedClassData
   attributes?: any
   representedModel?: Omit<Model, '__typename'> | null
 }
@@ -215,7 +225,10 @@ export class DtExport {
           })
           enrichedItem.classData = {
             id: classData.id,
-            name: classData.name
+            name: classData.name,
+            module: classData.module
+              ? { id: classData.module.id, name: classData.module.name }
+              : undefined
           }
           // Unflatten attributes to restore nested structure
           if (attributes && typeof attributes === 'object' && Object.keys(attributes).length > 0) {
@@ -248,7 +261,10 @@ export class DtExport {
         })
         enrichedComponent.classData = {
           id: classData.id,
-          name: classData.name
+          name: classData.name,
+          module: classData.module
+            ? { id: classData.module.id, name: classData.module.name }
+            : undefined
         }
         // Unflatten attributes to restore nested structure
         if (attributes && typeof attributes === 'object' && Object.keys(attributes).length > 0) {
@@ -295,7 +311,10 @@ export class DtExport {
         })
         enrichedFlow.classData = {
           id: classData.id,
-          name: classData.name
+          name: classData.name,
+          module: classData.module
+            ? { id: classData.module.id, name: classData.module.name }
+            : undefined
         }
         // Unflatten attributes to restore nested structure
         if (attributes && typeof attributes === 'object' && Object.keys(attributes).length > 0) {
@@ -341,7 +360,10 @@ export class DtExport {
         })
         enrichedBoundary.classData = {
           id: classData.id,
-          name: classData.name
+          name: classData.name,
+          module: classData.module
+            ? { id: classData.module.id, name: classData.module.name }
+            : undefined
         }
         // Unflatten attributes to restore nested structure
         if (attributes && typeof attributes === 'object' && Object.keys(attributes).length > 0) {
