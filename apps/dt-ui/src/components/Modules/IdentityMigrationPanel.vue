@@ -113,7 +113,7 @@
 </script>
 
 <template>
-  <v-expansion-panel class="elevation-12 rounded-lg opacity-80">
+  <v-expansion-panel class="elevation-12 rounded-lg opacity-80" static>
     <v-expansion-panel-title color="primary">
       <v-icon class="mr-2" size="small">mdi-database-cog-outline</v-icon>
       <span>Advanced — Identity migration (re-run cleanup)</span>

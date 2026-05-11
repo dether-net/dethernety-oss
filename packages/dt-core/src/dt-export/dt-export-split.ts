@@ -145,6 +145,7 @@ export class DtExportSplit {
       result.classData = {
         id: boundary.classData.id,
         name: boundary.classData.name,
+        module: boundary.classData.module,
       }
     }
 
@@ -212,6 +213,7 @@ export class DtExportSplit {
       result.classData = {
         id: component.classData.id,
         name: component.classData.name,
+        module: component.classData.module,
       }
     }
 
@@ -267,6 +269,7 @@ export class DtExportSplit {
       result.classData = {
         id: flow.classData.id,
         name: flow.classData.name,
+        module: flow.classData.module,
       }
     }
 
@@ -304,6 +307,7 @@ export class DtExportSplit {
       result.classData = {
         id: item.classData.id,
         name: item.classData.name,
+        module: item.classData.module,
       }
     }
 
@@ -337,6 +341,7 @@ export class DtExportSplit {
             classData: {
               id: flow.classData.id,
               name: flow.classData.name,
+              module: flow.classData.module,
             },
             attributes: flow.attributes,
           }
@@ -355,6 +360,7 @@ export class DtExportSplit {
             classData: {
               id: item.classData.id,
               name: item.classData.name,
+              module: item.classData.module,
             },
             attributes: item.attributes,
           }
@@ -381,6 +387,7 @@ export class DtExportSplit {
         classData: {
           id: boundary.classData.id,
           name: boundary.classData.name,
+          module: boundary.classData.module,
         },
         attributes: boundary.attributes,
       }
@@ -397,6 +404,7 @@ export class DtExportSplit {
             classData: {
               id: component.classData.id,
               name: component.classData.name,
+              module: component.classData.module,
             },
             attributes: component.attributes,
           }

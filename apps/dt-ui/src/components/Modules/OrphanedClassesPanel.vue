@@ -73,7 +73,7 @@
 
 <template>
   <v-expansion-panels variant="accordion">
-    <v-expansion-panel class="rounded-lg elevation-12 opacity-80">
+    <v-expansion-panel class="rounded-lg elevation-12 opacity-80" static>
       <v-expansion-panel-title class="elevation-0" color="primary">
         <div class="d-flex align-center w-100">
           <v-icon class="mr-2" size="small">mdi-ghost-outline</v-icon>
