@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
-// F-07 — `loadAllowedModelPaths` reads `~/.dethernety/models.json` via
+// `loadAllowedModelPaths` reads `~/.dethernety/models.json` via
 // `os.homedir()`. On macOS, `homedir()` ignores `process.env.HOME` and
 // reads from `getpwuid_r`, so a HOME override at the env level doesn't
 // redirect the read. Mock the os module to point homedir at our temp dir
-// so the F-07 test runs hermetically.
+// so the allowlist-poisoning test runs hermetically.
 let mockedHome = ''
 vi.mock('node:os', async () => {
   const actual = await vi.importActual<typeof import('node:os')>('node:os')
@@ -62,8 +62,8 @@ describe('validatePathConfinement', () => {
   })
 })
 
-describe('Sprint 4 F-07 — allowlist poisoning resistance', () => {
-  // The bug: prior to F-07, anything in ~/.dethernety/models.json was trusted
+describe('allowlist poisoning resistance', () => {
+  // The bug: previously, anything in ~/.dethernety/models.json was trusted
   // unconditionally. A process running as the user could rewrite models.json
   // (it's a plain world-readable file) to point at /tmp or any other directory,
   // and every subsequent MCP-invoked control-library action would honour it.
@@ -104,8 +104,9 @@ describe('Sprint 4 F-07 — allowlist poisoning resistance', () => {
   })
 
   it('refuses an allowlisted path that lacks manifest.json (poisoned models.json)', async () => {
-    // Without F-07, the substring match alone would honour poisonedTarget.
-    // With F-07, isModelDirectory(poisonedTarget) returns false → no honour.
+    // Without the manifest check, the substring match alone would honour
+    // poisonedTarget. With it, isModelDirectory(poisonedTarget) returns
+    // false → no honour.
     await expect(validatePathConfinement(poisonedTarget, '/nonexistent/cwd')).rejects.toThrow(
       'outside the allowed directory',
     )

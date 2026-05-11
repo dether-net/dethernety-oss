@@ -1,5 +1,5 @@
 /**
- * Tests for the shared drift-detection helper (Sprint 4 F-12).
+ * Tests for the shared drift-detection helper.
  *
  * The helper is the single source of truth for the "external-edit drift"
  * predicate consumed by `/dethereal:status` (skill prose) and
@@ -124,11 +124,11 @@ describe('detectControlSetDrift — multi-file aggregation', () => {
   });
 });
 
-describe('Sprint 4 F-12 — validator and drift-detector agreement', () => {
+describe('validator and drift-detector agreement', () => {
   it('drift-detector verdict matches validator external-edit warning', async () => {
     // The validator emits an external-edit warning iff isClassDrifted is true
-    // (Sprint 4 routed validator through the same helper). This test asserts
-    // the routing — if a future change splits them, this fails.
+    // (the validator routes through the same helper). This test asserts the
+    // routing — if a future change splits them, this fails.
     const { validateControlFile } = await import('../validator.js');
     const file = makeFile({
       classes: [{ classId: VALID_CLASS_ID, attributes: { foo: 'edited' }, platformAttributes: { foo: 'bar' } }],

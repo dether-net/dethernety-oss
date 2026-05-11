@@ -11,6 +11,7 @@
  *   4. results → returns analysis output when complete
  */
 
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { DtAnalysis } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
@@ -78,6 +79,7 @@ export class ManageAnalysesTool extends ClientDependentTool<ManageAnalysesInput,
 
         case 'create': {
           const analysis = await dtAnalysis.createAnalysis({
+            id: randomUUID(),
             elementId: input.element_id!,
             name: input.name!,
             description: input.description || '',

@@ -273,11 +273,10 @@ type SecurityBoundary implements Element  @authentication @node {
       """,
       columnName: "sb"
     )
-  # Sprint 6 Tier-3 carryover: the L280/L291 *0..50 raise (Sprint 5 F-25)
-  # bounded the same SecurityBoundary nesting class for `allDescendantComponents`
-  # / shared-ownership; this 1-anchored variant gets the symmetrical raise so
-  # operators with deep topologies see the same depth ceiling everywhere
-  # (1-bound used here because allDescendantBoundaries excludes `this`).
+  # Depth bound *1..50 mirrors `allDescendantComponents` and the
+  # shared-ownership reach below, so operators with deep topologies see
+  # the same ceiling everywhere. The 1-anchor (vs. 0) here is deliberate:
+  # `allDescendantBoundaries` excludes `this`.
   "All components inside this boundary or any nested boundary (computed)"
   allDescendantComponents: [Component!]!
     @cypher(
@@ -378,22 +377,66 @@ type Module implements Element  @authentication @node {
   model: [Model!]! @relationship(type: "HAS_MODULE", direction: IN)
   "Component classes provided by this module"
   componentClasses: [ComponentClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  "Component classes retired by this module (still attached to existing instances)"
+  orphanedComponentClasses: [ComponentClass!]! @relationship(type: "HAS_ORPHANED_CLASS", direction: OUT)
   "Data flow classes provided by this module"
   dataFlowClasses: [DataFlowClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  "Data flow classes retired by this module"
+  orphanedDataFlowClasses: [DataFlowClass!]! @relationship(type: "HAS_ORPHANED_CLASS", direction: OUT)
   "Security boundary classes provided by this module"
   securityBoundaryClasses: [SecurityBoundaryClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  "Security boundary classes retired by this module"
+  orphanedSecurityBoundaryClasses: [SecurityBoundaryClass!]! @relationship(type: "HAS_ORPHANED_CLASS", direction: OUT)
   "Control classes provided by this module"
   controlClasses: [ControlClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  "Control classes retired by this module"
+  orphanedControlClasses: [ControlClass!]! @relationship(type: "HAS_ORPHANED_CLASS", direction: OUT)
   "Data classes provided by this module"
   dataClasses: [DataClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  "Data classes retired by this module"
+  orphanedDataClasses: [DataClass!]! @relationship(type: "HAS_ORPHANED_CLASS", direction: OUT)
   "Analysis classes provided by this module"
   analysisClasses: [AnalysisClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  "Analysis classes retired by this module (still attached to existing analyses)"
+  orphanedAnalysisClasses: [AnalysisClass!]! @relationship(type: "HAS_ORPHANED_CLASS", direction: OUT)
+  "Issue classes provided by this module"
+  issueClasses: [IssueClass!]! @relationship(type: "HAS_CLASS", direction: OUT)
+  "Issue classes retired by this module (still attached to existing issues)"
+  orphanedIssueClasses: [IssueClass!]! @relationship(type: "HAS_ORPHANED_CLASS", direction: OUT)
   "Module configuration template (resolved at runtime)"
   template: String @customResolver(requires: "name")
   "Module configuration attributes (JSON string)"
   attributes: String
   "File system path to the module"
   path: String
+
+  # ── Class-identity admin surface ───────────────────────────────────────
+  # The four scalar fields below are persisted on the Module node by the
+  # module install flow. The two `@customResolver` fields aggregate from
+  # sources off the Module node (the in-memory class-identity event log
+  # and the bootstrap constraint-check state) and are wired in
+  # ClassIdentityResolverService.
+
+  "Effective ID rebind policy from the module's metadata at last install ('audit' | 'strict' | 'silent')."
+  idRebindPolicy: String
+
+  "Status of the most recent install attempt: 'authoritative' | 'partial' | 'unavailable' | 'error'. Null if the module has never been installed."
+  lastInstallStatus: String
+
+  "ISO timestamp of the most recent install attempt (success or failure). Null if never installed."
+  lastAttemptedInstall: DateTime
+
+  "ISO timestamp of the most recent install that completed without partial/unavailable/error markers. Null if never had a clean install."
+  lastAuthoritativeInstall: DateTime
+
+  "JSON snapshot of `[{classKind, className, declaredId}, ...]` written at the last install attempt. Internal — used to resolve `rebindConflicts.moduleDeclaredId` after a strict-mode block. Self-healing: every install overwrites the snapshot; null until the module's first install."
+  lastInstallClassIds: String
+
+  "Per-class strict-mode rebind conflicts from the most recent install. Resolver joins `lastInstallClassIds` against the current DB ids; rows where they differ are surfaced as conflicts. Empty list if the module has never been installed (no snapshot) or every declared id matches the DB."
+  rebindConflicts: [RebindConflictDetail!]! @customResolver(requires: "name lastInstallClassIds lastAttemptedInstall")
+
+  "True if all schema constraints required by the class-identity safety net were created at startup; false if any label was skipped due to dirty data. Reflects the bootstrap result from EnsureConstraintsService — same value for every Module today (the safety net is a global property of the deployment, exposed per-Module for surfaceability in any modules-list view)."
+  constraintsHealthy: Boolean! @customResolver(requires: "name")
 }
 
 """A component class definition provided by a module (e.g., Web Server, Database, API Gateway)."""
@@ -418,6 +461,27 @@ type ComponentClass implements Element  @authentication @node {
   template: String @customResolver(requires: "id module { name }")
   "User-facing guide content (resolved at runtime)"
   guide: String @customResolver(requires: "id module { name }")
+  "Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned."
+  orphanedAt: DateTime
+  "Count of incoming :IS_INSTANCE_OF edges. Read by operators before invoking deleteOrphanedClass to decide cascade safety."
+  incomingInstanceCount: Int!
+    @cypher(
+      statement: """
+      MATCH (this)<-[r:IS_INSTANCE_OF]-()
+      RETURN count(r) AS n
+      """
+      columnName: "n"
+    )
+  "Breakdown of incoming :IS_INSTANCE_OF edges by parent node label. Used by CascadeDeleteDialog to surface 'this includes user work (Analyses)' warnings via the parent-label rows."
+  incomingInstancesByType: [TypeCount!]!
+    @cypher(
+      statement: """
+      MATCH (this)<-[r:IS_INSTANCE_OF]-(n)
+      WITH labels(n)[0] AS type, count(r) AS count
+      RETURN { type: type, count: count } AS row
+      """
+      columnName: "row"
+    )
 }
 
 """A security boundary class definition provided by a module (e.g., Network Segment, Cloud VPC)."""
@@ -442,6 +506,27 @@ type SecurityBoundaryClass implements Element  @authentication @node {
   template: String @customResolver(requires: "id module { name }")
   "User-facing guide content (resolved at runtime)"
   guide: String @customResolver(requires: "id module { name }")
+  "Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned."
+  orphanedAt: DateTime
+  "Count of incoming :IS_INSTANCE_OF edges. Read by operators before invoking deleteOrphanedClass to decide cascade safety."
+  incomingInstanceCount: Int!
+    @cypher(
+      statement: """
+      MATCH (this)<-[r:IS_INSTANCE_OF]-()
+      RETURN count(r) AS n
+      """
+      columnName: "n"
+    )
+  "Breakdown of incoming :IS_INSTANCE_OF edges by parent node label. Used by CascadeDeleteDialog to surface 'this includes user work (Analyses)' warnings via the parent-label rows."
+  incomingInstancesByType: [TypeCount!]!
+    @cypher(
+      statement: """
+      MATCH (this)<-[r:IS_INSTANCE_OF]-(n)
+      WITH labels(n)[0] AS type, count(r) AS count
+      RETURN { type: type, count: count } AS row
+      """
+      columnName: "row"
+    )
 }
 
 """A data flow class definition provided by a module (e.g., HTTP Request, Database Query)."""
@@ -466,6 +551,27 @@ type DataFlowClass implements Element  @authentication @node {
   template: String @customResolver(requires: "id module { name }")
   "User-facing guide content (resolved at runtime)"
   guide: String @customResolver(requires: "id module { name }")
+  "Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned."
+  orphanedAt: DateTime
+  "Count of incoming :IS_INSTANCE_OF edges. Read by operators before invoking deleteOrphanedClass to decide cascade safety."
+  incomingInstanceCount: Int!
+    @cypher(
+      statement: """
+      MATCH (this)<-[r:IS_INSTANCE_OF]-()
+      RETURN count(r) AS n
+      """
+      columnName: "n"
+    )
+  "Breakdown of incoming :IS_INSTANCE_OF edges by parent node label. Used by CascadeDeleteDialog to surface 'this includes user work (Analyses)' warnings via the parent-label rows."
+  incomingInstancesByType: [TypeCount!]!
+    @cypher(
+      statement: """
+      MATCH (this)<-[r:IS_INSTANCE_OF]-(n)
+      WITH labels(n)[0] AS type, count(r) AS count
+      RETURN { type: type, count: count } AS row
+      """
+      columnName: "row"
+    )
 }
 
 """A control class definition provided by a module (e.g., Encryption at Rest, MFA)."""
@@ -496,6 +602,27 @@ type ControlClass implements Element  @authentication @node {
   template: String @customResolver(requires: "id module { name }")
   "User-facing guide content (resolved at runtime)"
   guide: String @customResolver(requires: "id module { name }")
+  "Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned."
+  orphanedAt: DateTime
+  "Count of incoming :IS_INSTANCE_OF edges. Read by operators before invoking deleteOrphanedClass to decide cascade safety."
+  incomingInstanceCount: Int!
+    @cypher(
+      statement: """
+      MATCH (this)<-[r:IS_INSTANCE_OF]-()
+      RETURN count(r) AS n
+      """
+      columnName: "n"
+    )
+  "Breakdown of incoming :IS_INSTANCE_OF edges by parent node label. Used by CascadeDeleteDialog to surface 'this includes user work (Analyses)' warnings via the parent-label rows."
+  incomingInstancesByType: [TypeCount!]!
+    @cypher(
+      statement: """
+      MATCH (this)<-[r:IS_INSTANCE_OF]-(n)
+      WITH labels(n)[0] AS type, count(r) AS count
+      RETURN { type: type, count: count } AS row
+      """
+      columnName: "row"
+    )
 }
 
 """A data class definition provided by a module (e.g., PII, Authentication Token, API Key)."""
@@ -520,6 +647,27 @@ type DataClass implements Element  @authentication @node {
   template: String @customResolver(requires: "id module { name }")
   "User-facing guide content (resolved at runtime)"
   guide: String @customResolver(requires: "id module { name }")
+  "Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned."
+  orphanedAt: DateTime
+  "Count of incoming :IS_INSTANCE_OF edges. Read by operators before invoking deleteOrphanedClass to decide cascade safety."
+  incomingInstanceCount: Int!
+    @cypher(
+      statement: """
+      MATCH (this)<-[r:IS_INSTANCE_OF]-()
+      RETURN count(r) AS n
+      """
+      columnName: "n"
+    )
+  "Breakdown of incoming :IS_INSTANCE_OF edges by parent node label. Used by CascadeDeleteDialog to surface 'this includes user work (Analyses)' warnings via the parent-label rows."
+  incomingInstancesByType: [TypeCount!]!
+    @cypher(
+      statement: """
+      MATCH (this)<-[r:IS_INSTANCE_OF]-(n)
+      WITH labels(n)[0] AS type, count(r) AS count
+      RETURN { type: type, count: count } AS row
+      """
+      columnName: "row"
+    )
 }
 
 """A security exposure (vulnerability or weakness) identified on a model element."""
@@ -808,6 +956,27 @@ type AnalysisClass implements Element  @authentication @node {
   category: String
   "Analysis instances of this class"
   analyses: [Analysis!]! @relationship(type: "IS_INSTANCE_OF", direction: IN)
+  "Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned."
+  orphanedAt: DateTime
+  "Count of incoming :IS_INSTANCE_OF edges. Read by operators before invoking deleteOrphanedClass to decide cascade safety."
+  incomingInstanceCount: Int!
+    @cypher(
+      statement: """
+      MATCH (this)<-[r:IS_INSTANCE_OF]-()
+      RETURN count(r) AS n
+      """
+      columnName: "n"
+    )
+  "Breakdown of incoming :IS_INSTANCE_OF edges by parent node label. Used by CascadeDeleteDialog to surface 'this includes user work (Analyses)' warnings via the parent-label rows."
+  incomingInstancesByType: [TypeCount!]!
+    @cypher(
+      statement: """
+      MATCH (this)<-[r:IS_INSTANCE_OF]-(n)
+      WITH labels(n)[0] AS type, count(r) AS count
+      RETURN { type: type, count: count } AS row
+      """
+      columnName: "row"
+    )
 }
 
 """Extended element info returned by Issue.elementsWithExtendedInfo (computed via Cypher)."""
@@ -928,6 +1097,27 @@ type IssueClass implements Element @authentication @node {
   template: String @customResolver(requires: "id module { name }")
   "Issues that are instances of this class"
   issues: [Issue!]! @relationship(type: "IS_INSTANCE_OF", direction: IN)
+  "Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned."
+  orphanedAt: DateTime
+  "Count of incoming :IS_INSTANCE_OF edges. Read by operators before invoking deleteOrphanedClass to decide cascade safety."
+  incomingInstanceCount: Int!
+    @cypher(
+      statement: """
+      MATCH (this)<-[r:IS_INSTANCE_OF]-()
+      RETURN count(r) AS n
+      """
+      columnName: "n"
+    )
+  "Breakdown of incoming :IS_INSTANCE_OF edges by parent node label. Used by CascadeDeleteDialog to surface 'this includes user work (Analyses)' warnings via the parent-label rows."
+  incomingInstancesByType: [TypeCount!]!
+    @cypher(
+      statement: """
+      MATCH (this)<-[r:IS_INSTANCE_OF]-(n)
+      WITH labels(n)[0] AS type, count(r) AS count
+      RETURN { type: type, count: count } AS row
+      """
+      columnName: "row"
+    )
 }
 
 """Statistics returned after deleting a model."""
@@ -948,6 +1138,20 @@ type Session {
 type AddElementsToIssueResult {
   "Number of elements successfully added"
   elementsAdded: String!
+}
+
+# Deprecation marker for the auto-generated `createAnalyses` mutation.
+# Every in-tree caller has migrated to `createAnalysisIdempotent`; the
+# auto-generated mutation remains available for any external consumer
+# during the transition window but emits a deprecation warning in
+# introspection. The override uses `extend type Mutation` with the exact
+# signature @neo4j/graphql 7.x auto-generates; the library propagates the
+# `@deprecated` directive onto the existing auto-generated resolver
+# (via its PROPAGATED_DIRECTIVES mechanism — no impact on resolver
+# wiring). Removal or admin-gating is a future major-bump decision.
+extend type Mutation {
+  createAnalyses(input: [AnalysisCreateInput!]!): CreateAnalysesMutationResponse!
+    @deprecated(reason: "Use createAnalysisIdempotent — `createAnalyses` uses `connect` directives that produce duplicate IS_INSTANCE_OF edges on re-run. Removal planned for the next major release.")
 }
 
 type Mutation {
@@ -986,6 +1190,62 @@ type Mutation {
       columnName: "result"
     )
     @authentication
+
+  """
+  Idempotently create or update an Analysis bound to its element and AnalysisClass.
+  MERGE-by-id throughout — re-runs produce no duplicate IS_INSTANCE_OF edges.
+  Caller supplies a stable `id`; the schema-level UNIQUE constraint on
+  Analysis.id backstops the MERGE-non-atomic edge case under concurrent execution.
+
+  An Analysis is conceptually an instance of exactly one AnalysisClass — so the
+  cypher defensively removes any pre-existing IS_INSTANCE_OF edges to other
+  classes before the MERGE. Calling with a different `analysisClassId` for the
+  same `id` rebinds (it does not accumulate edges to multiple classes).
+  ANALYZED_BY bindings to other elements are NOT pruned: an Analysis can
+  legitimately span multiple elements per the schema's `Analysis.element`
+  list-cardinality field.
+  """
+  createAnalysisIdempotent(
+    id: ID!
+    name: String!
+    description: String
+    type: String
+    category: String
+    elementId: ID!
+    analysisClassId: ID!
+  ): Analysis
+    @cypher(
+      statement: """
+      MERGE (a:Analysis {id: $id})
+        ON CREATE SET a.name = $name, a.description = $description,
+                      a.type = $type, a.category = $category,
+                      a.createdAt = datetime()
+        ON MATCH  SET a.name = $name, a.description = $description,
+                      a.type = $type, a.category = $category
+      WITH a
+      OPTIONAL MATCH (a)-[stale:IS_INSTANCE_OF]->(otherC:AnalysisClass)
+        WHERE otherC.id <> $analysisClassId
+      DELETE stale
+      WITH a
+      MATCH (e {id: $elementId})
+      WHERE any(label IN labels(e) WHERE label IN ['Model','Component','DataFlow','SecurityBoundary','Control','Data','Exposure','Countermeasure'])
+      MERGE (e)-[:ANALYZED_BY]->(a)
+      WITH a
+      MATCH (c:AnalysisClass {id: $analysisClassId})
+      MERGE (a)-[:IS_INSTANCE_OF]->(c)
+      RETURN a
+      """
+      columnName: "a"
+    )
+    @authentication
+
+  # Perf note: the polymorphic `MATCH (e {id: $elementId})` above is an
+  # unlabeled MATCH + label filter — Memgraph's planner can't use a
+  # per-label `id` index here, so this scans all nodes and filters. The
+  # same shape exists in addElementsToIssue / removeElementFromIssue. A
+  # consistent rewrite to per-label CALL/UNION branches across all three
+  # @cypher mutations is tracked as a perf follow-up; the per-label `id`
+  # indexes are in place to back that rewrite.
 
   "Set configuration attributes on a component's class instantiation relationship"
   setInstantiationAttributes(
@@ -1077,6 +1337,144 @@ type Mutation {
   "Re-embed all class nodes when the embedding model changes"
   reindexClassEmbeddings(moduleIds: [ID!], capacity: Int): ReindexResult!
     @authentication
+
+  # ── Class-identity admin mutations ─────────────────────────────────────
+  # All four require admin role at runtime — enforced inside the resolver
+  # via requireAdmin(ctx) (see is-admin.ts). The schema directive is just
+  # @authentication; the resolver-side gate is sufficient for this small
+  # admin surface and avoids introducing a role-aware schema directive.
+
+  """
+  Admin: align the DB id of a (Module, *Class) pair to a new id.
+  Mechanically equivalent to an audit-mode rebind — emits the same
+  rebind event into the in-memory log so the operator-driven action
+  appears in the same timeline as automatic rebinds.
+
+  Recommended direction: pass the module-declared id as `newId` (the
+  canonical workflow — module source is authoritative for class id).
+  An operator may align the other way but then must also update the
+  module source — for source-controlled modules that means a code change;
+  for DtLgModule-derived classes that means renaming the underlying graph
+  in aegra.
+
+  Cross-module collision check refuses the migration if `newId` is
+  already owned by a different Module at the same label.
+  """
+  migrateClassId(
+    moduleName: String!
+    className: String!
+    classKind: String!
+    newId: ID!
+  ): Boolean!
+    @authentication
+
+  """
+  Admin: revive an orphaned class — flips HAS_ORPHANED_CLASS edge back to
+  HAS_CLASS. Idempotent: revive of an already-active class returns true
+  without an event emission. Edge properties are preserved across the
+  rename.
+  """
+  reviveOrphanedClass(
+    classId: ID!
+    classKind: String!
+  ): Boolean!
+    @authentication
+
+  """
+  Admin: hard-delete an orphaned class. With cascade=false (default),
+  refuses if any :IS_INSTANCE_OF edges exist — operator should query
+  `incomingInstanceCount` first to know the cascade scope. With
+  cascade=true, DETACH DELETE removes the class AND every incident
+  instance node (Analyses, Components, etc. depending on classKind) —
+  irreversible at the data layer.
+  """
+  deleteOrphanedClass(
+    classId: ID!
+    classKind: String!
+    cascade: Boolean! = false
+  ): Boolean!
+    @authentication
+
+  """
+  Admin: re-runs the PR 0 idempotent class-identity cleanup against the
+  current DB. dryRun=true (default) reports planned changes without
+  writing. Safe to invoke any time — running twice produces identical
+  end state.
+  """
+  runIdentityMigration(dryRun: Boolean! = true): IdentityMigrationReport!
+    @authentication
+}
+
+"""Result of runIdentityMigration. Counts are 'planned' if dryRun=true, 'applied' otherwise. `details` is the human-readable per-action log (one entry per dedup group + mutating action)."""
+type IdentityMigrationReport @authentication @node {
+  "True if this was a dry-run (no writes performed)."
+  dryRun: Boolean!
+  "Sum of mutating actions performed (or planned, in dry-run)."
+  totalActions: Int!
+  "Per-source breakdown — log-line strings."
+  details: [String!]!
+}
+
+"""Per-class strict-mode rebind conflict detail. Surfaces the diff between the module's declared id at last install and the DB-resident id, so an operator can pick a resolution direction in `ConflictResolutionDialog`."""
+type RebindConflictDetail @authentication @node {
+  "Class name (stable identifier across rebinds)."
+  className: String!
+  "Class kind label ('ComponentClass' | 'AnalysisClass' | …)."
+  classKind: String!
+  "Current id of the class in the DB."
+  dbId: ID!
+  "Id the module declared at the last install attempt (resolved from `Module.lastInstallClassIds`)."
+  moduleDeclaredId: ID!
+}
+
+"""Generic (parent-label, count) pair. Used by `*Class.incomingInstancesByType` to break down :IS_INSTANCE_OF edges by parent label, so `CascadeDeleteDialog` can warn when 'Analyses' (user work) are present."""
+type TypeCount @authentication @node {
+  "Parent node label (e.g. 'Analysis', 'Component', 'Issue')."
+  type: String!
+  "Number of incoming :IS_INSTANCE_OF edges from nodes of this label."
+  count: Int!
+}
+
+"""
+Discriminated event from the in-memory class-identity event log.
+The `kind` field is the discriminant ('rebind' | 'rebind-conflict' |
+'collision' | 'orphan' | 'revive'); per-kind fields are nullable on
+the union shape and populated based on the discriminant value.
+"""
+type ClassIdentityEvent @authentication @node {
+  "Discriminant: 'rebind' | 'rebind-conflict' | 'collision' | 'orphan' | 'revive'"
+  kind: String!
+  "ISO timestamp of event emission."
+  timestamp: String!
+  "Module name (null for collision events — see firstModuleName/secondModuleName)."
+  moduleName: String
+  "Pluralized class-kind key from @dethernety/dt-module ('analysisClasses' | 'componentClasses' | ...)."
+  classKind: String
+  "Class name (the human-readable identifier)."
+  className: String
+  # rebind / rebind-conflict
+  "Pre-rebind id (rebind events) or current DB id (rebind-conflict events)."
+  oldId: String
+  "Post-rebind id (rebind events only)."
+  newId: String
+  "Module-declared id (rebind-conflict events only)."
+  moduleDeclaredId: String
+  "Current DB id at time of conflict (rebind-conflict events only)."
+  dbId: String
+  "Rebind policy applied: 'audit' | 'silent' | 'strict'."
+  policy: String
+  # orphan / revive
+  "Class id (orphan / revive events)."
+  classId: String
+  "Reason for orphaning ('absent-from-metadata' | 'legacy-id-superseded')."
+  reason: String
+  # collision
+  "First module of a collision (the one that created the colliding id)."
+  firstModuleName: String
+  "Second module of a collision (the one whose install was rejected)."
+  secondModuleName: String
+  "The id that collided across modules."
+  collidingId: String
 }
 
 """A single element to match against the class catalog."""
@@ -1389,12 +1787,11 @@ type Query {
       // Branch 1: Component / SecurityBoundary supports — aggregate before
       // branch 2 to avoid Cartesian inflation when a Control supports both
       // a Component and a DataFlow.
-      // Sprint 5 F-25: depth bound raised from *0..10 to *0..50 — the prior
-      // bound silently failed open on deeply-nested SecurityBoundary trees
-      // (12+ levels), under-counting assigned models and biasing the
-      // shared-ownership safety check toward "alone" (UX-friendly but
-      // unsafe). 50 is a defensible ceiling pending the V1.1 telemetry-driven
-      // bootstrap warning (see Sprint 6 follow-up).
+      // Depth bound *0..50 — the prior *0..10 silently failed open on
+      // deeply-nested SecurityBoundary trees (12+ levels), under-counting
+      // assigned models and biasing the shared-ownership safety check
+      // toward "alone" (UX-friendly but unsafe). 50 is a defensible ceiling
+      // pending a telemetry-driven bootstrap warning.
       OPTIONAL MATCH (c)-[:SUPPORTS]->(e) WHERE e:Component OR e:SecurityBoundary
       OPTIONAL MATCH (m1:Model)-[:CONTAINS]->(:SecurityBoundary)<-[:BELONGS_TO*0..50]-(e)
       WITH cid, c, collect(DISTINCT m1.id) AS ids1
@@ -1434,6 +1831,22 @@ type Query {
       """
       columnName: "result"
     )
+    @authentication
+
+  """
+  Admin: returns structured class-identity events from the in-memory ring
+  buffer (max 1000 events, drop-oldest, process-local — pre-restart
+  events are not persisted). Admin-gated to avoid surfacing per-module
+  operational state to non-admin authenticated users in multi-tenant
+  deployments. Filter by `kind` ('rebind' | 'rebind-conflict' |
+  'collision' | 'orphan' | 'revive'), `moduleName`, and/or `since`
+  (events at-or-after the timestamp are returned).
+  """
+  classIdentityEvents(
+    kind: String
+    moduleName: String
+    since: String
+  ): [ClassIdentityEvent!]!
     @authentication
 }
 

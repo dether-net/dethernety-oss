@@ -1,10 +1,9 @@
 /**
- * Sprint 6 Tier-3 carryover (cypher-memgraph-expert deferral): "EXPLAIN
- * snapshot test" — pin the variable-length-expand depth bounds in the
- * shipped schema so a future inadvertent rewrite (back to `*0..10`,
- * cross-product join, additional traversal pattern) breaks this test
- * loudly at CI time rather than silently fail-open at runtime on a
- * customer with a deeply nested boundary topology.
+ * EXPLAIN snapshot test — pin the variable-length-expand depth bounds
+ * in the shipped schema so a future inadvertent rewrite (back to
+ * `*0..10`, cross-product join, additional traversal pattern) breaks
+ * this test loudly at CI time rather than silently fail-open at runtime
+ * on a customer with a deeply nested boundary topology.
  *
  * Why text-snapshot rather than a real Memgraph EXPLAIN:
  *
@@ -49,7 +48,7 @@ describe('schema.graphql — Cypher depth-bound shape snapshot', () => {
     expect(matches.length).toBe(4);
   });
 
-  it('contains zero remaining `:BELONGS_TO*0..10` or `*1..10` patterns (Sprint 5 F-25 + Sprint 6 carryover both raised every site)', () => {
+  it('contains zero remaining `:BELONGS_TO*0..10` or `*1..10` patterns (all sites raised)', () => {
     expect(schema).not.toMatch(/:BELONGS_TO\*0\.\.10/);
     expect(schema).not.toMatch(/:BELONGS_TO\*1\.\.10/);
   });
@@ -59,11 +58,10 @@ describe('schema.graphql — Cypher depth-bound shape snapshot', () => {
     // those whose right-hand node binds an alias AND a label. A Cartesian-
     // style rewrite of these sites would drop the label suffix.
     //
-    // Sprint 6 cross-review caveat (cypher-memgraph-expert Tier-2):
-    // schema.graphql contains TWO additional variable-length :BELONGS_TO
-    // shapes that this regex deliberately does not cover, because their
-    // shape is intrinsically different and a "missing label" assertion
-    // doesn't apply:
+    // Cross-review caveat: schema.graphql contains TWO additional
+    // variable-length :BELONGS_TO shapes that this regex deliberately
+    // does not cover, because their shape is intrinsically different
+    // and a "missing label" assertion doesn't apply:
     //   - L1399 `:BELONGS_TO*0..50]-(e)` — bare-alias right side; type
     //     constraint enforced by an outer `WHERE e:Component OR
     //     e:SecurityBoundary` predicate, not by inline label syntax.

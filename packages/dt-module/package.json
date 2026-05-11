@@ -34,10 +34,12 @@
     "axios": "^1.16.0",
     "graphql": "^16.13.2",
     "graphql-subscriptions": "^3.0.0",
-    "json-logic-js": "^2.0.5"
+    "json-logic-js": "^2.0.5",
+    "uuid": "^11.0.0"
   },
   "devDependencies": {
     "@types/json-logic-js": "^2.0.8",
-    "@types/node": "^25.6.0"
+    "@types/node": "^25.6.0",
+    "@types/uuid": "^10.0.0"
   }
 }

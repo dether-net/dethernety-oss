@@ -73,6 +73,9 @@ export class ControlCandidatesResolverService {
 
     const session = this.getSession();
     try {
+      // Orphan-aware: :HAS_CLASS implicitly excludes orphans
+      // (HAS_ORPHANED_CLASS) — control candidate discovery should not
+      // suggest controls bound to retired classes.
       const query = `
         MATCH (ctrl:Control)-[:IS_INSTANCE_OF]->(cc:ControlClass)<-[:HAS_CLASS]-(m:Module)
         WHERE ANY(et IN $elementTypes WHERE et IN cc.supportedTypes)

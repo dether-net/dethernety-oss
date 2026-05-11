@@ -524,10 +524,10 @@ describe('GenerateAttributeStubsTool', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Cache fallback (S8.4)
+  // Cache fallback
   // -------------------------------------------------------------------------
 
-  describe('Cache fallback (S8.4)', () => {
+  describe('Cache fallback', () => {
     it('should use class cache as fallback when platform fetch throws', async () => {
       const classId = 'class-redis'
       await writeModel(tmpDir, makeStructure([
@@ -660,10 +660,10 @@ describe('GenerateAttributeStubsTool', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Reclassification (S8.6)
+  // Reclassification
   // -------------------------------------------------------------------------
 
-  describe('Reclassification (S8.6)', () => {
+  describe('Reclassification', () => {
     it('should remove unenriched old template fields and add new ones on reclassification', async () => {
       const oldClassId = 'class-mysql'
       const newClassId = 'class-postgres'

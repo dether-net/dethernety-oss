@@ -86,7 +86,7 @@ export class ControlGapsResolverService {
     });
   }
 
-  // --- controlIdsByElements (Sprint 2) ---
+  // --- controlIdsByElements ---
 
   private async executeControlIdsByElements(
     elementIds: string[],
@@ -187,6 +187,9 @@ export class ControlGapsResolverService {
 
     const session = this.getSession();
     try {
+      // Orphan-aware: :HAS_CLASS implicitly excludes orphans
+      // (HAS_ORPHANED_CLASS) — only active control classes participate
+      // in mitigation-mapping.
       const query = `
         MATCH (mit:MitreAttackMitigation)<-[:RESPONDS_WITH]-(cm:Countermeasure)
               -[:IS_COUNTERMEASURE_OF]->(cc:ControlClass)<-[:HAS_CLASS]-(m:Module)

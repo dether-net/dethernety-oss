@@ -142,8 +142,8 @@ describe('audit-log writer — computeEffective', () => {
     expect(computeEffective('force-shared', resolutions)).toBe('theirs');
   });
 
-  // Sprint 5 F-40: shallowEqual must be deterministic across key orders.
-  it('treats objects with identical content but different key order as equal (F-40)', () => {
+  // shallowEqual must be deterministic across key orders.
+  it('treats objects with identical content but different key order as equal', () => {
     const resolutions: ConflictResolution[] = [
       {
         key: 'k1',
@@ -158,7 +158,7 @@ describe('audit-log writer — computeEffective', () => {
     expect(computeEffective('force-shared', resolutions)).toBe('ours');
   });
 
-  it('treats merge-result as theirs when canonicalised content matches theirs (F-40)', () => {
+  it('treats merge-result as theirs when canonicalised content matches theirs', () => {
     const resolutions: ConflictResolution[] = [
       {
         key: 'k1',
@@ -171,8 +171,8 @@ describe('audit-log writer — computeEffective', () => {
     expect(computeEffective('force-shared', resolutions)).toBe('theirs');
   });
 
-  // Sprint 7 — first-write entries always derive 'novel' (no prior values
-  // exist on either side, so neither 'ours' nor 'theirs' applies).
+  // First-write entries always derive 'novel' (no prior values exist on
+  // either side, so neither 'ours' nor 'theirs' applies).
   it('returns "novel" for first-write regardless of conflictResolutions', () => {
     expect(computeEffective('first-write', undefined)).toBe('novel');
     expect(computeEffective('first-write', [])).toBe('novel');
@@ -220,7 +220,7 @@ describe('audit-log writer — buildAuditEntry', () => {
     expect(entry.operator).toBeTruthy();
   });
 
-  // Sprint 7 — first-write entry shape: empty previousAttributes,
+  // First-write entry shape: empty previousAttributes,
   // populated firstWriteKeys, effective='novel'.
   it('first-write entry threads firstWriteKeys and derives effective=novel', async () => {
     const entry = await buildAuditEntry({
@@ -291,7 +291,7 @@ describe('audit-log writer — getOperatorEmail', () => {
   });
 });
 
-describe('Sprint 4 F-04 — authnOperator field', () => {
+describe('authnOperator field', () => {
   it('buildAuditEntry accepts and persists authnOperator', async () => {
     const entry = await buildAuditEntry({
       kind: 'force-shared',

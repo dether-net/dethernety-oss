@@ -67,6 +67,7 @@ export class GraphQLSseController implements OnModuleInit {
           return {
             token,
             jwt: token,
+            user: (req.raw as any).user, // Stamped by JwtAuthGuard; required by requireAdmin()
             driver: this.neo4jDriver,
             sessionConfig: { database: databaseName },
             cypherQueryOptions: { addVersionPrefix: false },

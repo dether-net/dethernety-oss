@@ -414,7 +414,7 @@ const createAuthStore = (config: AuthStoreConfig = {}) => {
         authDisabled.value = true
         // Inject a mock user that mirrors the backend's dev-user (jwt-auth.guard.ts)
         user.value = { id: 'dev-user', email: 'dev@example.com', name: 'Demo User' }
-        roles.value = []
+        roles.value = ['admin']
         permissions.value = []
         debugLog(authConfig, 'Auth disabled — running in demo / development mode')
       }

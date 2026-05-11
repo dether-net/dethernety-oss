@@ -8,6 +8,7 @@ import { LgAnalysisConfig, LgModuleMetadata, LgModuleOptions } from './interface
 import { DtLgAnalysisOps } from './dt-lg-analysis-ops';
 import { DtLgDocumentOps } from './dt-lg-document-ops';
 import { readSchemaExtension } from './schema-utils';
+import { deriveAnalysisClassId } from './identity';
 
 /**
  * Default template for LangGraph modules.
@@ -154,6 +155,11 @@ export class DtLgModule implements DTModule {
       version: this.metadata.version,
       author: this.metadata.author,
       icon: this.metadata.icon,
+      // Default to 'audit' — pre-existing class nodes assigned ids by
+      // `randomUUID()` would otherwise produce strict-mode rejections
+      // on every install. Audit-mode rebinds the id and emits a
+      // structured event the operator can review.
+      idRebindPolicy: 'audit',
       analysisClasses: await this.getAnalysisClasses(),
     };
   }
@@ -180,42 +186,56 @@ export class DtLgModule implements DTModule {
       operation: 'getAnalysisClasses'
     });
 
+    // Infrastructure failure (aegra unreachable) MUST propagate so
+    // getMetadata() can signal "source unavailable" upstream — the
+    // platform then skips the install rather than reconciling against
+    // an empty list (which would orphan every AnalysisClass node). DO
+    // NOT catch-and-return-[]; that turns a transient outage into a
+    // silent data wipe.
+    let lgAssistants: object[];
     try {
-      const lgAssistants = await this.getAnalysisAssistants();
-
-      // Clear existing assistants and rebuild
-      this.assistants.length = 0;
-
-      for (const assistant of lgAssistants as any[]) {
-        const graphConfig = this.analysisConfig.graphs[assistant.name];
-        this.assistants.push({
-          id: assistant.assistant_id,
-          name: assistant.name,
-          description: graphConfig?.description || 'No description',
-          type: graphConfig?.type || 'general',
-          category: graphConfig?.category || 'general',
-        });
-      }
-
-      const duration = Date.now() - startTime;
-      this.logger.log('Analysis classes retrieved successfully', {
-        moduleName: this.moduleName,
-        operation: 'getAnalysisClasses',
-        duration: `${duration}ms`,
-        assistantCount: this.assistants.length
-      });
-
-      return this.assistants;
+      lgAssistants = await this.getAnalysisAssistants();
     } catch (error) {
       const duration = Date.now() - startTime;
-      this.logger.error('Failed to get analysis classes', {
+      this.logger.error('Failed to get analysis classes (aegra unavailable)', {
         moduleName: this.moduleName,
         operation: 'getAnalysisClasses',
         duration: `${duration}ms`,
         error: error instanceof Error ? error.message : String(error)
       });
-      return [];
+      throw error;
     }
+
+    // Clear existing assistants and rebuild
+    this.assistants.length = 0;
+
+    for (const assistant of lgAssistants as any[]) {
+      const graphConfig = this.analysisConfig.graphs[assistant.name];
+      // Skip aegra assistants this module did not declare — without this
+      // guard, a single deployment running multiple DtLgModule instances
+      // would have each module claim every assistant.
+      if (!graphConfig) continue;
+      this.assistants.push({
+        // Derive id locally from the graph name; matches aegra's own
+        // `assistant_id = uuid5(ASSISTANT_NAMESPACE_UUID, name)` so the
+        // platform-side and aegra-side ids align without round-tripping.
+        id: deriveAnalysisClassId(assistant.name),
+        name: assistant.name,
+        description: graphConfig.description || 'No description',
+        type: graphConfig.type || 'general',
+        category: graphConfig.category || 'general',
+      });
+    }
+
+    const duration = Date.now() - startTime;
+    this.logger.log('Analysis classes retrieved successfully', {
+      moduleName: this.moduleName,
+      operation: 'getAnalysisClasses',
+      duration: `${duration}ms`,
+      assistantCount: this.assistants.length
+    });
+
+    return this.assistants;
   }
 
   /**
@@ -224,20 +244,15 @@ export class DtLgModule implements DTModule {
    * @returns Promise resolving to array of assistant objects from LangGraph
    */
   protected async getAnalysisAssistants(): Promise<object[]> {
-    try {
-      const result = await this.client.assistants.search({
-        metadata: null,
-        offset: 0,
-        limit: 100,
-      });
-      return result;
-    } catch (error) {
-      this.logger.error('Failed to get analysis assistants from LangGraph', {
-        moduleName: this.moduleName,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return [];
-    }
+    // Infrastructure failure (aegra unreachable / 5xx) MUST throw so
+    // getMetadata() upstream can signal "source unavailable" → install
+    // skipped, state preserved. Swallowing here would turn a transient
+    // outage into a silent class-wipe.
+    return this.client.assistants.search({
+      metadata: null,
+      offset: 0,
+      limit: 100,
+    });
   }
 
   // ==========================================================================

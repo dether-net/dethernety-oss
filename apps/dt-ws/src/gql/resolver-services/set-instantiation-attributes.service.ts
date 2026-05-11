@@ -34,10 +34,10 @@ import {
 import { AuthorizationContext } from '../interfaces/authorization.interface';
 import { GqlConfig } from '../gql.config';
 
-// Sprint 5 F-26: pre-validate attribute value shapes against the Memgraph
-// property model. Memgraph properties are primitives or homogeneous lists of
-// primitives; nested objects fail at Bolt level with an unhelpful protocol
-// error. Returns a violation message or null when the value is acceptable.
+// Pre-validate attribute value shapes against the Memgraph property model.
+// Memgraph properties are primitives or homogeneous lists of primitives;
+// nested objects fail at Bolt level with an unhelpful protocol error.
+// Returns a violation message or null when the value is acceptable.
 // Exported for unit testing.
 export function describeNonPrimitiveValue(value: unknown): string | null {
   if (value === null || value === undefined) return null;
@@ -650,6 +650,9 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
       // (Component, SecurityBoundary, DataFlow, Data, Control)
       const metadata = await session.executeWrite(async (tx: DatabaseTransaction) => {
         const result = await tx.run(
+          // Orphan-aware: :HAS_CLASS implicitly excludes orphans —
+          // setting attributes on an instantiation requires the class to
+          // be active (operators can't reconfigure retired classes).
           `
           MATCH (c {id: $componentId})
           MATCH (t {id: $classId})<-[:HAS_CLASS]-(m:Module)
@@ -912,10 +915,10 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
     } else if (Object.keys(request.attributes).length === 0) {
       errors.push('attributes cannot be empty');
     } else {
-      // Sprint 5 F-26: pre-validate value shapes. Memgraph property values are
-      // primitives or homogeneous lists of primitives — nested objects and
-      // mixed-type arrays fail at Bolt level with an unhelpful protocol error.
-      // Catch them here so the operator gets a clean VALIDATION_ERROR.
+      // Pre-validate value shapes. Memgraph property values are primitives
+      // or homogeneous lists of primitives — nested objects and mixed-type
+      // arrays fail at Bolt level with an unhelpful protocol error. Catch
+      // them here so the operator gets a clean VALIDATION_ERROR.
       for (const [key, value] of Object.entries(request.attributes)) {
         const violation = describeNonPrimitiveValue(value);
         if (violation) {

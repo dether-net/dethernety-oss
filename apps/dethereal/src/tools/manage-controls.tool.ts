@@ -27,11 +27,10 @@ import { validatePathConfinement } from '../utils/directory-utils.js'
 
 /**
  * Actions that touch the model directory and therefore go through the
- * lock + WAL-replay pre-dispatch (Sprint 4 F-02 + F-03). Read-only
- * actions on the platform (`list`, `get`, `rank`) and pure CRUD that
- * doesn't touch local files (`create`, `update`, `delete`, `assign`)
- * skip both — they don't share state with concurrent control-library
- * writes.
+ * lock + WAL-replay pre-dispatch. Read-only actions on the platform
+ * (`list`, `get`, `rank`) and pure CRUD that doesn't touch local files
+ * (`create`, `update`, `delete`, `assign`) skip both — they don't share
+ * state with concurrent control-library writes.
  */
 const DIRECTORY_TOUCHING_ACTIONS = new Set([
   'pull-controls',
@@ -40,10 +39,10 @@ const DIRECTORY_TOUCHING_ACTIONS = new Set([
   'tombstone',
   'set-local-edited',
   'promote-external-edit',
-  // Sprint 5 F-20 — WAL repair recovery. Lock-acquired (no concurrent
-  // mutation while operator inspects/clears) but the WAL pre-replay is
-  // explicitly skipped (the operator's intent is to observe or discard
-  // the stranded journal, not to apply it).
+  // WAL repair recovery. Lock-acquired (no concurrent mutation while
+  // operator inspects/clears) but the WAL pre-replay is explicitly
+  // skipped (the operator's intent is to observe or discard the
+  // stranded journal, not to apply it).
   'inspect-wal',
   'clear-wal',
 ])
@@ -51,10 +50,9 @@ const DIRECTORY_TOUCHING_ACTIONS = new Set([
 const SKIPS_WAL_REPLAY = new Set(['inspect-wal', 'clear-wal'])
 
 /**
- * Decode the `email` / `sub` claim from a JWT (Sprint 4 F-04). No
- * signature verification — the platform itself authenticated the token
- * before issuing the Apollo client; we only need the identity claim for
- * audit attribution.
+ * Decode the `email` / `sub` claim from a JWT. No signature verification
+ * — the platform itself authenticated the token before issuing the
+ * Apollo client; we only need the identity claim for audit attribution.
  *
  * Returns `undefined` on any failure (malformed token, no payload
  * segment, base64 error, JSON parse error, missing claim) — the caller
@@ -85,10 +83,10 @@ function decodeJwtIdentity(token: string | undefined): string | undefined {
 const InputSchema = z.object({
   action: z.enum([
     'list', 'get', 'create', 'update', 'delete', 'assign', 'rank',
-    // Sprint 3 — control-library actions backed by DtControlLibrary
+    // Control-library actions backed by DtControlLibrary
     'pull-controls', 'push-greenfield', 'push-brownfield', 'tombstone', 'set-local-edited',
     'promote-external-edit',
-    // Sprint 5 F-20 — WAL repair recovery
+    // WAL repair recovery
     'inspect-wal', 'clear-wal',
   ]).describe('Action to perform'),
   folder_id: z.string().optional().describe('Folder ID for listing or creating controls'),
@@ -108,7 +106,7 @@ const InputSchema = z.object({
   module_name: z.string().optional().describe('Module name filter (for list action)'),
   element_types: z.array(z.string()).optional().describe('Element types for rank action (e.g. PROCESS, STORE, EXTERNAL_ENTITY)'),
   top_n: z.number().optional().describe('Number of top candidates to return for rank action (default 5)'),
-  // Control-library (Sprint 3)
+  // Control-library
   directory_path: z.string().optional().describe('Path to the model directory (required for pull-controls / push-* / tombstone / set-local-edited)'),
   // Same security constraint as control_id — pull-controls writes one
   // controls/<id>.json per id, so each must be safe for filesystem use.
@@ -120,7 +118,7 @@ const InputSchema = z.object({
   fresh_platform_attrs: z.record(z.string(), z.record(z.string(), z.any())).optional().describe('Map<classId, Record<attrKey, value>> — fresh server attributes from the pre-push batched fetch (push-brownfield Step B)'),
   class_idx: z.number().int().nonnegative().optional().describe('Index into classes[] for set-local-edited'),
   new_attributes: z.record(z.string(), z.any()).optional().describe('Attribute map to merge into classes[class_idx].attributes (set-local-edited)'),
-  edited_by: z.enum(['agent', 'operator']).optional().describe('Author of the pending edit (set-local-edited). Only "agent" or "operator" — the "external" discriminator is reserved for the dedicated promote-external-edit recovery action (Sprint 4 F-01: closing the audit-discriminator spoofing surface).'),
+  edited_by: z.enum(['agent', 'operator']).optional().describe('Author of the pending edit (set-local-edited). Only "agent" or "operator" — the "external" discriminator is reserved for the dedicated promote-external-edit recovery action (closes the audit-discriminator spoofing surface).'),
 }).superRefine((data, ctx) => {
   if (['get', 'update', 'delete'].includes(data.action) && !data.control_id) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_id" is required for this action', path: ['control_id'] })
@@ -169,7 +167,7 @@ const InputSchema = z.object({
     if (!data.control_id) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"control_id" is required for "promote-external-edit"', path: ['control_id'] })
     if (data.class_idx === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '"class_idx" is required for "promote-external-edit"', path: ['class_idx'] })
   }
-  // Sprint 5 F-20 — WAL repair recovery
+  // WAL repair recovery
   if (data.action === 'inspect-wal' || data.action === 'clear-wal') {
     if (!data.directory_path) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `"directory_path" is required for "${data.action}"`, path: ['directory_path'] })
   }
@@ -183,10 +181,10 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
   readonly inputSchema = InputSchema
 
   async execute(input: ManageControlsInput, context: ToolContext): Promise<ToolResult<unknown>> {
-    // Sprint 4 F-02 + F-03: serialise concurrent invocations against the
-    // same model directory and replay any stranded WAL journal before the
-    // action runs. The lock is held only for actions that touch the model
-    // directory; pure GraphQL CRUD bypasses both.
+    // Serialise concurrent invocations against the same model directory
+    // and replay any stranded WAL journal before the action runs. The
+    // lock is held only for actions that touch the model directory;
+    // pure GraphQL CRUD bypasses both.
     //
     // Security: validate path confinement BEFORE acquireLock. Without this,
     // a caller controlling input.directory_path (e.g. via prompt injection
@@ -225,16 +223,16 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
         }
         throw err
       }
-      // F-02: with the lock held (so two concurrent sessions don't replay
+      // With the lock held (so two concurrent sessions don't replay
       // the same journal twice), apply any stranded greenfield id-rewrite
       // operations. Idempotent — no-op when the journal is absent.
-      // Sprint 5 F-20: skip the auto-replay for inspect-wal / clear-wal —
-      // those are the operator's escape hatch when replay itself fails.
+      // Skip the auto-replay for inspect-wal / clear-wal — those are the
+      // operator's escape hatch when replay itself fails.
       if (!SKIPS_WAL_REPLAY.has(input.action)) try {
         await applyPendingRewrites(input.directory_path)
       } catch (err) {
-        // Replay aborted with an ambiguous-state diagnostic. Sprint 5 F-20
-        // ships the /dethereal:sync repair-wal verb backed by the inspect-wal
+        // Replay aborted with an ambiguous-state diagnostic. The
+        // /dethereal:sync repair-wal verb is backed by the inspect-wal
         // and clear-wal MCP actions. Release the lock and surface the
         // recovery hint so the skill can render guidance without
         // string-matching the error code.
@@ -257,25 +255,23 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
     }
 
     try {
-      // Sprint 5 F-42: removed redundant apolloClient guard. ManageControlsTool
-      // extends ClientDependentTool, so base-tool.ts:86-91 already short-circuits
-      // with a clearer "call login first" message before execute() runs. The
-      // !apolloClient branch here was dead code.
+      // ManageControlsTool extends ClientDependentTool, so
+      // base-tool.ts:86-91 already short-circuits with a clearer
+      // "call login first" message before execute() runs.
 
-      // Sprint 4 F-04: decode JWT identity once for audit attribution.
-      // Sprint 4 Tier-2 cross-review (threat-modeler): use the explicit
+      // Decode JWT identity once for audit attribution. Use the explicit
       // 'unauthenticated' sentinel when token decode fails, so an auditor
-      // can distinguish a Sprint-4 audit entry whose token was missing /
+      // can distinguish an audit entry whose token was missing /
       // malformed (sentinel present, attribution provably impossible)
-      // from a Sprint-3 entry that pre-dates the field (field absent
+      // from an older entry that pre-dates the field (field absent
       // entirely). Without the sentinel, both look operationally identical.
       if (context.authnOperator === undefined) {
         context.authnOperator = decodeJwtIdentity(context.token) ?? 'unauthenticated'
       }
 
-      // Sprint 5 F-42: ClientDependentTool.run() guarantees apolloClient is set
-      // before execute() runs (base-tool.ts:86-91). Narrow once for the action
-      // dispatch instead of asserting at every call site.
+      // ClientDependentTool.run() guarantees apolloClient is set
+      // before execute() runs (base-tool.ts:86-91). Narrow once for the
+      // action dispatch instead of asserting at every call site.
       const apolloClient = context.apolloClient!
       const dtControl = new DtControl(apolloClient)
 
@@ -402,7 +398,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
         }
 
         // -----------------------------------------------------------------
-        // Sprint 3 — control-library actions (S3.1)
+        // Control-library actions
         // Each delegates to DtControlLibrary. The engine owns the invariants
         // (two-write rule, external-edit guard, partial-payload semantic,
         // shared-ownership check, audit-log writes); the MCP boundary only
@@ -427,11 +423,11 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
             return { success: false, error: `Control file not found: ${input.control_id} under ${input.directory_path}` }
           }
           const lib = new DtControlLibrary(apolloClient)
-          // Sprint 5 F-39: superRefine already enforces presence + non-null on
-          // push-greenfield, so the `?? []` fallback was dead but masked
-          // contract violations. Pass the value through strictly — any path
-          // that reaches here without a populated array indicates a Zod /
-          // refine inconsistency that should fail loudly.
+          // superRefine already enforces presence + non-null on
+          // push-greenfield, so a `?? []` fallback would be dead but mask
+          // contract violations. Pass the value through strictly — any
+          // path that reaches here without a populated array indicates a
+          // Zod / refine inconsistency that should fail loudly.
           const result = await lib.pushGreenfieldControl({
             modelDir: input.directory_path!,
             file,
@@ -482,7 +478,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
                 error: 'CLONE_AND_SWAP_NOT_IMPLEMENTED',
                 data: {
                   controlId: input.control_id,
-                  hint: 'V1.1 feature; choose cancel, push-anyway, or push-unverified',
+                  hint: 'Future feature; choose cancel, push-anyway, or push-unverified',
                   message: err.message,
                 },
               } as ToolResult<unknown>
@@ -522,7 +518,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
             if (err instanceof IllegalEditedByError) {
               // Defence-in-depth — Zod already drops 'external' at the
               // boundary, but engine guard catches a future caller that
-              // bypasses Zod (e.g. a programmatic test). Sprint 4 F-01.
+              // bypasses Zod (e.g. a programmatic test).
               return {
                 success: false,
                 error: 'ILLEGAL_EDITED_BY',
@@ -538,7 +534,7 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
         }
 
         case 'promote-external-edit': {
-          // Sprint 3 recovery verb (CL §7 Step A unblock). Synthesises a
+          // Recovery verb (CL §7 Step A unblock). Synthesises a
           // pendingEdit block whose previousAttributes mirror platformAttributes
           // for the keys where local attributes already diverge — does NOT
           // re-pull (re-pulling would destroy the local divergence the
@@ -578,18 +574,18 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
         }
 
         case 'inspect-wal': {
-          // Sprint 5 F-20: read-only inspector. Surfaces the WAL journal
-          // contents + per-operation on-disk state so the skill can render
-          // recovery options to the operator.
+          // Read-only inspector. Surfaces the WAL journal contents +
+          // per-operation on-disk state so the skill can render recovery
+          // options to the operator.
           await validatePathConfinement(input.directory_path!)
           const inspection = await inspectPendingRewrite(input.directory_path!)
           return { success: true, data: inspection }
         }
 
         case 'clear-wal': {
-          // Sprint 5 F-20: hard-delete the WAL journal without applying.
-          // Skill confirms with the operator before invoking; engine has no
-          // confirmation gate — calling this discards the journal.
+          // Hard-delete the WAL journal without applying. Skill confirms
+          // with the operator before invoking; engine has no confirmation
+          // gate — calling this discards the journal.
           await validatePathConfinement(input.directory_path!)
           const cleared = await clearPendingRewrite(input.directory_path!)
           return {
@@ -613,8 +609,8 @@ export class ManageControlsTool extends ClientDependentTool<ManageControlsInput,
         error: error instanceof Error ? error.message : 'Control operation failed'
       }
     } finally {
-      // Sprint 4 F-03: always release. ENOENT on release (already removed
-      // by another writer's recovery path) is swallowed inside releaseLock.
+      // Always release. ENOENT on release (already removed by another
+      // writer's recovery path) is swallowed inside releaseLock.
       if (lockHandle) {
         await releaseLock(lockHandle)
       }

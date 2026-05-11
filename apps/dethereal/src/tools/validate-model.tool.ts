@@ -1158,11 +1158,11 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       })
     }
 
-    // --- Control library validation (Sprint 3 — S3.1, deferred from S2.6) ---
+    // --- Control library validation ---
     // controls/<id>.json files hold the per-Control state (attributes,
     // platformAttributes, pendingEdit, lifecycle). Validate each against the
-    // Sprint 2 `validateControlFile` rules, then surface orphan and missing-
-    // file cross-reference warnings against the model's controls[] arrays.
+    // `validateControlFile` rules, then surface orphan and missing-file
+    // cross-reference warnings against the model's controls[] arrays.
     try {
       const controlFileIds = await listControlFiles(dirPath)
 

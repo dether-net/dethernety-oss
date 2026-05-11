@@ -282,7 +282,7 @@ export interface AnalysisModuleHealth {
 /**
  * Analysis-specific error types
  */
-export type AnalysisErrorType = 
+export type AnalysisErrorType =
   | 'ANALYSIS_NOT_FOUND'
   | 'MODULE_NOT_FOUND'
   | 'MODULE_ERROR'
@@ -291,6 +291,7 @@ export type AnalysisErrorType =
   | 'SUBSCRIPTION_ERROR'
   | 'TIMEOUT_ERROR'
   | 'RESOURCE_EXHAUSTED'
+  | 'CLASS_RETIRED'
   | 'UNKNOWN_ERROR';
 
 /**

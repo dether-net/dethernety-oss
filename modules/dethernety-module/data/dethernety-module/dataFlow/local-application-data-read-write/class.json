@@ -1,4 +1,5 @@
 {
+  "id": "7fd9caa7-cf22-4d31-a281-6ecbb324a061",
   "name": "Local Application Data Read/Write",
   "classType": "dataFlow",
   "type": "dataFlow",

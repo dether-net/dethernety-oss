@@ -98,8 +98,12 @@ export class JwtAuthGuard implements CanActivate {
         }
         this.logger.log('JWT validation bypassed - no OIDC configuration (development mode)');
 
-        // Add mock user info to request (development only)
-        request['user'] = { sub: 'dev-user', email: 'dev@example.com', roles: [], permissions: [] };
+        // Add mock user info to request (development only).
+        // The dev mock user carries `roles: ['admin']` so admin-gated
+        // GraphQL operations are reachable from local / demo deployments
+        // without an IdP. Production paths flow through the JWT validation
+        // branch and never touch this mock.
+        request['user'] = { sub: 'dev-user', email: 'dev@example.com', roles: ['admin'], permissions: [] };
         request['token'] = token || 'dev-token';
 
         return true;
@@ -134,6 +138,36 @@ export class JwtAuthGuard implements CanActivate {
     return extractBearerToken(request.headers.authorization);
   }
 
+  /**
+   * Decode the JWT user payload from an Authorization header without throwing.
+   *
+   * Used by the GraphQL HTTP context factory, which runs outside Nest's guard
+   * chain (Apollo handles POST /graphql directly, no @UseGuards available).
+   * Mirrors canActivate's branching:
+   *   - dev/demo (no OIDC, non-prod) → mock user with `roles: ['admin']`
+   *   - prod / OIDC configured → validateToken (full JWKS signature check)
+   *   - invalid / missing token → undefined (resolver-side gates handle it)
+   */
+  async decodeUserFromAuthHeader(authHeader: string | undefined): Promise<any | undefined> {
+    const token = extractBearerToken(authHeader);
+
+    if (!this.config?.oidcJwksUri) {
+      if (process.env.NODE_ENV === 'production') return undefined;
+      return { sub: 'dev-user', email: 'dev@example.com', roles: ['admin'], permissions: [] };
+    }
+
+    if (!token) return undefined;
+
+    try {
+      return await this.validateToken(token);
+    } catch (err) {
+      this.logger.debug('GraphQL context: JWT decode failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+  }
+
   private async validateToken(token: string): Promise<any> {
     // If no OIDC configuration, handle based on environment
     if (!this.config.oidcJwksUri || !this.jwksClientInstance) {
@@ -144,7 +178,8 @@ export class JwtAuthGuard implements CanActivate {
         );
       }
       this.logger.warn('JWT validation skipped - no OIDC configuration (development mode)');
-      return { sub: 'dev-user', email: 'dev@example.com', roles: [], permissions: [] };
+      // Dev mock user gets admin role; see canActivate() comment.
+      return { sub: 'dev-user', email: 'dev@example.com', roles: ['admin'], permissions: [] };
     }
 
     return new Promise((resolve, reject) => {

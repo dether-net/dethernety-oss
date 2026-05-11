@@ -59,9 +59,9 @@ export interface PendingEditBlock {
    * `(k in platformAttributes)` "absent-and-unknown schema drift"
    * guard does NOT apply to them.
    *
-   * Optional / absent on Sprint-3-era files (back-compat — read sites
+   * Optional / absent on older files (back-compat — read sites
    * use `?? []`). Engine writes the field only when non-empty so
-   * unaffected files keep their pre-Sprint-7 shape on disk.
+   * unaffected files keep their earlier shape on disk.
    *
    * Mutually exclusive with {@link previousAttributes} keys. The
    * validator rejects overlap.

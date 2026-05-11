@@ -162,6 +162,9 @@ export class MatchClassesResolverService {
     });
     try {
       const hasModuleFilter = moduleIds && moduleIds.length > 0;
+      // Orphan-aware: both branches use :HAS_CLASS — fetchClasses is
+      // the public class-listing surface; orphans (HAS_ORPHANED_CLASS)
+      // are intentionally hidden.
       const query = hasModuleFilter
         ? `MATCH (m:Module)-[:HAS_CLASS]->(c:${nodeLabel})
            WHERE m.id IN $moduleIds
@@ -425,6 +428,10 @@ export class MatchClassesResolverService {
         WITH node, similarity
         WHERE similarity >= $threshold
           AND ($component_type IS NULL OR node.type = $component_type)
+        // Orphan-aware: :HAS_CLASS implicitly excludes orphans —
+        // vector search results should be active classes only; operators
+        // don't want retired classes surfacing in user-facing semantic
+        // search.
         MATCH (node)<-[:HAS_CLASS]-(m:Module)
         WHERE $module_ids IS NULL OR m.id IN $module_ids
         RETURN node.id AS classId, node.name AS className,
@@ -625,7 +632,10 @@ export class MatchClassesResolverService {
       for (const [nodeLabel, indexName] of Object.entries(
         CLASS_LABEL_TO_INDEX_NAME,
       )) {
-        // Fetch all classes of this label (optionally filtered by moduleIds)
+        // Fetch all classes of this label (optionally filtered by moduleIds).
+        // Orphan-aware: both branches use :HAS_CLASS — embedding reindex
+        // only touches active classes; orphaned classes keep their last
+        // embedding from before they were retired.
         const hasModuleFilter = moduleIds && moduleIds.length > 0;
         const fetchQuery = hasModuleFilter
           ? `MATCH (m:Module)-[:HAS_CLASS]->(c:${nodeLabel})

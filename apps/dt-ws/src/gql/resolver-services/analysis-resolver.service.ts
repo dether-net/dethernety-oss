@@ -417,6 +417,10 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
       // Use modern Neo4j v5 executeRead pattern
       const result = await session.executeRead(async (tx: DatabaseTransaction) => {
         return await tx.run(
+          // Orphan-aware: :HAS_CLASS implicitly excludes orphans (renamed
+          // to :HAS_ORPHANED_CLASS by reconciliation). This is the active
+          // routing query — orphaned classes surface via the CLASS_RETIRED
+          // path immediately below.
           `
           MATCH (a:Analysis {id: $analysisId})
           MATCH (a)<-[:ANALYZED_BY]-(e)
@@ -429,10 +433,32 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
       });
       
       if (result.records.length === 0) {
+        // Distinguish "class retired by its module" (orphaned class
+        // still attached via IS_INSTANCE_OF) from "analysis truly absent".
+        // The routing query above only matches active :HAS_CLASS bindings.
+        const orphanCheck = await session.executeRead(async (tx: DatabaseTransaction) => {
+          return await tx.run(
+            `MATCH (a:Analysis {id: $analysisId})-[:IS_INSTANCE_OF]->(c:AnalysisClass)
+                                                  <-[:HAS_ORPHANED_CLASS]-(m:Module)
+             RETURN c.name AS className, m.name AS moduleName LIMIT 1`,
+            { analysisId },
+          );
+        });
+        if (orphanCheck.records.length > 0) {
+          const r = orphanCheck.records[0];
+          const className = r.get('className') as string;
+          const moduleName = r.get('moduleName') as string;
+          throw this.createAnalysisError(
+            'CLASS_RETIRED',
+            `Class "${className}" has been retired by its module "${moduleName}"`,
+            analysisId,
+            moduleName,
+          );
+        }
         this.logger.warn('No analysis class found for analysisId', { analysisId });
         return null;
       }
-      
+
       const record = result.records[0];
       const metadata: AnalysisMetadata = {
         analysisClassId: record.get('analysisClassId'),
@@ -452,10 +478,16 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
       return metadata;
       
     } catch (error) {
+      // Structured AnalysisError objects (e.g. CLASS_RETIRED from the
+      // orphan-check path) carry a `type` discriminator and must propagate
+      // — turning them into null swallows operator-actionable signal.
+      if (error && typeof error === 'object' && 'type' in error && 'message' in error) {
+        throw error;
+      }
       this.logger.error('Failed to get analysis metadata from database', {
         analysisId,
-        error: error.message,
-        stack: error.stack,
+        error: (error as Error).message,
+        stack: (error as Error).stack,
       });
       return null;
     } finally {

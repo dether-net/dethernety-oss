@@ -1,5 +1,5 @@
 /**
- * Tests for the file-based advisory lock primitive (Sprint 4 F-03).
+ * Tests for the file-based advisory lock primitive.
  *
  * Concurrency tests use the in-process atomic primitive `fs.open(.., 'wx')`
  * which is robust to multiple simultaneous attempts within the same Node

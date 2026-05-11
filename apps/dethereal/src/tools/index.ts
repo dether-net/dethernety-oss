@@ -36,7 +36,7 @@ export { ManageCountermeasuresTool, manageCountermeasuresTool } from './manage-c
 export { ManageAnalysesTool, manageAnalysesTool } from './manage-analyses.tool.js'
 export { GenerateAttributeStubsTool, generateAttributeStubsTool } from './generate-attribute-stubs.tool.js'
 
-// Sprint 5 tools
+// Additional tools
 export { MatchClassesTool, matchClassesTool } from './match-classes.tool.js'
 export { GetControlGapsTool, getControlGapsTool } from './get-control-gaps.tool.js'
 
@@ -65,7 +65,7 @@ import { manageControlsTool } from './manage-controls.tool.js'
 import { manageCountermeasuresTool } from './manage-countermeasures.tool.js'
 import { manageAnalysesTool } from './manage-analyses.tool.js'
 import { generateAttributeStubsTool } from './generate-attribute-stubs.tool.js'
-// Sprint 5 tools
+// Additional tools
 import { matchClassesTool } from './match-classes.tool.js'
 import { getControlGapsTool } from './get-control-gaps.tool.js'
 
@@ -97,7 +97,7 @@ export const allTools: BaseTool[] = [
   manageCountermeasuresTool,
   manageAnalysesTool,
   generateAttributeStubsTool,
-  // Sprint 5 tools
+  // Additional tools
   matchClassesTool,
   getControlGapsTool,
 ]
@@ -135,7 +135,7 @@ export const clientDependentTools: BaseTool[] = [
   manageCountermeasuresTool,
   manageAnalysesTool,
   generateAttributeStubsTool,
-  // Sprint 5 tools
+  // Additional tools
   matchClassesTool,
   getControlGapsTool,
 ]

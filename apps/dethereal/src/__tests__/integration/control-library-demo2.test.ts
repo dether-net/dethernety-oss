@@ -1,6 +1,5 @@
 /**
- * Control-library end-to-end round-trip against the demo2 fixture
- * (Sprint 3 S3.6).
+ * Control-library end-to-end round-trip against the demo2 fixture.
  *
  * Verifies the full control-library workflow lands correctly against
  * a live platform:
@@ -64,7 +63,7 @@ const PLATFORM_URL = process.env.DETHERNETY_URL || 'http://localhost:3003'
 
 const shouldRun = !!(DEMO2_PATH && MEMGRAPH_URI)
 
-describe.skipIf(!shouldRun)('control-library demo2 round-trip (S3.6)', () => {
+describe.skipIf(!shouldRun)('control-library demo2 round-trip', () => {
   let ctx: ToolContext
   let savedSha: string | undefined
 
