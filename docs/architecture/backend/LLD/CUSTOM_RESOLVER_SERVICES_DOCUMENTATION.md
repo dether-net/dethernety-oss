@@ -19,6 +19,7 @@ graph TB
         IR[IssueResolverService]
         AR[AnalysisResolverService]
         SIAR[SetInstantiationAttributesService]
+        CIR[ClassIdentityResolverService]
     end
 
     subgraph "Shared Services"
@@ -44,6 +45,7 @@ graph TB
     SCHEMA --> IR
     SCHEMA --> AR
     SCHEMA --> SIAR
+    SCHEMA --> CIR
 
     MMR --> AUTH
     MMR --> MON
@@ -67,6 +69,8 @@ graph TB
     SIAR --> AUTH
     SIAR --> MON
 
+    CIR --> NEO4J
+
     MMS --> NEO4J
     MRS --> MODULES
     AR --> NEO4J
@@ -80,7 +84,8 @@ graph TB
 3. [IssueResolverService](#3-issueresolverservice)
 4. [AnalysisResolverService](#4-analysisresolverservice)
 5. [SetInstantiationAttributesService](#5-setinstantiationattributesservice)
-6. [Shared Services](#6-shared-services)
+6. [ClassIdentityResolverService](#6-classidentityresolverservice)
+7. [Shared Services](#7-shared-services)
 
 ---
 
@@ -917,7 +922,66 @@ interface ConcurrencyControlMetrics {
 
 ---
 
-## 6. Shared Services
+## 6. ClassIdentityResolverService
+
+**Location**: [`src/gql/resolver-services/class-identity-resolver.service.ts`](../../../../apps/dt-ws/src/gql/resolver-services/class-identity-resolver.service.ts)
+
+### Purpose
+
+Exposes the engine-level class-identity surface to GraphQL so an operator can read the in-memory event log, resolve strict-mode rebind conflicts, and reconcile orphaned classes without DB shell access. Backs the admin **Operations** tab in `modules.vue`.
+
+### Surfaces
+
+| Kind | Field | Description |
+|------|-------|-------------|
+| Field resolver | `Module.rebindConflicts` | Joins `Module.lastInstallClassIds` against current DB ids; surfaces rows where they differ as `[RebindConflictDetail!]!` |
+| Field resolver | `Module.constraintsHealthy` | Reflects the bootstrap result from `EnsureConstraintsService` |
+| Query | `classIdentityEvents(kind?, moduleName?, since?)` | In-memory ring buffer (max 1000 events, drop-oldest, process-local) |
+| Mutation | `migrateClassId(moduleName, className, classKind, newId)` | Audit-mode rebind of `(Module, *Class) → newId` |
+| Mutation | `reviveOrphanedClass(classId, classKind)` | Flip `HAS_ORPHANED_CLASS` → `HAS_CLASS` |
+| Mutation | `deleteOrphanedClass(classId, classKind, cascade)` | Hard-delete an orphaned class. Cascade gated on `incomingInstanceCount`; capped at 1000 incidents to stay within Memgraph's default per-tx memory ceiling |
+| Mutation | `runIdentityMigration(dryRun)` | Re-run the idempotent class-identity cleanup migration |
+
+### Authz model
+
+**Every mutation AND the read query is gated by `requireAdmin(ctx)` at resolver entry** — see [`is-admin.ts`](../../../../apps/dt-ws/src/common/guards/is-admin.ts). The schema directive on these operations is just `@authentication` (token validity); the role check happens in TypeScript, not in the schema, to keep the admin contract role-aware without introducing a role-aware schema directive.
+
+`requireAdmin` accepts admin from either `payload.roles` or `payload['cognito:groups']` — Cognito group mapping varies by deployment (some shops mirror groups into `roles` via a pre-token-generation Lambda, others ship the raw `cognito:groups` claim).
+
+The `ctx.user` field is populated by the Apollo context factory (not by Nest's guard chain — Apollo handles `POST /graphql` directly). See [GRAPHQL_MODULE.md → JwtAuthGuard integration](./GRAPHQL_MODULE.md#jwtauthguard-integration-in-the-context-factory) for the context-creation flow.
+
+### Audit log
+
+Every admin mutation emits a `Logger.warn` structured entry **before** doing the work, capturing operator identity (`sub`, `email`) and arguments:
+
+```typescript
+this.logger.warn(`admin action: ${action}`, {
+  action,
+  args,
+  operator: { sub: ctx?.user?.sub, email: ctx?.user?.email },
+  timestamp: new Date().toISOString(),
+})
+```
+
+Mutations that produce a class-identity event (`migrateClassId` is mechanically an audit-mode rebind, `reviveOrphanedClass` emits a `revive` event) **also** emit a structured event into the same in-memory log that automatic operations use — so the operator-driven action appears in the same timeline as the engine's own actions. No separate persisted audit log; if compliance later requires it, a downstream `Logger` transport handles persistence.
+
+### Key invariants
+
+- **TOCTOU guard on `migrateClassId`**: the write `MATCH` re-verifies `(oldId, className)` so a concurrent writer can't cause a misleading rebind event for a no-op write. Throws `ConflictException` if the pair changed between read and write.
+- **Idempotent revive**: revive of an already-active class returns `true` without emitting an event (timeline shouldn't show a non-action).
+- **Cascade hard cap**: `deleteOrphanedClass(cascade: true)` refuses above `CASCADE_HARD_LIMIT = 1000` incident instances — operator must chunk via direct Cypher or escalate the per-tx memory limit before retrying.
+- **Cross-module collision check**: `migrateClassId` refuses if `newId` is already owned by a different Module at the same label.
+- **Idempotent migration**: `runIdentityMigration` is safe to invoke any time — running twice produces an identical end state. `dryRun=true` (default) reports planned actions without writing.
+
+### Related
+
+- [Module → `rebindConflicts` field semantics](./SCHEMA.md#module)
+- [Class-identity admin mutation reference](../GRAPHQL_API_REFERENCE.md#migrateclassid)
+- [`Module.lastInstallClassIds` snapshot write](./MODULE_MANAGEMENT_SERVICE.md) (in `upsertModule`)
+
+---
+
+## 7. Shared Services
 
 ### AuthorizationService
 

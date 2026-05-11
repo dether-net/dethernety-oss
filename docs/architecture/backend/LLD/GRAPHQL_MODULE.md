@@ -244,6 +244,49 @@ interface ResolverFunction {
 - **Context Propagation**: User information available in all resolvers
 - **Token Extraction**: Automatic Bearer token parsing
 
+### JwtAuthGuard integration in the context factory
+
+Apollo handles `POST /graphql` directly — **Nest's `@UseGuards(JwtAuthGuard)` chain never runs for GraphQL HTTP requests**. To make `ctx.user` available to resolver-side gates like `requireAdmin(ctx)`, the Apollo context factory inside [`gql.module.ts`](../../../../apps/dt-ws/src/gql/gql.module.ts) instantiates `JwtAuthGuard` inline and calls its `decodeUserFromAuthHeader()` method on every request:
+
+```typescript
+useFactory: async (configService, ...) => {
+  // GraphQLModule.forRootAsync has its own DI scope, and exposing the
+  // guard via that scope would mean wrapping it in a module just for
+  // that purpose. The guard's only constructor dep is ConfigService —
+  // inline construction is cheaper than the extra module.
+  const jwtAuthGuard = new JwtAuthGuard(configService)
+  // ...
+  return {
+    context: async ({ req, connection }) => {
+      // WebSocket subscription path
+      if (connection) {
+        const user = await jwtAuthGuard.decodeUserFromAuthHeader(
+          connection.context?.Authorization
+        )
+        return { /* ..., */ user }
+      }
+      // HTTP path (query / mutation / SSE subscription)
+      if (req) {
+        const user = await jwtAuthGuard.decodeUserFromAuthHeader(
+          req.headers?.authorization
+        )
+        return { /* ..., */ user }
+      }
+    },
+  }
+}
+```
+
+**`decodeUserFromAuthHeader` is the non-throwing variant of `canActivate`**, defined in [`jwt-auth.guard.ts`](../../../../apps/dt-ws/src/common/guards/jwt-auth.guard.ts). It mirrors `canActivate`'s environment branching:
+
+| Environment | Behaviour |
+|-------------|-----------|
+| `NODE_ENV=production` with OIDC configured | Full JWKS signature validation via `validateToken()` — returns the JWT payload on success, `undefined` on any failure (resolver-side gates handle the rejection) |
+| `NODE_ENV !== production` AND no `OIDC_JWKS_URI` | Returns a **dev mock user with `roles: ['admin']`** so local/demo deployments can exercise admin-gated operations without an IdP |
+| Token missing or decode fails | Returns `undefined` — `ctx.user` is unset; `requireAdmin(ctx)` throws `ForbiddenException` |
+
+The dev-mock admin behaviour is intentional: it lets `pnpm dev` exercise the entire admin surface (including [`ClassIdentityResolverService`](./CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#6-classidentityresolverservice)) without standing up an IdP. Production paths flow through the full JWT validation branch and never touch the mock.
+
 ### Query Protection
 ```typescript
 // Depth limiting (prevents deeply nested queries)

@@ -1355,7 +1355,7 @@ type Mutation {
   An operator may align the other way but then must also update the
   module source — for source-controlled modules that means a code change;
   for DtLgModule-derived classes that means renaming the underlying graph
-  in aegra.
+  in the LangGraph runtime.
 
   Cross-module collision check refuses the migration if `newId` is
   already owned by a different Module at the same label.

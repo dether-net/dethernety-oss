@@ -38,6 +38,51 @@ Component type (process, database, external entity, etc.).
 | `BOUNDARY` | A logical grouping boundary |
 | `SECURITY_BOUNDARY` | A trust boundary separating zones of different trust levels |
 | `DATA_FLOW` | A data flow connection between components |
+| `DATA` | A data class |
+| `CONTROL` | A control class |
+
+### ClassLabelEnum
+
+Class label identifying which node type to match against.
+
+| Value | Description |
+|-------|-------------|
+| `COMPONENT` | Component classes (PROCESS, STORE, EXTERNAL_ENTITY) |
+| `SECURITY_BOUNDARY` | Security boundary classes |
+| `DATA_FLOW` | Data flow classes |
+| `DATA` | Data classes |
+| `CONTROL` | Control classes |
+
+### MatchClassFieldEnum
+
+Optional fields to include on match candidates.
+
+| Value | Description |
+|-------|-------------|
+| `description` |  |
+| `category` |  |
+| `type` |  |
+
+### MatchType
+
+How the match was determined.
+
+| Value | Description |
+|-------|-------------|
+| `exact_name` |  |
+| `fuzzy_name` |  |
+| `vector_similarity` |  |
+| `type_match` |  |
+
+### ConfidenceLevel
+
+Confidence level of the match.
+
+| Value | Description |
+|-------|-------------|
+| `high` |  |
+| `medium` |  |
+| `low` |  |
 
 ### TrustLevel
 
@@ -240,7 +285,10 @@ Implements: `Element`
 | `type` | `String` | Control type (e.g., technical, procedural, administrative) |
 | `category` | `String` | Control category |
 | `controlClasses` | `[ControlClass!]!` | Class this control is an instance of (→ `IS_INSTANCE_OF`) |
-| `elements` | `[Element!]!` | Elements this control is applied to (→ `SUPPORTS`) |
+| `elements` | `[Element!]!` | Elements this control is applied to (polymorphic). Note: the auto-generated resolver for this interface field has correctness and performance issues against Memgraph — prefer the typed fields below for production queries. Retained for backward compatibility with external consumers. (→ `SUPPORTS`) |
+| `supportedComponents` | `[Component!]!` | Components this control is applied to (→ `SUPPORTS`) |
+| `supportedBoundaries` | `[SecurityBoundary!]!` | Security boundaries this control is applied to (→ `SUPPORTS`) |
+| `supportedDataFlows` | `[DataFlow!]!` | Data flows this control is applied to (→ `SUPPORTS`) |
 | `countermeasures` | `[Countermeasure!]!` | Countermeasures provided by this control (→ `HAS_COUNTERMEASURE`) |
 | `folder` | `[Folder!]!` | Folder containing this control (← `FOLDER_CONTAINS`) |
 | `analyses` | `[Analysis!]!` | Analyses involving this control (→ `ANALYZED_BY`) |
@@ -260,14 +308,29 @@ Implements: `Element`
 | `description` | `String` | Free-text description |
 | `model` | `[Model!]!` | Models this module is loaded in (← `HAS_MODULE`) |
 | `componentClasses` | `[ComponentClass!]!` | Component classes provided by this module (→ `HAS_CLASS`) |
+| `orphanedComponentClasses` | `[ComponentClass!]!` | Component classes retired by this module (still attached to existing instances) (→ `HAS_ORPHANED_CLASS`) |
 | `dataFlowClasses` | `[DataFlowClass!]!` | Data flow classes provided by this module (→ `HAS_CLASS`) |
+| `orphanedDataFlowClasses` | `[DataFlowClass!]!` | Data flow classes retired by this module (→ `HAS_ORPHANED_CLASS`) |
 | `securityBoundaryClasses` | `[SecurityBoundaryClass!]!` | Security boundary classes provided by this module (→ `HAS_CLASS`) |
+| `orphanedSecurityBoundaryClasses` | `[SecurityBoundaryClass!]!` | Security boundary classes retired by this module (→ `HAS_ORPHANED_CLASS`) |
 | `controlClasses` | `[ControlClass!]!` | Control classes provided by this module (→ `HAS_CLASS`) |
+| `orphanedControlClasses` | `[ControlClass!]!` | Control classes retired by this module (→ `HAS_ORPHANED_CLASS`) |
 | `dataClasses` | `[DataClass!]!` | Data classes provided by this module (→ `HAS_CLASS`) |
+| `orphanedDataClasses` | `[DataClass!]!` | Data classes retired by this module (→ `HAS_ORPHANED_CLASS`) |
 | `analysisClasses` | `[AnalysisClass!]!` | Analysis classes provided by this module (→ `HAS_CLASS`) |
+| `orphanedAnalysisClasses` | `[AnalysisClass!]!` | Analysis classes retired by this module (still attached to existing analyses) (→ `HAS_ORPHANED_CLASS`) |
+| `issueClasses` | `[IssueClass!]!` | Issue classes provided by this module (→ `HAS_CLASS`) |
+| `orphanedIssueClasses` | `[IssueClass!]!` | Issue classes retired by this module (still attached to existing issues) (→ `HAS_ORPHANED_CLASS`) |
 | `template` | `String` | Module configuration template (resolved at runtime) (custom resolver) |
 | `attributes` | `String` | Module configuration attributes (JSON string) |
 | `path` | `String` | File system path to the module |
+| `idRebindPolicy` | `String` | Effective ID rebind policy from the module's metadata at last install ('audit' | 'strict' | 'silent'). |
+| `lastInstallStatus` | `String` | Status of the most recent install attempt: 'authoritative' | 'partial' | 'unavailable' | 'error'. Null if the module has never been installed. |
+| `lastAttemptedInstall` | `DateTime` | ISO timestamp of the most recent install attempt (success or failure). Null if never installed. |
+| `lastAuthoritativeInstall` | `DateTime` | ISO timestamp of the most recent install that completed without partial/unavailable/error markers. Null if never had a clean install. |
+| `lastInstallClassIds` | `String` | JSON snapshot of `[{classKind, className, declaredId}, ...]` written at the last install attempt. Internal — used to resolve `rebindConflicts.moduleDeclaredId` after a strict-mode block. Self-healing: every install overwrites the snapshot; null until the module's first install. |
+| `rebindConflicts` | `[RebindConflictDetail!]!` | Per-class strict-mode rebind conflicts from the most recent install. Resolver joins `lastInstallClassIds` against the current DB ids; rows where they differ are surfaced as conflicts. Empty list if the module has never been installed (no snapshot) or every declared id matches the DB. (custom resolver) |
+| `constraintsHealthy` | `Boolean!` | True if all schema constraints required by the class-identity safety net were created at startup; false if any label was skipped due to dirty data. Reflects the bootstrap result from EnsureConstraintsService — same value for every Module today (the safety net is a global property of the deployment, exposed per-Module for surfaceability in any modules-list view). (custom resolver) |
 
 ### Exposure
 
@@ -288,7 +351,7 @@ Implements: `Element`
 | `detectionMethods` | `[String!]` | Detection methods |
 | `tags` | `[String!]` | Tags for filtering and grouping |
 | `techniques` | `[String!]` | MITRE ATT&CK technique IDs |
-| `attackVector` | `AttackVector` | CVSS v3.1-aligned attack vector (NETWORK, ADJACENT, LOCAL, PHYSICAL, UNSPECIFIED) |
+| `attackVector` | `AttackVector` | CVSS-aligned attack vector classification |
 | `component` | `[Component!]!` | Components affected by this exposure (← `HAS_EXPOSURE`) |
 | `securityBoundary` | `[SecurityBoundary!]!` | Boundaries affected by this exposure (← `HAS_EXPOSURE`) |
 | `dataFlow` | `[DataFlow!]!` | Data flows affected by this exposure (← `HAS_EXPOSURE`) |
@@ -344,6 +407,11 @@ Implements: `Element`
 | `data` | `[Data!]!` | Data elements being analyzed (← `ANALYZED_BY`) |
 | `element` | `[Element!]!` | All elements being analyzed (← `ANALYZED_BY`) |
 | `issues` | `[Issue!]!` | Issues associated with this analysis (→ `HAS_ISSUE`) |
+| `analysisStatus` | `String` | Analysis lifecycle status (active, complete, archived) |
+| `scope_description` | `String` | Free-text scope description |
+| `scope_elements` | `[String!]` | Element IDs defining the analysis scope (soft marker, not enforced) |
+| `risk_mode` | `String` | Risk assessment mode (simple or graph_informed) |
+| `notes` | `[String!]` | Analysis-level notes |
 
 ### Issue
 
@@ -377,6 +445,228 @@ Implements: `Element`
 | `issueClass` | `[IssueClass!]!` | Class this issue is an instance of (→ `IS_INSTANCE_OF`) |
 | `elementsWithExtendedInfo` | `[IssueElement!]!` | All linked elements with model context and exposure info (computed via Cypher) |
 
+### IdentityMigrationReport
+
+Result of runIdentityMigration. Counts are 'planned' if dryRun=true, 'applied' otherwise. `details` is the human-readable per-action log (one entry per dedup group + mutating action).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dryRun` | `Boolean!` | True if this was a dry-run (no writes performed). |
+| `totalActions` | `Int!` | Sum of mutating actions performed (or planned, in dry-run). |
+| `details` | `[String!]!` | Per-source breakdown — log-line strings. |
+
+### RebindConflictDetail
+
+Per-class strict-mode rebind conflict detail. Surfaces the diff between the module's declared id at last install and the DB-resident id, so an operator can pick a resolution direction in `ConflictResolutionDialog`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `className` | `String!` | Class name (stable identifier across rebinds). |
+| `classKind` | `String!` | Class kind label ('ComponentClass' | 'AnalysisClass' | …). |
+| `dbId` | `ID!` | Current id of the class in the DB. |
+| `moduleDeclaredId` | `ID!` | Id the module declared at the last install attempt (resolved from `Module.lastInstallClassIds`). |
+
+### TypeCount
+
+Generic (parent-label, count) pair. Used by `*Class.incomingInstancesByType` to break down :IS_INSTANCE_OF edges by parent label, so `CascadeDeleteDialog` can warn when 'Analyses' (user work) are present.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | `String!` | Parent node label (e.g. 'Analysis', 'Component', 'Issue'). |
+| `count` | `Int!` | Number of incoming :IS_INSTANCE_OF edges from nodes of this label. |
+
+### ClassIdentityEvent
+
+Discriminated event from the in-memory class-identity event log.
+The `kind` field is the discriminant ('rebind' | 'rebind-conflict' |
+'collision' | 'orphan' | 'revive'); per-kind fields are nullable on
+the union shape and populated based on the discriminant value.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `kind` | `String!` | Discriminant: 'rebind' | 'rebind-conflict' | 'collision' | 'orphan' | 'revive' |
+| `timestamp` | `String!` | ISO timestamp of event emission. |
+| `moduleName` | `String` | Module name (null for collision events — see firstModuleName/secondModuleName). |
+| `classKind` | `String` | Pluralized class-kind key from @dethernety/dt-module ('analysisClasses' | 'componentClasses' | ...). |
+| `className` | `String` | Class name (the human-readable identifier). |
+| `oldId` | `String` | Pre-rebind id (rebind events) or current DB id (rebind-conflict events). |
+| `newId` | `String` | Post-rebind id (rebind events only). |
+| `moduleDeclaredId` | `String` | Module-declared id (rebind-conflict events only). |
+| `dbId` | `String` | Current DB id at time of conflict (rebind-conflict events only). |
+| `policy` | `String` | Rebind policy applied: 'audit' | 'silent' | 'strict'. |
+| `classId` | `String` | Class id (orphan / revive events). |
+| `reason` | `String` | Reason for orphaning ('absent-from-metadata' | 'legacy-id-superseded'). |
+| `firstModuleName` | `String` | First module of a collision (the one that created the colliding id). |
+| `secondModuleName` | `String` | Second module of a collision (the one whose install was rejected). |
+| `collidingId` | `String` | The id that collided across modules. |
+
+### ClassCandidate
+
+A single candidate class match.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `classId` | `ID!` | Class node ID |
+| `className` | `String!` | Class name |
+| `classDescription` | `String` | Class description (included when 'description' is in fields) |
+| `classCategory` | `String` | Class category (included when 'category' is in fields) |
+| `classType` | `String` | Class type (included when 'type' is in fields) |
+| `moduleName` | `String!` | Name of the module providing this class |
+| `matchType` | `MatchType!` | How this match was determined |
+| `confidence` | `ConfidenceLevel!` | Confidence level of the match |
+| `similarityScore` | `Float` | Similarity score (0.0–1.0, present for vector matches) |
+
+### ElementMatch
+
+Match results for a single element.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `elementName` | `String!` | The element name from the input |
+| `candidates` | `[ClassCandidate!]!` | Ordered list of candidate matches (best first) |
+
+### MatchClassesResult
+
+Top-level result for the matchClasses query.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `matches` | `[ElementMatch!]!` | Match results per element, in input order |
+| `unmatched` | `[String!]!` | Element names that matched at no priority level |
+
+### UnmitigatedExposure
+
+An exposure that has MITRE mitigations but no control implements them.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `elementId` | `ID!` |  |
+| `elementName` | `String!` |  |
+| `exposureId` | `ID!` |  |
+| `exposureName` | `String!` |  |
+| `attackTechniques` | `[MitreReference!]!` |  |
+| `recommendedMitigations` | `[MitreReference!]!` |  |
+
+### UnaddressableExposure
+
+An exposure whose MITRE mitigations have no installed ControlClass coverage.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `elementId` | `ID!` |  |
+| `elementName` | `String!` |  |
+| `exposureId` | `ID!` |  |
+| `exposureName` | `String!` |  |
+| `attackTechniques` | `[MitreReference!]!` |  |
+| `mitreMitigations` | `[MitreReference!]!` |  |
+
+### RecommendedControl
+
+A control or control class that addresses unmitigated techniques.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `controlId` | `ID` |  |
+| `controlName` | `String` |  |
+| `controlClassId` | `ID!` |  |
+| `controlClassName` | `String!` |  |
+| `d3fendTechniques` | `[MitreReference!]!` |  |
+| `addressesCount` | `Int!` |  |
+| `elementsAffected` | `[ElementReference!]!` |  |
+
+### ElementReference
+
+A reference to a model element.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `ID!` |  |
+| `name` | `String!` |  |
+
+### CoverageSummary
+
+Coverage summary for the gap analysis.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `totalExposures` | `Int!` |  |
+| `mitigated` | `Int!` |  |
+| `unmitigated` | `Int!` |  |
+| `unaddressable` | `Int!` |  |
+| `configuredCoverage` | `Int!` | Controls assigned but addressing different techniques than this exposure |
+| `noMitreChain` | `Int!` | Exposures without ATT&CK technique links (not analyzable through MITRE chain) |
+| `coveragePct` | `Float!` |  |
+
+### ControlGapsResult
+
+Result of the controlGaps query.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `unmitigatedExposures` | `[UnmitigatedExposure!]!` |  |
+| `unaddressableExposures` | `[UnaddressableExposure!]!` |  |
+| `recommendedControls` | `[RecommendedControl!]!` |  |
+| `coverageSummary` | `CoverageSummary!` |  |
+
+### ControlClassFit
+
+A control class's fit for a set of element types.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `classId` | `ID!` | Class ID |
+| `className` | `String!` | Class name |
+| `moduleId` | `ID!` | Module ID this class belongs to |
+| `moduleName` | `String!` | Module name |
+| `compatible` | `Boolean!` | Whether this class's supportedTypes includes any of the queried element types |
+| `countermeasureCount` | `Int!` | Number of countermeasures generated for this class (>0 means configured) |
+
+### ControlCandidate
+
+A control candidate with per-class fit details.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `controlId` | `ID!` | Control ID |
+| `controlName` | `String!` | Control name |
+| `classes` | `[ControlClassFit!]!` | Per-class fit details |
+| `totalCountermeasures` | `Int!` | Total countermeasures across all classes |
+| `assignedElementIds` | `[ID!]!` | Element IDs this control already SUPPORTS |
+
+### ReindexResult
+
+Result of the reindexClassEmbeddings mutation.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `reindexedCount` | `Int!` | Number of class nodes that were re-embedded |
+| `moduleNames` | `[String!]!` | Names of modules whose classes were re-embedded |
+
+### ControlAssignedModels
+
+Set of Model IDs that reference a given Control via SUPPORTS edges.
+
+Used by the control-library push pipeline to gate brownfield attribute edits
+on shared Controls (shared = assigned to more than one model). See
+CONTROL_LIBRARY.md §6 for the shared-ownership safety contract.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `controlId` | `ID!` | Control UUID |
+| `modelIds` | `[ID!]!` | Set of Model UUIDs reachable via SUPPORTS edges (deduplicated across branches) |
+
+### ControlInstantiationAttribute
+
+Per-(Control, ControlClass) instantiation attribute payload from the
+IS_INSTANCE_OF edge. Backs the control-library pull and push-brownfield
+refresh pipelines. See CONTROL_LIBRARY.md §7.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `controlId` | `ID!` | Control UUID |
+| `classId` | `ID` | ControlClass UUID — null if the Control has no IS_INSTANCE_OF edge to any ControlClass |
+| `attributes` | `JSON` | Edge properties (the per-instance attribute payload). Null when classId is null. |
+
 ## Class types
 
 Class types define the categories available within modules. Components, data flows,
@@ -401,6 +691,9 @@ Implements: `Element`
 | `components` | `[Component!]!` | Components that are instances of this class (→ `IS_INSTANCE_OF`) |
 | `template` | `String` | Configuration template (resolved at runtime) (custom resolver) |
 | `guide` | `String` | User-facing guide content (resolved at runtime) (custom resolver) |
+| `orphanedAt` | `DateTime` | Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned. |
+| `incomingInstanceCount` | `Int!` | Count of incoming :IS_INSTANCE_OF edges. Read by operators before invoking deleteOrphanedClass to decide cascade safety. (computed) |
+| `incomingInstancesByType` | `[TypeCount!]!` | Breakdown of incoming :IS_INSTANCE_OF edges by parent node label. Used by CascadeDeleteDialog to surface 'this includes user work (Analyses)' warnings via the parent-label rows. (computed) |
 
 ### SecurityBoundaryClass
 
@@ -420,6 +713,9 @@ Implements: `Element`
 | `securityBoundaries` | `[SecurityBoundary!]!` | Security boundaries that are instances of this class (→ `IS_INSTANCE_OF`) |
 | `template` | `String` | Configuration template (resolved at runtime) (custom resolver) |
 | `guide` | `String` | User-facing guide content (resolved at runtime) (custom resolver) |
+| `orphanedAt` | `DateTime` | Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned. |
+| `incomingInstanceCount` | `Int!` | Count of incoming :IS_INSTANCE_OF edges. Read by operators before invoking deleteOrphanedClass to decide cascade safety. (computed) |
+| `incomingInstancesByType` | `[TypeCount!]!` | Breakdown of incoming :IS_INSTANCE_OF edges by parent node label. Used by CascadeDeleteDialog to surface 'this includes user work (Analyses)' warnings via the parent-label rows. (computed) |
 
 ### DataFlowClass
 
@@ -439,6 +735,9 @@ Implements: `Element`
 | `dataFlows` | `[DataFlow!]!` | Data flows that are instances of this class (→ `IS_INSTANCE_OF`) |
 | `template` | `String` | Configuration template (resolved at runtime) (custom resolver) |
 | `guide` | `String` | User-facing guide content (resolved at runtime) (custom resolver) |
+| `orphanedAt` | `DateTime` | Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned. |
+| `incomingInstanceCount` | `Int!` | Count of incoming :IS_INSTANCE_OF edges. Read by operators before invoking deleteOrphanedClass to decide cascade safety. (computed) |
+| `incomingInstancesByType` | `[TypeCount!]!` | Breakdown of incoming :IS_INSTANCE_OF edges by parent node label. Used by CascadeDeleteDialog to surface 'this includes user work (Analyses)' warnings via the parent-label rows. (computed) |
 
 ### ControlClass
 
@@ -461,6 +760,9 @@ Implements: `Element`
 | `countermeasures` | `[Countermeasure!]!` | Countermeasures associated with this control class (← `IS_COUNTERMEASURE_OF`) |
 | `template` | `String` | Configuration template (resolved at runtime) (custom resolver) |
 | `guide` | `String` | User-facing guide content (resolved at runtime) (custom resolver) |
+| `orphanedAt` | `DateTime` | Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned. |
+| `incomingInstanceCount` | `Int!` | Count of incoming :IS_INSTANCE_OF edges. Read by operators before invoking deleteOrphanedClass to decide cascade safety. (computed) |
+| `incomingInstancesByType` | `[TypeCount!]!` | Breakdown of incoming :IS_INSTANCE_OF edges by parent node label. Used by CascadeDeleteDialog to surface 'this includes user work (Analyses)' warnings via the parent-label rows. (computed) |
 
 ### DataClass
 
@@ -480,6 +782,9 @@ Implements: `Element`
 | `data` | `[Data!]!` | Data elements that are instances of this class (→ `IS_INSTANCE_OF`) |
 | `template` | `String` | Configuration template (resolved at runtime) (custom resolver) |
 | `guide` | `String` | User-facing guide content (resolved at runtime) (custom resolver) |
+| `orphanedAt` | `DateTime` | Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned. |
+| `incomingInstanceCount` | `Int!` | Count of incoming :IS_INSTANCE_OF edges. Read by operators before invoking deleteOrphanedClass to decide cascade safety. (computed) |
+| `incomingInstancesByType` | `[TypeCount!]!` | Breakdown of incoming :IS_INSTANCE_OF edges by parent node label. Used by CascadeDeleteDialog to surface 'this includes user work (Analyses)' warnings via the parent-label rows. (computed) |
 
 ### AnalysisClass
 
@@ -496,6 +801,9 @@ Implements: `Element`
 | `type` | `String` | Analysis type |
 | `category` | `String` | Analysis category |
 | `analyses` | `[Analysis!]!` | Analysis instances of this class (← `IS_INSTANCE_OF`) |
+| `orphanedAt` | `DateTime` | Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned. |
+| `incomingInstanceCount` | `Int!` | Count of incoming :IS_INSTANCE_OF edges. Read by operators before invoking deleteOrphanedClass to decide cascade safety. (computed) |
+| `incomingInstancesByType` | `[TypeCount!]!` | Breakdown of incoming :IS_INSTANCE_OF edges by parent node label. Used by CascadeDeleteDialog to surface 'this includes user work (Analyses)' warnings via the parent-label rows. (computed) |
 
 ### IssueClass
 
@@ -513,6 +821,9 @@ Implements: `Element`
 | `category` | `String` | Issue category |
 | `template` | `String` | Configuration template (resolved at runtime) (custom resolver) |
 | `issues` | `[Issue!]!` | Issues that are instances of this class (← `IS_INSTANCE_OF`) |
+| `orphanedAt` | `DateTime` | Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned. |
+| `incomingInstanceCount` | `Int!` | Count of incoming :IS_INSTANCE_OF edges. Read by operators before invoking deleteOrphanedClass to decide cascade safety. (computed) |
+| `incomingInstancesByType` | `[TypeCount!]!` | Breakdown of incoming :IS_INSTANCE_OF edges by parent node label. Used by CascadeDeleteDialog to surface 'this includes user work (Analyses)' warnings via the parent-label rows. (computed) |
 
 ## MITRE framework types
 
@@ -619,6 +930,15 @@ Implements: `Element`
 | `subTechniques` | `[MitreDefendTechnique!]!` | Sub-techniques of this technique (← `SUB_TECHNIQUE_OF`) |
 | `parentTechnique` | `[MitreDefendTechnique!]!` | Parent technique (if this is a sub-technique) (→ `SUB_TECHNIQUE_OF`) |
 | `countermeasures` | `[Countermeasure!]!` | Countermeasures that implement this technique (← `RESPONDS_WITH`) |
+
+### MitreReference
+
+A reference to a MITRE ATT&CK or D3FEND entity.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `String!` |  |
+| `name` | `String!` |  |
 
 ## Utility types
 
@@ -793,6 +1113,112 @@ Get the compiled frontend bundle for a module
 |----------|------|
 | `moduleName` | `String!` |
 
+### matchClasses
+
+Match elements against class catalog nodes using a multi-priority pipeline
+
+**Returns:** `MatchClassesResult!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `input` | `MatchClassesInput!` |
+
+### controlIdsByElements
+
+Find control IDs that have a SUPPORTS relationship to any of the given element IDs
+
+**Returns:** `[ID!]!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `elementIds` | `[ID!]!` |
+
+### controlGaps
+
+Analyze control gaps for a model by traversing the MITRE framework chain
+
+**Returns:** `ControlGapsResult!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `input` | `ControlGapsInput!` |
+
+### controlCandidatesForType
+
+Find control candidates whose classes support the given element types, with per-class fit details
+
+**Returns:** `[ControlCandidate!]!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `elementTypes` | `[ComponentType!]!` |
+| `moduleIds` | `[ID!]` |
+
+### getControlsAssignedModels
+
+Batched lookup of the live set of Model IDs that reference each given Control
+via SUPPORTS edges. Used by the brownfield push pipeline's shared-ownership
+check (CONTROL_LIBRARY.md §6). Per-label indexes on id are required for
+production-scale performance (see §9 Platform / database).
+
+Reaches Models via two branches: (1) components/boundaries the Control
+supports, and (2) DataFlows the Control supports (reached via FLOWS-attached
+components). Empty modelIds is valid — the Control has no SUPPORTS edges yet.
+
+**Returns:** `[ControlAssignedModels!]!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `controlIds` | `[ID!]!` |
+
+### getControlInstantiationAttributes
+
+Batched lookup of per-(Control, ControlClass) instantiation attributes
+(IS_INSTANCE_OF edge properties) for the given Control IDs. Backs the
+control-library pull and the brownfield push Step B refresh.
+
+A Control with no IS_INSTANCE_OF edge returns one row with classId = null
+and attributes = null. A Control that is an instance of multiple
+ControlClasses returns one row per (controlId, classId) pair.
+
+**Returns:** `[ControlInstantiationAttribute!]!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `controlIds` | `[ID!]!` |
+
+### classIdentityEvents
+
+Admin: returns structured class-identity events from the in-memory ring
+buffer (max 1000 events, drop-oldest, process-local — pre-restart
+events are not persisted). Admin-gated to avoid surfacing per-module
+operational state to non-admin authenticated users in multi-tenant
+deployments. Filter by `kind` ('rebind' | 'rebind-conflict' |
+'collision' | 'orphan' | 'revive'), `moduleName`, and/or `since`
+(events at-or-after the timestamp are returned).
+
+**Returns:** `[ClassIdentityEvent!]!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `kind` | `String` |
+| `moduleName` | `String` |
+| `since` | `String` |
+
 ## Mutations
 
 All mutations require authentication (`@authentication`).
@@ -822,6 +1248,35 @@ Remove an element from an issue
 |----------|------|
 | `issueId` | `String!` |
 | `elementId` | `String!` |
+
+### createAnalysisIdempotent
+
+Idempotently create or update an Analysis bound to its element and AnalysisClass.
+MERGE-by-id throughout — re-runs produce no duplicate IS_INSTANCE_OF edges.
+Caller supplies a stable `id`; the schema-level UNIQUE constraint on
+Analysis.id backstops the MERGE-non-atomic edge case under concurrent execution.
+
+An Analysis is conceptually an instance of exactly one AnalysisClass — so the
+cypher defensively removes any pre-existing IS_INSTANCE_OF edges to other
+classes before the MERGE. Calling with a different `analysisClassId` for the
+same `id` rebinds (it does not accumulate edges to multiple classes).
+ANALYZED_BY bindings to other elements are NOT pruned: an Analysis can
+legitimately span multiple elements per the schema's `Analysis.element`
+list-cardinality field.
+
+**Returns:** `Analysis`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `id` | `ID!` |
+| `name` | `String!` |
+| `description` | `String` |
+| `type` | `String` |
+| `category` | `String` |
+| `elementId` | `ID!` |
+| `analysisClassId` | `ID!` |
 
 ### setInstantiationAttributes
 
@@ -912,6 +1367,97 @@ Delete an analysis and its associated data
 | Argument | Type |
 |----------|------|
 | `analysisId` | `String!` |
+
+### reindexClassEmbeddings
+
+Re-embed all class nodes when the embedding model changes
+
+**Returns:** `ReindexResult!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `moduleIds` | `[ID!]` |
+| `capacity` | `Int` |
+
+### migrateClassId
+
+Admin: align the DB id of a (Module, *Class) pair to a new id.
+Mechanically equivalent to an audit-mode rebind — emits the same
+rebind event into the in-memory log so the operator-driven action
+appears in the same timeline as automatic rebinds.
+
+Recommended direction: pass the module-declared id as `newId` (the
+canonical workflow — module source is authoritative for class id).
+An operator may align the other way but then must also update the
+module source — for source-controlled modules that means a code change;
+for DtLgModule-derived classes that means renaming the underlying graph
+in the LangGraph runtime.
+
+Cross-module collision check refuses the migration if `newId` is
+already owned by a different Module at the same label.
+
+**Returns:** `Boolean!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `moduleName` | `String!` |
+| `className` | `String!` |
+| `classKind` | `String!` |
+| `newId` | `ID!` |
+
+### reviveOrphanedClass
+
+Admin: revive an orphaned class — flips HAS_ORPHANED_CLASS edge back to
+HAS_CLASS. Idempotent: revive of an already-active class returns true
+without an event emission. Edge properties are preserved across the
+rename.
+
+**Returns:** `Boolean!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `classId` | `ID!` |
+| `classKind` | `String!` |
+
+### deleteOrphanedClass
+
+Admin: hard-delete an orphaned class. With cascade=false (default),
+refuses if any :IS_INSTANCE_OF edges exist — operator should query
+`incomingInstanceCount` first to know the cascade scope. With
+cascade=true, DETACH DELETE removes the class AND every incident
+instance node (Analyses, Components, etc. depending on classKind) —
+irreversible at the data layer.
+
+**Returns:** `Boolean!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `classId` | `ID!` |
+| `classKind` | `String!` |
+| `cascade` | `Boolean!` |
+
+### runIdentityMigration
+
+Admin: re-runs the PR 0 idempotent class-identity cleanup against the
+current DB. dryRun=true (default) reports planned changes without
+writing. Safe to invoke any time — running twice produces identical
+end state.
+
+**Returns:** `IdentityMigrationReport!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `dryRun` | `Boolean!` |
 
 ## Subscription
 

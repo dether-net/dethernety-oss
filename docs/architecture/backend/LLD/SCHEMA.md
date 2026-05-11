@@ -328,18 +328,22 @@ Represents a module providing classes for modeling, analysis, and issue tracking
 - `path` (String) — Module path
 - `attributes` (String) — Module attributes
 
+**Class-identity admin properties** (persisted on the Module node by the install flow):
+- `idRebindPolicy` (String) — `audit` \| `strict` \| `silent` (from module metadata at last install)
+- `lastInstallStatus` (String) — `authoritative` \| `partial` \| `unavailable` \| `error`
+- `lastAttemptedInstall` (DateTime) — Most recent install attempt
+- `lastAuthoritativeInstall` (DateTime) — Most recent clean install
+- `lastInstallClassIds` (String) — JSON snapshot of `[{classKind, className, declaredId}]` written at every install attempt (internal — read by the `rebindConflicts` resolver to compute the diff against current DB ids; self-healing, every install overwrites)
+
 **Relationships:**
 - `(Module)<-[:HAS_MODULE]-(Model)` — Models using this module
-- `(Module)-[:HAS_CLASS]->(ComponentClass)` — Component classes
-- `(Module)-[:HAS_CLASS]->(DataFlowClass)` — Data flow classes
-- `(Module)-[:HAS_CLASS]->(SecurityBoundaryClass)` — Security boundary classes
-- `(Module)-[:HAS_CLASS]->(ControlClass)` — Control classes
-- `(Module)-[:HAS_CLASS]->(DataClass)` — Data classes
-- `(Module)-[:HAS_CLASS]->(AnalysisClass)` — Analysis classes
-- `(Module)-[:HAS_CLASS]->(IssueClass)` — Issue classes
+- `(Module)-[:HAS_CLASS]->(ComponentClass | DataFlowClass | SecurityBoundaryClass | ControlClass | DataClass | AnalysisClass | IssueClass)` — Active classes provided by this module
+- `(Module)-[:HAS_ORPHANED_CLASS]->(ComponentClass | DataFlowClass | SecurityBoundaryClass | ControlClass | DataClass | AnalysisClass | IssueClass)` — Classes retired by the module that still have existing instances. The `HAS_CLASS` → `HAS_ORPHANED_CLASS` rename is what "orphaned" means at the graph level; edge properties are preserved across the rename and the inverse rename (`reviveOrphanedClass`)
 
 **Computed fields:**
 - `template` — Module template (custom resolver)
+- `rebindConflicts` — Per-class strict-mode rebind conflicts from the most recent install (custom resolver — joins `lastInstallClassIds` against current DB ids; rows where they differ are surfaced as `RebindConflictDetail`)
+- `constraintsHealthy` — Reflects the bootstrap result from `EnsureConstraintsService` — same value for every Module today (the safety net is a global property of the deployment, exposed per-Module for surfaceability)
 
 ### Class Types
 
@@ -347,19 +351,23 @@ All class types share the same base structure:
 
 **Common Properties:**
 - `id` (ID!) — Unique identifier
-- `name` (String!) — Class name
+- `name` (String!) — Class name (the stable identifier across rebinds; carries the operational identity of the class)
 - `description` (String) — Class description
 - `type` (String or ComponentType) — Class type
 - `category` (String) — Class category
 - `path` (String) — Class path
+- `orphanedAt` (DateTime) — Timestamp at which this class was last orphaned (HAS_CLASS → HAS_ORPHANED_CLASS rename). Null if never orphaned
 
 **Common Relationships:**
-- `(Class)<-[:HAS_CLASS]-(Module)` — Parent module
+- `(Class)<-[:HAS_CLASS]-(Module)` — Parent module (active)
+- `(Class)<-[:HAS_ORPHANED_CLASS]-(Module)` — Parent module (orphaned — class is retired by the module but still attached to existing instances)
 - `(Class)<-[:IS_INSTANCE_OF]-(Instance)` — Instances of this class
 
 **Common Computed Fields:**
 - `template` — UI configuration template (custom resolver)
 - `guide` — Usage documentation (custom resolver)
+- `incomingInstanceCount` (Int!) — Count of `:IS_INSTANCE_OF` edges (Cypher computed)
+- `incomingInstancesByType` ([TypeCount!]!) — Per-parent-label breakdown of `:IS_INSTANCE_OF` edges (Cypher computed) — surfaces "this includes Analyses (user work)" warnings in the cascade-delete UI
 
 The class types are:
 
@@ -447,6 +455,7 @@ All MITRE types implement the `Element` interface (`id`, `name`, `description`).
 | `getDocument` | `analysisId`, `filter` | `JSON!` | Get a document from an analysis |
 | `getAvailableFrontendModules` | — | `[String!]!` | List modules with frontend bundles |
 | `getModuleFrontendBundle` | `moduleName` | `String!` | Get a module's frontend JavaScript bundle |
+| `classIdentityEvents` | `kind?`, `moduleName?`, `since?` | `[ClassIdentityEvent!]!` | Admin: read the in-memory class-identity event ring buffer (max 1000 events, process-local) |
 
 ### Mutations
 
@@ -461,6 +470,12 @@ All MITRE types implement the `Element` interface (`id`, `name`, `description`).
 | `resetModule` | `moduleId` | `Boolean!` | Reset a module's state |
 | `addElementsToIssue` | `issueId`, `elementIds` | `AddElementsToIssueResult!` | Link elements to an issue |
 | `removeElementFromIssue` | `issueId`, `elementId` | `Boolean!` | Remove an element from an issue |
+| `migrateClassId` | `moduleName`, `className`, `classKind`, `newId` | `Boolean!` | Admin: align a `(Module, *Class)` pair to a new id (audit-mode rebind) |
+| `reviveOrphanedClass` | `classId`, `classKind` | `Boolean!` | Admin: flip `HAS_ORPHANED_CLASS` → `HAS_CLASS` |
+| `deleteOrphanedClass` | `classId`, `classKind`, `cascade` | `Boolean!` | Admin: hard-delete an orphaned class (cascade gated, capped at 1000 incidents) |
+| `runIdentityMigration` | `dryRun` | `IdentityMigrationReport!` | Admin: re-run the idempotent class-identity cleanup |
+
+> **Admin mutations** (`migrateClassId`, `reviveOrphanedClass`, `deleteOrphanedClass`, `runIdentityMigration`) and the `classIdentityEvents` admin query are gated at resolver entry via `requireAdmin(ctx)` — see [`ClassIdentityResolverService`](../../../../apps/dt-ws/src/gql/resolver-services/class-identity-resolver.service.ts). The schema directive on these operations is `@authentication` (token validity); the role check happens in TypeScript, not in the schema, to keep the admin contract role-aware without introducing a new schema directive. Every admin mutation emits a `Logger.warn` audit entry capturing operator identity before performing the work.
 
 ### Subscriptions
 

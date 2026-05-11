@@ -121,7 +121,8 @@ This centralized approach provides:
 | **FolderStore** | Folder hierarchy | Folder tree management, model organization, navigation state |
 | **IssueStore** | Issue tracking | Issue CRUD, status management, element linkage |
 | **ControlsStore** | Security controls | Control management, countermeasure handling, MITRE D3FEND integration |
-| **ModulesStore** | Module management | Available modules, module metadata, class definitions |
+| **ModulesStore** | Module management | Available modules, module metadata, class definitions, class-identity admin actions (`fetchModulesWithIdentity`, `migrateClassId`, `reviveOrphanedClass`, `deleteOrphanedClass`, `runIdentityMigration`) |
+| **ClassIdentityStore** | Class-identity event log | In-memory event ring buffer (rebind / rebind-conflict / collision / orphan / revive); polling lifecycle for the Operations tab |
 
 > **Note**: Detailed store documentation including state interfaces, actions, and implementation patterns is available in the [LLD documentation](./LLD/).
 
@@ -306,6 +307,29 @@ OIDC/OAuth2 implementation with PKCE.
 | Auth0 | Tenant URL configuration |
 | Zitadel | Standard OIDC discovery |
 | Generic OIDC | Manual endpoint configuration |
+
+### 6. Modules Page
+
+[`pages/modules.vue`](../../../apps/dt-ui/src/pages/modules.vue) hosts two tabs:
+
+| Tab | Audience | Surface |
+|-----|----------|---------|
+| **Configuration** | All authenticated users | Existing per-module `ModuleCard` for editing module attributes (save + reset) |
+| **Operations** | Admin role only — gated client-side via `authStore.hasRole('admin')`, defence-in-depth in front of the server-side `requireAdmin(ctx)` gate | Class-identity diagnostics + reconciliation |
+
+The Operations tab is the UI for the backend class-identity admin surface. Its components live in [`components/Modules/`](../../../apps/dt-ui/src/components/Modules/) and [`components/Dialogs/Module/`](../../../apps/dt-ui/src/components/Dialogs/Module/):
+
+| Component | Purpose |
+|-----------|---------|
+| [`BlockedInstallsBanner`](../../../apps/dt-ui/src/components/Modules/BlockedInstallsBanner.vue) | Top-of-tab alert when one or more modules have `lastInstallStatus = 'unavailable'`. Click-through opens `ConflictResolutionDialog` for the affected module |
+| [`ModuleHealthTable`](../../../apps/dt-ui/src/components/Modules/ModuleHealthTable.vue) | Per-module row with `lastInstallStatus`, `lastAttemptedInstall`, `lastAuthoritativeInstall`, `idRebindPolicy`, `constraintsHealthy`, conflict count, and orphan count. Row click filters the event timeline by module |
+| [`OrphanedClassesPanel`](../../../apps/dt-ui/src/components/Modules/OrphanedClassesPanel.vue) | Expandable list of `Module.orphanedComponentClasses` + the six sibling lists. Per-row revive / delete actions emit events that the page wires to the store actions |
+| [`IdentityEventTimeline`](../../../apps/dt-ui/src/components/Modules/IdentityEventTimeline.vue) | Renders `ClassIdentityEvent[]` (rebind / rebind-conflict / collision / orphan / revive). Polls the server on a 10-second interval when enabled; visibility-aware (paused when the tab is hidden) |
+| [`IdentityMigrationPanel`](../../../apps/dt-ui/src/components/Modules/IdentityMigrationPanel.vue) | Wraps `runIdentityMigration` with a dry-run / apply toggle and renders the returned `IdentityMigrationReport.details` |
+| [`ConflictResolutionDialog`](../../../apps/dt-ui/src/components/Dialogs/Module/ConflictResolutionDialog.vue) | Per-class resolution UI for `Module.rebindConflicts`. Calls `migrateClassId(newId: moduleDeclaredId)` for the canonical "adopt-module-id" direction |
+| [`CascadeDeleteDialog`](../../../apps/dt-ui/src/components/Dialogs/Module/CascadeDeleteDialog.vue) | Confirms hard-delete of an orphaned class. Surfaces the `incomingInstancesByType` breakdown so operators can see "this includes Analyses (user work)" before approving cascade. State machine in [`utils/cascadeState.ts`](../../../apps/dt-ui/src/utils/cascadeState.ts) |
+
+The page lazily loads admin data the first time the Operations tab is opened (`fetchModulesWithIdentity` + `fetchEvents`), and the event timeline supports opt-in 10-second polling — visibility-paused so a hidden tab doesn't generate background load.
 
 ---
 

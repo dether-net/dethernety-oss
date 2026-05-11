@@ -4,6 +4,7 @@
 - [Overview](#overview)
 - [DTModule Interface](#dtmodule-interface-1)
 - [DTMetadata Interface](#dtmetadata-interface)
+- [Class Identity Contract](#class-identity-contract)
 - [Class Metadata Interfaces](#class-metadata-interfaces)
 - [Exposure and Countermeasure Interfaces](#exposure-and-countermeasure-interfaces)
 - [Analysis Interfaces](#analysis-interfaces)
@@ -238,6 +239,43 @@ export interface DTMetadata {
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Class Identity Contract
+
+Every class metadata entry (`ComponentClassMetadata`, `AnalysisClassMetadata`, …) carries an optional `id`. That id is the **stable, operational identity** of the class within the deployment — it survives renames, is referenced by exported models, and is what `:IS_INSTANCE_OF` edges in the graph store.
+
+### Stable ids
+
+Module authors should set `id` to a deployment-stable value (UUID or any opaque string) and **not change it across versions**. The `name` is the human-readable identifier and is allowed to drift; the id is what the platform uses for instance edges, control library entries, and export references.
+
+If the module omits `id`, the platform mints one at install time. That auto-minted id is then re-used on subsequent installs as long as the same `(module, className)` pair is present — the install flow uses `name` as the match key when reconciling existing classes.
+
+### Rebind behaviour
+
+When a module's declared id for a class diverges from the DB-resident id (typical cause: an author changed the source `id` after the first install), the install flow follows the module's `idRebindPolicy`:
+
+| Policy | Behaviour |
+|--------|-----------|
+| `audit` (default) | Rebind the DB id to the module-declared id; emit a `rebind` event into the class-identity log |
+| `silent` | Same as `audit` but suppresses the event emission |
+| `strict` | Refuse to rebind; mark the install as `unavailable` (or `partial` if only some classes conflict) and surface the conflict via `Module.rebindConflicts` for operator resolution |
+
+Set the policy in your module's `DTMetadata` if your module is source-controlled and you'd rather catch unintended id changes than have them silently applied. Most first-party modules use the default (`audit`).
+
+### Orphaned classes
+
+A class that exists in the DB but is no longer declared by the module's metadata is **orphaned**, not deleted. At the graph level this is the rename `HAS_CLASS` → `HAS_ORPHANED_CLASS` on the `(Module)→(Class)` edge — instance edges (`:IS_INSTANCE_OF`) are preserved, so existing analyses, components, etc. that reference the class continue to work.
+
+Operators can revive (un-orphan) or hard-delete orphaned classes through the admin Operations tab in the modules page. Module authors should not delete a class outright from metadata without first confirming there are no live instances — the platform's safe default is to orphan rather than break references.
+
+### Cross-references
+
+- Backend admin surface: [`ClassIdentityResolverService`](../backend/LLD/CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#6-classidentityresolverservice)
+- Frontend Operations tab: [Frontend Architecture → Modules Page](../frontend/FRONTEND_ARCHITECTURE.md#6-modules-page)
+- Conflict resolution helper API: [`DtClassIdentity`](../dt-core/GRAPHQL_OPERATIONS.md#dtclassidentity)
+- Graph schema: [Module + class types](../backend/LLD/SCHEMA.md#module-system)
 
 ---
 
