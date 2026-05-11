@@ -1,5 +1,5 @@
 /**
- * File-based advisory lock for control-library writes (Sprint 4 F-03).
+ * File-based advisory lock for control-library writes.
  *
  * The control-library subsystem performs read-modify-write sequences across
  * three on-disk artefacts: the per-control file (`controls/<id>.json`), the

@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { ModuleManagementService } from '../module-management.service';
 import { EmbeddingService } from '../../services/embedding.service';
 import { MatchClassesResolverService } from '../../resolver-services/match-classes-resolver.service';
+import { ClassReconciler } from '../class-reconciler.service';
+import { ClassIdentityEventLog } from '../class-identity-event-log.service';
 
 type Stub<T> = Partial<T>;
 
@@ -42,6 +44,11 @@ async function buildService(overrides: {
     ...overrides.config,
   };
 
+  // ModuleManagementService takes ClassReconciler + ClassIdentityEventLog,
+  // but resolveVectors doesn't touch them, so a minimal stub each is fine.
+  const eventLog = new ClassIdentityEventLog();
+  const reconciler = { hasIncidentInstances: async () => false } as unknown as ClassReconciler;
+
   const mod: TestingModule = await Test.createTestingModule({
     providers: [
       ModuleManagementService,
@@ -49,6 +56,8 @@ async function buildService(overrides: {
       { provide: EmbeddingService, useValue: embedding },
       { provide: MatchClassesResolverService, useValue: matchClasses },
       { provide: 'NEO4J_DRIVER', useValue: driver },
+      { provide: ClassReconciler, useValue: reconciler },
+      { provide: ClassIdentityEventLog, useValue: eventLog },
     ],
   }).compile();
 

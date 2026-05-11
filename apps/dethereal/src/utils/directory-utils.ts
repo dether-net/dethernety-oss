@@ -258,12 +258,12 @@ export async function validatePathConfinement(targetPath: string, baseDir?: stri
     return realPath
   }
 
-  // Check models.json allowlist (Sprint 4 F-07: each entry must be a
-  // legitimate model directory — manifest.json present and parsable —
-  // before we honour it. Without this check, anything with write access
-  // to ~/.dethernety/models.json (the user's own home dir, /dethereal:create
+  // Check models.json allowlist. Each entry must be a legitimate model
+  // directory — manifest.json present and parsable — before we honour it.
+  // Without this check, anything with write access to
+  // ~/.dethernety/models.json (the user's own home dir, /dethereal:create
   // routine flows, any process running as the user) bypasses CWD
-  // confinement on every subsequent MCP invocation.)
+  // confinement on every subsequent MCP invocation.
   const allowedPaths = await loadAllowedModelPaths()
   for (const allowed of allowedPaths) {
     const resolvedAllowed = path.resolve(allowed)

@@ -27,7 +27,7 @@ import { DatabaseService } from '../database/database.service';
  * `session.executeWrite` (explicit BEGIN/COMMIT). Do NOT switch this back
  * to `executeWrite` — it will silently fail-open every restart and the
  * shared-ownership safety query in CL §6 will run full label scans on
- * every push (the F-32 / F-15-class fail-open the bootstrap exists to prevent).
+ * every push (the fail-open the bootstrap exists to prevent).
  */
 @Injectable()
 export class EnsureIndexesService implements OnApplicationBootstrap {
@@ -39,6 +39,40 @@ export class EnsureIndexesService implements OnApplicationBootstrap {
     { label: 'SecurityBoundary', property: 'id' },
     { label: 'ControlClass', property: 'id' },
     { label: 'Component', property: 'id' },
+    // Platform `*Class` labels under the class-identity safety net (see
+    // EnsureConstraintsService). Indexes back the MERGE-by-id upserts the
+    // module-management service issues; without them, those queries fall
+    // back to label scans even though the constraint guarantees uniqueness.
+    { label: 'AnalysisClass', property: 'id' },
+    { label: 'ComponentClass', property: 'id' },
+    { label: 'DataFlowClass', property: 'id' },
+    { label: 'DataClass', property: 'id' },
+    { label: 'SecurityBoundaryClass', property: 'id' },
+    { label: 'IssueClass', property: 'id' },
+    // Per-label `name` indexes back the lookup-by-name in upsertClass
+    // (`MATCH (m:Module {name})-[:HAS_CLASS|HAS_ORPHANED_CLASS]->(c {name})`).
+    // Without these, the MATCH falls back to a label scan filtered by name —
+    // tolerable on small modules but degrades linearly past O(10³) classes.
+    { label: 'AnalysisClass', property: 'name' },
+    { label: 'ComponentClass', property: 'name' },
+    { label: 'DataFlowClass', property: 'name' },
+    { label: 'DataClass', property: 'name' },
+    { label: 'SecurityBoundaryClass', property: 'name' },
+    { label: 'IssueClass', property: 'name' },
+    { label: 'ControlClass', property: 'name' },
+    // Module is the join hub for upsertClass / Phase-4 reconciliation
+    // queries; module-name lookup happens on every install.
+    { label: 'Module', property: 'name' },
+    // Back the @cypher `createAnalysisIdempotent` mutation:
+    // `MERGE (a:Analysis {id})` + `MATCH (e:{ElementLabel} {id})` for
+    // ANALYZED_BY binding. Without these, the MERGE/MATCH pair degrades
+    // to label scans on every re-run. `Analysis(id)` is load-bearing
+    // for the mutation; the other three back per-label id lookups for
+    // element types that didn't previously have an id index.
+    { label: 'Analysis', property: 'id' },
+    { label: 'Data', property: 'id' },
+    { label: 'DataFlow', property: 'id' },
+    { label: 'Issue', property: 'id' },
   ];
 
   constructor(private readonly databaseService: DatabaseService) {}

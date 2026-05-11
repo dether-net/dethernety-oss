@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { validateConfig } from '../config.js'
 
-describe('Security Hardening (D61)', () => {
+describe('Security Hardening', () => {
   describe('_token removal', () => {
     it('should not reference _token in auth error message', async () => {
       const fs = await import('fs/promises')
@@ -74,20 +74,20 @@ describe('Security Hardening (D61)', () => {
     })
   })
 
-  describe('Sprint 4 F-02 + F-03 — manage_controls lock + WAL pre-dispatch', () => {
+  describe('manage_controls lock + WAL pre-dispatch', () => {
     it('manage-controls.tool.ts wires acquireLock + applyPendingRewrites for directory-touching actions', async () => {
       const fs = await import('node:fs/promises')
       const path = await import('node:path')
       const toolPath = path.join(import.meta.dirname, '..', 'tools', 'manage-controls.tool.ts')
       const content = await fs.readFile(toolPath, 'utf-8')
 
-      // F-03: lock primitive imported and acquired before dispatch.
+      // Lock primitive imported and acquired before dispatch.
       expect(content).toContain('acquireLock')
       expect(content).toContain('releaseLock')
       expect(content).toContain('LockBusyError')
       expect(content).toContain('DIRECTORY_TOUCHING_ACTIONS')
 
-      // F-02: WAL replay invoked once per MCP entry.
+      // WAL replay invoked once per MCP entry.
       expect(content).toContain('applyPendingRewrites')
 
       // Lock release must live in a finally — otherwise a thrown action
@@ -99,13 +99,13 @@ describe('Security Hardening (D61)', () => {
       // render a useful message rather than a generic exception.
       expect(content).toContain("error: 'LOCK_BUSY'")
 
-      // F-02 — WAL replay failures must release the lock and surface the
+      // WAL replay failures must release the lock and surface the
       // diagnostic; otherwise an ambiguous-state journal silently locks
       // out future invocations.
       expect(content).toContain("error: 'WAL_REPLAY_FAILED'")
     })
 
-    it('Sprint 4 F-01 — set-local-edited Zod enum drops "external"', async () => {
+    it('set-local-edited Zod enum drops "external"', async () => {
       const fs = await import('node:fs/promises')
       const path = await import('node:path')
       const toolPath = path.join(import.meta.dirname, '..', 'tools', 'manage-controls.tool.ts')

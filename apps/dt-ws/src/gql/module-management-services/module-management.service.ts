@@ -1,6 +1,8 @@
 import { Injectable, Inject, Logger, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DTModule, DTMetadata } from '@dethernety/dt-module';
+import { DTModule, DTMetadata, ClassKind, IdRebindPolicy } from '@dethernety/dt-module';
+import { ClassReconciler } from './class-reconciler.service';
+import { ClassIdentityEventLog } from './class-identity-event-log.service';
 import { slugifyModelName } from '@dethernety/dt-module/embedding';
 import { EmbeddingService } from '../services/embedding.service';
 import { MatchClassesResolverService } from '../resolver-services/match-classes-resolver.service';
@@ -39,6 +41,8 @@ export class ModuleManagementService {
     private readonly embeddingService: EmbeddingService,
     @Inject(forwardRef(() => MatchClassesResolverService))
     private readonly matchClassesResolver: MatchClassesResolverService,
+    private readonly classReconciler: ClassReconciler,
+    private readonly events: ClassIdentityEventLog,
   ) {
     this.config = this.configService.get<GqlConfig>('gql')!;
     
@@ -324,10 +328,16 @@ export class ModuleManagementService {
           count: modulesToDelete.length,
         });
 
+        // Cascade through both edge types — module deletion must also
+        // clean up the orphaned classes that module was holding, otherwise
+        // we leave AnalysisClass nodes that the routing queries (and the
+        // CLASS_RETIRED probe) can't reach. The OPTIONAL MATCH followed
+        // by DETACH DELETE p, t leaves any unmatched p-without-t deletion
+        // intact.
         await tx.run(
           `MATCH (p:Module)
            WHERE p.name IN $modulesToDelete
-           OPTIONAL MATCH (p)-[:HAS_CLASS]->(t)
+           OPTIONAL MATCH (p)-[:HAS_CLASS|HAS_ORPHANED_CLASS]->(t)
            DETACH DELETE p, t`,
           { modulesToDelete }
         );
@@ -356,39 +366,100 @@ export class ModuleManagementService {
   }
 
   /**
-   * Upserts a class with validation and error handling.
-   * @param tx The database transaction
-   * @param moduleId The module id
-   * @param cls The class object
-   * @param classLabel The class label
+   * Resolve the effective rebind policy for an upsert.
+   *
+   * Module-declared `idRebindPolicy` is the default. The
+   * `CLASS_ID_REBIND_OVERRIDE` env var lets operators force the
+   * platform-wide policy regardless of what modules declare — intended for
+   * "no silent ID mutations" compliance windows.
+   *
+   * Undefined module declaration falls through to `'audit'` (least
+   * disruptive default for deployments that pre-date the policy contract,
+   * where existing class ids were assigned by `randomUUID()` and would
+   * otherwise be rejected on every install).
+   */
+  private effectivePolicy(modulePolicy?: IdRebindPolicy): IdRebindPolicy {
+    const override = process.env.CLASS_ID_REBIND_OVERRIDE;
+    if (override === 'strict' || override === 'audit' || override === 'silent') {
+      return override;
+    }
+    return modulePolicy ?? 'audit';
+  }
+
+  /**
+   * Map a classLabel (e.g. 'AnalysisClass') to its DTMetadata key
+   * (e.g. 'analysisClasses'). Used for event-log payloads.
+   */
+  private classKindForLabel(classLabel: string): ClassKind {
+    const cfg = MODULE_CLASS_CONFIGS.find((c) => c.label === classLabel);
+    return (cfg?.key ?? 'componentClasses') as ClassKind;
+  }
+
+  /**
+   * Upsert a class via MERGE-by-id with rebind dispatch.
+   *
+   * Five cases:
+   *   (a) Found by name, dbId === id, edge=HAS_CLASS    → idempotent SET +=
+   *   (b) Found by name, dbId === id, edge=HAS_ORPHANED → revive + SET += + emit
+   *   (c) Found by name, dbId !== id                   → rebind dispatch on policy
+   *   (d) New id collides with another module's class  → emit collision, skip
+   *   (e) Not found at all                             → CREATE + MERGE edge
+   *
+   * Strict-mode rebind-conflict on one class doesn't fail the whole
+   * module install — the install completes for the other classes and the
+   * module's `lastInstallStatus` is downgraded to 'partial'. Caller
+   * (`upsertModule`) counts processed-vs-attempted to derive that status.
    */
   async upsertClass(
     tx: DatabaseTransaction,
-    moduleId: string,
-    cls: any,
+    moduleName: string,
+    cls: { id: string; name: string; [k: string]: any },
     classLabel: string,
-    embedding?: number[]
-  ): Promise<void> {
+    embedding?: number[],
+    modulePolicy?: IdRebindPolicy,
+  ): Promise<'applied' | 'skipped'> {
     const startTime = Date.now();
 
     try {
-      // Validate inputs
       this.validateClassLabel(classLabel);
       this.validateClassObject(cls, classLabel);
 
-      if (!moduleId || typeof moduleId !== 'string') {
-        throw new Error('Module ID is required and must be a string');
+      if (!moduleName || typeof moduleName !== 'string') {
+        throw new Error('Module name is required and must be a string');
+      }
+      if (!cls.id || typeof cls.id !== 'string') {
+        // Defense-in-depth — `validateModuleInterface` should already have
+        // rejected an id-less metadata at the registration boundary; this
+        // catch makes a bypass case (e.g. tests calling upsertClass
+        // directly) noisy rather than silent.
+        throw new Error(`Class id is required (class "${cls.name}", label ${classLabel})`);
       }
 
-      this.logger.debug('Upserting class', {
-        moduleId,
-        className: cls.name,
-        classLabel,
-      });
-
+      const policy = this.effectivePolicy(modulePolicy);
+      const classKind = this.classKindForLabel(classLabel);
       const classData = this.flattenProperties(cls);
       const hasEmbedding = embedding !== undefined;
-      const nodeProperties = {
+
+      // 1. Look up existing class node by (module, classLabel, name) — both
+      //    edge types so a previously-orphaned class can be revived (design
+      //    §5.4 dual-edge-type lookup).
+      const lookup = await tx.run(
+        `MATCH (m:Module {name: $moduleName})-[r:HAS_CLASS|HAS_ORPHANED_CLASS]->(c:${classLabel} {name: $name})
+         RETURN c.id AS dbId, type(r) AS edgeType LIMIT 1`,
+        { moduleName, name: cls.name },
+      );
+
+      const existing =
+        lookup.records.length > 0
+          ? {
+              dbId: lookup.records[0].get('dbId') as string,
+              edgeType: lookup.records[0].get('edgeType') as string,
+            }
+          : null;
+
+      // Build the SET-properties payload. Same shape as before — ON CREATE
+      // sets createdAt; subsequent SET overwrites updatedAt + properties.
+      const nodeProperties: Record<string, any> = {
         ...classData,
         updatedAt: new Date().toISOString(),
         ...(hasEmbedding
@@ -396,60 +467,193 @@ export class ModuleManagementService {
           : {}),
       };
 
-      // When no vector is provided, REMOVE any stale embedding/embeddingModel
-      // left over from a previous install. Without this, a class that had a
-      // pre-computed vector last time and doesn't this time (model change,
-      // file deleted, per-class dim mismatch) would silently be scored against
-      // a wrong-model vector in match_classes.
-      const cypher = hasEmbedding
-        ? `MATCH (p:Module {id: $moduleId})
-           MERGE (p)-[:HAS_CLASS]->(t:${classLabel} {name: $name})
-           ON CREATE SET
-             t.id = randomUUID(),
-             t.createdAt = datetime()
-           SET t += $nodeProperties
-           RETURN t`
-        : `MATCH (p:Module {id: $moduleId})
-           MERGE (p)-[:HAS_CLASS]->(t:${classLabel} {name: $name})
-           ON CREATE SET
-             t.id = randomUUID(),
-             t.createdAt = datetime()
-           SET t += $nodeProperties
-           REMOVE t.embedding, t.embeddingModel
-           RETURN t`;
+      // 2. Cross-module collision check — only when this is a new
+      //    registration (no existing node by name in *this* module).
+      if (!existing) {
+        const collision = await tx.run(
+          `MATCH (other:Module)-[:HAS_CLASS|HAS_ORPHANED_CLASS]->(c:${classLabel} {id: $id})
+           WHERE other.name <> $moduleName
+           RETURN other.name AS otherModule LIMIT 1`,
+          { moduleName, id: cls.id },
+        );
+        if (collision.records.length > 0) {
+          // Case (d): collision. Emit and skip — the schema-layer UNIQUE
+          // constraint would also reject the eventual CREATE, but emitting
+          // first gives operators the structured context they need.
+          const otherModule = collision.records[0].get('otherModule') as string;
+          this.events.emit({
+            kind: 'collision',
+            firstModuleName: otherModule,
+            secondModuleName: moduleName,
+            classKind,
+            className: cls.name,
+            collidingId: cls.id,
+            timestamp: new Date().toISOString(),
+          });
+          return 'skipped';
+        }
+      }
 
-      await tx.run(cypher, {
-        moduleId,
-        name: cls.name,
-        nodeProperties,
-      });
+      if (existing && existing.dbId === cls.id) {
+        if (existing.edgeType === 'HAS_CLASS') {
+          // Case (a): clean idempotent update.
+          await this.applySetProperties(tx, classLabel, cls.id, nodeProperties, hasEmbedding);
+        } else {
+          // Case (b): revive the orphan, then update properties.
+          await this.classReconciler.reviveClass(tx, moduleName, classLabel, cls.id);
+          await this.applySetProperties(tx, classLabel, cls.id, nodeProperties, hasEmbedding);
+          this.events.emit({
+            kind: 'revive',
+            moduleName,
+            classKind,
+            className: cls.name,
+            classId: cls.id,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      } else if (existing && existing.dbId !== cls.id) {
+        // Case (c): id mismatch. Dispatch on policy.
+        if (policy === 'strict') {
+          this.events.emit({
+            kind: 'rebind-conflict',
+            moduleName,
+            classKind,
+            className: cls.name,
+            moduleDeclaredId: cls.id,
+            dbId: existing.dbId,
+            policy: 'strict',
+            timestamp: new Date().toISOString(),
+          });
+          return 'skipped';
+        }
+        // Cross-module collision check on the NEW id — without this the
+        // rebind would attempt to SET an id that already exists in
+        // another module, hitting the per-label UNIQUE constraint
+        // mid-tx and rolling back the whole install. Surface it as a structured
+        // collision event the way case (d) does for fresh registrations.
+        const rebindCollision = await tx.run(
+          `MATCH (other:Module)-[:HAS_CLASS|HAS_ORPHANED_CLASS]->(c:${classLabel} {id: $id})
+           WHERE other.name <> $moduleName
+           RETURN other.name AS otherModule LIMIT 1`,
+          { moduleName, id: cls.id },
+        );
+        if (rebindCollision.records.length > 0) {
+          this.events.emit({
+            kind: 'collision',
+            firstModuleName: rebindCollision.records[0].get('otherModule') as string,
+            secondModuleName: moduleName,
+            classKind,
+            className: cls.name,
+            collidingId: cls.id,
+            timestamp: new Date().toISOString(),
+          });
+          return 'skipped';
+        }
+        // audit / silent: in-place rebind. If the existing edge is the
+        // orphan flavour, revive too — the same metadata is now declaring
+        // both a new id AND that the class is active again.
+        if (existing.edgeType === 'HAS_ORPHANED_CLASS') {
+          await this.classReconciler.reviveClass(tx, moduleName, classLabel, existing.dbId);
+        }
+        // Module-pinned rebind: without the module pin, two modules
+        // sharing a label could collide on $oldId and rewrite the wrong
+        // node's id. The lookup at line ~432 already proved the (m, c)
+        // pair exists; re-asserting it here keeps the SET scoped.
+        await tx.run(
+          `MATCH (m:Module {name: $moduleName})-[:HAS_CLASS|HAS_ORPHANED_CLASS]->(c:${classLabel} {id: $oldId})
+           SET c.id = $newId,
+               c.idAliases = coalesce(c.idAliases, []) + [$oldId]`,
+          { moduleName, oldId: existing.dbId, newId: cls.id },
+        );
+        await this.applySetProperties(tx, classLabel, cls.id, nodeProperties, hasEmbedding);
+        if (policy === 'audit') {
+          this.events.emit({
+            kind: 'rebind',
+            moduleName,
+            classKind,
+            className: cls.name,
+            oldId: existing.dbId,
+            newId: cls.id,
+            policy: 'audit',
+            timestamp: new Date().toISOString(),
+          });
+        } else {
+          // 'silent' policy: do NOT emit a structured event.
+          // Logger.debug still captures the change for ops-only investigation.
+          this.logger.debug('silent rebind', {
+            moduleName,
+            classKind,
+            className: cls.name,
+            oldId: existing.dbId,
+            newId: cls.id,
+          });
+        }
+      } else {
+        // Case (e): not found, no collision — fresh create with the
+        // module-declared id. nodeProperties already carries the embedding
+        // fields when hasEmbedding is true, so the CREATE shape is
+        // identical regardless of embedding presence (no REMOVE needed
+        // for a brand-new node).
+        await tx.run(
+          `MATCH (m:Module {name: $moduleName})
+           CREATE (c:${classLabel} {id: $id, name: $name, createdAt: datetime()})
+           SET c += $nodeProperties
+           MERGE (m)-[:HAS_CLASS]->(c)
+           RETURN c`,
+          {
+            moduleName,
+            id: cls.id,
+            name: cls.name,
+            nodeProperties,
+          },
+        );
+      }
 
       const duration = Date.now() - startTime;
       this.recordOperation('upsertClass', duration, {
-        moduleId,
+        moduleName,
+        classId: cls.id,
         className: cls.name,
         classLabel,
       });
-
-      this.logger.debug('Class upserted successfully', {
-        moduleId,
-        className: cls.name,
-        classLabel,
-        duration,
-      });
-
+      return 'applied';
     } catch (error) {
       const duration = Date.now() - startTime;
       this.logger.error('Failed to upsert class', {
-        moduleId,
+        moduleName,
+        classId: cls?.id,
         className: cls?.name,
         classLabel,
         error: error.message,
         stack: error.stack,
         duration,
       });
-      throw new Error(`Class upsert failed for ${classLabel}/${cls?.name}: ${error.message}`, { cause: error });
+      throw new Error(
+        `Class upsert failed for ${classLabel}/${cls?.name}: ${error.message}`,
+        { cause: error },
+      );
     }
+  }
+
+  /**
+   * Apply node-property update + REMOVE stale embedding when none provided.
+   *
+   * Without the conditional REMOVE, a class that had a pre-computed vector
+   * last time and doesn't this time (model change, file deleted, per-class
+   * dim mismatch) would silently be scored against a wrong-model vector in
+   * match_classes.
+   */
+  private async applySetProperties(
+    tx: DatabaseTransaction,
+    classLabel: string,
+    classId: string,
+    nodeProperties: Record<string, any>,
+    hasEmbedding: boolean,
+  ): Promise<void> {
+    const cypher = hasEmbedding
+      ? `MATCH (c:${classLabel} {id: $id}) SET c += $nodeProperties RETURN c`
+      : `MATCH (c:${classLabel} {id: $id}) SET c += $nodeProperties REMOVE c.embedding, c.embeddingModel RETURN c`;
+    await tx.run(cypher, { id: classId, nodeProperties });
   }
 
   /**
@@ -583,6 +787,17 @@ export class ModuleManagementService {
 
   /**
    * Upserts a module with comprehensive validation and error handling.
+   *
+   * Concurrency: NOT safe for concurrent invocation on the same
+   * `metadata.name`. Two simultaneous installs for the same module
+   * race on the (lookup → CREATE) check-then-act in upsertClass and
+   * on the (Phase 4 read → orphan write) sequence. The
+   * `:Module(name)` UNIQUE constraint serializes Module-node MERGEs
+   * but does not protect the per-class flow. Callers (registry,
+   * admin endpoints, scheduled refresh) MUST serialize per moduleName
+   * — today this is implicit (single-writer install path); a future
+   * advisory-lock or per-module mutex is tracked as a follow-up.
+   *
    * @param tx The database transaction
    * @param metadata The module metadata
    * @param options Operation options
@@ -699,12 +914,23 @@ export class ModuleManagementService {
         vectors?.get(name);
 
       // Phase 3: Upsert each class with its (optional) pre-resolved vector.
+      // 'applied' counts as success; 'skipped' (strict rebind-conflict or
+      // collision) leaves classesProcessed lower than allClasses.length →
+      // the per-module status downgrades to 'partial'. Throws are caught
+      // and also count as not-applied.
       for (let i = 0; i < allClasses.length; i++) {
         const { cls, label } = allClasses[i];
         const embedding = vectorForClass(cls.name);
         try {
-          await this.upsertClass(tx, moduleId, cls, label, embedding);
-          classesProcessed++;
+          const outcome = await this.upsertClass(
+            tx,
+            installedModuleName,
+            cls,
+            label,
+            embedding,
+            metadata.idRebindPolicy,
+          );
+          if (outcome === 'applied') classesProcessed++;
         } catch (error) {
           this.logger.error('Failed to upsert class', {
             moduleId,
@@ -712,9 +938,114 @@ export class ModuleManagementService {
             classLabel: label,
             error: error.message,
           });
-          // Continue processing other classes
+          // Continue processing other classes — a single class failure
+          // downgrades `lastInstallStatus` to 'partial' but doesn't fail
+          // the whole module install.
         }
       }
+
+      // Counts reconciliation-step failures so Phase 5 can downgrade
+      // 'authoritative' → 'partial' (per-class try/catch below).
+      let reconciliationFailures = 0;
+
+      // Phase 4: Reconcile classes absent from new metadata.
+      // Orphan via MAGE rename if incident IS_INSTANCE_OF edges exist;
+      // DETACH DELETE if not. Revive of previously-orphaned classes is
+      // handled inside upsertClass when metadata re-introduces them.
+      // Reads only :HAS_CLASS — orphaned classes are untouched here.
+      for (const modClass of MODULE_CLASS_CONFIGS) {
+        const declaredNames = new Set<string>(
+          ((metadata as any)[modClass.key] ?? []).map((c: { name: string }) => c.name),
+        );
+        const dbBindings = await tx.run(
+          `MATCH (m:Module {name: $moduleName})-[:HAS_CLASS]->(c:${modClass.label})
+           RETURN c.id AS id, c.name AS name`,
+          { moduleName: installedModuleName },
+        );
+        for (const rec of dbBindings.records) {
+          const name = rec.get('name') as string;
+          if (declaredNames.has(name)) continue;
+          const id = rec.get('id') as string;
+          // Per-class try/catch so a single orphan/delete failure (e.g.,
+          // missing edge under a re-run race, MAGE transient) doesn't
+          // roll back the entire module install. The Memgraph driver
+          // aborts the tx on most failures so subsequent ops in the
+          // same callback may also throw and break out of the loop —
+          // that's acceptable; some reconciliation is better than none,
+          // and the next install converges to the same end state.
+          try {
+            const incident = await this.classReconciler.hasIncidentInstances(tx, modClass.label, id);
+            if (incident) {
+              await this.classReconciler.orphanClass(tx, installedModuleName, modClass.label, id);
+              this.events.emit({
+                kind: 'orphan',
+                moduleName: installedModuleName,
+                classKind: modClass.key as ClassKind,
+                className: name,
+                classId: id,
+                reason: 'absent-from-metadata',
+                timestamp: new Date().toISOString(),
+              });
+            } else {
+              await tx.run(
+                `MATCH (m:Module {name: $moduleName})-[:HAS_CLASS]->(c:${modClass.label} {id: $id})
+                 DETACH DELETE c`,
+                { moduleName: installedModuleName, id },
+              );
+            }
+          } catch (e) {
+            this.logger.error('Reconciliation step failed; continuing with next class', {
+              moduleName: installedModuleName,
+              classKind: modClass.key,
+              className: name,
+              classId: id,
+              error: (e as Error).message,
+            });
+            reconciliationFailures += 1;
+          }
+        }
+      }
+
+      // Phase 5: write per-module install status. 'authoritative' if every
+      // declared class processed cleanly; 'partial' if any hit a strict-mode
+      // rebind-conflict, cross-module collision, or unhandled error.
+      // `lastAuthoritativeInstall` only stamps on a clean install — operators
+      // querying for "last known-good" should see the most recent
+      // 'authoritative' moment, not a partial one. `lastAttemptedInstall`
+      // stamps on every attempt.
+      // FOLLOW-UP: the 'unavailable' (getMetadata throws) and 'error'
+      // (upsertModule throws) statuses are NOT written today — the path
+      // through loadModuleInternal aborts before reaching this code, and
+      // the catch handler at the bottom of upsertModule re-throws without
+      // a compensating status write. See process-architect review for the
+      // remediation sketch (out-of-tx markStatus call from the catch
+      // handler + a parallel from module-registry.loadModuleInternal).
+      const status =
+        classesProcessed === allClasses.length && reconciliationFailures === 0
+          ? 'authoritative'
+          : 'partial';
+
+      // SMED snapshot — captures every (classKind, className, declaredId) the
+      // module asked for at THIS install, before strict-mode rebind blocks can
+      // hide the declared id. Read by the `Module.rebindConflicts` resolver
+      // post-install to compute the diff against the DB-resident id. Self-
+      // healing: every install overwrites it.
+      const lastInstallClassIds = JSON.stringify(
+        allClasses.map(({ cls, label }) => ({
+          classKind: label,
+          className: cls.name,
+          declaredId: cls.id,
+        })),
+      );
+
+      await tx.run(
+        `MATCH (m:Module {name: $moduleName})
+         SET m.lastInstallStatus = $status,
+             m.lastAttemptedInstall = datetime(),
+             m.lastInstallClassIds = $lastInstallClassIds` +
+          (status === 'authoritative' ? `, m.lastAuthoritativeInstall = datetime()` : ``),
+        { moduleName: installedModuleName, status, lastInstallClassIds },
+      );
 
       // Update module statistics
       this.statistics.totalModules++;

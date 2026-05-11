@@ -1,11 +1,11 @@
 /**
- * Sprint 5 F-26: pre-validate attribute value shapes against the Memgraph
- * property model. Standalone unit tests for the helper.
+ * Pre-validate attribute value shapes against the Memgraph property
+ * model. Standalone unit tests for the helper.
  */
 
 import { describeNonPrimitiveValue } from '../set-instantiation-attributes.service';
 
-describe('describeNonPrimitiveValue (Sprint 5 F-26)', () => {
+describe('describeNonPrimitiveValue', () => {
   it('accepts primitives', () => {
     expect(describeNonPrimitiveValue('hello')).toBeNull();
     expect(describeNonPrimitiveValue(42)).toBeNull();

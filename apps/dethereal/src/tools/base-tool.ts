@@ -16,13 +16,13 @@ export interface ToolContext {
   /** JWT token for authentication (for client-dependent tools) */
   token?: string
   /**
-   * JWT-anchored operator identity (Sprint 4 F-04). Decoded once per
-   * MCP entry from the `email` (preferred) or `sub` claim of the OIDC
-   * token. The audit-log writer threads this through as
-   * `AuditLogEntry.authnOperator` — the platform-anchored truth that
-   * complements the spoofable local `operator` field. `undefined` if
-   * decode failed (malformed token, missing claim) — audit-log entry
-   * still writes with only the local-claimed identity.
+   * JWT-anchored operator identity. Decoded once per MCP entry from the
+   * `email` (preferred) or `sub` claim of the OIDC token. The audit-log
+   * writer threads this through as `AuditLogEntry.authnOperator` — the
+   * platform-anchored truth that complements the spoofable local
+   * `operator` field. `undefined` if decode failed (malformed token,
+   * missing claim) — audit-log entry still writes with only the
+   * local-claimed identity.
    */
   authnOperator?: string
   /** Debug mode flag */

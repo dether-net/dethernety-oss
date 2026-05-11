@@ -77,63 +77,52 @@ export const FIND_ANALYSIS_CLASSES = gql`
   }
 `
 
+// `createAnalysisIdempotent` is the `@cypher`-directive replacement for
+// the auto-generated `createAnalyses` mutation. The auto-generated form
+// uses `connect` directives with insert (not MERGE) semantics — every
+// re-run adds a fresh IS_INSTANCE_OF edge, accumulating duplicate
+// instance bindings. The idempotent variant MERGEs by id throughout:
+// Analysis node, ANALYZED_BY edge to the element, IS_INSTANCE_OF edge
+// to the AnalysisClass. Caller supplies a stable `id`; the schema-level
+// UNIQUE constraint on `Analysis.id` backstops MERGE-non-atomic races.
 export const CREATE_ANALYSIS = gql`
-  mutation CreateAnalysis(
-    $name: String!, $description: String, $elementId: ID!, $analysisClassId: ID!, $type: String, $category: String
+  mutation CreateAnalysisIdempotent(
+    $id: ID!
+    $name: String!
+    $description: String
+    $elementId: ID!
+    $analysisClassId: ID!
+    $type: String
+    $category: String
   ) {
-    createAnalyses(
-      input: {
-        name: $name
-        description: $description
-        # element: {
-        #   connect: { where: { node: { id: { eq: $elementId } } } }
-        # }
-        model: {
-          connect: { where: { node: { id: { eq: $elementId } } } }
-        }
-        component: {
-          connect: { where: { node: { id: { eq: $elementId } } } }
-        }
-        dataFlow: {
-          connect: { where: { node: { id: { eq: $elementId } } } }
-        }
-        securityBoundary: {
-          connect: { where: { node: { id: { eq: $elementId } } } }
-        }
-        control: {
-          connect: { where: { node: { id: { eq: $elementId } } } }
-        }
-        data: {
-          connect: { where: { node: { id: { eq: $elementId } } } }
-        }
-        analysisClass: {
-          connect: { where: { node: { id: { eq: $analysisClassId } } } }
-        }
-        type: $type
-        category: $category
-      }
+    createAnalysisIdempotent(
+      id: $id
+      name: $name
+      description: $description
+      elementId: $elementId
+      analysisClassId: $analysisClassId
+      type: $type
+      category: $category
     ) {
-      analyses {
+      id
+      name
+      description
+      type
+      category
+      analysisClass {
         id
         name
         description
         type
         category
-        status {
-          createdAt
-          updatedAt
-          status
-          interrupts
-          messages
-          metadata
-        }
-        analysisClass {
-          id
-          name
-          description
-          type
-          category
-        }
+      }
+      status {
+        createdAt
+        updatedAt
+        status
+        interrupts
+        messages
+        metadata
       }
     }
   }

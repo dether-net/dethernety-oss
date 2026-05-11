@@ -561,7 +561,7 @@ export class DtControl {
    *
    * Returns a Map keyed by controlId (never positional — Memgraph returns rows
    * in index-scan order, not input order). Ids absent from the platform result
-   * get an empty-array entry in the Map; Sprint 2's DtControlLibrary applies
+   * get an empty-array entry in the Map; DtControlLibrary applies
    * lifecycle-aware reconciliation (brownfield/partially-pushed absent ⇒
    * tombstone; greenfield absence is expected).
    *

@@ -1,11 +1,11 @@
 /**
  * `DtControlLibrary` — control-library engine for the dethereal plugin.
  *
- * Composes the four Sprint-1 batched primitives on `DtControl`
+ * Composes the four batched primitives on `DtControl`
  * (`getControlsByIds`, `getControlInstantiationAttributes`,
  * `getControlsAssignedModels`, `setInstantiationAttributes`) plus the
- * Sprint-2 file-machinery helpers (WAL, audit log, validator, file IO)
- * to drive the four end-to-end control-library workflows defined in
+ * file-machinery helpers (WAL, audit log, validator, file IO) to drive
+ * the four end-to-end control-library workflows defined in
  * CONTROL_LIBRARY.md §7:
  *
  * - **`pullControls`** (§7 Pull) — materialise/refresh `controls/<id>.json`
@@ -24,9 +24,8 @@
  * Plus `setLocalEdited` — the single source of truth for `localEditedAt`
  * + `pendingEdit` (enforces the §4 two-write semantic).
  *
- * No skill yet calls these methods (Sprint 2 is wired-but-not-invoked);
- * Sprint 3 plumbs them through `manage_controls` MCP tool actions and
- * the `/dethereal:enrich` / `/dethereal:sync` skills.
+ * Plumbed through the `manage_controls` MCP tool actions and the
+ * `/dethereal:enrich` / `/dethereal:sync` skills.
  */
 
 import * as Apollo from '@apollo/client';
@@ -56,14 +55,14 @@ import type {
 } from '../schemas/control-file.schema.js';
 
 // =======================================================================
-// Public types — the contract Sprint 3 (MCP tool + skills) consumes.
+// Public types — the contract the MCP tool + skills consume.
 // =======================================================================
 
 /**
  * Operator decision shape consumed by `pushBrownfieldControl`.
  *
  * The `/dethereal:sync` skill builds this from the operator's responses
- * to the §6 batched review screen — Sprint 2 just defines the contract.
+ * to the §6 batched review screen.
  */
 export interface BrownfieldDecision {
   /**
@@ -120,16 +119,15 @@ export class ExternalEditDetectedError extends Error {
 
 /**
  * Thrown when `pushBrownfieldControl` is asked to perform a clone-and-swap.
- * Sprint 2 ships the engine without the clone path; Sprint 3 adds it
- * alongside the MCP tool wiring (it requires a name-collision check via
- * `manage_controls(action: 'list', name)` which the engine has no surface
- * for today).
+ * The engine ships without the clone path today (it requires a
+ * name-collision check via `manage_controls(action: 'list', name)`
+ * which the engine has no surface for yet).
  */
 export class CloneAndSwapNotImplemented extends Error {
   constructor(controlId: string) {
     super(
-      `Clone-and-swap is not implemented in Sprint 2 for Control ${controlId}. ` +
-        `Use cancel or push-anyway; clone-and-swap lands in Sprint 3.`,
+      `Clone-and-swap is not implemented for Control ${controlId}. ` +
+        `Use cancel or push-anyway.`,
     );
     this.name = 'CloneAndSwapNotImplemented';
   }
@@ -142,8 +140,8 @@ export class CloneAndSwapNotImplemented extends Error {
  * recovery verb (CL §7 Step A unblock) — it tags the audit log so an
  * auditor can distinguish a genuine reconciliation push from a deliberate
  * operator overwrite. Letting any caller stamp `'external'` defeats that
- * discriminator. Sprint 4 (F-01) closes the spoofing surface at both the
- * MCP boundary (Zod enum drops `'external'`) and the engine (this guard).
+ * discriminator. The spoofing surface is closed at both the MCP boundary
+ * (Zod enum drops `'external'`) and the engine (this guard).
  */
 export class IllegalEditedByError extends Error {
   constructor(controlId: string) {
@@ -169,9 +167,9 @@ export interface BrownfieldPushResult {
   /**
    * True iff Step B's inline re-fetch failed transiently and Step D
    * classification proceeded against the caller-supplied (potentially
-   * stale) `freshPlatformAttrs`. Sprint 4 Tier-2 review addition: lets
-   * the sync skill render a one-line caveat in the post-push summary so
-   * the operator knows the F-09 TOCTOU safety degraded for this push.
+   * stale) `freshPlatformAttrs`. Lets the sync skill render a one-line
+   * caveat in the post-push summary so the operator knows the TOCTOU
+   * safety degraded for this push.
    */
   usedStaleSnapshot?: boolean;
 }
@@ -196,7 +194,7 @@ export class DtControlLibrary {
   }
 
   // -----------------------------------------------------------------
-  // S2.1 — pullControls
+  // pullControls
   // -----------------------------------------------------------------
 
   /**
@@ -218,16 +216,16 @@ export class DtControlLibrary {
    * `greenfield` ids should not appear in the call (greenfield Controls
    * have no platform existence yet); a defensive log fires if seen.
    *
-   * **In-flight `pendingEdit` preservation contract** (Sprint 5 F-22 /
-   * CL Appendix A.5): when an existing local `controls/<id>.json` has a
-   * non-empty `pendingEdit` block, the re-pull does NOT overwrite local
-   * `attributes` with the freshly-pulled platform value. Both the
-   * operator's edited `attributes` and the `pendingEdit.previousAttributes`
-   * baseline are preserved verbatim; only `platformAttributes` is updated
-   * to reflect the latest server state. This prevents `/dethereal:sync pull`
-   * (or its L4.5 auto-sequencing — Sprint 5 F-15) from silently destroying
-   * an in-progress edit. The next `push-brownfield` will compute conflict
-   * detection against the freshly-pulled `platformAttributes`.
+   * **In-flight `pendingEdit` preservation contract** (CL Appendix A.5):
+   * when an existing local `controls/<id>.json` has a non-empty
+   * `pendingEdit` block, the re-pull does NOT overwrite local `attributes`
+   * with the freshly-pulled platform value. Both the operator's edited
+   * `attributes` and the `pendingEdit.previousAttributes` baseline are
+   * preserved verbatim; only `platformAttributes` is updated to reflect
+   * the latest server state. This prevents `/dethereal:sync pull` (or its
+   * L4.5 auto-sequencing) from silently destroying an in-progress edit.
+   * The next `push-brownfield` will compute conflict detection against
+   * the freshly-pulled `platformAttributes`.
    *
    * Short-circuits on empty input without a Bolt round-trip.
    *
@@ -351,7 +349,7 @@ export class DtControlLibrary {
   };
 
   // -----------------------------------------------------------------
-  // S2.2 — pushGreenfieldControl
+  // pushGreenfieldControl
   // -----------------------------------------------------------------
 
   /**
@@ -370,9 +368,8 @@ export class DtControlLibrary {
    * Failures at any step leave the file in `partially-pushed`; the next
    * call resumes from where it left off.
    *
-   * @param folderId - Platform folder for `createControl`. Sprint 2
-   *   accepts as a method param; Sprint 3's MCP wiring derives from
-   *   operator context.
+   * @param folderId - Platform folder for `createControl`. Accepted as
+   *   a method param; the MCP wiring derives this from operator context.
    * @param liveAssignedModelIds - Pre-fetched model ids for `platformState`
    *   in Step D. The caller passes this to avoid a redundant query.
    */
@@ -513,7 +510,7 @@ export class DtControlLibrary {
   };
 
   // -----------------------------------------------------------------
-  // S2.3 — pushBrownfieldControl
+  // pushBrownfieldControl
   // -----------------------------------------------------------------
 
   /**
@@ -521,8 +518,8 @@ export class DtControlLibrary {
    * (Step 0 short-circuit through Step F finalise) per CL §7 "Push —
    * brownfield Controls".
    *
-   * The caller (Sprint 3's `/dethereal:sync` skill) is responsible for
-   * the batched pre-push pipeline that fetches `freshPlatformAttrs` and
+   * The caller (the `/dethereal:sync` skill) is responsible for the
+   * batched pre-push pipeline that fetches `freshPlatformAttrs` and
    * `liveAssignedModelIds` ONCE for all touched Controls — this method
    * does not re-issue those round-trips.
    *
@@ -534,30 +531,30 @@ export class DtControlLibrary {
    * @param thisModelId - The id of the model being synced — used by Step E
    *   to recognise "alone vs shared".
    *
-   * **Sprint 2 deferral** — Step C's `absent-but-known` classification
-   * requires the ControlClass template's `properties` keys, which Sprint
-   * 1 didn't plumb through the metadata cache. Sprint 2 collapses to
-   * `present | absent-and-unknown`; Sprint 3 wires template properties
-   * through and adds the `absent-but-known` branch.
+   * **Engine deferral** — Step C's `absent-but-known` classification
+   * requires the ControlClass template's `properties` keys, which the
+   * earlier metadata cache didn't plumb through. The engine currently
+   * collapses to `present | absent-and-unknown`; future work wires
+   * template properties through and adds the `absent-but-known` branch.
    *
-   * **Sprint 5 F-21 — Throws** (none of these are caught inside the
-   * method; surface to the MCP tool wrapper for envelope translation):
+   * **Throws** (none of these are caught inside the method; surface to
+   * the MCP tool wrapper for envelope translation):
    * @throws {ExternalEditDetectedError} Step A — local `attributes`
    *   diverged from `platformAttributes` without a `pendingEdit` block.
    *   Recovery: `/dethereal:sync promote-external-edit <id> <classId>`.
    * @throws {CloneAndSwapNotImplemented} Step E — operator chose
-   *   `sharedOwnership: 'clone-and-swap'`. Sprint-3 deferral; the engine
-   *   throws a typed marker instead of proceeding silently.
-   * @throws {IllegalEditedByError} Sprint 4 F-01 — guard against
+   *   `sharedOwnership: 'clone-and-swap'`. The engine throws a typed
+   *   marker instead of proceeding silently.
+   * @throws {IllegalEditedByError} Guard against
    *   `setLocalEdited({editedBy: 'external'})`. The `'external'`
    *   discriminator is reserved for the `promote-external-edit` recovery
    *   verb; surfaces here only if a caller bypasses the MCP Zod enum.
    * @throws {Error} Step C `absent-and-unknown` blocked-key path — local
    *   `pendingEdit` mentions a key that's neither in the live platform
-   *   attributes nor in the (Sprint-3+) template `properties`. Plain
-   *   `Error` because the schema-drift narrative isn't a typed-marker
-   *   recovery story; the operator must fix the file or update the
-   *   ControlClass template before the push can proceed.
+   *   attributes nor in the template `properties`. Plain `Error` because
+   *   the schema-drift narrative isn't a typed-marker recovery story;
+   *   the operator must fix the file or update the ControlClass template
+   *   before the push can proceed.
    */
   pushBrownfieldControl = async ({
     modelDir,
@@ -575,11 +572,10 @@ export class DtControlLibrary {
     liveAssignedModelIds: string[];
     thisModelId: string;
     /**
-     * JWT-anchored operator identity (Sprint 4 F-04). Pass-through to
-     * `buildAuditEntry` so the audit log carries the platform-anchored
-     * identity alongside the spoofable local `operator` field. Optional
-     * for tests / non-MCP callers; the MCP tool always provides it when
-     * a token is available.
+     * JWT-anchored operator identity. Pass-through to `buildAuditEntry`
+     * so the audit log carries the platform-anchored identity alongside
+     * the spoofable local `operator` field. Optional for tests / non-MCP
+     * callers; the MCP tool always provides it when a token is available.
      */
     authnOperator?: string;
   }): Promise<BrownfieldPushResult> => {
@@ -612,7 +608,7 @@ export class DtControlLibrary {
       }
     }
 
-    // ----- Step B — Refresh platformAttributes (Sprint 4 F-09 TOCTOU fix) -----
+    // ----- Step B — Refresh platformAttributes (TOCTOU fix) -----
     // Re-fetch live attributes inline rather than trust the caller-supplied
     // freshPlatformAttrs map. The caller (sync skill) batched-fetched the map
     // at the start of P7.2, then iterates through operator review (seconds to
@@ -631,7 +627,7 @@ export class DtControlLibrary {
     // purposes, but kept in the API surface for the skill's own rendering
     // (operator wants to see "your value vs server value" before deciding —
     // the pre-flight map is what drives that preview). Drop in V1.1 once
-    // optimistic locking ships (RF F-09 alternative).
+    // optimistic locking ships.
     let liveByClass: Map<string, Record<string, unknown>>;
     let usedStaleSnapshot = false;
     try {
@@ -644,11 +640,10 @@ export class DtControlLibrary {
           .map(row => [row.classId, (row.attributes as Record<string, unknown> | undefined) ?? {}]),
       );
     } catch (err) {
-      // Sprint 4 Tier-2 cross-review (cypher-expert + process-architect):
-      // narrow the catch to network-class transient errors. Auth, schema,
-      // and transaction-conflict errors are EXACTLY the F-09 condition the
+      // Narrow the catch to network-class transient errors. Auth, schema,
+      // and transaction-conflict errors are EXACTLY the condition the
       // re-fetch was added to detect — silently falling back to a stale
-      // snapshot would re-introduce the TOCTOU window the sprint closed.
+      // snapshot would re-introduce the TOCTOU window.
       // Network blips (Bolt connection refused, session expired) are
       // legitimate transient and degrade safely; everything else bubbles.
       const msg = err instanceof Error ? err.message : String(err);
@@ -661,7 +656,7 @@ export class DtControlLibrary {
       console.warn(
         `pushBrownfieldControl: Step B re-fetch failed transiently for ` +
           `control=${working.id}; falling back to caller-supplied freshPlatformAttrs ` +
-          `(F-09 safety property degraded for this push). Reason: ${msg}`,
+          `(TOCTOU safety property degraded for this push). Reason: ${msg}`,
       );
       liveByClass = freshPlatformAttrs;
       usedStaleSnapshot = true;
@@ -687,11 +682,11 @@ export class DtControlLibrary {
       const entry = working.classes[i];
       if (!entry.pendingEdit) continue;
 
-      // Sprint 7 — first-write keys join previousAttributes keys to form the
-      // full set of keys the operator intended to change. They go through the
-      // same outbound-payload assembly but skip the platformAttrs presence
-      // check (there's no prior value to conflict with — that's the whole
-      // point of "first-write").
+      // First-write keys join previousAttributes keys to form the full
+      // set of keys the operator intended to change. They go through the
+      // same outbound-payload assembly but skip the platformAttrs
+      // presence check (there's no prior value to conflict with — that's
+      // the whole point of "first-write").
       const previousKeys = Object.keys(entry.pendingEdit.previousAttributes);
       const firstWriteKeys = entry.pendingEdit.firstWriteKeys ?? [];
       const firstWriteKeysSet = new Set(firstWriteKeys);
@@ -718,12 +713,12 @@ export class DtControlLibrary {
           // there's no conflict baseline to detect drift against, so the
           // partial-payload `r += $attributes` merge wins. The validator
           // surfaces this stale-state pattern as a warning at write time
-          // (Sprint 7) so it's visible before push.
+          // so it's visible before push.
           continue;
         }
 
         if (!(k in platformAttrs)) {
-          // Sprint 2 deferral: collapse 'absent-but-known' into 'absent-and-unknown'.
+          // Engine deferral: collapse 'absent-but-known' into 'absent-and-unknown'.
           // Block the push for this key. (Does not apply to first-write keys —
           // those are handled above.)
           blockedKeys.push(k);
@@ -767,11 +762,11 @@ export class DtControlLibrary {
         });
         await appendAuditEntry(modelDir, auditEntry);
         auditEntries.push(auditEntry);
-        // Sprint 5 F-19: clear localEditedAt alongside pendingEdit. The operator
-        // typed back the pre-edit value — there's no longer an outstanding local
-        // edit to surface in /dethereal:status. Without this clear, status
-        // would keep showing "recently edited locally" indefinitely until the
-        // next genuine edit + push cycle.
+        // Clear localEditedAt alongside pendingEdit. The operator typed
+        // back the pre-edit value — there's no longer an outstanding
+        // local edit to surface in /dethereal:status. Without this clear,
+        // status would keep showing "recently edited locally" indefinitely
+        // until the next genuine edit + push cycle.
         working.classes[i] = { ...entry, pendingEdit: undefined, localEditedAt: undefined };
         revertedAny = true;
         continue;
@@ -883,8 +878,8 @@ export class DtControlLibrary {
       (liveAssignedModelIds.length === 1 && liveAssignedModelIds[0] === thisModelId);
 
     // Per-control shared-ownership signal. Per-class auditKind in Step F
-    // uses this when set; otherwise falls back to 'first-write' (Sprint 7)
-    // when the class push contains first-write keys.
+    // uses this when set; otherwise falls back to 'first-write' when the
+    // class push contains first-write keys.
     let sharedAuditKind: AuditLogEntry['kind'] | null = null;
     if (!isAlone) {
       switch (decision.sharedOwnership) {
@@ -903,7 +898,7 @@ export class DtControlLibrary {
 
     // ----- Step F — Mutate + finalise -----
     //
-    // **Sprint 5 F-14 — Crash recovery contract (NOT WAL-protected).**
+    // **Crash recovery contract (NOT WAL-protected).**
     // Brownfield Step F has no Write-Ahead Log, distinct from greenfield's
     // id rewrite. The crash-resilience story has three layers:
     //
@@ -915,8 +910,8 @@ export class DtControlLibrary {
     //   2. **Re-plan from scratch on retry.** The next `push-brownfield`
     //      invocation re-runs Steps A→F from a fresh read. Step A re-checks
     //      the external-edit guard; Step B re-fetches the live platform
-    //      attributes (Sprint 4 F-09 — catches concurrent mutations during
-    //      the crash window); Step D re-runs conflict detection against the
+    //      attributes (catches concurrent mutations during the crash
+    //      window); Step D re-runs conflict detection against the
     //      newly-fetched state.
     //   3. **Idempotent under the partial-payload contract** (DEC-CL-11).
     //      The Cypher mutation is `SET r += $attributes` — a class entry
@@ -943,7 +938,7 @@ export class DtControlLibrary {
         // pendingEdit intact, so the next push re-plans from scratch and
         // re-attempts ALL classes (idempotent under the partial-payload
         // contract; a class already updated server-side just no-ops).
-        // See the Sprint 5 F-14 contract block above.
+        // See the crash recovery contract block above.
         throw new Error(
           `pushBrownfieldControl: setInstantiationAttributes failed for control=${working.id} class=${entry.classId}. State preserved for retry.`,
         );
@@ -976,8 +971,7 @@ export class DtControlLibrary {
         sharedAuditKind ?? (fwKeysInPush.length > 0 ? 'first-write' : null);
 
       if (auditKind) {
-        // Sprint 4 Tier-2 cross-review (threat-modeler F-01 hand-edit bypass):
-        // coerce editedBy='external' → 'operator' when previousAttributes
+        // Coerce editedBy='external' → 'operator' when previousAttributes
         // doesn't match the legitimate promoteExternalEdit shape (every
         // key in previousAttributes equals the corresponding key in the
         // pre-Step-B platformAttributes). A hand-edited file that set
@@ -987,7 +981,7 @@ export class DtControlLibrary {
         // its previousAttributes are synthesised from platformAttributes
         // verbatim.
         //
-        // Sprint 7 — second hand-edit shape: editedBy='external' + non-empty
+        // Second hand-edit shape: editedBy='external' + non-empty
         // firstWriteKeys. promoteExternalEdit never produces firstWriteKeys,
         // so this combination is a hand-edit by construction. Defense-in-depth
         // backstop for cases that bypassed the validator.
@@ -1018,7 +1012,7 @@ export class DtControlLibrary {
           className: entry.className ?? entry.classId,
           modelId: thisModelId,
           liveAssignedModelIds: auditKind === 'force-unverified' ? null : liveAssignedModelIds,
-          // Sprint 7: intendedKeys is the union of recorded prior keys AND
+          // intendedKeys is the union of recorded prior keys AND
           // first-write keys — the full set of keys the operator/agent
           // intended to change in the originating pendingEdit lifecycle.
           intendedKeys: [
@@ -1063,7 +1057,7 @@ export class DtControlLibrary {
   };
 
   // -----------------------------------------------------------------
-  // S2.7 — markTombstoned
+  // markTombstoned
   // -----------------------------------------------------------------
 
   /**
@@ -1071,7 +1065,7 @@ export class DtControlLibrary {
    * blocks (operator may want to recover the edits via clone-and-swap per
    * CL §6 option 3). Persists via the WAL helper's atomic-write sequence.
    *
-   * **Sprint 5 F-23 — Lifecycle contract**: this method **accepts any
+   * **Lifecycle contract**: this method **accepts any
    * lifecycle** as input — greenfield, partially-pushed, brownfield, or
    * a Control already tombstoned. Tombstoning a greenfield Control is
    * legal (the operator decided not to push the local-only Control); no
@@ -1098,7 +1092,7 @@ export class DtControlLibrary {
   };
 
   // -----------------------------------------------------------------
-  // S2.7 — setLocalEdited
+  // setLocalEdited
   // -----------------------------------------------------------------
 
   /**
@@ -1112,7 +1106,7 @@ export class DtControlLibrary {
    * operator's FIRST pre-edit value as the intent baseline across
    * subsequent edits within the same pendingEdit lifecycle.
    *
-   * **First-write keys (Sprint 7).** When a changed key has no prior
+   * **First-write keys.** When a changed key has no prior
    * value in `entry.attributes` (the value is `undefined`), recording
    * it in `previousAttributes` would serialise as a missing key (JSON
    * drops `undefined`) — leaving the engine unable to distinguish "no
@@ -1124,15 +1118,15 @@ export class DtControlLibrary {
    * either array is not re-recorded by subsequent edits.
    *
    * Single source of truth for `localEditedAt` + `pendingEdit`. All
-   * Sprint 3+ callers (skills, manual operator edits via the MCP tool)
-   * must go through this function.
+   * All callers (skills, manual operator edits via the MCP tool) must
+   * go through this function.
    *
-   * **Sprint 5 F-23 — Throws**:
+   * **Throws**:
    * @throws {Error} `classIdx` out of range for `file.classes` — plain
    *   `Error` because it indicates a caller bug (the MCP Zod schema
    *   should have rejected this earlier; reaching here means the engine
    *   is being driven directly without Zod-side validation).
-   * @throws {IllegalEditedByError} Sprint 4 F-01 — `editedBy === 'external'`
+   * @throws {IllegalEditedByError} `editedBy === 'external'`
    *   is rejected. The `'external'` discriminator is reserved for the
    *   `promote-external-edit` recovery verb's synthesised pendingEdit;
    *   surfacing it through the general-purpose edit verb would let an
@@ -1213,7 +1207,7 @@ export class DtControlLibrary {
   };
 
   // -----------------------------------------------------------------
-  // S3 — promoteExternalEdit (recovery verb for Step A guard)
+  // promoteExternalEdit (recovery verb for Step A guard)
   // -----------------------------------------------------------------
 
   /**
@@ -1229,7 +1223,7 @@ export class DtControlLibrary {
    * and want to push it as my intent" — this method writes the
    * `pendingEdit` block that signals that claim.
    *
-   * **Design note (post-Sprint 3 review fix).** A naive recovery via
+   * **Design note.** A naive recovery via
    * `setLocalEdited(attributes_after_pull, attributes_after_pull)`
    * fails because the engine's diff yields zero changed keys and
    * returns no-op. This method bypasses the diff: it computes
@@ -1259,7 +1253,7 @@ export class DtControlLibrary {
     const entry = working.classes[classIdx];
     const now = new Date().toISOString();
 
-    // Sprint 4 Tier-2 cross-review (process-architect): refuse to overwrite
+    // Refuse to overwrite
     // an existing pendingEdit. The Step A external-edit guard would not
     // have fired with a pendingEdit present (it requires `!entry.pendingEdit`),
     // so this method has no business being called in that state — invoking
@@ -1329,7 +1323,7 @@ function shallowEqualAttrs(
 }
 
 // Re-export the file-IO helpers + audit-log + WAL types from one barrel
-// position so Sprint 3 can import everything via `@dethernety/dt-core`.
+// position so callers can import everything via `@dethernety/dt-core`.
 export {
   readControlFile,
   writeControlFile,

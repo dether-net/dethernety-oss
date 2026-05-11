@@ -228,7 +228,7 @@ describe('validateControlFile — external-edit warning', () => {
   });
 });
 
-describe('validateControlFile — Sprint 7 firstWriteKeys', () => {
+describe('validateControlFile — firstWriteKeys', () => {
   it('accepts a valid firstWriteKeys array (no overlap, no platform staleness)', () => {
     const r = validateControlFile(
       brownfieldFile({
@@ -321,7 +321,7 @@ describe('validateControlFile — Sprint 7 firstWriteKeys', () => {
     expect(r.warnings.some(w => /local file may be stale/.test(w))).toBe(true);
   });
 
-  it('errors on hand-edit spoof: editedBy="external" with non-empty firstWriteKeys (Sprint 7 hardening)', () => {
+  it('errors on hand-edit spoof: editedBy="external" with non-empty firstWriteKeys', () => {
     // This shape cannot be produced by the legitimate promoteExternalEdit
     // recovery verb (which synthesises previousAttributes from
     // platformAttributes for diverging keys and never emits firstWriteKeys).
@@ -404,7 +404,7 @@ describe('validateControlFileWithPlatform', () => {
   });
 });
 
-describe('validateControlFile — Sprint 5 F-17 prototype-pollution keys', () => {
+describe('validateControlFile — prototype-pollution keys', () => {
   it('rejects __proto__ at the root of attributes (own property)', () => {
     // Using Object.defineProperty to install __proto__ as an own enumerable
     // property — a literal `{ __proto__: ... }` would set the prototype, not
@@ -485,7 +485,7 @@ describe('validateControlFile — Sprint 5 F-17 prototype-pollution keys', () =>
   });
 });
 
-describe('validateControlFile — Sprint 5 F-18 unknown lifecycle short-circuit', () => {
+describe('validateControlFile — unknown lifecycle short-circuit', () => {
   it('emits per-class warning when lifecycle is unknown and skips downstream checks', () => {
     const r = validateControlFile(
       brownfieldFile({
@@ -506,7 +506,7 @@ describe('validateControlFile — Sprint 5 F-18 unknown lifecycle short-circuit'
   });
 });
 
-describe('validateControlFile — Sprint 5 F-38 hint includes classId', () => {
+describe('validateControlFile — hint includes classId', () => {
   it('includes the classId in the promote-external-edit recovery hint', () => {
     const r = validateControlFile(
       brownfieldFile({

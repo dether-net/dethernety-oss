@@ -119,7 +119,7 @@ describe('ValidateModelTool', () => {
     })
   })
 
-  // Sprint 5: coverage action
+  // Coverage action
   describe('coverage action', () => {
     it('should accept coverage action with model_id', () => {
       const result = validateModelTool.inputSchema.safeParse({

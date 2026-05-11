@@ -51,7 +51,7 @@ describe('ManageControlsTool', () => {
     expect(result.success).toBe(false)
   })
 
-  // Sprint 5: assign action
+  // Assign action
   it('should accept assign action with control_id and element_ids', () => {
     const result = manageControlsTool.inputSchema.safeParse({
       action: 'assign',
@@ -86,7 +86,7 @@ describe('ManageControlsTool', () => {
     expect(result.success).toBe(false)
   })
 
-  // Sprint 5: advanced list filters
+  // Advanced list filters
   it('should accept list action with name filter', () => {
     const result = manageControlsTool.inputSchema.safeParse({
       action: 'list',

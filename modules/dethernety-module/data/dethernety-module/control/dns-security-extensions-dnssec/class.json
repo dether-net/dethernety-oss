@@ -1,4 +1,5 @@
 {
+  "id": "6636d825-1580-4851-96b1-a781d5e621ac",
   "name": "DNS Security Extensions (DNSSEC)",
   "classType": "control",
   "type": "DNS Security Extensions",

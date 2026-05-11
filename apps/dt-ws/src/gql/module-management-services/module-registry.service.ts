@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
-import { DTModule, DTMetadata, ModuleResolverContext, ResolverMap } from '@dethernety/dt-module';
+import { DTModule, DTMetadata, ModuleResolverContext, ResolverMap, deriveClassId, ClassKind } from '@dethernety/dt-module';
 import { parse, Kind, type DocumentNode, type DirectiveDefinitionNode, type ObjectTypeDefinitionNode } from 'graphql';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
 import { ModuleManagementService } from './module-management.service';
@@ -167,6 +167,12 @@ export class ModuleRegistryService implements OnModuleInit {
 
   /**
    * Validates module interface compliance.
+   *
+   * The module is authoritative for class `id`. Each class entry across the
+   * 7 platform class-kind arrays MUST carry an `id`. Legacy modules that
+   * omit `id` are tolerated through the backwards-compat fallback
+   * ({@link stampMissingIds}) — the platform stamps a derived id and emits
+   * a deprecation warning. Removed in the next major.
    */
   private async validateModuleInterface(moduleInstance: DTModule): Promise<boolean> {
     try {
@@ -181,13 +187,70 @@ export class ModuleRegistryService implements OnModuleInit {
         return false;
       }
 
-      return true;
+      // Module-class contract: every class entry must carry a name;
+      // a missing id is stamped via deriveClassId (backwards-compat).
+      // A missing name is a hard failure — we have no derivation key
+      // without it.
+      return this.stampMissingIds(metadata);
     } catch (error) {
       this.logger.error('Module interface validation failed', {
         error: error.message,
       });
       return false;
     }
+  }
+
+  /**
+   * Backwards-compat: stamp `deriveClassId(...)` on class entries that omit
+   * `id` and emit a deprecation warning. Mutates `metadata` in place.
+   *
+   * Returns `false` if any class entry omits `name` (no derivation key) — a
+   * hard validation failure. Otherwise returns `true`.
+   *
+   * Called from {@link validateModuleInterface} (gates load) and from
+   * {@link loadModuleInternal} (because `getMetadata()` is invoked again
+   * after validation, returning fresh unstamped metadata).
+   */
+  private stampMissingIds(metadata: DTMetadata): boolean {
+    const classKinds: ClassKind[] = [
+      'analysisClasses',
+      'componentClasses',
+      'controlClasses',
+      'dataClasses',
+      'dataFlowClasses',
+      'issueClasses',
+      'securityBoundaryClasses',
+    ];
+
+    let stampedCount = 0;
+    for (const kind of classKinds) {
+      const arr = (metadata as any)[kind] as Array<{ id?: string; name?: string }> | undefined;
+      if (!arr) continue;
+      for (const entry of arr) {
+        if (!entry.name) {
+          this.logger.error('Module class entry missing name', {
+            module: metadata.name,
+            kind,
+          });
+          return false;
+        }
+        if (!entry.id) {
+          entry.id = deriveClassId(metadata.name, kind, entry.name);
+          stampedCount += 1;
+        }
+      }
+    }
+
+    if (stampedCount > 0) {
+      this.logger.warn(
+        `Module "${metadata.name}" returned ${stampedCount} class entries without id; ` +
+          `platform stamped via deriveClassId. This fallback is removed in the next major — ` +
+          `update the module to declare id explicitly.`,
+        { module: metadata.name, stampedCount },
+      );
+    }
+
+    return true;
   }
 
   /**
@@ -444,6 +507,15 @@ export class ModuleRegistryService implements OnModuleInit {
 
     // Get metadata
     const metadata = await Promise.resolve(moduleInstance.getMetadata());
+
+    // Backwards-compat for legacy modules that omit ids:
+    // validateModuleInterface stamped derived ids on its own metadata
+    // copy, but getMetadata() above returned a fresh object that does NOT
+    // carry those stamps. Re-apply here so downstream consumers see the
+    // canonical id-bearing shape. Mutates metadata in place.
+    if (!this.stampMissingIds(metadata)) {
+      throw new Error('Module metadata stamping failed (class entry missing name)');
+    }
 
     return { module: moduleInstance, metadata };
   }

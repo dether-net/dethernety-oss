@@ -1,5 +1,15 @@
+import { computed, readonly, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { DtModule, Module } from '@dethernety/dt-core'
+import {
+  DtModule,
+  DtClassIdentity,
+  Module,
+  IdentityMigrationReport,
+  MigrateClassIdArgs,
+  ReviveOrphanedClassArgs,
+  DeleteOrphanedClassArgs,
+  RunIdentityMigrationArgs
+} from '@dethernety/dt-core'
 import apolloClient from '@/plugins/apolloClient'
 
 export const useModulesStore = defineStore('modules', () => {
@@ -7,12 +17,17 @@ export const useModulesStore = defineStore('modules', () => {
   const modules = ref<Module[]>([])
   const isLoading = ref<Record<string, boolean>>({
     fetchModules: false,
+    fetchModulesWithIdentity: false,
     saveModule: false,
     resetModule: false,
     getModuleById: false,
     getModuleByName: false,
     getAvailableFrontendModules: false,
-    getModuleFrontendBundle: false
+    getModuleFrontendBundle: false,
+    migrateClassId: false,
+    reviveOrphanedClass: false,
+    deleteOrphanedClass: false,
+    runIdentityMigration: false
   })
   const error = ref<string>('')
   const successMessage = ref<string>('')
@@ -21,6 +36,7 @@ export const useModulesStore = defineStore('modules', () => {
   
   // Dependencies
   const dtModule = new DtModule(apolloClient)
+  const dtClassIdentity = new DtClassIdentity(apolloClient)
   
   // Constants
   const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
@@ -38,9 +54,13 @@ export const useModulesStore = defineStore('modules', () => {
   // Helper functions
   const handleApiError = (error: Error, operation: string): string => {
     console.error(`Error in ${operation}:`, error)
-    
+
     if (error.message.includes('401')) return 'Please log in again'
-    if (error.message.includes('403')) return 'Access denied'
+    // Admin-mutation surface — backend returns ForbiddenException for
+    // non-admin callers. Surface as a clearer message than the generic 403.
+    if (error.message.includes('Admin role required') || error.message.includes('403')) {
+      return 'Admin role required to perform this action'
+    }
     if (error.message.includes('404')) return 'Module not found'
     if (error.message.includes('network')) return 'Connection failed'
     return `Failed to ${operation}. Please try again.`
@@ -160,6 +180,31 @@ export const useModulesStore = defineStore('modules', () => {
     }
   }
 
+  const fetchModulesWithIdentity = async ({
+    force = false
+  }: {
+    force?: boolean
+  } = {}): Promise<Module[]> => {
+    if (!force && !shouldRefresh()) {
+      return modules.value
+    }
+
+    try {
+      isLoading.value.fetchModulesWithIdentity = true
+      error.value = ''
+
+      const results = await dtClassIdentity.getModulesWithIdentity()
+      modules.value = results
+      lastFetch.value = Date.now()
+      return results
+    } catch (err) {
+      error.value = handleApiError(err as Error, 'fetch module identity')
+      return modules.value
+    } finally {
+      isLoading.value.fetchModulesWithIdentity = false
+    }
+  }
+
   const resetModule = async ({ moduleId }: { moduleId: string }): Promise<boolean> => {
     const validationError = validateModuleId(moduleId)
     if (validationError) {
@@ -273,6 +318,83 @@ export const useModulesStore = defineStore('modules', () => {
     }
   }
 
+  // ---- Admin mutations -------------------------------------------------
+  // Each wraps the corresponding DtClassIdentity method with the established
+  // try/catch + isLoading lifecycle + handleApiError pattern. On success
+  // they trigger fetchModulesWithIdentity({ force: true }) so the operator
+  // sees the new server state without a manual refresh — small extra
+  // round-trip, big consistency win (no optimistic-mutation drift).
+
+  const migrateClassId = async (args: MigrateClassIdArgs): Promise<boolean> => {
+    try {
+      isLoading.value.migrateClassId = true
+      error.value = ''
+      const result = await dtClassIdentity.migrateClassId(args)
+      if (result) await fetchModulesWithIdentity({ force: true })
+      return result
+    } catch (err) {
+      error.value = handleApiError(err as Error, 'migrate class id')
+      throw err
+    } finally {
+      isLoading.value.migrateClassId = false
+    }
+  }
+
+  const reviveOrphanedClass = async (args: ReviveOrphanedClassArgs): Promise<boolean> => {
+    try {
+      isLoading.value.reviveOrphanedClass = true
+      error.value = ''
+      const result = await dtClassIdentity.reviveOrphanedClass(args)
+      if (result) {
+        showSuccess('Class revived')
+        await fetchModulesWithIdentity({ force: true })
+      }
+      return result
+    } catch (err) {
+      error.value = handleApiError(err as Error, 'revive orphaned class')
+      throw err
+    } finally {
+      isLoading.value.reviveOrphanedClass = false
+    }
+  }
+
+  const deleteOrphanedClass = async (args: DeleteOrphanedClassArgs): Promise<boolean> => {
+    try {
+      isLoading.value.deleteOrphanedClass = true
+      error.value = ''
+      const result = await dtClassIdentity.deleteOrphanedClass(args)
+      if (result) {
+        showSuccess(args.cascade ? 'Class and dependents deleted' : 'Class deleted')
+        await fetchModulesWithIdentity({ force: true })
+      }
+      return result
+    } catch (err) {
+      error.value = handleApiError(err as Error, 'delete orphaned class')
+      throw err
+    } finally {
+      isLoading.value.deleteOrphanedClass = false
+    }
+  }
+
+  const runIdentityMigration = async (
+    args: RunIdentityMigrationArgs
+  ): Promise<IdentityMigrationReport> => {
+    try {
+      isLoading.value.runIdentityMigration = true
+      error.value = ''
+      const report = await dtClassIdentity.runIdentityMigration(args)
+      // Apply mode mutates the DB; refresh module state. Dry-run reports
+      // planned changes only, so no refresh needed.
+      if (!args.dryRun) await fetchModulesWithIdentity({ force: true })
+      return report
+    } catch (err) {
+      error.value = handleApiError(err as Error, 'run identity migration')
+      throw err
+    } finally {
+      isLoading.value.runIdentityMigration = false
+    }
+  }
+
   return {
     // State
     modules: filteredModules,
@@ -280,17 +402,22 @@ export const useModulesStore = defineStore('modules', () => {
     error: readonly(error),
     successMessage: readonly(successMessage),
     searchQuery,
-    
+
     // Actions
     getModuleById,
     getModuleByName,
     fetchModules,
+    fetchModulesWithIdentity,
     resetModule,
     saveModule,
     getAvailableFrontendModules,
     getModuleFrontendBundle,
+    migrateClassId,
+    reviveOrphanedClass,
+    deleteOrphanedClass,
+    runIdentityMigration,
     resetStore,
-    
+
     // Utils
     clearError: () => error.value = '',
     clearSuccess: () => successMessage.value = ''

@@ -13,6 +13,7 @@ import { ResolverService, GraphQLContext } from './interfaces/resolver.interface
 import gqlConfig, { GqlConfig } from './gql.config';
 import { Logger } from '@nestjs/common';
 import { extractBearerToken } from '../common/utils/extract-bearer-token';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import * as _depthLimitModule from 'graphql-depth-limit';
 const depthLimit = (_depthLimitModule as any).default || _depthLimitModule;
 import { getComplexity, simpleEstimator } from 'graphql-query-complexity';
@@ -32,6 +33,11 @@ import { getComplexity, simpleEstimator } from 'graphql-query-complexity';
         neo4jDriver: any,
         moduleRegistryService: ModuleRegistryService,
       ) => {
+        // Instantiate JwtAuthGuard here rather than injecting it: GraphQLModule
+        // .forRootAsync has its own DI scope (see `imports:` above), and
+        // exposing the guard there would require wrapping it in a module just
+        // for that purpose. The guard's only constructor dep is ConfigService.
+        const jwtAuthGuard = new JwtAuthGuard(configService);
         const logger = new Logger('GqlModule');
         const config = configService.get<GqlConfig>('gql')!;
 
@@ -121,27 +127,34 @@ import { getComplexity, simpleEstimator } from 'graphql-query-complexity';
                   'graphql-ws': true,
                 }
               : undefined,
-            context: ({ req, connection }): GraphQLContext => {
+            context: async ({ req, connection }): Promise<GraphQLContext> => {
               const databaseName = configService.get('database.name') || 'neo4j';
 
               // WebSocket connection (subscription via graphql-ws)
               if (connection) {
                 const token = extractBearerToken(connection.context?.Authorization);
+                const user = await jwtAuthGuard.decodeUserFromAuthHeader(connection.context?.Authorization);
                 return {
                   token,
                   jwt: token,
+                  user,
                   driver: neo4jDriver,
                   sessionConfig: { database: databaseName },
                   cypherQueryOptions: { addVersionPrefix: false },
                 };
               }
 
-              // HTTP request (query/mutation, or SSE subscription)
+              // HTTP request (query/mutation, or SSE subscription).
+              // Apollo handles POST /graphql directly — Nest's JwtAuthGuard
+              // never runs here — so we decode the JWT inline to populate
+              // ctx.user for resolver-side gates like requireAdmin().
               if (req) {
                 const token = extractBearerToken(req.headers?.authorization);
+                const user = await jwtAuthGuard.decodeUserFromAuthHeader(req.headers?.authorization);
                 return {
                   token,
                   jwt: token, // Neo4j GraphQL expects 'jwt' field
+                  user,
                   driver: neo4jDriver,
                   sessionConfig: { database: databaseName },
                   cypherQueryOptions: { addVersionPrefix: false },

@@ -1,7 +1,7 @@
 /**
- * Pure drift-detection helper for control files (Sprint 4 F-12).
+ * Pure drift-detection helper for control files.
  *
- * Sprint 3 left the drift-detection logic duplicated:
+ * The drift-detection logic was previously duplicated:
  *   1. {@link ../validator.ts} computed the "attributes != platformAttributes
  *      WITHOUT pendingEdit" external-edit warning inline.
  *   2. The `/dethereal:status` skill prose described the same condition for

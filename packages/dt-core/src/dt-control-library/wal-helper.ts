@@ -470,7 +470,7 @@ export function getJournalPath(modelDir: string): string {
 }
 
 /**
- * Sprint 5 F-20: read-only inspector for the WAL state.
+ * Read-only inspector for the WAL state.
  *
  * `applyPendingRewrites` aborts on the ambiguous-state case (both `from` and
  * `to` files of a greenfield rewrite present with potentially conflicting
@@ -598,7 +598,7 @@ export async function inspectPendingRewrite(modelDir: string): Promise<WalInspec
 }
 
 /**
- * Sprint 5 F-20: hard-delete the journal without applying its operations.
+ * Hard-delete the journal without applying its operations.
  *
  * Used by the `repair-wal` recovery verb when the operator decides the
  * journal is stale (e.g. the platform-side rewrite was undone, or the

@@ -6,7 +6,7 @@
  * filesystem state, then asserting that `applyPendingRewrites` converges
  * to the same final state as a non-crashed run.
  *
- * Sprint 2 Story S2.4 DoD requires all four scenarios pass.
+ * DoD requires all four scenarios pass.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -149,7 +149,7 @@ describe('WAL helper — happy-path replay (no crash)', () => {
   });
 });
 
-describe('WAL helper — crash-injection scenarios (S2.4 DoD)', () => {
+describe('WAL helper — crash-injection scenarios (DoD)', () => {
   it('Scenario 1: crash BEFORE any file rewritten — replay rewrites all', async () => {
     // Setup: write the journal, but no files have been touched yet.
     // This is the state right after appendOperation() returns and before
@@ -373,7 +373,7 @@ describe('WAL helper — concurrent / repeated replay convergence', () => {
   });
 });
 
-describe('WAL helper — Sprint 5 F-20 inspect + clear (repair-wal verb)', () => {
+describe('WAL helper — inspect + clear (repair-wal verb)', () => {
   it('inspectPendingRewrite returns present:false when no journal', async () => {
     const inspection = await inspectPendingRewrite(modelDir);
     expect(inspection.present).toBe(false);

@@ -116,6 +116,68 @@ export interface Module extends Element {
   analysisClasses?: Class[]
   attributes?: string
   template?: string
+  // Admin surface (populated by DtClassIdentity.getModulesWithIdentity; absent
+  // on the basic DtModule.getModules path). Fields mirror the admin-surface schema.
+  idRebindPolicy?: string
+  lastInstallStatus?: string
+  lastAttemptedInstall?: string
+  lastAuthoritativeInstall?: string
+  rebindConflicts?: RebindConflictDetail[]
+  constraintsHealthy?: boolean
+  orphanedComponentClasses?: OrphanedClass[]
+  orphanedDataFlowClasses?: OrphanedClass[]
+  orphanedSecurityBoundaryClasses?: OrphanedClass[]
+  orphanedControlClasses?: OrphanedClass[]
+  orphanedDataClasses?: OrphanedClass[]
+  orphanedAnalysisClasses?: OrphanedClass[]
+  orphanedIssueClasses?: OrphanedClass[]
+}
+
+export interface OrphanedClass {
+  id: string
+  name: string
+  orphanedAt?: string
+  incomingInstanceCount: number
+  incomingInstancesByType?: TypeCount[]
+}
+
+export interface RebindConflictDetail {
+  className: string
+  classKind: string
+  dbId: string
+  moduleDeclaredId: string
+}
+
+export interface TypeCount {
+  type: string
+  count: number
+}
+
+export interface IdentityMigrationReport {
+  dryRun: boolean
+  totalActions: number
+  details: string[]
+}
+
+export interface ClassIdentityEvent {
+  kind: string
+  timestamp: string
+  moduleName?: string
+  classKind?: string
+  className?: string
+  // rebind / rebind-conflict
+  oldId?: string
+  newId?: string
+  moduleDeclaredId?: string
+  dbId?: string
+  policy?: string
+  // orphan / revive
+  classId?: string
+  reason?: string
+  // collision
+  firstModuleName?: string
+  secondModuleName?: string
+  collidingId?: string
 }
 
 export interface DataItem extends Element {

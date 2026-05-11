@@ -5,9 +5,9 @@ import * as path from 'path';
 
 /**
  * Verifies that `oss/scripts/package-module.js` recursively copies V2
- * `data/.../embeddings/` directories into the published tarball. The
- * packager itself is unchanged in Sprint 2 (§10) — this test locks in
- * the behavior so future refactors cannot silently drop the embeddings.
+ * `data/.../embeddings/` directories into the published tarball. This
+ * test locks in the behavior so future refactors cannot silently drop
+ * the embeddings.
  */
 
 const PACKAGER = path.resolve(__dirname, '../../../../scripts/package-module.js');

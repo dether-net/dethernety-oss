@@ -19,7 +19,7 @@
  * - `lifecycle: 'greenfield'` ⇒ `platformState` absent.
  * - `lifecycle: 'brownfield' | 'partially-pushed'` ⇒ `platformState` present.
  *
- * **Out of scope** (orchestrator's responsibility — Sprint 3 wires into
+ * **Out of scope** (orchestrator's responsibility — wired into
  * `validate-model.tool.ts`):
  * - Orphan-file warning (no matching `controls[]` reference) — requires
  *   reading the model directory's structure.json / dataflows.json.
@@ -47,11 +47,11 @@ const GREENFIELD_TEMP_ID_RE = /^greenfield-/;
 
 const VALID_SOURCES = new Set(['discovered', 'declared', 'both']);
 
-// Sprint 5 F-17: defence-in-depth against prototype-pollution-shaped keys.
-// The engine uses `Object.assign` and `{...spread}` on attribute payloads at
-// several sites; a `__proto__` key smuggled in by a hand-edited control file
-// is benign today but one refactor away from an exploit. Reject these key
-// names anywhere in the attribute graph.
+// Defence-in-depth against prototype-pollution-shaped keys. The engine
+// uses `Object.assign` and `{...spread}` on attribute payloads at
+// several sites; a `__proto__` key smuggled in by a hand-edited control
+// file is benign today but one refactor away from an exploit. Reject
+// these key names anywhere in the attribute graph.
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function findForbiddenKeyPath(value: unknown, path: string[] = []): string | null {
@@ -173,12 +173,12 @@ function validateClassEntry(
   errors: string[],
   warnings: string[],
 ): void {
-  // Sprint 5 F-18: refuse to run class-entry checks on an unknown lifecycle.
-  // The downstream branches all gate on lifecycle === 'brownfield' |
-  // 'partially-pushed'; if the value is corrupt, those gates silently skip
-  // and the operator sees a clean validate result on a file the runtime will
-  // reject. Surface an explicit warning so the lifecycle error from §86-92 is
-  // not the only signal.
+  // Refuse to run class-entry checks on an unknown lifecycle. The
+  // downstream branches all gate on lifecycle === 'brownfield' |
+  // 'partially-pushed'; if the value is corrupt, those gates silently
+  // skip and the operator sees a clean validate result on a file the
+  // runtime will reject. Surface an explicit warning so the lifecycle
+  // error from §86-92 is not the only signal.
   if (!VALID_LIFECYCLES.has(lifecycle as ControlLifecycle)) {
     warnings.push(
       `${ctx}: lifecycle '${String(lifecycle)}' is not in the known enum — class-entry checks skipped to avoid misleading downstream signals.`,
@@ -195,8 +195,8 @@ function validateClassEntry(
     return;
   }
 
-  // Sprint 5 F-17: prototype-pollution key check on attributes,
-  // platformAttributes, and pendingEdit.previousAttributes (recursive).
+  // Prototype-pollution key check on attributes, platformAttributes,
+  // and pendingEdit.previousAttributes (recursive).
   for (const [field, payload] of [
     ['attributes', entry.attributes as unknown],
     ['platformAttributes', entry.platformAttributes as unknown],
@@ -222,7 +222,6 @@ function validateClassEntry(
         `${ctx}.pendingEdit: editedBy must be 'agent' | 'operator' | 'external'`,
       );
     }
-    // Sprint 4 Tier-2 cross-review (threat-modeler F-01 hand-edit bypass):
     // 'external' is reserved for the promote-external-edit recovery verb,
     // which produces a pendingEdit whose previousAttributes mirror the
     // platformAttributes for diverging keys only. A hand-edit that sets
@@ -252,7 +251,7 @@ function validateClassEntry(
         );
       }
     }
-    // Sprint 7 — promoteExternalEdit synthesises previousAttributes from
+    // promoteExternalEdit synthesises previousAttributes from
     // platformAttributes for diverging keys; it NEVER produces firstWriteKeys.
     // A pendingEdit claiming editedBy='external' with non-empty firstWriteKeys
     // is necessarily a hand-edit spoofing the discriminator. Hard error so
@@ -285,9 +284,9 @@ function validateClassEntry(
         `${ctx}.pendingEdit: previousAttributes must be an object keyed by attribute name`,
       );
     }
-    // Sprint 7 — first-write keys must be a string array, mutually exclusive
-    // with previousAttributes keys. The engine writes the field only when
-    // non-empty; pre-Sprint-7 files have no field (back-compat — undefined
+    // First-write keys must be a string array, mutually exclusive with
+    // previousAttributes keys. The engine writes the field only when
+    // non-empty; earlier files have no field (back-compat — undefined
     // is fine).
     if (entry.pendingEdit.firstWriteKeys !== undefined) {
       if (
@@ -295,7 +294,7 @@ function validateClassEntry(
         !entry.pendingEdit.firstWriteKeys.every(k => typeof k === 'string')
       ) {
         errors.push(
-          `${ctx}.pendingEdit: firstWriteKeys must be an array of strings (Sprint 7 — first-write key tracking)`,
+          `${ctx}.pendingEdit: firstWriteKeys must be an array of strings (first-write key tracking)`,
         );
       } else if (
         typeof entry.pendingEdit.previousAttributes === 'object' &&
@@ -342,14 +341,14 @@ function validateClassEntry(
   }
 
   // External-edit warning: routed through the shared drift-detector helper
-  // (Sprint 4 F-12) so /dethereal:status and validate-model agree on what
-  // counts as drift. The drift predicate already encodes the
+  // so /dethereal:status and validate-model agree on what counts as
+  // drift. The drift predicate already encodes the
   // brownfield/partially-pushed lifecycle gate and the platformAttributes /
   // pendingEdit checks.
   if ((lifecycle === 'brownfield' || lifecycle === 'partially-pushed') && isClassDrifted(entry)) {
-    // Sprint 5 F-38: include the classId in the recovery hint so the operator
-    // can paste the verb exactly. The promote-external-edit verb requires
-    // both the control id and the class id (one Control can be an instance of
+    // Include the classId in the recovery hint so the operator can paste
+    // the verb exactly. The promote-external-edit verb requires both the
+    // control id and the class id (one Control can be an instance of
     // multiple classes, each with independent drift state).
     warnings.push(
       `${ctx}: attributes differ from platformAttributes but no pendingEdit block records the change. The brownfield push will refuse this state at runtime (Step A external-edit guard) — run /dethereal:sync promote-external-edit <controlId> ${entry.classId} to recover.`,
@@ -385,7 +384,7 @@ function shallowEqualAttrs(
 /**
  * Live-platform validation: confirm every `classes[].classId` resolves to
  * an existing ControlClass on the platform. Caller supplies the templates
- * map (typically built from a Sprint-1 batched `getControlsByIds` result).
+ * map (typically built from a batched `getControlsByIds` result).
  *
  * Skipped at validate-time when the platform is unreachable; the orchestrator
  * decides whether to invoke this branch.

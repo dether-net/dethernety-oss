@@ -138,10 +138,15 @@ export const useAnalysisStore = defineStore('analysis', () => {
       throw new Error(validationErrors.join(', '))
     }
 
-    // Optimistic update setup
-    const tempId = `temp-${Date.now()}`
+    // Generate the analysis id up-front so the optimistic record AND
+    // the platform-side MERGE-by-id share the same id. Re-runs (e.g.
+    // after a transient transport failure) hit the same id → the
+    // backend `@cypher` mutation MERGEs idempotently. A
+    // `temp-${Date.now()}` placeholder swapped post-create would defeat
+    // the dedupe key in `dtAnalysis.createAnalysis`.
+    const id = crypto.randomUUID()
     const optimisticAnalysis = {
-      id: tempId,
+      id,
       elementId,
       name: name.trim(),
       description: description || '',
@@ -156,11 +161,12 @@ export const useAnalysisStore = defineStore('analysis', () => {
     try {
       loadingStates.value.creatingAnalysis = true
       error.value = ''
-      
+
       // Add optimistic update
       analyses.value.push(optimisticAnalysis)
-      
+
       const analysis = await dtAnalysis.createAnalysis({
+        id,
         elementId,
         name: name.trim(),
         description,
@@ -168,9 +174,9 @@ export const useAnalysisStore = defineStore('analysis', () => {
         category,
         analysisClassId,
       })
-      
+
       // Replace optimistic with real data
-      const index = analyses.value.findIndex(a => a.id === tempId)
+      const index = analyses.value.findIndex(a => a.id === id)
       if (index !== -1 && analysis) {
         const mutableAnalysis = structuredClone(analysis)
         analyses.value.splice(index, 1, mutableAnalysis)
@@ -179,7 +185,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
       return analysis!
     } catch (err) {
       // Remove failed optimistic update
-      analyses.value = analyses.value.filter(a => a.id !== tempId)
+      analyses.value = analyses.value.filter(a => a.id !== id)
       error.value = handleApiError('create analysis', err)
       throw err
     } finally {
@@ -241,6 +247,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
     if (analysisClasses && analysisClasses.length > 0) {
       const analysisClass = analysisClasses[0]
       const createdAnalysis = await dtAnalysis.createAnalysis({
+        id: crypto.randomUUID(),
         elementId,
         name: analysisName || className || classType || 'New Analysis',
         description: analysisDescription || '',

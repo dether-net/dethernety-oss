@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-// Sprint 2 integration tests for the drift orchestration path of /dethereal:threat-model.
+// Integration tests for the drift orchestration path of /dethereal:threat-model.
 //
 // The orchestration is prose-driven inside the threat-modeler agent — a unit test
 // cannot "run" it the way it can run a TypeScript function. So this file does two
@@ -20,8 +20,8 @@ import { join } from 'node:path'
 //       Protocol section, removes the four-mode contract from the scoped scout,
 //       or strips the crown-jewel pre-confirm from /dethereal:remove, these tests
 //       fail. They don't prove the agent walks the prose correctly — that's the
-//       Sprint 3 manual smoke walkthrough's job — but they do prove the prose is
-//       still there for the agent to walk.
+//       manual smoke walkthrough's job — but they do prove the prose is still
+//       there for the agent to walk.
 
 const PLUGIN_ROOT = join(__dirname, '..', '..', '..')
 const SCRIPT = join(PLUGIN_ROOT, 'scripts', 'detect-drift.js')
@@ -180,7 +180,7 @@ describe('threat-model resume — drift orchestration (git fixtures)', () => {
 // ─── Prose-contract regression guards ────────────────────────────────────────────
 // These don't validate behaviour; they validate that the protocol prose the
 // agent walks is still in place. If any of these fail, the orchestration
-// contract has been edited away — which is a Sprint 2 regression.
+// contract has been edited away.
 
 describe('threat-model SKILL.md drift orchestration prose', () => {
   const body = readFileSync(SKILL_THREAT_MODEL, 'utf8')

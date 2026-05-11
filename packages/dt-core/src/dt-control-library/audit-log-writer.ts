@@ -46,8 +46,7 @@
  * Control attribute values. The `/dethereal:sync` skill emits a one-time
  * NOTE in the post-push summary pointing at this caveat.
  *
- * **V1 trust model (Sprint 4 honest description).** Each entry carries
- * two attribution fields:
+ * **V1 trust model.** Each entry carries two attribution fields:
  *
  * - `operator` — locally-claimed identity (from `git config user.email`).
  *   The operator can spoof this by setting any value in their git config
@@ -58,7 +57,7 @@
  *   from the OIDC token that authorised the platform mutation). The
  *   platform-anchored truth. A mismatch with `operator` is a forensic
  *   signal worth investigating. Three states:
- *     - field **absent** (`undefined`) → Sprint-3-era entry, pre-dates the
+ *     - field **absent** (`undefined`) → older entry, pre-dates the
  *       field. Treat as "attribution unknown for back-compat reasons."
  *     - field **present** with an email/sub value → JWT decode succeeded;
  *       this is the platform-anchored identity.
@@ -73,9 +72,9 @@
  * recommends but does not enforce. A malicious operator with write access
  * to the file can `sed -i` an entry out without breaking the log; only
  * external git history (already pushed to the remote) catches that.
- * V1.1 closes this gap with `prevEntryHash: sha256(prevEntry)` chaining
- * (RF F-29). Until then, treat the log as "honest under cooperative
- * operators", not as a tamper-resistant store.
+ * V1.1 closes this gap with `prevEntryHash: sha256(prevEntry)` chaining.
+ * Until then, treat the log as "honest under cooperative operators",
+ * not as a tamper-resistant store.
  */
 
 /**
@@ -140,16 +139,16 @@ export interface ConflictResolution {
  * "Audit log" schema verbatim — the published auditor contract.
  *
  * @remarks
- * **Back-compat guarantee (Sprint 6 F-34).** Two fields are intentionally
- * optional to preserve readability of pre-Sprint-3 entries that the writer
- * has appended in past releases:
+ * **Back-compat guarantee.** Two fields are intentionally optional to
+ * preserve readability of older entries that the writer has appended in
+ * past releases:
  *
- * - `editedBy?` — added in Sprint 3 (CL §4 attribution discriminator).
- *   Sprint-2 entries lack it; readers MUST tolerate absence (treat as
- *   "attribution unknown — could be agent or operator").
- * - `authnOperator?` — added in Sprint 4 (F-04 JWT anchor). Sprint-3-era
- *   entries lack it; see the field-level JSDoc for the three states an
- *   auditor must distinguish (absent / present-as-claim / present-as-`'unauthenticated'`).
+ * - `editedBy?` — CL §4 attribution discriminator. Earlier entries lack
+ *   it; readers MUST tolerate absence (treat as "attribution unknown —
+ *   could be agent or operator").
+ * - `authnOperator?` — JWT anchor. Older entries lack it; see the
+ *   field-level JSDoc for the three states an auditor must distinguish
+ *   (absent / present-as-claim / present-as-`'unauthenticated'`).
  *
  * Future cleanups MUST NOT promote either field to required without a
  * documented migration step. The audit log is append-only and is committed
@@ -165,15 +164,14 @@ export interface AuditLogEntry {
   /**
    * JWT-anchored operator identity (the `email` / `sub` claim from the
    * OIDC token that authorised the platform mutation that drove this
-   * entry). Sprint 4 (F-04) addition. Three states:
+   * entry). Three states:
    *
-   * - **absent** (`undefined`) → Sprint-3-era entry pre-dates the field.
+   * - **absent** (`undefined`) → older entry pre-dates the field.
    *   Back-compat. An auditor cannot infer attribution from the absence.
    * - **present** as an email or sub claim → JWT decode succeeded.
-   * - **present** as the sentinel `'unauthenticated'` → Sprint-4 MCP
-   *   entry had no token or an unparseable token. Distinct from
-   *   back-compat absence so the audit reader can tell them apart
-   *   (Sprint 4 Tier-2 cross-review addition).
+   * - **present** as the sentinel `'unauthenticated'` → MCP entry had no
+   *   token or an unparseable token. Distinct from back-compat absence
+   *   so the audit reader can tell them apart.
    *
    * A mismatch with {@link operator} is a forensic signal — the operator
    * may have set a different `git config user.email` than the corp SSO
@@ -206,9 +204,9 @@ export interface AuditLogEntry {
    * entries that happen to include first-write keys — keeps the first-write
    * information in the audit trail regardless of which `kind` won.
    *
-   * Optional / absent on Sprint-3-era entries and on entries where every
-   * pushed key had a prior value (the common `force-shared` / `force-unverified`
-   * case). Sprint 7 addition.
+   * Optional / absent on older entries and on entries where every
+   * pushed key had a prior value (the common `force-shared` /
+   * `force-unverified` case).
    */
   firstWriteKeys?: string[];
   /** Derived field for cheap auditor readability. See {@link computeEffective}. */
@@ -221,7 +219,7 @@ export interface AuditLogEntry {
    * `promote-external-edit` recovery (`editedBy: 'external'`). Without
    * this discriminator the audit reader cannot tell a malicious
    * laundering of someone else's edit from a legitimate reconciliation.
-   * Optional only because Sprint-2 entries pre-dating this field exist
+   * Optional only because older entries pre-dating this field exist
    * in the wild.
    */
   editedBy?: 'agent' | 'operator' | 'external';
@@ -244,7 +242,7 @@ export interface AuditLogEntry {
  *
  * Durability: `fs.open` with `'a'` flag → write the JSON-line → `fdatasync`
  * → close. The fdatasync ensures the line is on disk before the calling
- * operation continues (per S2.5 DoD); without it, a crash between our
+ * operation continues (durability requirement); without it, a crash between our
  * `write` and the eventual flush could lose the entry while the platform
  * mutation it documents already succeeded.
  *
@@ -309,8 +307,8 @@ export function computeEffective(
       //     `allTheirs` alive.
       //   - merged value equals ours → effectively a keep-ours; break
       //     `allTheirs` (final classification falls through to `'ours'`).
-      // F-43 (Sprint 6) clarification: "merge equals ours" here is NOT the
-      // same as "merge was rejected because ours == theirs". The merge
+      // Clarification: "merge equals ours" here is NOT the same as
+      // "merge was rejected because ours == theirs". The merge
       // function genuinely ran; its output simply matched the ours-value.
       if (
         !shallowEqual(r.merged, r.ours) &&
@@ -337,10 +335,10 @@ export function computeEffective(
 
 function shallowEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
-  // Sprint 5 F-40: stringify with a key-sorting replacer so two objects with
-  // identical content but different key orders compare equal. Without this,
-  // `{a:1,b:2}` and `{b:2,a:1}` produce different `effective` values and the
-  // audit log becomes non-deterministic across operators or platforms.
+  // Stringify with a key-sorting replacer so two objects with identical
+  // content but different key orders compare equal. Without this,
+  // `{a:1,b:2}` and `{b:2,a:1}` produce different `effective` values and
+  // the audit log becomes non-deterministic across operators or platforms.
   try {
     return canonicalStringify(a) === canonicalStringify(b);
   } catch {

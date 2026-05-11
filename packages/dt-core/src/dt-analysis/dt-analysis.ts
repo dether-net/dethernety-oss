@@ -164,25 +164,28 @@ export class DtAnalysis {
    * @returns The created analysis or null if the element ID, name, description or analysis class ID is invalid
    */
   createAnalysis = async (
-    { elementId, name, description, type, category, analysisClassId }:
-    { elementId: string, name: string, description: string, type?: string, category?: string, analysisClassId: string }
+    { id, elementId, name, description, type, category, analysisClassId }:
+    { id: string, elementId: string, name: string, description: string, type?: string, category?: string, analysisClassId: string }
   ): Promise<Analysis | null> => {
+    // Caller supplies a stable `id` so retries are idempotent end-to-end:
+    // the dedupe key (`create-analysis-${id}`) and the @cypher MERGE
+    // `(a:Analysis {id: $id})` both key on it. A wrapper-generated UUID
+    // would break both.
     try {
-      const response = await this.dtUtils.performMutation<Analysis[]>({
+      const response = await this.dtUtils.performMutation<Analysis>({
         mutation: CREATE_ANALYSIS,
-        variables: { elementId, name, description, type: type || '', category: category || '', analysisClassId },
-        dataPath: 'createAnalyses.analyses',
+        variables: { id, elementId, name, description, type: type || '', category: category || '', analysisClassId },
+        dataPath: 'createAnalysisIdempotent',
         action: 'createAnalysis',
-        deduplicationKey: `create-analysis-${elementId}-${name}-${analysisClassId}`
+        deduplicationKey: `create-analysis-${id}`
       })
-      
-      if (response && response.length > 0) {
-        const analysis = response[0]
+
+      if (response) {
         return {
-          ...analysis,
-          analysisClass: analysis.analysisClass && Array.isArray(analysis.analysisClass) && analysis.analysisClass.length > 0
-            ? { id: analysis.analysisClass[0].id, name: analysis.analysisClass[0].name }
-            : { id: analysis.analysisClass?.id || '', name: analysis.analysisClass?.name || '' },
+          ...response,
+          analysisClass: response.analysisClass && Array.isArray(response.analysisClass) && response.analysisClass.length > 0
+            ? { id: response.analysisClass[0].id, name: response.analysisClass[0].name }
+            : { id: (response.analysisClass as { id?: string } | undefined)?.id || '', name: (response.analysisClass as { name?: string } | undefined)?.name || '' },
         }
       }
       return null

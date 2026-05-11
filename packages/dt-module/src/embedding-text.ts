@@ -1,6 +1,6 @@
 /**
  * Shared embedding helpers used by both the runtime (dt-ws EmbeddingService)
- * and build-time tooling (scripts/module-manager embed CLI in Sprint 2).
+ * and build-time tooling (scripts/module-manager embed CLI).
  *
  * Keeping text composition, response parsing, class-type normalization, and
  * model-name slugification in one place guarantees that the text the CLI

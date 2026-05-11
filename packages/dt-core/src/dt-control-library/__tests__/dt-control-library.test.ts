@@ -43,8 +43,8 @@ beforeEach(async () => {
   // Apollo client is unused for these tests; the methods we invoke don't
   // call DtControl. Cast through unknown to satisfy the constructor.
   lib = new DtControlLibrary({} as unknown as ConstructorParameters<typeof DtControlLibrary>[0]);
-  // Sprint 4 Tier-2: pushBrownfieldControl Step B inline re-fetch (F-09)
-  // calls getControlInstantiationAttributes via the Apollo-bound dtControl.
+  // pushBrownfieldControl Step B inline re-fetch calls
+  // getControlInstantiationAttributes via the Apollo-bound dtControl.
   // The narrowed catch only swallows network-class transient errors — the
   // test environment's TypeError ("apolloClient?.query is not a function")
   // would now bubble. Stub the spy so each test's freshPlatformAttrs map
@@ -108,7 +108,7 @@ describe('setLocalEdited — two-write semantic (CL §4)', () => {
       newAttributes: { foo: 'second-value' },
       editedBy: 'agent',
     });
-    // Re-read from disk to mimic Sprint-3 sequential skill calls.
+    // Re-read from disk to mimic sequential skill calls.
     const reread = await readControlFile(modelDir, VALID_UUID);
     expect(reread).toBeTruthy();
     result = await lib.setLocalEdited({
@@ -174,7 +174,7 @@ describe('setLocalEdited — two-write semantic (CL §4)', () => {
     ).rejects.toThrow(/out of range/);
   });
 
-  it('Sprint 4 F-01 — rejects editedBy "external" (reserved for promote-external-edit)', async () => {
+  it('rejects editedBy "external" (reserved for promote-external-edit)', async () => {
     // The 'external' discriminator is reserved for the promote-external-edit
     // recovery verb's MCP action. Letting any caller pass it via
     // set-local-edited would defeat the audit-log discriminator that
@@ -199,7 +199,7 @@ describe('setLocalEdited — two-write semantic (CL §4)', () => {
   });
 });
 
-describe('setLocalEdited — Sprint 7 first-write semantic', () => {
+describe('setLocalEdited — first-write semantic', () => {
   // Bug-fix scenario: fresh Control just created on the platform with no
   // IS_INSTANCE_OF edge attributes. The local file was materialised via
   // pull-controls with `attributes: {}` and `platformAttributes: {}`. The
@@ -297,7 +297,7 @@ describe('setLocalEdited — Sprint 7 first-write semantic', () => {
   });
 
   it('omits firstWriteKeys field when no keys are first-write (back-compat shape)', async () => {
-    // Pre-Sprint-7 file shape: pendingEdit has only previousAttributes, no
+    // Earlier file shape: pendingEdit has only previousAttributes, no
     // firstWriteKeys field on disk. Engine writes the field only when the
     // set is non-empty.
     const file = brownfieldFile();
@@ -320,7 +320,7 @@ describe('setLocalEdited — Sprint 7 first-write semantic', () => {
   });
 });
 
-describe('promoteExternalEdit — Sprint 3 recovery verb', () => {
+describe('promoteExternalEdit — recovery verb', () => {
   it('synthesises pendingEdit.previousAttributes from platformAttributes for diverging keys only', async () => {
     // Operator hand-edited the file: attributes diverge on key foo, platformAttributes is
     // the last-pulled value. Step A guard would fire on next push — promote unblocks it.
@@ -556,8 +556,8 @@ describe('pushBrownfieldControl — Step C revert detection', () => {
     // pendingEdit cleared on disk
     const reread = await readControlFile(modelDir, VALID_UUID);
     expect(reread?.classes[0].pendingEdit).toBeUndefined();
-    // Sprint 5 F-19: localEditedAt is cleared alongside pendingEdit so
-    // /dethereal:status doesn't render a phantom "recently edited locally".
+    // localEditedAt is cleared alongside pendingEdit so /dethereal:status
+    // doesn't render a phantom "recently edited locally".
     expect(reread?.classes[0].localEditedAt).toBeUndefined();
     // Audit log file written
     const auditRaw = await fs.readFile(getAuditLogPath(modelDir), 'utf-8');
@@ -626,10 +626,10 @@ describe('pushBrownfieldControl — Step E shared-ownership', () => {
     expect(result.auditEntries).toHaveLength(1);
     expect(result.auditEntries[0].kind).toBe('force-shared');
     expect(result.auditEntries[0].liveAssignedModelIds).toEqual(['model-this', 'model-other']);
-    // Sprint 4 F-04 — engine-level: when the caller (not the MCP entry)
-    // does not supply authnOperator, the field stays undefined for
-    // back-compat with Sprint-3 entries. The 'unauthenticated' sentinel
-    // is set at the MCP entry layer (manage-controls.tool.ts), not here.
+    // Engine-level: when the caller (not the MCP entry) does not supply
+    // authnOperator, the field stays undefined for back-compat with
+    // older entries. The 'unauthenticated' sentinel is set at the MCP
+    // entry layer (manage-controls.tool.ts), not here.
     expect(result.auditEntries[0].authnOperator).toBeUndefined();
   });
 
@@ -674,7 +674,7 @@ describe('pushBrownfieldControl — Step E shared-ownership', () => {
   });
 });
 
-describe('pullControls — Sprint 7 firstWriteKeys preservation', () => {
+describe('pullControls — firstWriteKeys preservation', () => {
   it('preserves pendingEdit.firstWriteKeys when platform state matches existing platformAttributes', async () => {
     // Pre-condition: local file has pendingEdit with firstWriteKeys.
     // Mock the three Apollo calls so platform state matches what's already on
@@ -735,13 +735,13 @@ describe('pullControls — Sprint 7 firstWriteKeys preservation', () => {
   });
 });
 
-describe('pushBrownfieldControl — Sprint 7 first-write path', () => {
+describe('pushBrownfieldControl — first-write path', () => {
   // Bug-fix scenario: 22 fresh Controls created on the platform with empty
   // platformAttributes, set-local-edited populates `attributes` from observed
   // evidence. Previously, push-brownfield short-circuited at Step C (changedKeys
   // = Object.keys(previousAttributes) = []) and returned mutated:false.
-  // After the Sprint 7 fix, first-write keys flow through Step C → Step F
-  // and the platform mutation lands.
+  // After the fix, first-write keys flow through Step C → Step F and the
+  // platform mutation lands.
 
   it('pure first-write (alone Control) pushes all keys and writes a first-write audit entry', async () => {
     const file = brownfieldFile({
@@ -851,7 +851,7 @@ describe('pushBrownfieldControl — Sprint 7 first-write path', () => {
   });
 
   it('first-write on shared Control: force-shared kind wins, firstWriteKeys still recorded', async () => {
-    // Sprint 7 §2 design decision: shared-ownership force is the higher-stakes
+    // Design decision: shared-ownership force is the higher-stakes
     // governance signal, so it takes precedence in the audit `kind`. The
     // first-write information is still captured as a sibling field.
     const file = brownfieldFile({
@@ -951,8 +951,8 @@ describe('pushBrownfieldControl — Sprint 7 first-write path', () => {
     ).rejects.toThrow(/absent-and-unknown/);
   });
 
-  it('back-compat: pre-Sprint-7 file with no firstWriteKeys field pushes normally', async () => {
-    // Pre-Sprint-7 files have only previousAttributes on pendingEdit.
+  it('back-compat: earlier file with no firstWriteKeys field pushes normally', async () => {
+    // Earlier files have only previousAttributes on pendingEdit.
     // The engine must read `firstWriteKeys ?? []` and behave identically
     // to the legacy path.
     const file = brownfieldFile({
@@ -995,7 +995,7 @@ describe('pushBrownfieldControl — Sprint 7 first-write path', () => {
     //   - Both classes hit setInstantiationAttributes (mutated:true)
     //   - Class A produces a kind='first-write' audit entry
     //   - Class B produces NO audit entry (alone + no first-write keys =
-    //     audit-silent — existing Sprint 6 behaviour preserved per-class)
+    //     audit-silent — existing behaviour preserved per-class)
     const CLASS_A = '11111111-1111-1111-1111-111111111111';
     const CLASS_B = '22222222-2222-2222-2222-222222222222';
     const file = brownfieldFile({
@@ -1230,7 +1230,7 @@ describe('pushGreenfieldControl — guard', () => {
   });
 });
 
-describe('Sprint 4 Tier-2 — F-01 hand-edit coercion at audit-write site', () => {
+describe('hand-edit coercion at audit-write site', () => {
   it("coerces editedBy='external' → 'operator' when previousAttributes doesn't match platformAttributes (hand-edit spoof defeated)", async () => {
     // Threat model: a malicious operator hand-edits controls/<id>.json to
     // set editedBy='external' with attacker-chosen previousAttributes,
@@ -1329,7 +1329,7 @@ describe('Sprint 4 Tier-2 — F-01 hand-edit coercion at audit-write site', () =
   });
 });
 
-describe('Sprint 4 Tier-2 — promoteExternalEdit precondition guards', () => {
+describe('promoteExternalEdit precondition guards', () => {
   it('refuses when the class already has a pendingEdit', async () => {
     const file = brownfieldFile({
       classes: [
@@ -1352,13 +1352,13 @@ describe('Sprint 4 Tier-2 — promoteExternalEdit precondition guards', () => {
   });
 });
 
-describe('Sprint 4 F-09 — TOCTOU per-control fresh-fetch in Step B', () => {
+describe('TOCTOU per-control fresh-fetch in Step B', () => {
   it('inline re-fetch overrides caller-supplied freshPlatformAttrs (closes review-window TOCTOU)', async () => {
     // Scenario: at P7.2 the skill batched-fetched freshPlatformAttrs (foo: 'old-server').
     // During operator review, operator B mutates the platform (foo: 'new-server').
-    // Without the F-09 fix, our snapshot still shows 'old-server' — Step D
+    // Without the inline re-fetch fix, our snapshot still shows 'old-server' — Step D
     // sees no conflict, force-shared writes happily, B's edit lost.
-    // With F-09 the engine's inline re-fetch reads 'new-server' and Step D
+    // With the fix the engine's inline re-fetch reads 'new-server' and Step D
     // surfaces a conflict so the operator can decide.
     const file = brownfieldFile({
       classes: [
@@ -1398,8 +1398,8 @@ describe('Sprint 4 F-09 — TOCTOU per-control fresh-fetch in Step B', () => {
     });
 
     // Critical proof: the inline re-fetch was invoked exactly once with
-    // the touched control's id. Pre-Sprint-4 code would not have called
-    // it at all (only the caller's stale map drove Step B).
+    // the touched control's id. Earlier code would not have called it at
+    // all (only the caller's stale map drove Step B).
     expect(reFetchSpy).toHaveBeenCalledTimes(1);
     expect(reFetchSpy).toHaveBeenCalledWith({ controlIds: [VALID_UUID] });
 
@@ -1413,7 +1413,7 @@ describe('Sprint 4 F-09 — TOCTOU per-control fresh-fetch in Step B', () => {
   });
 
   it('falls back to caller-supplied freshPlatformAttrs on TRANSIENT inline re-fetch failure (Bolt ServiceUnavailable)', async () => {
-    // Cypher-expert + process-architect Tier-2: the catch must distinguish
+    // The catch must distinguish
     // network-transient errors (degrade safely with stale snapshot +
     // usedStaleSnapshot flag) from non-transient errors (auth, schema,
     // transaction conflict — must bubble).
@@ -1457,9 +1457,10 @@ describe('Sprint 4 F-09 — TOCTOU per-control fresh-fetch in Step B', () => {
   });
 
   it('BUBBLES non-transient inline re-fetch errors (auth / schema / conflict)', async () => {
-    // A TransactionConflictError or auth failure is the EXACT signal F-09
-    // was added to detect — silently swallowing it would re-introduce the
-    // TOCTOU window. Engine must propagate so the operator sees the cause.
+    // A TransactionConflictError or auth failure is the EXACT signal the
+    // inline re-fetch was added to detect — silently swallowing it would
+    // re-introduce the TOCTOU window. Engine must propagate so the
+    // operator sees the cause.
     const file = brownfieldFile({
       classes: [
         {
@@ -1494,7 +1495,7 @@ describe('Sprint 4 F-09 — TOCTOU per-control fresh-fetch in Step B', () => {
   });
 });
 
-describe('Sprint 4 F-04 — authnOperator propagation to audit log', () => {
+describe('authnOperator propagation to audit log', () => {
   it('threads authnOperator into the force-shared audit entry when supplied', async () => {
     const file = brownfieldFile({
       classes: [
