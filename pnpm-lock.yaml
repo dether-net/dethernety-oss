@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  zod: 4.3.6
+  zod: 4.4.3
   hono: ^4.12.18
   '@hono/node-server': ^1.19.13
   ip-address: '>=10.1.1'
@@ -62,7 +62,7 @@ importers:
         version: 4.1.9(graphql-ws@6.0.8(graphql@16.14.0)(ws@8.20.0))(graphql@16.14.0)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.14.0))
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
-        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
       cross-fetch:
         specifier: ^4.1.0
         version: 4.1.0
@@ -76,8 +76,8 @@ importers:
         specifier: ^11.0.0
         version: 11.0.0
       zod:
-        specifier: 4.3.6
-        version: 4.3.6
+        specifier: 4.4.3
+        version: 4.4.3
     devDependencies:
       '@dethernety/dt-core':
         specifier: workspace:*
@@ -307,7 +307,7 @@ importers:
         version: 5.0.5(@nestjs/common@11.1.19(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19)(express@5.2.1)
       '@open-policy-agent/opa':
         specifier: ^2.0.0
-        version: 2.0.0(zod@4.3.6)
+        version: 2.0.0(zod@4.4.3)
       '@types/json-logic-js':
         specifier: ^2.0.8
         version: 2.0.8
@@ -495,7 +495,7 @@ importers:
         version: 11.1.19(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@open-policy-agent/opa':
         specifier: ^2.0.0
-        version: 2.0.0(zod@4.3.6)
+        version: 2.0.0(zod@4.4.3)
       axios:
         specifier: ^1.16.0
         version: 1.16.0
@@ -1749,7 +1749,7 @@ packages:
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
-      zod: 4.3.6
+      zod: 4.4.3
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
@@ -1958,7 +1958,7 @@ packages:
   '@open-policy-agent/opa@2.0.0':
     resolution: {integrity: sha512-gtSZKm9eWU9FC7lJ7A2sbyNc+ukTddZ2t6WtJGCtHc+ze6tvhJ7xtLQmlCWLmkyIu+6TGVRn/fr2JGdKgVLdtQ==}
     peerDependencies:
-      zod: 4.3.6
+      zod: 4.4.3
 
   '@open-policy-agent/ucast-prisma@0.1.6':
     resolution: {integrity: sha512-4bnz9aZzQQyfoo6OrXCWA8IH6Kp6pB34e4A2vGv2B0S/dbfFVN8TzmUn+WTJg7Eyr/NiF2EPFShiFgBwbUhhrA==}
@@ -8185,10 +8185,10 @@ packages:
   zod-to-json-schema@3.25.1:
     resolution: {integrity: sha512-pM/SU9d3YAggzi6MtR4h7ruuQlqKtad8e9S0fmxcMi+ueAK5Korys/aWcV9LIIHTVbj01NdzxcnXSN+O74ZIVA==}
     peerDependencies:
-      zod: 4.3.6
+      zod: 4.4.3
 
-  zod@4.3.6:
-    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
 snapshots:
 
@@ -9395,7 +9395,7 @@ snapshots:
       langsmith: 0.6.3(ws@8.20.0)
       mustache: 4.2.0
       p-queue: 6.6.2
-      zod: 4.3.6
+      zod: 4.4.3
     transitivePeerDependencies:
       - '@opentelemetry/api'
       - '@opentelemetry/exporter-trace-otlp-proto'
@@ -9439,7 +9439,7 @@ snapshots:
 
   '@microsoft/tsdoc@0.14.2': {}
 
-  '@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)':
+  '@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)':
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.12.18)
       ajv: 8.18.0
@@ -9456,8 +9456,8 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
-      zod: 4.3.6
-      zod-to-json-schema: 3.25.1(zod@4.3.6)
+      zod: 4.4.3
+      zod-to-json-schema: 3.25.1(zod@4.4.3)
     optionalDependencies:
       '@cfworker/json-schema': 4.1.1
     transitivePeerDependencies:
@@ -9686,10 +9686,10 @@ snapshots:
 
   '@one-ini/wasm@0.1.1': {}
 
-  '@open-policy-agent/opa@2.0.0(zod@4.3.6)':
+  '@open-policy-agent/opa@2.0.0(zod@4.4.3)':
     dependencies:
       '@open-policy-agent/ucast-prisma': 0.1.6
-      zod: 4.3.6
+      zod: 4.4.3
 
   '@open-policy-agent/ucast-prisma@0.1.6':
     dependencies:
@@ -16758,8 +16758,8 @@ snapshots:
       compress-commons: 6.0.2
       readable-stream: 4.7.0
 
-  zod-to-json-schema@3.25.1(zod@4.3.6):
+  zod-to-json-schema@3.25.1(zod@4.4.3):
     dependencies:
-      zod: 4.3.6
+      zod: 4.4.3
 
-  zod@4.3.6: {}
+  zod@4.4.3: {}
