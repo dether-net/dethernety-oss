@@ -28,18 +28,18 @@
   },
   "dependencies": {
     "@dethernety/dt-core": "workspace:*",
-    "@langchain/langgraph-sdk": "^1.9.1",
+    "@langchain/langgraph-sdk": "^1.9.2",
     "@nestjs/common": "^11.1.19",
     "@open-policy-agent/opa": "^2.0.0",
     "axios": "^1.16.0",
-    "graphql": "^16.13.2",
+    "graphql": "^16.14.0",
     "graphql-subscriptions": "^3.0.0",
     "json-logic-js": "^2.0.5",
     "uuid": "^11.0.0"
   },
   "devDependencies": {
     "@types/json-logic-js": "^2.0.8",
-    "@types/node": "^25.6.0",
+    "@types/node": "^25.7.0",
     "@types/uuid": "^10.0.0"
   }
 }
