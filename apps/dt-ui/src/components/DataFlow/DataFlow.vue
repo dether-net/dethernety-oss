@@ -247,15 +247,24 @@
 
   onEdgesChange(async changes => {
     const nextChanges = []
+    let defaultBoundaryDeleteAttempted = false
 
     for (const change of changes) {
       if (change.type === 'remove') {
-        if (!selectedItem.value || selectedItem.value.id === flowStore.defaultBoundary?.id) return
+        if (change.id === flowStore.defaultBoundary?.id) {
+          defaultBoundaryDeleteAttempted = true
+          continue
+        }
         showEdgeDeleteDialog.value = true
       } else {
         nextChanges.push(change)
       }
     }
+
+    if (defaultBoundaryDeleteAttempted) {
+      snackBar.value = { show: true, message: 'Cannot delete the default boundary.', color: 'warning' }
+    }
+
     applyEdgeChanges(nextChanges)
   })
 
@@ -265,16 +274,25 @@
 
   onNodesChange(async changes => {
     const nextChanges = []
+    let defaultBoundaryDeleteAttempted = false
 
     for (const change of changes) {
       if (change.type === 'remove') {
-        if (!selectedItem.value || selectedItem.value.id === flowStore.defaultBoundary?.id) return
+        if (change.id === flowStore.defaultBoundary?.id) {
+          defaultBoundaryDeleteAttempted = true
+          continue
+        }
         showNodeDeleteDialog.value = true
         showEdgeDeleteDialog.value = false
       } else {
         nextChanges.push(change)
       }
     }
+
+    if (defaultBoundaryDeleteAttempted) {
+      snackBar.value = { show: true, message: 'Cannot delete the default boundary.', color: 'warning' }
+    }
+
     applyNodeChanges(nextChanges)
   })
 
