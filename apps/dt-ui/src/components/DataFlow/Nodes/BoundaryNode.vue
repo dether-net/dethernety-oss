@@ -57,7 +57,7 @@
       {{ props.data.label || 'Boundary Node' }}
     </span>
     <NodeResizer
-      :is-visible="true"
+      :is-visible="flowStore.editMode"
       :line-style="{ border: '0px' }"
       :min-height="minHeight || 100"
       :min-width="minWidth || 100"
@@ -73,6 +73,5 @@
     position: absolute;
     right: 0;
     top: 0;
-    cursor: nwse-resize;
   }
 </style>
