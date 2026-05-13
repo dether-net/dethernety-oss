@@ -269,9 +269,12 @@
     const currentIds: string[] = selectedItem.value.data.dataItems || []
     const removed = currentIds.filter(id => !value.includes(id))
     if (removed.length === 0) {
-      // Pure add — auto-save.
+      // Pure add — auto-save. saveItem() (not onSubmit()) because onSubmit gates on
+      // dirtyTabs.has('general'), and toggling a checkbox doesn't mark general dirty.
+      // saveItem hits updateNode → deepMerge → updateComponentNode, which reads the
+      // just-mutated node.data.dataItems and sends the connect/disconnect to the backend.
       selectedItem.value.data.dataItems = value
-      onSubmit()
+      saveItem()
       return
     }
     const removedId = removed[0]
@@ -302,9 +305,9 @@
       const currentIds: string[] = selectedItem.value.data.controls || []
       const removed = currentIds.filter(id => !value.includes(id))
       if (removed.length === 0) {
-        // Pure add — auto-save.
+        // Pure add — auto-save via saveItem (not onSubmit, which gates on general-tab dirty).
         selectedItem.value.data.controls = value
-        onSubmit()
+        saveItem()
         return
       }
       const removedId = removed[0]
@@ -320,7 +323,7 @@
   const onRemoveControlConfirmed = () => {
     if (selectedItem.value?.data) {
       selectedItem.value.data.controls = pendingRemovalProposedValue.value
-      onSubmit()
+      saveItem()
     }
     showRemoveControlDialog.value = false
     pendingRemoveControlName.value = ''
@@ -340,7 +343,7 @@
   const onRemoveDataItemConfirmed = () => {
     if (selectedItem.value?.data) {
       selectedItem.value.data.dataItems = pendingRemovalProposedValue.value
-      onSubmit()
+      saveItem()
     }
     showRemoveDataItemDialog.value = false
     pendingRemoveDataItemName.value = ''
@@ -363,7 +366,7 @@
       const newSelectedControlIds = controls.value.map(control => control.id)
       if (selectedItem.value?.data) {
         selectedItem.value.data.controls = newSelectedControlIds
-        onSubmit()
+        saveItem()
       }
     } catch (error) {
       console.warn('Error updating selected controls:', error)
@@ -739,7 +742,6 @@
                 @saveItem="onSubmit"
                 @update:formData="onPendingFormDataUpdate"
                 @update:isFromClass="isFromClass = $event"
-                @updateForm="updateForm"
               />
             </v-tabs-window-item>
 
@@ -792,6 +794,7 @@
                 :selectedDataItemIds="selectedItem?.data?.dataItems || []"
                 :selectedItem="selectedItem"
                 @update:selectedDataItemIds="updateSelectedDataItemIds"
+                @update:snackBar="emit('update:snackBar', $event)"
                 @redirect:issue="emit('redirect:issue')"
               />
             </v-tabs-window-item>

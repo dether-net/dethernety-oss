@@ -1,11 +1,10 @@
 <script setup lang="ts">
   import { useFlowStore } from '@/stores/flowStore'
   import { useIssueStore } from '@/stores/issueStore'
-  import { onMounted, onUnmounted, ref, shallowRef, watch, nextTick } from 'vue'
+  import { computed, onMounted, onUnmounted, ref, shallowRef, watch, nextTick } from 'vue'
   import type { UISchemaElement } from '@jsonforms/core'
   import { flattenProperties, unflattenProperties } from '@/utils/dataFlowUtils'
-  import { Analysis, Exposure } from '@dethernety/dt-core'
-  import { useAnalysisStore } from '@/stores/analysisStore'
+  import { Exposure } from '@dethernety/dt-core'
   import AttributesForm from '@/components/DataFlow/AttributesForm.vue'
   import AttributesDialog from '@/components/DataFlow/AttributesDialog.vue'
   import IssueDialog from '@/components/Dialogs/Issues/IssueDialog.vue'
@@ -20,14 +19,7 @@
     id: string | null
   }
 
-  interface SnackBar {
-    show: boolean;
-    message: string;
-    color: string;
-  }
-
   const flowStore = useFlowStore()
-  const analysisStore = useAnalysisStore()
   const issueStore = useIssueStore()
 
   const name = ref('')
@@ -35,25 +27,25 @@
   const dataClass = ref<string | null>(null)
   const availableClasses = ref<{ id: string; name: string }[]>([])
 
-  // Attributes data management (centralized like SettingsWindow)
-  const attributesData = ref<object>({})
+  // Attributes — buffered model matching SettingsWindow's post-Sprint-D pattern.
+  // lastLoadedAttributes is the backend snapshot; pendingAttributes is the UI buffer that
+  // AttributesForm / AttributesDialog bind to; commits flow back into lastLoadedAttributes
+  // via saveAttributes. attributesDirty signals the Attributes-tab portion of isDirty.
+  const lastLoadedAttributes = ref<object>({})
+  const pendingAttributes = ref<object>({})
+  const attributesDirty = ref(false)
   const attributesSchema = shallowRef<object | null>(null)
   const attributesUiSchema = shallowRef<UISchemaElement | null>(null)
   const attributesLoading = ref(false)
   const attributesTemplateWarning = ref(false)
 
   const tab = ref('general')
-  const emit = defineEmits(['update:show', 'data-added', 'cancel-data', 'redirect:issue'])
+  const emit = defineEmits(['update:show', 'data-added', 'cancel-data', 'redirect:issue', 'update:snackBar'])
 
   const props = defineProps<Props>()
   const showDialog = ref(props.show)
-  const analysis = ref<Analysis | null>(null)
-  const showAnalysisFlowDialog = ref(false)
   const dataId = ref(props.id)
   const action = ref(props.action)
-  const snackBar = ref<SnackBar>({ show: false, message: '', color: '' })
-  const fetchTimer = ref(null)
-  const analysisStatus = ref<string | undefined>(undefined)
   const exposures = ref<Exposure[]>([])
   const exposureDialogAction = ref<'create' | 'edit'>('create')
   const showExposureDialog = ref(false)
@@ -62,8 +54,6 @@
   const exposureToDelete = ref('')
   const showExposureDeleteDialog = ref(false)
   const exposureToEdit = ref('')
-  const showConfirmClassCreationDialog = ref(false)
-  const showAnalysisDeleteDialog = ref(false)
   const attributesDialogUseExpansionPanels = ref(true)
   const showAttributesDialog = ref(false)
   const showIssueDialog = ref(false)
@@ -71,6 +61,30 @@
   const issueExposureId = ref('')
   const issueName = ref('')
   const issueDescription = ref('')
+
+  // Dirty tracking — initialState mirrors the persisted (or default-empty) state of the General-tab
+  // fields; attributesDirty (declared above) signals the Attributes-tab portion. isDirty drives
+  // the close-guard at v-dialog level so the user can't lose edits via Esc / backdrop / X, and
+  // gates the Save button enable + Revert button visibility in the toolbar.
+  const initialState = ref<{ name: string; description: string; dataClass: string | null }>({
+    name: '',
+    description: '',
+    dataClass: null,
+  })
+  const showDiscardChangesDialog = ref(false)
+
+  // Class-change confirm — pendingClassId holds the picker's new selection while the confirm
+  // dialog is open; on commit or discard the new id is applied to dataClass, on cancel the
+  // picker re-binds to the unchanged dataClass via :model-value.
+  const pendingClassId = ref<string | null>(null)
+  const showClassChangeDialog = ref(false)
+
+  const isDirty = computed(() =>
+    name.value !== initialState.value.name ||
+    description.value !== initialState.value.description ||
+    dataClass.value !== initialState.value.dataClass ||
+    attributesDirty.value
+  )
 
   const router = useRouter()
 
@@ -82,30 +96,15 @@
     }
   )
 
-  watch(dataClass, newVal => {
-    if (newVal) {
-      flowStore.getDataClass({
-        dataClassId: newVal,
-      }).then(cls => {
-        if (cls) {
-          attributesSchema.value = cls.template?.schema ?? null
-          attributesUiSchema.value = cls.template?.uischema as UISchemaElement ?? null
-          // Initialize attributes when class changes
-          if (dataId.value) {
-            debouncedInitializeAttributes()
-          }
-        }
-      })
-    }
-  })
-
-  // Attributes management functions (similar to SettingsWindow)
+  // Attributes management functions (similar to SettingsWindow's buffered model)
   const initializeAttributes = async () => {
     // Set loading state to prevent rendering issues
     attributesLoading.value = true
     attributesSchema.value = null
     attributesUiSchema.value = null
-    attributesData.value = {}
+    lastLoadedAttributes.value = {}
+    pendingAttributes.value = {}
+    attributesDirty.value = false
     attributesTemplateWarning.value = false
 
     // Add defensive check - wait a tick to ensure data is stable
@@ -117,10 +116,12 @@
     }
 
     try {
-      // Get the class to set up schema and uischema
-      const cls = await flowStore.getDataClass({ dataClassId: dataClass.value })
-      if (cls?.template && 
-          typeof cls.template.schema === 'object' && 
+      // Consume the cached class object — the merged dataClass watcher pre-populates
+      // currentItemClass.value synchronously inside its tick, before triggering the
+      // 100 ms debounce that invokes this function.
+      const cls = currentItemClass.value
+      if (cls?.template &&
+          typeof cls.template.schema === 'object' &&
           typeof cls.template.uischema === 'object') {
         attributesSchema.value = cls.template.schema
         attributesUiSchema.value = cls.template.uischema as UISchemaElement
@@ -137,7 +138,10 @@
         classId: dataClass.value,
       })
 
-      attributesData.value = unflattenProperties(rawProperties)
+      const loaded = unflattenProperties(rawProperties)
+      lastLoadedAttributes.value = loaded
+      pendingAttributes.value = loaded
+      attributesDirty.value = false
     } catch (e) {
       console.error('DataDialog: Failed to fetch attributes data', e)
       attributesTemplateWarning.value = true
@@ -146,34 +150,44 @@
     }
   }
 
-  const saveAttributes = async (data: object) => {
+  const saveAttributes = async () => {
     if (!dataId.value || !dataClass.value || attributesLoading.value) return
+    if (!attributesDirty.value) return
 
     try {
-      const flatAttributes = flattenProperties(data)
+      const flatAttributes = flattenProperties(pendingAttributes.value)
 
       await flowStore.setInstantiationAttributes({
         componentId: dataId.value,
         classId: dataClass.value,
         attributes: flatAttributes,
       })
-      
-      // Update local data
-      attributesData.value = data
+
+      lastLoadedAttributes.value = pendingAttributes.value
+      attributesDirty.value = false
       flowStore.getExposures({ elementId: dataId.value }).then(exp => {
         exposures.value = exp
       })
-      
-      // Show success message
-      snackBar.value = { show: true, message: 'Attributes saved successfully', color: 'success' }
+
+      emit('update:snackBar', { show: true, message: 'Attributes saved successfully', color: 'success' })
     } catch (e) {
       console.error('Failed to save attributes', e)
-      snackBar.value = { show: true, message: 'Failed to save attributes', color: 'error' }
+      emit('update:snackBar', { show: true, message: 'Failed to save attributes', color: 'error' })
     }
   }
 
-  const onAttributesChanged = async (data: object) => {
-    await saveAttributes(data)
+  const onAttributesChanged = (data: object) => {
+    pendingAttributes.value = data
+    attributesDirty.value = true
+  }
+
+  const revertPending = () => {
+    name.value = initialState.value.name
+    description.value = initialState.value.description
+    dataClass.value = initialState.value.dataClass
+    // Attributes: authoritative re-fetch via the debounced init. If dataClass changed,
+    // the watcher coalesces with this call (single initializeAttributes run after 100 ms).
+    debouncedInitializeAttributes()
   }
 
   // Debounced attributes initialization
@@ -188,81 +202,41 @@
     }, 100)
   }
 
-  // Reactive reference to store the full class object
+  // Reactive reference to store the full class object — consumed by initializeAttributes
+  // (template) and currentItemClass-driven children (AttributesForm, AttributesDialog).
   const currentItemClass = ref<any>(null)
 
-  // Watch for changes in dataClass and fetch the full class object
+  // Single dataClass watcher — fetches the class object once, sets currentItemClass,
+  // schema/uischema, and triggers attributes re-init. Previously two watchers + a third
+  // getDataClass call inside initializeAttributes fired per class change; now: one call.
   watch(dataClass, async (newDataClass) => {
     if (!newDataClass) {
       currentItemClass.value = null
+      attributesSchema.value = null
+      attributesUiSchema.value = null
       return
     }
-    
     try {
-      const fullClass = await flowStore.getDataClass({ dataClassId: newDataClass })
-      currentItemClass.value = fullClass
+      const cls = await flowStore.getDataClass({ dataClassId: newDataClass })
+      currentItemClass.value = cls
+      if (cls) {
+        attributesSchema.value = cls.template?.schema ?? null
+        attributesUiSchema.value = cls.template?.uischema as UISchemaElement ?? null
+        if (dataId.value) {
+          debouncedInitializeAttributes()
+        }
+      }
     } catch (error) {
       console.error('DataDialog: Failed to fetch class object', error)
       currentItemClass.value = null
+      attributesSchema.value = null
+      attributesUiSchema.value = null
     }
   }, { immediate: true })
 
   onMounted(async () => {
     await getCurrentDataItem()
   })
-
-  const resetModule = async () => {
-    const module = await flowStore.getModuleByName({ moduleName: 'dethernety' })
-
-    if (module) {
-      flowStore.resetModule({ moduleId: module.id })
-    }
-  }
-
-  const getAnalysis = async () => {
-    analysis.value = null
-    analysisStatus.value = undefined
-    if (!dataId.value) return
-    const a = await analysisStore.getOrCreateAnalysis({ elementId: dataId.value, classType: 'component_class_graph', analysisName: 'Data Item Creation' })
-    if (a) {
-      analysis.value = a
-      analysisStatus.value = a.status?.status
-    }
-  }
-
-  const updateAnalysis = () => {
-    if (!dataId.value || !analysis.value?.id) return
-    if (fetchTimer.value) {
-      clearInterval(fetchTimer.value)
-    }
-    fetchTimer.value = setInterval(async () => {
-      // Fetch fresh analysis data to get current status
-      const freshAnalysis = await analysisStore.findAnalysis({ analysisId: analysis.value?.id })
-      if (freshAnalysis) {
-        const currentStatus = freshAnalysis.status?.status
-        const previousStatus = analysisStatus.value
-
-        // Update the analysis
-        analysis.value = freshAnalysis
-
-        // Check if status changed from non-idle to idle (analysis completed)
-        if (previousStatus && previousStatus !== 'idle' && currentStatus === 'idle') {
-          if (flowStore.modelId) {
-            flowStore.fetchData({ model: flowStore.modelId }).then(async () => {
-              await getCurrentDataItem()
-              resetModule()
-            })
-          }
-        }
-
-        // Update the status
-        analysisStatus.value = currentStatus
-      } else {
-        // If analysis not found, try to get it again
-        getAnalysis()
-      }
-    }, 5000) as unknown as null
-  }
 
   const getCurrentDataItem = async () => {
     const modules = flowStore.modules
@@ -284,17 +258,16 @@
           if (dataClass.value) {
             debouncedInitializeAttributes()
           }
+          // Snapshot the persisted state so the dirty bit reads false until the user edits.
+          // Re-runs after the create→edit transition (line ~424 below) keep this in sync.
+          initialState.value = {
+            name: currentDataItem.name,
+            description: currentDataItem.description,
+            dataClass: currentDataItem.dataClass?.id ?? null,
+          }
         } catch (error) {
           console.error('Failed to get attributes from class relationship', error)
         }
-        getAnalysis().then(() => {
-          // Initialize the analysis status and start monitoring
-          if (analysis.value) {
-            analysisStatus.value = analysis.value.status?.status
-          }
-          // Start the timer after initial fetch
-          updateAnalysis()
-        })
         if (dataId.value) {
           flowStore.getExposures({ elementId: dataId.value }).then(exp => {
             exposures.value = exp
@@ -343,14 +316,14 @@
             showExposureDeleteDialog.value = false
             exposureToDelete.value = ''
             getCurrentDataItem()
-            snackBar.value = { show: true, message: 'Exposure deleted successfully', color: 'success' }
+            emit('update:snackBar', { show: true, message: 'Exposure deleted successfully', color: 'success' })
           } else {
-            snackBar.value = { show: true, message: 'Failed to delete exposure', color: 'error' }
+            emit('update:snackBar', { show: true, message: 'Failed to delete exposure', color: 'error' })
           }
         })
         .catch(error => {
           console.error('Failed to delete exposure', error)
-          snackBar.value = { show: true, message: 'Failed to delete exposure', color: 'error' }
+          emit('update:snackBar', { show: true, message: 'Failed to delete exposure', color: 'error' })
         })
     }
   }
@@ -361,32 +334,38 @@
     }
     
     if (action.value === 'edit' && dataId.value) {
-      // Update existing DataItem (without attributes)
       try {
-        const success = await flowStore.updateDataItem({
-          dataItemId: dataId.value,
-          name: name.value,
-          description: description.value,
-          classId: dataClass.value,
-          // Remove attributes from here - they're handled separately
-        })
-        
-        if (success) {
-          // Save attributes separately
-          if (dataClass.value && Object.keys(attributesData.value).length > 0) {
-            await saveAttributes(attributesData.value)
+        const generalDirty =
+          name.value !== initialState.value.name ||
+          description.value !== initialState.value.description ||
+          dataClass.value !== initialState.value.dataClass
+
+        if (generalDirty) {
+          const success = await flowStore.updateDataItem({
+            dataItemId: dataId.value,
+            name: name.value,
+            description: description.value,
+            classId: dataClass.value,
+          })
+          if (!success) {
+            emit('update:snackBar', { show: true, message: 'Failed to update data entity', color: 'error' })
+            return
           }
-          
-          snackBar.value = { show: true, message: 'Data entity updated successfully', color: 'success' }
-          // For edit operations, still emit data-added to notify parent of changes
-          // eslint-disable-next-line vue/custom-event-name-casing
-          emit('data-added')
-        } else {
-          snackBar.value = { show: true, message: 'Failed to update data entity', color: 'error' }
+          // Refresh the snapshot so the dirty bit reads clean after a successful save.
+          initialState.value = {
+            name: name.value,
+            description: description.value,
+            dataClass: dataClass.value,
+          }
+          emit('update:snackBar', { show: true, message: 'Data entity updated successfully', color: 'success' })
+        }
+
+        if (attributesDirty.value) {
+          await saveAttributes()
         }
       } catch (error) {
         console.error('Failed to update data entity', error)
-        snackBar.value = { show: true, message: 'Failed to update data entity', color: 'error' }
+        emit('update:snackBar', { show: true, message: 'Failed to update data entity', color: 'error' })
       }
     } else if (action.value === 'create') {
       // Create new DataItem first (without attributes)
@@ -400,7 +379,7 @@
         })
         
         if (!newDataItem) {
-          snackBar.value = { show: true, message: 'Failed to create data entity', color: 'error' }
+          emit('update:snackBar', { show: true, message: 'Failed to create data entity', color: 'error' })
           return
         }
         
@@ -413,18 +392,7 @@
           dataClass.value = newDataItem.dataClass.id
         }
         
-        // Save attributes separately if we have them
-        if (dataClass.value && Object.keys(attributesData.value).length > 0) {
-          try {
-            await saveAttributes(attributesData.value)
-            snackBar.value = { show: true, message: 'Data entity created successfully - now in edit mode', color: 'success' }
-          } catch (attributesError) {
-            console.error('Failed to save attributes after creation', attributesError)
-            snackBar.value = { show: true, message: 'Data entity created, but failed to save attributes - now in edit mode', color: 'warning' }
-          }
-        } else {
-          snackBar.value = { show: true, message: 'Data entity created successfully - now in edit mode', color: 'success' }
-        }
+        emit('update:snackBar', { show: true, message: 'Data entity created successfully - now in edit mode', color: 'success' })
         
         // Refresh the data to ensure we have the latest information
         await getCurrentDataItem()
@@ -433,7 +401,7 @@
         // The parent will be notified when the dialog is finally closed or when editing is done
       } catch (error) {
         console.error('Failed to create data entity', error)
-        snackBar.value = { show: true, message: 'Failed to create data entity', color: 'error' }
+        emit('update:snackBar', { show: true, message: 'Failed to create data entity', color: 'error' })
       }
     }
   }
@@ -449,45 +417,80 @@
     }
   }
 
-  const runAnalysis = async () => {
-    if (!analysis.value?.id) return
+  const onAttemptClose = () => {
+    if (isDirty.value) {
+      showDiscardChangesDialog.value = true
+    } else {
+      onCancel()
+    }
+  }
 
-    // Set status to busy immediately when starting analysis
-    analysisStatus.value = 'busy'
+  const onDiscardConfirmed = () => {
+    showDiscardChangesDialog.value = false
+    onCancel()
+  }
 
-    analysisStore.runAnalysis({ analysisId: analysis.value.id }).then((sessionId: string | null) => {
-      if (!sessionId) return
-      showAnalysisFlowDialog.value = true
-      // Start monitoring the analysis status
-      updateAnalysis()
-    })
+  const onDiscardCanceled = () => {
+    showDiscardChangesDialog.value = false
+  }
+
+  const onClassPickerChange = (newId: string) => {
+    if (newId === dataClass.value) return
+    // Initial class pick (create mode before save, or edit mode where dataClass was never set):
+    // no existing class to lose, no attribute schema to invalidate. Skip the dialog.
+    if (!dataClass.value || !dataId.value) {
+      dataClass.value = newId
+      return
+    }
+    pendingClassId.value = newId
+    showClassChangeDialog.value = true
+  }
+
+  const onClassChangeCommit = async () => {
+    showClassChangeDialog.value = false
+    if (isDirty.value) {
+      await onSubmit()
+      if (isDirty.value) {
+        emit('update:snackBar', { show: true, message: 'Could not commit pending edits; class change cancelled.', color: 'error' })
+        pendingClassId.value = null
+        return
+      }
+    }
+    if (pendingClassId.value) {
+      dataClass.value = pendingClassId.value
+      pendingClassId.value = null
+    }
+  }
+
+  const onClassChangeDiscard = () => {
+    showClassChangeDialog.value = false
+    if (dataId.value) {
+      const currentDataItem = flowStore.getDataItem({ dataItemId: dataId.value })
+      if (currentDataItem) {
+        name.value = currentDataItem.name
+        description.value = currentDataItem.description
+        // Don't touch initialState — name and description now equal the persisted snapshot
+        // (clean), and dataClass will differ from initialState.dataClass after the assignment
+        // below (dirty). The class change is correctly the only pending edit; Save persists it.
+      }
+    }
+    if (pendingClassId.value) {
+      dataClass.value = pendingClassId.value
+      pendingClassId.value = null
+    }
+  }
+
+  const onClassChangeCancel = () => {
+    showClassChangeDialog.value = false
+    pendingClassId.value = null
+    // Picker is bound via :model-value="dataClass" so it auto-restores on next render.
   }
 
   onUnmounted(() => {
-    if (fetchTimer.value) {
-      clearInterval(fetchTimer.value)
-    }
     if (attributesInitTimer) {
       clearTimeout(attributesInitTimer)
     }
   })
-
-  const openAnalysisFlow = async (id: string | undefined) => {
-    if (!id) return
-    showAnalysisFlowDialog.value = true
-  }
-
-  const closeAnalysisFlow = () => {
-    showAnalysisFlowDialog.value = false
-    // Keep the timer running to monitor analysis completion
-  }
-
-  const deleteAnalysis = async () => {
-    if (analysis.value?.id) {
-      await analysisStore.deleteAnalysis({ analysisId: analysis.value.id })
-    }
-    showAnalysisDeleteDialog.value = false
-  }
 
   const onAddIssue = (data: {issueClass: Class, id: string, name: string, description: string}) => {
     issueClass.value = data.issueClass
@@ -529,8 +532,9 @@
   <v-dialog
     v-model="showDialog"
     max-width="1300px"
-    @click:outside="onCancel"
-    @keydown.esc="onCancel"
+    :persistent="isDirty"
+    @click:outside="onAttemptClose"
+    @keydown.esc="onAttemptClose"
   >
     <v-form @submit.prevent="onSubmit">
       <v-card class="overflow-hidden pa-0 ma-0 rounded-lg">
@@ -545,7 +549,7 @@
               icon="mdi-close"
               size="medium"
               variant="text"
-              @click="onCancel"
+              @click="onAttemptClose"
             />
           </v-sheet>
         </v-card-title>
@@ -577,48 +581,14 @@
                             required
                           />
                           <v-autocomplete
-                            v-model="dataClass"
                             item-title="name"
                             item-value="id"
                             :items="availableClasses"
                             label="Class"
+                            :model-value="dataClass"
                             required
+                            @update:model-value="onClassPickerChange"
                           />
-                          <div class="mx-3 mt-1">
-                            <v-btn
-                              v-if="dataId && (analysis === null || ['idle'].includes(analysis.status?.status ?? ''))"
-                              color="amber"
-                              icon="mdi-creation-outline"
-                              variant="plain"
-                              @click="showConfirmClassCreationDialog = true"
-                              @contextmenu.prevent="showAnalysisDeleteDialog = true"
-                            />
-                            <v-progress-circular
-                              v-if="dataId && analysis && ['busy', 'running'].includes(analysis.status?.status ?? '')"
-                              class="ma-1 run-analysis-button-progress"
-                              color="amber"
-                              indeterminate
-                              :size="20"
-                              @click="openAnalysisFlow(dataId)"
-                              @contextmenu.prevent="showAnalysisDeleteDialog = true"
-                            />
-                            <v-btn
-                              v-if="dataId && analysis && ['interrupted'].includes(analysis.status?.status ?? '')"
-                              color="warning"
-                              icon="mdi-forum-outline"
-                              variant="plain"
-                              @click="openAnalysisFlow(dataId)"
-                              @contextmenu.prevent="showAnalysisDeleteDialog = true"
-                            />
-                            <v-btn
-                              v-if="dataId && analysis && ['error'].includes(analysis.status?.status ?? '')"
-                              color="error"
-                              icon="mdi-alert-circle-outline"
-                              variant="plain"
-                              @click="openAnalysisFlow(dataId)"
-                              @contextmenu.prevent="showAnalysisDeleteDialog = true"
-                            />
-                          </div>
                         </v-col>
                         <v-col cols="7">
                           <v-textarea
@@ -635,7 +605,7 @@
                       <AttributesForm
                         :item-id="dataId"
                         :item-class="currentItemClass"
-                        :attributes-data="attributesData"
+                        :attributes-data="pendingAttributes"
                         :schema="attributesSchema"
                         :uischema="attributesUiSchema"
                         :is-loading="attributesLoading"
@@ -753,8 +723,19 @@
               @copy:issue="onCopyToIssue"
             />
             <v-btn
+              v-if="isDirty"
+              class="ml-3"
+              color="warning"
+              size="x-large"
+              variant="text"
+              @click="revertPending"
+            >
+              Revert
+            </v-btn>
+            <v-btn
               class="ml-3"
               color="secondary"
+              :disabled="action === 'edit' && !isDirty"
               icon="mdi-content-save"
               size="x-large"
               type="submit"
@@ -765,13 +746,6 @@
       </v-card>
     </v-form>
   </v-dialog>
-
-  <AnalysisFlowDialog
-    v-if="analysis && showAnalysisFlowDialog"
-    :analysis-id="analysis?.id ?? undefined"
-    :show="showAnalysisFlowDialog"
-    @close="closeAnalysisFlow"
-  />
 
   <AttackTechniqueDialog
     v-if="showAttackTechniqueDialog"
@@ -797,29 +771,24 @@
     @delete:canceled="showExposureDeleteDialog = false"
     @delete:confirmed="onExposureDelete"
   />
-  <ConfirmClassCreationDialog
-    v-if="showConfirmClassCreationDialog"
-    :show="showConfirmClassCreationDialog"
-    @create:confirmed="showConfirmClassCreationDialog = false; runAnalysis()"
-    @dialog:closed="showConfirmClassCreationDialog = false"
-  />
-
-  <template>
-    <v-snackbar
-      v-model="snackBar.show"
-      :color="snackBar.color"
-      timeout="5000"
-      top
-    >
-      {{ snackBar.message }}
-    </v-snackbar>
-  </template>
   <ConfirmDeleteDialog
-    v-if="showAnalysisDeleteDialog"
-    message="Are you sure you want to delete the analysis?"
-    :show="showAnalysisDeleteDialog"
-    @delete:canceled="showAnalysisDeleteDialog = false"
-    @delete:confirmed="deleteAnalysis"
+    v-if="showDiscardChangesDialog"
+    confirm-color="warning"
+    confirm-icon="mdi-close-circle-outline"
+    icon="mdi-pencil-off-outline"
+    message="Discard unsaved changes?"
+    :show="showDiscardChangesDialog"
+    title="Discard unsaved changes?"
+    @delete:canceled="onDiscardCanceled"
+    @delete:confirmed="onDiscardConfirmed"
+  />
+  <ConfirmClassOrModelChangeDialog
+    v-if="showClassChangeDialog"
+    :has-dirty-edits="isDirty"
+    :show="showClassChangeDialog"
+    @cancel="onClassChangeCancel"
+    @commit-and-change="onClassChangeCommit"
+    @discard-and-change="onClassChangeDiscard"
   />
   <AttributesDialog
     v-if="showAttributesDialog"
@@ -827,7 +796,7 @@
     :item-class="currentItemClass"
     :item-id="dataId ?? null"
     :item-name="name ?? null"
-    :attributes-data="attributesData"
+    :attributes-data="pendingAttributes"
     :attributes-schema="attributesSchema"
     :attributes-ui-schema="attributesUiSchema"
     :attributes-loading="attributesLoading"

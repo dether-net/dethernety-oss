@@ -1,9 +1,7 @@
 <script setup lang="ts">
-  import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+  import { computed, onMounted, ref, watch } from 'vue'
   import { useControlsStore } from '@/stores/controlsStore'
-  import { useAnalysisStore } from '@/stores/analysisStore'
-  import { useFolderStore } from '@/stores/folderStore'
-  import { Analysis, Class, Control, Countermeasure } from '@dethernety/dt-core'
+  import { Class, Control, Countermeasure } from '@dethernety/dt-core'
   import { unflattenProperties } from '@/utils/dataFlowUtils'
   import type { UISchemaElement } from '@jsonforms/core'
 
@@ -22,7 +20,6 @@
   const props = defineProps<Props>()
   const showControlDialog = ref(props.show)
   const id = ref(props.id)
-  const folderStore = useFolderStore()
 
   watch(
     () => props.show,
@@ -33,7 +30,6 @@
   const emits = defineEmits(['control:deleted', 'control:moved', 'control:closed', 'control:saved'])
 
   const controlsStore = useControlsStore()
-  const analysisStore = useAnalysisStore()
   const showClassControlDialog = ref(false)
   const selectedClassId = ref('')
   const currentItemClass = ref<Class | null>(null)
@@ -44,7 +40,6 @@
   const controlsToDelete = ref('')
   const showDeleteControlsDialog = ref(false)
   const showCountermeasureDialog = ref(false)
-  const showAnalysisDeleteDialog = ref(false)
   const showDeleteCountermeasureDialog = ref(false)
   const countermeasureAction = ref<'create' | 'update'>('create')
   const countermeasureId = ref<string | null>(null)
@@ -56,14 +51,7 @@
   const showMitigationDialog = ref(false)
   const mitigationId = ref('')
 
-  const showAnalysisFlowDialog = ref(false)
-  const analysisIdToShow = ref('')
-  const analysis = ref<Analysis | null>(null)
-  const fetchTimer = ref(null)
-  const analysisStatus = ref<string | undefined>(undefined)
-
   const showFolderSelectDialog = ref(false)
-  const showConfirmClassCreationDialog = ref(false)
 
   const availableClasses = ref<Class[]>([])
 
@@ -141,45 +129,6 @@
     }
   })
 
-  const getAnalysis = async () => {
-    analysis.value = null
-    analysisStatus.value = undefined
-    if (!controlId.value) return
-    const a = await analysisStore.getOrCreateAnalysis({ elementId: controlId.value, classType: 'control_class_graph', analysisName: 'Control Class Creation' })
-    if (a) {
-      analysis.value = a
-      analysisStatus.value = a.status?.status
-    }
-  }
-
-  const updateAnalysis = () => {
-    if (!controlId.value || !analysis.value?.id) return
-    if (fetchTimer.value) {
-      clearInterval(fetchTimer.value)
-    }
-    fetchTimer.value = setInterval(async () => {
-      // Fetch fresh analysis data to get current status
-      const freshAnalysis = await analysisStore.findAnalysis({ analysisId: analysis.value?.id })
-      if (freshAnalysis) {
-        const currentStatus = freshAnalysis.status?.status
-        const previousStatus = analysisStatus.value
-
-        // Update the analysis
-        analysis.value = freshAnalysis
-
-        // Check if status changed from non-idle to idle (analysis completed)
-        if (previousStatus && previousStatus !== 'idle' && currentStatus === 'idle') {
-          controlsStore.fetchControls({ folderId: folderStore.selectedFolder?.id || 'all' })
-          resetModule()
-          getControl()
-        }
-
-        // Update the status
-        analysisStatus.value = currentStatus
-      }
-    }, 5000) as unknown as null
-  }
-
   const getControl = async () => {
     controlsStore.getControl({ controlId: props.id }).then(controlData => {
       control.value = controlData
@@ -200,32 +149,8 @@
       availableClasses.value = classes.map((cls: { controlClasses: any; }) => cls.controlClasses).flat()
     })
     controlsStore.fetchModules()
-    if (controlId.value) {
-      getAnalysis().then(() => {
-        // Initialize the analysis status and start monitoring
-        if (analysis.value) {
-          analysisStatus.value = analysis.value.status?.status
-        }
-        // Start the timer after initial fetch
-        updateAnalysis()
-      })
-    }
     getControl()
   })
-
-  onUnmounted(() => {
-    if (fetchTimer.value) {
-      clearInterval(fetchTimer.value)
-    }
-  })
-
-  const resetModule = async () => {
-    const module = await controlsStore.getModuleByName({ moduleName: 'dethernety' })
-
-    if (module) {
-      controlsStore.resetModule({ moduleId: module.id })
-    }
-  }
 
   const onCountermeasureUpdated = () => {
     fetchCountermeasures()
@@ -395,31 +320,6 @@
     })
   }
 
-  const runAnalysis = async () => {
-    if (!analysis.value?.id) return
-
-    // Set status to busy immediately when starting analysis
-    analysisStatus.value = 'busy'
-
-    analysisStore.runAnalysis({ analysisId: analysis.value.id }).then((sessionId: string | null) => {
-      if (!sessionId) return
-      showAnalysisFlowDialog.value = true
-      // Start monitoring the analysis status
-      updateAnalysis()
-    })
-  }
-
-  const openAnalysisFlow = async () => {
-    if (!analysis.value?.id) return
-    analysisIdToShow.value = analysis.value.id
-    showAnalysisFlowDialog.value = true
-  }
-
-  const closeAnalysisFlow = () => {
-    showAnalysisFlowDialog.value = false
-    analysisIdToShow.value = ''
-  }
-
   const moveToFolder = (folderId: string) => {
     controlsStore.updateControl({
       controlId: controlId.value,
@@ -436,13 +336,6 @@
       }
       showFolderSelectDialog.value = false
     })
-  }
-
-  const deleteAnalysis = async () => {
-    if (analysis.value?.id) {
-      await analysisStore.deleteAnalysis({ analysisId: analysis.value.id })
-    }
-    showAnalysisDeleteDialog.value = false
   }
 
   fetchCountermeasures()
@@ -546,42 +439,6 @@
                             size="x-large"
                             variant="outlined"
                             @click="onlySelected = !onlySelected"
-                          />
-                          <v-btn
-                            v-if="controlId && (analysis === null || ['idle'].includes(analysis.status?.status ?? ''))"
-                            color="amber"
-                            icon="mdi-creation-outline"
-                            size="x-large"
-                            variant="plain"
-                            @click="showConfirmClassCreationDialog = true"
-                            @contextmenu.prevent="showAnalysisDeleteDialog = true"
-                          />
-                          <v-progress-circular
-                            v-if="controlId && analysis && ['busy', 'running'].includes(analysis.status?.status ?? '')"
-                            class="ma-1 mt-2 run-analysis-button-progress"
-                            color="amber"
-                            indeterminate
-                            :size="30"
-                            @click="openAnalysisFlow()"
-                            @contextmenu.prevent="showAnalysisDeleteDialog = true"
-                          />
-                          <v-btn
-                            v-if="controlId && analysis && ['interrupted'].includes(analysis.status?.status ?? '')"
-                            color="warning"
-                            icon="mdi-forum-outline"
-                            size="x-large"
-                            variant="plain"
-                            @click="openAnalysisFlow()"
-                            @contextmenu.prevent="showAnalysisDeleteDialog = true"
-                          />
-                          <v-btn
-                            v-if="controlId && analysis && ['error'].includes(analysis.status?.status ?? '')"
-                            color="error"
-                            icon="mdi-alert-circle-outline"
-                            size="x-large"
-                            variant="plain"
-                            @click="openAnalysisFlow()"
-                            @contextmenu.prevent="showAnalysisDeleteDialog = true"
                           />
                         </div>
                       </template>
@@ -759,30 +616,11 @@
           @delete:canceled="showDeleteCountermeasureDialog = false"
           @delete:confirmed="onCountermeasureDelete"
         />
-        <AnalysisFlowDialog
-          :analysisId="analysis?.id ?? undefined"
-          :show="showAnalysisFlowDialog"
-          @close="closeAnalysisFlow"
-        />
         <FolderSelectDialog
           v-if="showFolderSelectDialog"
           :show="showFolderSelectDialog"
           @close="showFolderSelectDialog = false"
           @move="moveToFolder"
-        />
-        <ConfirmClassCreationDialog
-          v-if="showConfirmClassCreationDialog"
-          :show="showConfirmClassCreationDialog"
-          @create:confirmed="showConfirmClassCreationDialog = false; runAnalysis()"
-          @dialog:closed="showConfirmClassCreationDialog = false"
-        />
-
-        <ConfirmDeleteDialog
-          v-if="showAnalysisDeleteDialog"
-          message="Are you sure you want to delete the analysis?"
-          :show="showAnalysisDeleteDialog"
-          @delete:canceled="showAnalysisDeleteDialog = false"
-          @delete:confirmed="deleteAnalysis"
         />
       </v-card-text>
     </v-card>
