@@ -469,6 +469,7 @@
   }
 
   const handleDragOver = (event: DragEvent) => {
+    if (!flowStore.editMode) return
     onDragOver(event)
 
     if (!draggedType.value) return
@@ -527,18 +528,21 @@
   <!-- eslint-disable vue/attribute-hyphenation -->
   <!-- eslint-disable vue/no-lone-template -->
   <!-- eslint-disable vue/v-on-event-hyphenation -->
-  <div class="data-flow-root dnd-flow" v-bind="attrs" @drop="(event: DragEvent) => onDrop(event, onNodeDrop)">
+  <div class="data-flow-root dnd-flow" v-bind="attrs" @drop="(event: DragEvent) => { if (!flowStore.editMode) return; onDrop(event, onNodeDrop) }">
     <VueFlow
       :apply-default="false"
       class="vue-flow"
       :connection-line-options="{ markerEnd: 'arrowclosed' }"
       :default-viewport="{ zoom: 1.5 }"
+      :delete-key-code="flowStore.editMode ? 'Backspace' : null"
       :edges="flowStore.edges"
-      edgesUpdatable
+      :edges-updatable="flowStore.editMode"
       :elevate-edges-on-select="true"
       :max-zoom="4"
       :min-zoom="0.2"
       :nodes="flowStore.nodes"
+      :nodes-connectable="flowStore.editMode"
+      :nodes-draggable="flowStore.editMode"
       @dragleave="handleDragLeave"
       @dragover="handleDragOver"
       @edge-click="onEdgeClick"
