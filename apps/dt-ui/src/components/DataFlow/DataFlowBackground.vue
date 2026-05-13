@@ -11,12 +11,13 @@
     openSettings: boolean
     modelName: string | null
     modelId: string | null
+    freshlyCreatedId?: string | null
   }
 
   const itemName = ref('Select an item')
   const flowStore = useFlowStore()
   const props = defineProps<Props>()
-  const emits = defineEmits(['update:openSettings', 'update:snackBar', 'update:analysisResults', 'openModel', 'editModel', 'delete:node', 'delete:edge', 'redirect:issue'])
+  const emits = defineEmits(['update:openSettings', 'update:snackBar', 'update:analysisResults', 'openModel', 'editModel', 'delete:node', 'delete:edge', 'redirect:issue', 'clear-freshly-created'])
   const openSettings = ref(props.openSettings)
   const modelName = ref(props.modelName)
   const modelId = ref(props.modelId)
@@ -146,11 +147,14 @@
           <v-expand-transition>
             <v-expansion-panel-text class="settings-panel-content">
               <SettingsWindow
+                :freshly-created-id="props.freshlyCreatedId ?? null"
+                @clear-freshly-created="emits('clear-freshly-created')"
                 @delete:edge="emits('delete:edge')"
                 @delete:node="emits('delete:node')"
                 @open-model="openModel"
                 @redirect:issue="emits('redirect:issue')"
                 @update:open-settings="emits('update:openSettings', $event)"
+                @update:snackBar="emits('update:snackBar', $event)"
               />
             </v-expansion-panel-text>
           </v-expand-transition>

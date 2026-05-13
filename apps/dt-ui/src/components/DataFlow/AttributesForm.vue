@@ -74,13 +74,13 @@
     emit('form:updated')
   }
 
-  // Watch for changes in attributesData prop and update internal state
+  // Watch for changes in attributesData prop and update internal state.
+  // Mirror unconditionally — gating on key count silently breaks revert when the element has no
+  // saved attributes (the form would keep the dirty in-memory edits forever).
   watch(
     () => props.attributesData,
     (newData) => {
-      if (newData && Object.keys(newData).length > 0) {
-        internalAttributesData.value = newData
-      }
+      internalAttributesData.value = newData ?? {}
     },
     { deep: true, immediate: true }
   )

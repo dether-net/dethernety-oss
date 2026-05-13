@@ -27,6 +27,7 @@
     isFromClass: boolean;
     itemClass: Class | null;
     representedModel: Model | null;
+    hasDirtyEdits?: boolean;
   }
 
   // Stores
@@ -41,7 +42,9 @@
     'update:formData': [value: FormData];
     'update:isFromClass': [value: boolean];
     'openModel': [modelId: string];
-    'classOrModelChangeConfirmed': [confirmed: boolean];
+    'class-change-commit': [];
+    'class-change-discard': [];
+    'class-change-cancel': [];
     'saveItem': [];
     'updateForm': [];
   }>()
@@ -253,13 +256,24 @@
     if (props.itemClass || props.representedModel) {
       showClassOrModelChangeDialog.value = true
     } else {
-      emit('classOrModelChangeConfirmed', true)
+      // No prior class/model — nothing to commit / discard, just proceed.
+      emit('class-change-commit')
     }
   }
 
-  const onClassOrModelChangeConfirmed = (confirmed: boolean) => {
+  const onClassChangeCommit = () => {
     showClassOrModelChangeDialog.value = false
-    emit('classOrModelChangeConfirmed', confirmed)
+    emit('class-change-commit')
+  }
+
+  const onClassChangeDiscard = () => {
+    showClassOrModelChangeDialog.value = false
+    emit('class-change-discard')
+  }
+
+  const onClassChangeCancel = () => {
+    showClassOrModelChangeDialog.value = false
+    emit('class-change-cancel')
   }
 
   const findModel = () => {
@@ -448,8 +462,11 @@
   <!-- Dialogs (moved from parent) -->
   <ConfirmClassOrModelChangeDialog
     v-if="showClassOrModelChangeDialog"
+    :has-dirty-edits="props.hasDirtyEdits"
     :show="showClassOrModelChangeDialog"
-    @confirm="onClassOrModelChangeConfirmed"
+    @cancel="onClassChangeCancel"
+    @commit-and-change="onClassChangeCommit"
+    @discard-and-change="onClassChangeDiscard"
   />
   <AnalysisFlowDialog
     v-if="analysis && showAnalysisFlowDialog"

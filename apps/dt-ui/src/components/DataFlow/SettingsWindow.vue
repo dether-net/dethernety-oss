@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref, shallowRef, watch, nextTick, onUnmounted } from 'vue'
+  import { computed, ref, shallowRef, watch, nextTick, onMounted, onUnmounted } from 'vue'
   import type { Edge, Node } from '@vue-flow/core'
   import { useFlowStore } from '@/stores/flowStore'
   import { useRouter } from 'vue-router'
@@ -24,12 +24,6 @@
     category: string;
   }
 
-  interface SnackBar {
-    show: boolean;
-    message: string;
-    color: string;
-  }
-
   // Component initialization
   const flowStore = useFlowStore()
   const selectedItem = computed(() => flowStore.selectedItem)
@@ -48,8 +42,8 @@
   const controls = ref<Control[]>([])
   const exposures = ref<Exposure[]>([])
 
-  // Attributes data management
-  const attributesData = ref<object>({})
+  // Attributes data management — lastLoadedAttributes is the backend snapshot; pendingAttributes (declared below) is the UI buffer.
+  const lastLoadedAttributes = ref<object>({})
   const attributesSchema = shallowRef<object | null>(null)
   const attributesUiSchema = shallowRef<UISchemaElement | null>(null)
   const attributesLoading = ref(false)
@@ -61,13 +55,44 @@
   const showAttributesDialog = ref(false)
   const attributesDialogUseExpansionPanels = ref(true)
 
-  const snackBar = ref<SnackBar>({ show: false, message: '', color: '' })
+  // Form data — pendingFormData is the UI buffer; commits apply it to the store via saveItem.
+  const pendingFormData = ref<FormData>({ name: '', class: '', model: '', modelName: '', description: '', category: '' })
 
-  // Form data
-  const formData = ref<FormData>({ name: '', class: '', model: '', modelName: '', description: '', category: '' })
+  // Pending attributes buffer — what AttributesForm / AttributesDialog bind to; commits flow back into lastLoadedAttributes via saveAttributes.
+  const pendingAttributes = ref<object>({})
+
+  // Dirty tab tracking — the toolbar Save / Revert buttons key off isDirty; tab labels show a marker per tab id.
+  type TabId = 'general' | 'attributes' | 'data' | 'controls' | 'exposures'
+  const dirtyTabs = ref<Set<TabId>>(new Set())
+  const isDirty = computed(() => dirtyTabs.value.size > 0)
+  const markDirty = (id: TabId) => { dirtyTabs.value.add(id); dirtyTabs.value = new Set(dirtyTabs.value) }
+  const clearDirty = (id: TabId) => { dirtyTabs.value.delete(id); dirtyTabs.value = new Set(dirtyTabs.value) }
+  const clearAllDirty = () => { dirtyTabs.value = new Set() }
 
   const isFromClass = ref(true)
-  const emit = defineEmits(['openModel', 'update:open-settings', 'delete:node', 'delete:edge', 'redirect:issue'])
+  const props = defineProps<{ freshlyCreatedId?: string | null }>()
+  const emit = defineEmits(['openModel', 'update:open-settings', 'delete:node', 'delete:edge', 'redirect:issue', 'clear-freshly-created', 'update:snackBar'])
+
+  // Snackbar messages flow up to the canvas-level v-snackbar via update:snackBar — no local snackbar in this component.
+  const showSnackbar = (message: string, color: 'success' | 'error' | 'warning' | 'info') => {
+    emit('update:snackBar', { show: true, message, color })
+  }
+
+  // Class / model changes go through their own confirm dialog (proceedWithClassChange) and
+  // shouldn't be treated as buffered General edits. Only name / description changes mark the
+  // tab dirty; everything else is a tracking field for the dialog flow.
+  const onPendingFormDataUpdate = (v: FormData) => {
+    const prev = pendingFormData.value
+    pendingFormData.value = v
+    if (v.name !== prev.name || v.description !== prev.description) {
+      markDirty('general')
+    }
+  }
+
+  // True while the current selection is the most recently created element and hasn't been saved yet.
+  const isFreshlyCreated = computed(() =>
+    selectedItem.value?.id != null && selectedItem.value.id === props.freshlyCreatedId,
+  )
 
   // Type guards
   const isNode = (item: Node | Edge | null): item is Node => {
@@ -89,7 +114,9 @@
     attributesLoading.value = true
     attributesSchema.value = null
     attributesUiSchema.value = null
-    attributesData.value = {}
+    lastLoadedAttributes.value = {}
+    pendingAttributes.value = {}
+    clearDirty('attributes')
     attributesTemplateWarning.value = false
 
     // Add defensive check - wait a tick to ensure props are stable
@@ -122,7 +149,10 @@
         classId: itemClass.value.id,
       })
 
-      attributesData.value = unflattenProperties(rawProperties)
+      const loaded = unflattenProperties(rawProperties)
+      lastLoadedAttributes.value = loaded
+      pendingAttributes.value = loaded
+      clearDirty('attributes')
     } catch (e) {
       console.error('Failed to fetch attributes data', e)
       attributesTemplateWarning.value = true
@@ -131,38 +161,37 @@
     }
   }
 
-  const saveAttributes = async (data: object) => {
+  const saveAttributes = async () => {
     if (!selectedItem.value?.id || !itemClass.value || attributesLoading.value) return
 
     try {
-      const flatAttributes = flattenProperties(data)
+      const flatAttributes = flattenProperties(pendingAttributes.value)
 
       await flowStore.setInstantiationAttributes({
         componentId: selectedItem.value.id,
         classId: itemClass.value.id,
         attributes: flatAttributes,
       })
-      
-      // Update local data
-      attributesData.value = data
-      
-      // Reload exposures as they might have changed
+
+      lastLoadedAttributes.value = pendingAttributes.value
       await loadExposures()
-      
-      // Show success message
-      snackBar.value = { show: true, message: 'Attributes saved successfully', color: 'success' }
+      clearDirty('attributes')
+      if (isFreshlyCreated.value) emit('clear-freshly-created')
+      showSnackbar('Attributes saved successfully', 'success')
     } catch (e) {
       console.error('Failed to save attributes', e)
-      snackBar.value = { show: true, message: 'Failed to save attributes', color: 'error' }
+      // Buffer stays at the user's edit so they can retry; auto-save is gone, no fresh-reference dance needed.
+      showSnackbar('Failed to save attributes', 'error')
     }
   }
 
-  const onAttributesChanged = async (data: object) => {
-    await saveAttributes(data)
+  const onAttributesChanged = (data: object) => {
+    pendingAttributes.value = data
+    markDirty('attributes')
   }
 
   const updateForm = async () => {
-    formData.value = { name: '', class: '', model: '', modelName: '', description: '', category: '' }
+    pendingFormData.value = { name: '', class: '', model: '', modelName: '', description: '', category: '' }
 
     if (!selectedItem.value) return
 
@@ -200,10 +229,10 @@
         isFromClass.value = false
       }
 
-      formData.value.class = itemClass.value?.name || ''
-      formData.value.model = representedModel.value?.id || ''
-      formData.value.modelName = representedModel.value?.name || ''
-      formData.value.category = itemClass.value?.category || ''
+      pendingFormData.value.class = itemClass.value?.name || ''
+      pendingFormData.value.model = representedModel.value?.id || ''
+      pendingFormData.value.modelName = representedModel.value?.name || ''
+      pendingFormData.value.category = itemClass.value?.category || ''
       loadExposures()
       // Initialize attributes after loading the class
       initializeAttributes()
@@ -212,23 +241,44 @@
     }
 
     if (isNode(selectedItem.value)) {
-      formData.value.name = selectedItem.value.data.label || ''
-      formData.value.description = selectedItem.value.data.description || ''
+      pendingFormData.value.name = selectedItem.value.data.label || ''
+      pendingFormData.value.description = selectedItem.value.data.description || ''
     } else if (isEdge(selectedItem.value)) {
-      formData.value.name = typeof selectedItem.value.label === 'string' ? selectedItem.value.label : ''
-      formData.value.description = selectedItem.value.data?.description || ''
+      pendingFormData.value.name = typeof selectedItem.value.label === 'string' ? selectedItem.value.label : ''
+      pendingFormData.value.description = selectedItem.value.data?.description || ''
     }
 
     // Initialize controls for the selected item
     initializeControls()
+
+    clearDirty('general')
+    // Don't auto-mark fresh drafts dirty — that artificial dirt makes the navigation guard fire
+    // on every click-away even when the user hasn't typed anything. The Save button stays
+    // enabled via isFreshlyCreated on its disabled binding; onSubmit also keys off it.
   }
 
+  // Confirm-on-remove state for Controls/Data unlinking. Adds bypass the dialog.
+  const showRemoveControlDialog = ref(false)
+  const showRemoveDataItemDialog = ref(false)
+  const pendingRemoveControlName = ref<string>('')
+  const pendingRemoveDataItemName = ref<string>('')
+  const pendingRemovalProposedValue = ref<string[]>([])
+
   const updateSelectedDataItemIds = (value: string[]) => {
-    console.log('updateSelectedDataItemIds', value)
-    if (selectedItem.value?.data) {
+    if (!selectedItem.value?.data) return
+    const currentIds: string[] = selectedItem.value.data.dataItems || []
+    const removed = currentIds.filter(id => !value.includes(id))
+    if (removed.length === 0) {
+      // Pure add — auto-save.
       selectedItem.value.data.dataItems = value
       onSubmit()
+      return
     }
+    const removedId = removed[0]
+    const dataItem = flowStore.dataItems.find(d => d.id === removedId)
+    pendingRemoveDataItemName.value = dataItem?.name ?? removedId
+    pendingRemovalProposedValue.value = value
+    showRemoveDataItemDialog.value = true
   }
 
   const initializeControls = () => {
@@ -248,12 +298,61 @@
 
   const updateSelectedControlIds = (value: string[]) => {
     try {
-      if (selectedItem.value?.data) {
+      if (!selectedItem.value?.data) return
+      const currentIds: string[] = selectedItem.value.data.controls || []
+      const removed = currentIds.filter(id => !value.includes(id))
+      if (removed.length === 0) {
+        // Pure add — auto-save.
         selectedItem.value.data.controls = value
         onSubmit()
+        return
       }
+      const removedId = removed[0]
+      const control = flowStore.controls.find(c => c.id === removedId)
+      pendingRemoveControlName.value = control?.name ?? removedId
+      pendingRemovalProposedValue.value = value
+      showRemoveControlDialog.value = true
     } catch (error) {
       console.warn('Error updating selected control IDs:', error)
+    }
+  }
+
+  const onRemoveControlConfirmed = () => {
+    if (selectedItem.value?.data) {
+      selectedItem.value.data.controls = pendingRemovalProposedValue.value
+      onSubmit()
+    }
+    showRemoveControlDialog.value = false
+    pendingRemoveControlName.value = ''
+    pendingRemovalProposedValue.value = []
+  }
+
+  const onRemoveControlCanceled = () => {
+    showRemoveControlDialog.value = false
+    pendingRemoveControlName.value = ''
+    pendingRemovalProposedValue.value = []
+    // Force the data-table to re-bind from props so the unchecked row's checkbox restores.
+    if (selectedItem.value?.data) {
+      selectedItem.value.data.controls = [...(selectedItem.value.data.controls || [])]
+    }
+  }
+
+  const onRemoveDataItemConfirmed = () => {
+    if (selectedItem.value?.data) {
+      selectedItem.value.data.dataItems = pendingRemovalProposedValue.value
+      onSubmit()
+    }
+    showRemoveDataItemDialog.value = false
+    pendingRemoveDataItemName.value = ''
+    pendingRemovalProposedValue.value = []
+  }
+
+  const onRemoveDataItemCanceled = () => {
+    showRemoveDataItemDialog.value = false
+    pendingRemoveDataItemName.value = ''
+    pendingRemovalProposedValue.value = []
+    if (selectedItem.value?.data) {
+      selectedItem.value.data.dataItems = [...(selectedItem.value.data.dataItems || [])]
     }
   }
 
@@ -290,8 +389,8 @@
         nodeId: selectedItem.value.id,
         updates: {
           data: {
-            label: formData.value.name,
-            description: formData.value.description,
+            label: pendingFormData.value.name,
+            description: pendingFormData.value.description,
           },
         },
       })
@@ -299,41 +398,69 @@
       res = await flowStore.updateDataFlow({
         edgeId: selectedItem.value.id,
         updates: {
-          label: formData.value.name,
+          label: pendingFormData.value.name,
           data: {
-            description: formData.value.description,
+            description: pendingFormData.value.description,
           },
         },
       })
     }
 
     if (res) {
-      snackBar.value = { show: true, message: 'Item updated successfully', color: 'success' }
+      clearDirty('general')
+      if (isFreshlyCreated.value) emit('clear-freshly-created')
+      showSnackbar('Item updated successfully', 'success')
+      updateForm()
     } else {
-      snackBar.value = { show: true, message: 'Failed to update item', color: 'error' }
+      // Buffer stays dirty so the user can retry without losing their edit.
+      showSnackbar('Failed to update item', 'error')
     }
-    updateForm()
   }
 
   // Event handlers
   const onSubmit = async () => {
     if (!form.value) return
     const { valid: isValid } = await form.value.validate()
+    if (!isValid) return
 
-    if (isValid) {
+    // Commit cheaper General first, then Attributes — independent calls; partial success leaves the cheaper edit in place.
+    // Fresh drafts always commit General even with no user edits — that's the path that emits
+    // clear-freshly-created and transitions the node out of draft state.
+    if (dirtyTabs.value.has('general') || isFreshlyCreated.value) {
       await saveItem()
+    }
+    if (dirtyTabs.value.has('attributes')) {
+      await saveAttributes()
     }
   }
 
-  const onClassOrModelChangeConfirmed = async (confirmed: boolean) => {
-    if (!confirmed) {
-      updateForm()
-      return
+  const resetPendingFormDataFromSelectedItem = () => {
+    if (!selectedItem.value) return
+    if (isNode(selectedItem.value)) {
+      pendingFormData.value.name = selectedItem.value.data.label || ''
+      pendingFormData.value.description = selectedItem.value.data.description || ''
+    } else if (isEdge(selectedItem.value)) {
+      pendingFormData.value.name = typeof selectedItem.value.label === 'string' ? selectedItem.value.label : ''
+      pendingFormData.value.description = selectedItem.value.data?.description || ''
     }
+  }
 
+  const resetPendingAttributesFromLoaded = () => {
+    // Authoritative reload from the backend — bypasses the in-memory snapshot so we don't have
+    // to reason about JsonForms reference sharing with lastLoadedAttributes.
+    initializeAttributes()
+  }
+
+  const revertPending = () => {
+    resetPendingFormDataFromSelectedItem()
+    resetPendingAttributesFromLoaded()
+    clearAllDirty()
+  }
+
+  const proceedWithClassChange = async () => {
     let res = false
 
-    if (formData.value.class &&
+    if (pendingFormData.value.class &&
       selectedItem.value &&
       isFromClass.value &&
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -344,22 +471,23 @@
       if (isNode(selectedItem.value)) {
         res = await flowStore.updateNodeClass({
           nodeId: selectedItem.value.id,
-          classId: formData.value.class,
+          classId: pendingFormData.value.class,
         })
       } else if (isEdge(selectedItem.value)) {
         res = await flowStore.updateDataFlowClass({
           dataFlowId: selectedItem.value.id,
-          classId: formData.value.class,
+          classId: pendingFormData.value.class,
         })
       }
       if (res) {
-        snackBar.value = { show: true, message: 'Class updated successfully', color: 'success' }
+        if (isFreshlyCreated.value) emit('clear-freshly-created')
+        showSnackbar('Class updated successfully', 'success')
       } else {
-        snackBar.value = { show: true, message: 'Failed to update class', color: 'error' }
+        showSnackbar('Failed to update class', 'error')
       }
       updateForm()
     } else if (
-      formData.value.model &&
+      pendingFormData.value.model &&
       selectedItem.value &&
       isNode(selectedItem.value)
     ) {
@@ -369,18 +497,43 @@
         // @ts-ignore - Complex type inference issue
         res = await flowStore.updateRepresentedModel({
           nodeId: selectedItem.value.id,
-          modelId: formData.value.model,
+          modelId: pendingFormData.value.model,
         })
       }
       if (res) {
-        snackBar.value = { show: true, message: 'Represented Model updated successfully', color: 'success' }
+        if (isFreshlyCreated.value) emit('clear-freshly-created')
+        showSnackbar('Represented Model updated successfully', 'success')
       } else {
-        snackBar.value = { show: true, message: 'Failed to update represented model', color: 'error' }
+        showSnackbar('Failed to update represented model', 'error')
       }
       updateForm()
     } else {
       console.warn('Invalid class or model')
     }
+  }
+
+  const onClassChangeCommit = async () => {
+    // If anything else is dirty, commit it first; on commit failure, bail out and surface the failure.
+    if (isDirty.value) {
+      await onSubmit()
+      if (isDirty.value) {
+        showSnackbar('Could not commit pending edits; class change cancelled.', 'error')
+        return
+      }
+    }
+    await proceedWithClassChange()
+  }
+
+  const onClassChangeDiscard = async () => {
+    resetPendingFormDataFromSelectedItem()
+    resetPendingAttributesFromLoaded()
+    clearAllDirty()
+    await proceedWithClassChange()
+  }
+
+  const onClassChangeCancel = () => {
+    // User backed out — revert any class/model picker change in the buffer.
+    updateForm()
   }
 
   const onNodeDelete = () => {
@@ -414,8 +567,8 @@
 
     issueStore.setIssueDataClipboard(
       {
-        name: formData.value.name,
-        description: formData.value.description,
+        name: pendingFormData.value.name,
+        description: pendingFormData.value.description,
         elementIds: [selectedItem.value?.id || '', representedModel.value?.id || '', flowStore.selectedItem?.id || '', flowStore.modelId || ''],
         returnTo,
       }
@@ -445,11 +598,74 @@
     }, 100)
   }
 
+  // Navigation guard: when dirty, intercept selection changes; snap back, prompt, defer to user.
+  const showDiscardChangesDialog = ref(false)
+  const pendingSelectionTarget = ref<Node | Edge | null>(null)
+  // True while we're forcing selection back to the prior element so the watcher's re-fire is a no-op.
+  let snappingBack = false
+
   watch(selectedItem, async (newValue, oldValue) => {
-    if (newValue !== oldValue) {
-      updateForm()
+    if (newValue === oldValue) return
+    if (snappingBack) {
+      snappingBack = false
+      return
     }
+    // The store re-refs selectedItem to a fresh object after our own save (same id, new ref).
+    // That's not a navigation, so don't gate it — and don't re-run updateForm either, since
+    // saveItem already does so once clearDirty has run.
+    if (newValue && oldValue && newValue.id === oldValue.id) return
+    if (isDirty.value && oldValue !== null) {
+      pendingSelectionTarget.value = newValue
+      showDiscardChangesDialog.value = true
+      snappingBack = true
+      flowStore.setSelectedItem({ item: oldValue })
+      return
+    }
+    updateForm()
   })
+
+  const onDiscardConfirmed = () => {
+    showDiscardChangesDialog.value = false
+    const target = pendingSelectionTarget.value
+    pendingSelectionTarget.value = null
+    clearAllDirty()
+    flowStore.setSelectedItem({ item: target })
+    // The watcher fires on the new selection; isDirty is now false so it falls through to updateForm().
+  }
+
+  const onDiscardCanceled = () => {
+    showDiscardChangesDialog.value = false
+    pendingSelectionTarget.value = null
+    // Selection is already snapped back to the prior element; nothing else to do.
+  }
+
+  const discardFreshlyCreated = async () => {
+    if (!selectedItem.value || !isFreshlyCreated.value) return
+    const item = selectedItem.value
+    // Clear dirty BEFORE the delete so the store's selectedItem change mid-await doesn't trip
+    // the navigation guard — the user has already given their intent by clicking "Discard new".
+    clearAllDirty()
+    if (isNode(item)) {
+      if (item.type === 'BOUNDARY') {
+        await flowStore.deleteBoundaryNode({ boundaryId: item.id })
+      } else {
+        await flowStore.deleteComponentNode({ componentId: item.id })
+      }
+    } else if (isEdge(item)) {
+      await flowStore.deleteDataFlow({ dataFlowId: item.id })
+    }
+    flowStore.setSelectedItem({ item: null })
+    emit('clear-freshly-created')
+  }
+
+  const onWindowKeydown = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape' || !isFreshlyCreated.value) return
+    // While any Vuetify dialog / overlay is open, Escape belongs to the topmost overlay
+    // (it closes the dialog). Don't also discard the fresh draft underneath.
+    if (document.querySelector('.v-overlay--active')) return
+    discardFreshlyCreated()
+  }
+  onMounted(() => window.addEventListener('keydown', onWindowKeydown))
   
   watch(() => itemClass.value?.id, (newValue, oldValue) => {
     if (newValue !== oldValue && newValue) {
@@ -464,22 +680,12 @@
     }
   })
   
-  watch(() => flowStore.dataItems, async (newValue, oldValue) => {
-    if (newValue !== oldValue) {
-      updateForm()
-    }
-  })
-  watch(() => flowStore.modules, async (newValue, oldValue) => {
-    if (newValue !== oldValue) {
-      updateForm()
-    }
-  })
-  
   // Cleanup timer on unmount
   onUnmounted(() => {
     if (attributesInitTimer) {
       clearTimeout(attributesInitTimer)
     }
+    window.removeEventListener('keydown', onWindowKeydown)
   })
   
   updateForm()
@@ -498,11 +704,21 @@
         <!-- Vertical Tabs -->
         <v-col cols="2">
           <v-tabs v-model="tab" background-color="primary" direction="vertical">
-            <v-tab prepend-icon="mdi-cog-outline" text="General" value="general" />
-            <v-tab prepend-icon="mdi-tune-vertical" text="Attributes" value="attributes" />
-            <v-tab prepend-icon="mdi-database-outline" text="Data" value="data" />
-            <v-tab prepend-icon="mdi-shield-sword-outline" text="Controls" value="controls" />
-            <v-tab prepend-icon="mdi-bug-outline" text="Exposures" value="exposures" />
+            <v-tab prepend-icon="mdi-cog-outline" value="general">
+              General<span v-if="dirtyTabs.has('general')" class="dirty-dot" aria-label="Unsaved changes">●</span>
+            </v-tab>
+            <v-tab prepend-icon="mdi-tune-vertical" value="attributes">
+              Attributes<span v-if="dirtyTabs.has('attributes')" class="dirty-dot" aria-label="Unsaved changes">●</span>
+            </v-tab>
+            <v-tab prepend-icon="mdi-database-outline" value="data">
+              Data<span v-if="dirtyTabs.has('data')" class="dirty-dot" aria-label="Unsaved changes">●</span>
+            </v-tab>
+            <v-tab prepend-icon="mdi-shield-sword-outline" value="controls">
+              Controls<span v-if="dirtyTabs.has('controls')" class="dirty-dot" aria-label="Unsaved changes">●</span>
+            </v-tab>
+            <v-tab prepend-icon="mdi-bug-outline" value="exposures">
+              Exposures<span v-if="dirtyTabs.has('exposures')" class="dirty-dot" aria-label="Unsaved changes">●</span>
+            </v-tab>
           </v-tabs>
         </v-col>
 
@@ -511,14 +727,17 @@
           <v-tabs-window v-model="tab" class="settings-window elevation-8 mb-4">
             <v-tabs-window-item value="general">
               <SettingsGeneralTab
-                :formData="formData"
+                :formData="pendingFormData"
+                :hasDirtyEdits="isDirty"
                 :isFromClass="isFromClass"
                 :itemClass="itemClass"
                 :representedModel="representedModel"
-                @classOrModelChangeConfirmed="onClassOrModelChangeConfirmed"
+                @class-change-cancel="onClassChangeCancel"
+                @class-change-commit="onClassChangeCommit"
+                @class-change-discard="onClassChangeDiscard"
                 @openModel="onOpenModel"
                 @saveItem="onSubmit"
-                @update:formData="formData = $event"
+                @update:formData="onPendingFormDataUpdate"
                 @update:isFromClass="isFromClass = $event"
                 @updateForm="updateForm"
               />
@@ -529,7 +748,7 @@
                 <AttributesForm
                   :item-class="itemClass"
                   :item-id="selectedItem?.id ?? null"
-                  :attributes-data="attributesData"
+                  :attributes-data="pendingAttributes"
                   :schema="attributesSchema"
                   :uischema="attributesUiSchema"
                   :is-loading="attributesLoading"
@@ -602,20 +821,43 @@
           <v-btn
             class="mx-8 ma-3"
             color="secondary"
+            :disabled="!isDirty && !isFreshlyCreated"
             icon="mdi-content-save-outline"
             size="x-large"
             type="submit"
             variant="outlined"
           />
-          <v-btn
-            class="mx-8 ma-3"
-            :color="flowStore.selectedItem === flowStore.defaultBoundary ? 'grey' : 'error'"
-            icon="mdi-trash-can-outline"
-            :readonly="flowStore.selectedItem === flowStore.defaultBoundary"
-            size="x-large"
-            variant="outlined"
-            @click="deleteNode"
-          />
+          <div>
+            <v-btn
+              v-if="isDirty"
+              class="mx-5 ma-2"
+              color="warning"
+              size="small"
+              variant="text"
+              @click="revertPending"
+            >
+              Revert
+            </v-btn>
+            <v-btn
+              v-if="isFreshlyCreated"
+              class="mx-8 ma-3"
+              color="warning"
+              icon="mdi-close-circle-outline"
+              size="x-large"
+              variant="outlined"
+              @click="discardFreshlyCreated"
+            />
+            <v-btn
+              v-else
+              class="mx-8 ma-3"
+              :color="flowStore.selectedItem === flowStore.defaultBoundary ? 'grey' : 'error'"
+              icon="mdi-trash-can-outline"
+              :readonly="flowStore.selectedItem === flowStore.defaultBoundary"
+              size="x-large"
+              variant="outlined"
+              @click="deleteNode"
+            />
+          </div>
           <v-speed-dial
             id="add-issue"
             key="add-issue"
@@ -674,6 +916,39 @@
   </v-card>
 
   <ConfirmDeleteDialog
+    v-if="showDiscardChangesDialog"
+    confirm-color="warning"
+    confirm-icon="mdi-close-circle-outline"
+    icon="mdi-pencil-off-outline"
+    message="Discard unsaved changes on the current element?"
+    :show="showDiscardChangesDialog"
+    title="Discard unsaved changes?"
+    @delete:canceled="onDiscardCanceled"
+    @delete:confirmed="onDiscardConfirmed"
+  />
+  <ConfirmDeleteDialog
+    v-if="showRemoveControlDialog"
+    confirm-color="warning"
+    confirm-icon="mdi-link-variant-off"
+    icon="mdi-shield-remove-outline"
+    :message="`Remove control '${pendingRemoveControlName}' from this element?`"
+    :show="showRemoveControlDialog"
+    title="Remove control"
+    @delete:canceled="onRemoveControlCanceled"
+    @delete:confirmed="onRemoveControlConfirmed"
+  />
+  <ConfirmDeleteDialog
+    v-if="showRemoveDataItemDialog"
+    confirm-color="warning"
+    confirm-icon="mdi-link-variant-off"
+    icon="mdi-database-remove-outline"
+    :message="`Remove data item '${pendingRemoveDataItemName}' from this element?`"
+    :show="showRemoveDataItemDialog"
+    title="Remove data item"
+    @delete:canceled="onRemoveDataItemCanceled"
+    @delete:confirmed="onRemoveDataItemConfirmed"
+  />
+  <ConfirmDeleteDialog
     v-if="showEdgeDeleteDialog"
     :message="`Are you sure you want to delete this Edge: ${selectedItem?.label ?? ''}?`"
     :show="showEdgeDeleteDialog"
@@ -701,7 +976,7 @@
     :item-class="itemClass"
     :item-id="selectedItem?.id ?? null"
     :item-name="selectedItem?.data?.label ?? null"
-    :attributes-data="attributesData"
+    :attributes-data="pendingAttributes"
     :attributes-schema="attributesSchema"
     :attributes-ui-schema="attributesUiSchema"
     :attributes-loading="attributesLoading"
@@ -711,14 +986,6 @@
     @redirect:issue="emit('redirect:issue')"
     @attributes:changed="onAttributesChanged"
   />
-  <v-snackbar
-    v-model="snackBar.show"
-    :color="snackBar.color"
-    timeout="5000"
-    top
-  >
-    {{ snackBar.message }}
-  </v-snackbar>
 </template>
 
 <style>
@@ -754,6 +1021,13 @@
   .attributes-form :deep(.v-container) {
     max-height: 250px !important;
     overflow-y: hidden;
+  }
+
+  .dirty-dot {
+    color: rgb(var(--v-theme-warning));
+    font-size: 1.1em;
+    margin-left: 0.25rem;
+    line-height: 1;
   }
 
 </style>
