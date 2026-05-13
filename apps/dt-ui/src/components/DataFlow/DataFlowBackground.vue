@@ -176,6 +176,19 @@
       </span>
     </div>
 
+    <div
+      class="edit-mode-toggle pa-1 px-2 border-md rounded-lg border-opacity-25 elevation-5"
+      :title="flowStore.editMode ? 'Edit mode (click to lock)' : 'View mode (click to edit)'"
+      @click="flowStore.editMode = !flowStore.editMode"
+    >
+      <v-icon
+        :color="flowStore.editMode ? 'warning' : 'tertiary'"
+        :icon="flowStore.editMode ? 'mdi-lock-open-variant-outline' : 'mdi-lock-outline'"
+        size="large"
+        variant="outlined"
+      />
+    </div>
+
     <div class="vignette-overlay" />
 
     <div class="overlay">
@@ -218,6 +231,16 @@
   z-index: 1000;
   font-family: 'JetBrains Mono', monospace !important;
   cursor: pointer;
+}
+
+.edit-mode-toggle {
+  position: fixed;
+  top: 120px;
+  left: 80px;
+  z-index: 1000;
+  cursor: pointer;
+  background-color: rgb(var(--v-theme-surface));
+  opacity: 0.9;
 }
 
 .model-name {

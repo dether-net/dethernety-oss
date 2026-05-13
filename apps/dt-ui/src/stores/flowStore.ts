@@ -42,6 +42,9 @@ export const useFlowStore = defineStore('flow', () => {
   const selectedItem = ref<Node | Edge | null>(null)
   const mitreAttackTactics = ref<MitreAttackTactic[]>([])
 
+  // === UI PREFERENCES ===
+  const editMode = ref(false)
+
   // === ERROR AND LOADING STATES ===
   const errors = ref<Record<string, string>>({})
   const isLoading = ref(false)
@@ -253,6 +256,9 @@ export const useFlowStore = defineStore('flow', () => {
     pendingNodes.value.clear()
     tempNodeMapping.value.clear()
     deferredUpdates.value.clear()
+
+    // Reset UI preferences
+    editMode.value = false
   }
 
   const setModelId = ({ newModelId }: { newModelId: string }) => { modelId.value = newModelId }
@@ -1002,6 +1008,9 @@ export const useFlowStore = defineStore('flow', () => {
     // State variables
     nodes, edges, defaultBoundary, defaultBoundaryId, selectedItem, currentModel, modelId,
     controls, dataItems, modules, mitreAttackTactics,
+
+    // UI preferences
+    editMode,
 
     // Error and loading states
     errors, isLoading, operationStates,
