@@ -831,21 +831,31 @@ export const useFlowStore = defineStore('flow', () => {
       }
       
       dataItems.value.push(createdDataItem)
-      
-      // Update nodes and edges that contain this data item
-      nodes.value.forEach((node: Node) => {
-        if (createdDataItem.elements?.some((element: { id: string }) => element.id === node.id)) {
-          if (!node.data.dataItems) node.data.dataItems = []
-          node.data.dataItems.push(createdDataItem.id)
+
+      // ADD_DATA_ITEM doesn't return `elements` in its selection set, so we can't loop on
+      // createdDataItem.elements — use the elementId we passed into the mutation as the
+      // authoritative link target. Update node.data.dataItems / edge.data.dataItems via
+      // fresh-array reassignment so Vue's reactivity picks up the change in
+      // SettingsDataTab's `incomingDataMatches` filter.
+      const nodeIdx = nodes.value.findIndex(n => n.id === elementId)
+      if (nodeIdx !== -1) {
+        const node = nodes.value[nodeIdx]
+        node.data.dataItems = [...(node.data.dataItems ?? []), createdDataItem.id]
+      } else {
+        const edgeIdx = edges.value.findIndex(e => e.id === elementId)
+        if (edgeIdx !== -1) {
+          const edge = edges.value[edgeIdx]
+          edge.data.dataItems = [...(edge.data.dataItems ?? []), createdDataItem.id]
         }
-      })
-      
-      edges.value.forEach((edge: Edge) => {
-        if (createdDataItem.elements?.some((element: { id: string }) => element.id === edge.id)) {
-          if (!edge.data.dataItems) edge.data.dataItems = []
-          edge.data.dataItems.push(createdDataItem.id)
-        }
-      })
+      }
+      // selectedItem may be a different reference path than nodes.value[i] / edges.value[i]
+      // (vue-flow's internal model can hand back the same logical node via a distinct ref).
+      // Keep it in sync so children binding through props.selectedItem.data.dataItems also
+      // see the new id without waiting for a full model refetch.
+      if (selectedItem.value && selectedItem.value.id === elementId) {
+        const sel = selectedItem.value as Node | Edge
+        sel.data = { ...sel.data, dataItems: [...(sel.data?.dataItems ?? []), createdDataItem.id] }
+      }
       
       return createdDataItem
     } catch (error) {

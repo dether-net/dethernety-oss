@@ -33,6 +33,7 @@
     'update:selectedDataItemIds': [value: string[]];
     'updateForm': [];
     'redirect:issue': [];
+    'update:snackBar': [payload: { show: boolean; message: string; color: string }];
   }>()
 
   // Stores
@@ -58,7 +59,12 @@
 
   // Data-related refs
   const dataSearch = ref('')
-  const incomingDataOnly = ref(true)
+  // Filter mode controls which slice of dataItems shows in the table:
+  //   'all'     — every data item in the model
+  //   'related' — own + items on any edge incident to this element (default)
+  //   'own'     — only items already linked to this element
+  type DataFilterMode = 'all' | 'related' | 'own'
+  const dataFilterMode = ref<DataFilterMode>('related')
   const selectedDataItem = ref<string | null>(null)
   const showDataDialog = ref(false)
   const showDataDeleteDialog = ref(false)
@@ -87,28 +93,33 @@
     return nameMatches || descriptionMatches || classMatch
   })
 
-  const incomingDataMatches = computed(() => (dataItem: DataItem) => {
-    if (!incomingDataOnly.value) return true
+  const filterModeMatches = computed(() => (dataItem: DataItem) => {
+    if (dataFilterMode.value === 'all') return true
 
-    // Check if data item is in selected item's data items
-    const isInSelectedItem = Array.isArray(props.selectedItem?.data?.dataItems) &&
-      props.selectedItem?.data?.dataItems.some((id: string) => id === dataItem.id)
+    const ownIds = Array.isArray(props.selectedItem?.data?.dataItems)
+      ? props.selectedItem!.data!.dataItems as string[]
+      : []
+    const isOwn = ownIds.includes(dataItem.id)
 
-    if (isInSelectedItem) return true
+    if (dataFilterMode.value === 'own') return isOwn
+    if (isOwn) return true
 
-    // For nodes: check incoming edges
+    // 'related' — own + any data item on an edge incident to this element.
+    // For a node: edges arriving at OR leaving the node. For an edge:
+    // dataItems held by the edge's source or target node.
     if (isNode(props.selectedItem) && props.selectedItem?.id) {
+      const nodeId = props.selectedItem.id
       return flowStore.edges.some(e =>
-        e.target === props.selectedItem?.id &&
+        (e.target === nodeId || e.source === nodeId) &&
         Array.isArray(e.data?.dataItems) &&
         e.data.dataItems.includes(dataItem.id)
       )
     }
 
-    // For edges: check source node data items
     if (isEdge(props.selectedItem) && props.selectedItem?.id) {
+      const edge = props.selectedItem as Edge
       return flowStore.nodes.some(n =>
-        (props.selectedItem as Edge)?.source === n.id &&
+        (edge.source === n.id || edge.target === n.id) &&
         Array.isArray(n.data?.dataItems) &&
         n.data.dataItems.includes(dataItem.id)
       )
@@ -119,18 +130,13 @@
 
   const filteredDataItems = computed((): DataItem[] => {
     return flowStore.dataItems.filter(dataItem => {
-      console.log('dataItem', dataItem)
-      return incomingDataMatches.value(dataItem) && searchMatches.value(dataItem)
+      return filterModeMatches.value(dataItem) && searchMatches.value(dataItem)
     })
   })
 
   // Methods
   const updateSelectedDataItemIds = (value: string[]) => {
     emit('update:selectedDataItemIds', value)
-  }
-
-  const toggleIncomingDataOnly = () => {
-    incomingDataOnly.value = !incomingDataOnly.value
   }
 
   const addDataItem = () => {
@@ -239,15 +245,27 @@
             class="mx-4"
             label="Search"
           />
-          <v-btn
-            class="mx-4 my-0"
-            :color="incomingDataOnly ? 'secondary' : 'grey'"
-            icon="mdi-file-arrow-left-right-outline"
-            size="x-large"
-            :text="incomingDataOnly ? 'Only incoming' : 'All'"
-            variant="outlined"
-            @click="toggleIncomingDataOnly"
-          />
+          <v-btn-toggle
+            v-model="dataFilterMode"
+            class="mx-1 my-1 pa-0"
+            color="secondary"
+            density="compact"
+            mandatory
+            variant="plain"
+          >
+            <v-btn size="large" value="all">
+              <span>All</span>
+              <v-icon end>mdi-file-multiple-outline</v-icon>
+            </v-btn>
+            <v-btn size="large" value="related">
+              <span>Related</span>
+              <v-icon end>mdi-file-arrow-left-right-outline</v-icon>
+            </v-btn>
+            <v-btn size="large" value="own">
+              <span>Own</span>
+              <v-icon end>mdi-file-marker-outline</v-icon>
+            </v-btn>
+          </v-btn-toggle>
           <v-btn
             class="mx-3 my-0"
             color="secondary"
@@ -309,6 +327,7 @@
       @cancel-data="onDataDialogCancelled"
       @data-added="onDataAdded"
       @redirect:issue="emit('redirect:issue')"
+      @update:snackBar="emit('update:snackBar', $event)"
     />
     <IssueDialog
       v-if="showIssueDialog"
