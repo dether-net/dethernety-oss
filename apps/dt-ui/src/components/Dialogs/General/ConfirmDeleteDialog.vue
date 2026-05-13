@@ -4,12 +4,20 @@
   interface Props {
     show: boolean
     message: string
+    title?: string
+    icon?: string
+    confirmIcon?: string
+    confirmColor?: string
   }
 
-  const props = defineProps<Props>()
+  const props = withDefaults(defineProps<Props>(), {
+    title: 'Confirm Delete',
+    icon: 'mdi-trash-can-outline',
+    confirmIcon: 'mdi-trash-can-outline',
+    confirmColor: 'error',
+  })
 
   const showDialog = ref(props.show)
-  const message = ref(props.message)
   const emits = defineEmits(['delete:canceled', 'delete:confirmed'])
 
   watch(
@@ -47,8 +55,8 @@
         <v-card-title class="pa-0">
           <v-sheet class="pa-2 ma-0 text-body-1 d-flex flex-row justify-space-between" color="primary" density="compact" variant="plain">
             <div>
-              <v-icon color="foreground" size="small">mdi-trash-can-outline</v-icon>
-              <span class="ml-2 text-body-1">Confirm Delete</span>
+              <v-icon color="foreground" size="small">{{ icon }}</v-icon>
+              <span class="ml-2 text-body-1">{{ title }}</span>
             </div>
             <v-btn
               color="foreground"
@@ -64,8 +72,8 @@
         </v-card-text>
         <v-card-actions class="py-6 mx-6">
           <v-btn
-            color="error"
-            icon="mdi-trash-can-outline"
+            :color="confirmColor"
+            :icon="confirmIcon"
             size="x-large"
             variant="outlined"
             @click="confirmDelete"

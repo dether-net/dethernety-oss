@@ -20,6 +20,7 @@
   import ExtEntNode from '@/components/DataFlow/Nodes/ExtEntNode.vue'
   import BoundaryNode from '@/components/DataFlow/Nodes/BoundaryNode.vue'
   import ConfirmDeleteDialog from '@/components/Dialogs/General/ConfirmDeleteDialog.vue'
+  import ConfirmEdgeRerouteDialog from '@/components/Dialogs/DataFlow/ConfirmEdgeRerouteDialog.vue'
   import ModelDialog from '@/components/Dialogs/Model/ModelDialog.vue'
 
   interface SnackBar {
@@ -40,6 +41,8 @@
   const newNodePosition = ref<{ x: number; y: number } | null>(null)
   const newNodeType = ref<string>('')
   const openSettings = ref(false)
+  // Id of the most recently drag-dropped / connected element. SettingsWindow uses this to swap trash → "Discard new".
+  const freshlyCreatedId = ref<string | null>(null)
 
   const {
     onNodeDrag,
@@ -297,7 +300,9 @@
   })
 
   onNodeDrag(({ node: draggedNode }: { node: Node }) => {
-    flowStore.setSelectedItem({ item: draggedNode })
+    if (selectedItem.value?.id !== draggedNode.id) {
+      flowStore.setSelectedItem({ item: draggedNode })
+    }
     const intersectingBoundary = findIntersectingBoundary(draggedNode)
 
     for (const node of getNodes.value) {
@@ -354,7 +359,8 @@
       },
     }
 
-    flowStore.createDataFlow({ newEdge: newDataFlow, classId: '' }).then(() => {
+    flowStore.createDataFlow({ newEdge: newDataFlow, classId: '' }).then((created) => {
+      if (created) freshlyCreatedId.value = edgeId
       openSettings.value = true
     })
   })
@@ -386,22 +392,25 @@
     }
 
     const onNodeCreated = (createdNode: Node | null) => {
-      if (createdNode) {
-        setTimeout(() => {
-          try {
-            const node = getNodes.value.find(n => n.id === createdNode.id)
-            if (node) {
-              setParentBoundary(node)
-            }
-          } catch (error) {
-            console.warn('Error setting parent boundary:', error)
-            for (const node of getNodes.value) {
-              updateNode(node.id, { class: '' })
-            }
+      if (!createdNode) return
+      freshlyCreatedId.value = createdNode.id
+      // 300 ms wait gives vue-flow enough time to settle the new node's computedPosition
+      // before findIntersectingBoundary inspects it. A single nextTick was racy and
+      // intermittently mis-assigned (or missed) the parent boundary on drop.
+      setTimeout(() => {
+        try {
+          const node = getNodes.value.find(n => n.id === createdNode.id)
+          if (node) {
+            setParentBoundary(node)
           }
-        }, 300)
-        openSettings.value = true
-      }
+        } catch (error) {
+          console.warn('Error setting parent boundary:', error)
+          for (const node of getNodes.value) {
+            updateNode(node.id, { class: '' })
+          }
+        }
+      }, 300)
+      openSettings.value = true
     }
 
     if (type === 'BOUNDARY') {
@@ -433,15 +442,55 @@
   const onNodeClick = (event: { node: Node }) => { flowStore.setSelectedItem({ item: event.node }) }
   const onEdgeClick = (event: { edge: Edge }) => { flowStore.setSelectedItem({ item: event.edge }) }
 
+  const showRerouteDialog = ref(false)
+  const pendingReroute = ref<{ edge: Edge; connection: Connection } | null>(null)
+
+  const nodeLabelById = (id: string | null | undefined): string => {
+    if (!id) return ''
+    const node = flowStore.nodes.find(n => n.id === id)
+    // Fall back to the id if the node was deleted mid-drag (rare but possible).
+    return (node?.data?.label as string) || node?.id || id
+  }
+
+  const rerouteOldSource = computed(() => nodeLabelById(pendingReroute.value?.edge.source))
+  const rerouteOldTarget = computed(() => nodeLabelById(pendingReroute.value?.edge.target))
+  const rerouteNewSource = computed(() => nodeLabelById(pendingReroute.value?.connection.source))
+  const rerouteNewTarget = computed(() => nodeLabelById(pendingReroute.value?.connection.target))
+  const rerouteEdgeLabel = computed(() => (pendingReroute.value?.edge.label as string) ?? '')
+
   const onEdgeUpdate = ({ edge, connection }: { edge: Edge, connection: Connection }) => {
-    const edgeId = edge.id
-    const updates = {
-      source: connection.source,
-      target: connection.target,
-      sourceHandle: connection.sourceHandle,
-      targetHandle: connection.targetHandle,
+    if (edge.source === connection.source
+        && edge.target === connection.target
+        && edge.sourceHandle === connection.sourceHandle
+        && edge.targetHandle === connection.targetHandle) {
+      // No-op drag — endpoints didn't change.
+      return
     }
-    flowStore.updateDataFlow({ edgeId, updates })
+    pendingReroute.value = { edge, connection }
+    showRerouteDialog.value = true
+  }
+
+  const onRerouteConfirmed = async () => {
+    if (!pendingReroute.value) return
+    const { edge, connection } = pendingReroute.value
+    showRerouteDialog.value = false
+    pendingReroute.value = null
+    await flowStore.updateDataFlow({
+      edgeId: edge.id,
+      updates: {
+        source: connection.source,
+        target: connection.target,
+        sourceHandle: connection.sourceHandle,
+        targetHandle: connection.targetHandle,
+      },
+    })
+  }
+
+  const onRerouteCanceled = () => {
+    showRerouteDialog.value = false
+    pendingReroute.value = null
+    // Force vue-flow to re-bind from flowStore.edges so the visual endpoint snaps back to the prior position.
+    flowStore.edges = [...flowStore.edges]
   }
 
   const onPaneClick = () => {
@@ -452,11 +501,16 @@
 
   const openModel = (updatedModelId: string) => {
     modelId.value = updatedModelId
+    // freshlyCreatedId is component-local (not in flowStore.resetStore's scope).
+    // Carry-over would point at a node that no longer exists in the new model.
+    freshlyCreatedId.value = null
     flowStore.resetStore()
     flowStore.fetchData({ model: updatedModelId })
     flowStore.fetchControls()
-    flowStore.getModelData({ modelId: modelId.value || '' }).then(model => {
-      modelName.value = model.name
+    flowStore.getModelData({ modelId: updatedModelId }).then(model => {
+      if (modelId.value === updatedModelId) {
+        modelName.value = model.name
+      }
     })
     openSettings.value = false
     router.push({
@@ -478,9 +532,12 @@
     }
     showModelDialog.value = false
     if (modelId.value) {
-      flowStore.fetchData({ model: modelId.value })
-      flowStore.getModelData({ modelId: modelId.value }).then(model => {
-        modelName.value = model.name
+      const currentId = modelId.value
+      flowStore.fetchData({ model: currentId })
+      flowStore.getModelData({ modelId: currentId }).then(model => {
+        if (modelId.value === currentId) {
+          modelName.value = model.name
+        }
       })
     }
     openSettings.value = false
@@ -570,6 +627,7 @@
       @pane-click="onPaneClick"
     >
       <DataFlowBackground
+        :freshlyCreatedId="freshlyCreatedId"
         :modelId="modelId"
         :modelName="modelName"
         :openSettings="openSettings"
@@ -578,6 +636,7 @@
           opacity: isDragOver ? 0.5 : 1,
           transition: 'background-color 0.2s ease',
         }"
+        @clear-freshly-created="freshlyCreatedId = null"
         @delete:edge="onEdgeDelete"
         @delete:node="onNodeDelete"
         @edit-model="editModel"
@@ -627,6 +686,17 @@
       :show="showNodeDeleteDialog"
       @delete:canceled="showNodeDeleteDialog = false"
       @delete:confirmed="onNodeDelete"
+    />
+    <ConfirmEdgeRerouteDialog
+      v-if="showRerouteDialog && pendingReroute"
+      :edge-label="rerouteEdgeLabel"
+      :new-source-name="rerouteNewSource"
+      :new-target-name="rerouteNewTarget"
+      :old-source-name="rerouteOldSource"
+      :old-target-name="rerouteOldTarget"
+      :show="showRerouteDialog"
+      @cancel="onRerouteCanceled"
+      @confirm="onRerouteConfirmed"
     />
     <ModelDialog
       v-if="showModelDialog && modelId !== null"

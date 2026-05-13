@@ -25,6 +25,7 @@ declare module 'vue' {
     ConfirmClassOrModelChangeDialog: typeof import('./components/Dialogs/DataFlow/ConfirmClassOrModelChangeDialog.vue')['default']
     ConfirmDeleteDialog: typeof import('./components/Dialogs/General/ConfirmDeleteDialog.vue')['default']
     ConfirmDeleteModelDialog: typeof import('./components/Dialogs/Model/ConfirmDeleteModelDialog.vue')['default']
+    ConfirmEdgeRerouteDialog: typeof import('./components/Dialogs/DataFlow/ConfirmEdgeRerouteDialog.vue')['default']
     ConflictResolutionDialog: typeof import('./components/Dialogs/Module/ConflictResolutionDialog.vue')['default']
     ContentSelectDialog: typeof import('./components/Dialogs/Browser/ContentSelectDialog.vue')['default']
     ControlDialog: typeof import('./components/Dialogs/Control/ControlDialog.vue')['default']

@@ -55,6 +55,10 @@ export const useFlowStore = defineStore('flow', () => {
   const tempNodeMapping = ref<Map<string, string>>(new Map()) // temp ID -> real ID
   const deferredUpdates = ref<Map<string, Array<{ updates: object; timestamp: number }>>>(new Map()) // temp ID -> queued updates
 
+  // === IN-FLIGHT MODEL LOAD ===
+  // Plain let (not a ref) — in-flight metadata, not reactive state.
+  let activeModelLoad: string | null = null
+
   // === ERROR HANDLING ===
   const handleApiError = (error: Error, action: string): string => {
     const errorMessage = error.message || error.toString()
@@ -246,6 +250,7 @@ export const useFlowStore = defineStore('flow', () => {
     defaultBoundaryId.value = undefined
     selectedItem.value = null
     mitreAttackTactics.value = []
+    activeModelLoad = null
     
     // Clear error and loading states
     clearAllErrors()
@@ -977,12 +982,16 @@ export const useFlowStore = defineStore('flow', () => {
   // Data fetching
 
   const fetchData = async ({ model }: { model: string }) => {
+    activeModelLoad = model
     nodes.value = []
     edges.value = []
     defaultBoundaryId.value = undefined
     modelId.value = model
 
     const results = await dtModel.dumpModelData({ modelId: model || '' })
+    // A newer fetchData superseded us; drop the write to avoid corrupting the store.
+    if (activeModelLoad !== model) return null
+
     if (results) {
       defaultBoundaryId.value = results.defaultBoundary?.id || ''
       defaultBoundary.value = results.defaultBoundary || null
