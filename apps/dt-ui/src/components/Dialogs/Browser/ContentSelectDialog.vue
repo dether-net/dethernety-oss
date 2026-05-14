@@ -272,13 +272,6 @@
 
   const onSaveControl = () => {
     fetchContentForFolder(actualFolderId.value)
-    showControlDialog.value = false
-    newControlId.value = null
-    snackBar.value = {
-      show: true,
-      message: 'Control created',
-      color: 'success',
-    }
   }
 
   watch(() => props.show, async newVal => {

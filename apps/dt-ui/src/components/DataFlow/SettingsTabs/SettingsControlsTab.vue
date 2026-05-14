@@ -66,11 +66,6 @@
     showControlDialog.value = true
   }
 
-  const onSaveControl = () => {
-    showControlDialog.value = false
-    selectedControlId.value = null
-  }
-
   const onSelectContent = (selectedModels: Model[], selectedControls: Control[]) => {
     emit('update:addControls', selectedControls)
     showContentSelectDialog.value = false
@@ -137,7 +132,6 @@
       :show="showControlDialog && selectedControlId !== null"
       :show-file-actions="false"
       @control:closed="showControlDialog = false; selectedControlId = null"
-      @control:saved="onSaveControl"
     />
     <ContentSelectDialog
       v-if="showContentSelectDialog"

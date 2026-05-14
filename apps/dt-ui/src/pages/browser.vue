@@ -241,19 +241,6 @@
       ( route.query.dir === 'root' ? undefined : (route.query.dir as string | undefined)) })
   }
 
-  const onSaveControl = (success: boolean) => {
-    snackBar.value = {
-      show: true,
-      message: success ? 'Control saved' : `Failed to save control ${controlsStore.errors}`,
-      color: success ? 'success' : 'error',
-    }
-    // showControlDialog.value = false
-    // selectedControlId.value = null
-    // controlsStore.fetchControls({ 
-    //   folderId: folderStore.selectedFolder?.id || 
-    //   ( route.query.dir === 'root' ? undefined : (route.query.dir as string | undefined)) })
-  }
-
   const onControlDeleted = (result: boolean) => {
     showControlDialog.value = false
     selectedControlId.value = null
@@ -559,7 +546,6 @@
     @control:closed="onControlClosed"
     @control:deleted="onControlDeleted"
     @control:moved="onMoveItem"
-    @control:saved="onSaveControl"
   />
 
   <!-- End Control Dialog -->

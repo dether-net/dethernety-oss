@@ -20,7 +20,6 @@ declare module 'vue' {
     BlockedInstallsBanner: typeof import('./components/Modules/BlockedInstallsBanner.vue')['default']
     BoundaryNode: typeof import('./components/DataFlow/Nodes/BoundaryNode.vue')['default']
     CascadeDeleteDialog: typeof import('./components/Dialogs/Module/CascadeDeleteDialog.vue')['default']
-    ClassConfigDialog: typeof import('./components/Dialogs/Control/ClassConfigDialog.vue')['default']
     ConfirmClassCreationDialog: typeof import('./components/Dialogs/General/ConfirmClassCreationDialog.vue')['default']
     ConfirmClassOrModelChangeDialog: typeof import('./components/Dialogs/DataFlow/ConfirmClassOrModelChangeDialog.vue')['default']
     ConfirmDeleteDialog: typeof import('./components/Dialogs/General/ConfirmDeleteDialog.vue')['default']

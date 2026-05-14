@@ -150,16 +150,6 @@
     }
   }
 
-  const onSaveControl = (success: boolean) => {
-    snackBar.value = {
-      show: true,
-      message: success ? 'Control saved' : 'Failed to save control',
-      color: success ? 'success' : 'error',
-    }
-    showControlDialog.value = false
-    selectedControlId.value = null
-  }
-
   const onSelectControl = (selectedModels: Model[], selectedControls: Control[]) => {
     const newControls = selectedControls.filter(control => !controls.value.some(c => c.id === control.id))
     controls.value = [...controls.value, ...newControls]
@@ -439,7 +429,6 @@
           :show="showControlDialog && selectedControlId !== null"
           :show-file-actions="false"
           @control:closed="showControlDialog = false; selectedControlId = null"
-          @control:saved="onSaveControl"
         />
 
         <ContentSelectDialog
