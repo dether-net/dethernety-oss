@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { ref, watch } from 'vue'
+  import { computed, ref, watch } from 'vue'
   import { Class } from '@dethernety/dt-core'
   import { useRouter } from 'vue-router'
   import { useIssueStore } from '@/stores/issueStore'
@@ -17,6 +17,7 @@
     attributesUiSchema?: UISchemaElement | null;
     attributesLoading?: boolean;
     attributesTemplateWarning?: boolean;
+    bufferedMode?: boolean;
   }
 
   interface Guide {
@@ -41,13 +42,30 @@
     attributesUiSchema: null,
     attributesLoading: false,
     attributesTemplateWarning: false,
+    bufferedMode: false,
     itemId: null,
     itemName: null,
     itemClass: null,
   })
 
-  const emit = defineEmits(['close', 'redirect:issue', 'attributes:changed'])
+  const emit = defineEmits(['close', 'redirect:issue', 'attributes:changed', 'attributes:save', 'attributes:save-and-close'])
   const showAttributesDialog = ref(props.show)
+
+  // Buffered-mode internal state (Path 1). When bufferedMode is true,
+  // AttributesDialog owns its own attribute buffer and exposes Save/Revert
+  // instead of forwarding per-keystroke @attributes:changed to the parent.
+  // ControlDialog opts in via :buffered-mode; DataDialog and SettingsWindow
+  // leave it false so their existing per-keystroke / parent-side-buffer
+  // flows are unaffected.
+  const lastLoadedAttributesInternal = ref<object>({})
+  const pendingAttributes = ref<object>({})
+
+  const attributesDirty = computed(() =>
+    JSON.stringify(pendingAttributes.value) !== JSON.stringify(lastLoadedAttributesInternal.value)
+  )
+
+  const showDiscardAttributesDialog = ref(false)
+
   const guide = ref<Guide[] | null>(props.itemClass?.guide as Guide[] | null)
   const issueClass = ref<Class | null>(null)
   const showIssueDialog = ref(false)
@@ -75,13 +93,43 @@
   }
 
   const onAttributesChanged = (data: object) => {
-    // Simply emit the change to parent - no local processing
-    emit('attributes:changed', data)
+    if (props.bufferedMode) {
+      pendingAttributes.value = data
+    } else {
+      emit('attributes:changed', data)
+    }
   }
 
-  const closeDialog = () => {
+  const onSaveAttributes = () => {
+    emit('attributes:save', pendingAttributes.value)
+  }
+
+  const onSaveAndClose = () => {
+    showDiscardAttributesDialog.value = false
+    emit('attributes:save-and-close', pendingAttributes.value)
+  }
+
+  const onRevertAttributes = () => {
+    pendingAttributes.value = JSON.parse(JSON.stringify(lastLoadedAttributesInternal.value))
+  }
+
+  const onAttemptClose = () => {
+    if (props.bufferedMode && attributesDirty.value) {
+      showDiscardAttributesDialog.value = true
+    } else {
+      showAttributesDialog.value = false
+      emit('close')
+    }
+  }
+
+  const onDiscardAttributesConfirmed = () => {
+    showDiscardAttributesDialog.value = false
     showAttributesDialog.value = false
     emit('close')
+  }
+
+  const onDiscardAttributesCanceled = () => {
+    showDiscardAttributesDialog.value = false
   }
 
   const onAddIssue = (data:{issueClass: Class, id: string, name: string, description: string}) => {
@@ -125,6 +173,19 @@
     showAttributesDialog.value = newVal
   })
 
+  // Buffered-mode prop watcher. When the parent updates :attributes-data
+  // (initial load, or refresh after a successful save), re-snapshot both
+  // baseline and pending so attributesDirty reads clean. Deep-clone via
+  // JSON parse to avoid prop aliasing — staging into pendingAttributes
+  // would otherwise mutate the parent's prop.
+  watch(() => props.attributesData, newData => {
+    if (props.bufferedMode) {
+      const cloned = JSON.parse(JSON.stringify(newData ?? {}))
+      lastLoadedAttributesInternal.value = cloned
+      pendingAttributes.value = JSON.parse(JSON.stringify(cloned))
+    }
+  }, { deep: true, immediate: true })
+
   watch(() => props.itemClass, newVal => {
     if (newVal) {
       guide.value = newVal.guide as Guide[]
@@ -139,10 +200,11 @@
     v-model="showAttributesDialog"
     class="rounded-lg"
     height="85vh"
+    :persistent="bufferedMode && attributesDirty"
     width="90vw"
-    @click:outside="closeDialog"
-    @keydown.esc="closeDialog"
-    @update:model-value="closeDialog"
+    @click:outside="onAttemptClose"
+    @keydown.esc="onAttemptClose"
+    @update:model-value="(val) => { if (!val) onAttemptClose() }"
   >
     <v-card class="overflow-hidden pa-0 ma-0 rounded-lg opacity-90">
       <v-card-title class="pa-0">
@@ -161,7 +223,7 @@
             icon="mdi-close"
             size="medium"
             variant="text"
-            @click="closeDialog"
+            @click="onAttemptClose"
           />
         </v-sheet>
       </v-card-title>
@@ -184,13 +246,13 @@
                 <v-card-text class="flex-grow-1 d-flex flex-column pa-0">
                   <v-row class="ma-0 flex-grow-1">
                     <v-col cols="12" class="pa-0 d-flex flex-column">
-                      <v-sheet class="overflow-y-auto flex-grow-1 pa-4" style="max-height: calc(85vh - 200px);">
+                      <v-sheet class="overflow-y-auto flex-grow-1 pa-4" :style="`max-height: calc(85vh - ${bufferedMode ? 280 : 200}px);`">
                         <AttributesForm
                           v-if="props.itemId && props.itemClass && !props.attributesLoading"
                           class="json-forms"
                           :item-id="props.itemId"
                           :item-class="props.itemClass"
-                          :attributes-data="props.attributesData"
+                          :attributes-data="props.bufferedMode ? pendingAttributes : props.attributesData"
                           :schema="props.attributesSchema"
                           :uischema="props.attributesUiSchema"
                           :is-loading="props.attributesLoading"
@@ -235,7 +297,7 @@
                   </div>
                 </v-card-title>
                 <v-card-text class="flex-grow-1 d-flex flex-column pa-0">
-                  <v-sheet class="overflow-y-auto flex-grow-1 pa-1" style="max-height: calc(85vh - 200px);">
+                  <v-sheet class="overflow-y-auto flex-grow-1 pa-1" :style="`max-height: calc(85vh - ${bufferedMode ? 280 : 200}px);`">
                     <v-card
                       class="elevation-0"
                       v-for="item in filteredGuide"
@@ -304,6 +366,28 @@
           </v-row>
         </v-container>
       </v-card-text>
+      <v-card-actions v-if="props.bufferedMode" class="px-5 py-3">
+        <v-spacer />
+        <v-btn
+          v-if="attributesDirty"
+          class="mr-2"
+          color="warning"
+          prepend-icon="mdi-undo"
+          variant="text"
+          @click="onRevertAttributes"
+        >
+          Revert
+        </v-btn>
+        <v-btn
+          color="success"
+          :disabled="!attributesDirty"
+          prepend-icon="mdi-content-save-outline"
+          variant="outlined"
+          @click="onSaveAttributes"
+        >
+          Save Attributes
+        </v-btn>
+      </v-card-actions>
     </v-card>
   </v-dialog>
   <IssueDialog
@@ -316,6 +400,59 @@
     @cancel:issue="onIssueDialogClosed"
     @issue:added="onIssueAdded"
   />
+  <v-dialog
+    v-model="showDiscardAttributesDialog"
+    max-width="500"
+    persistent
+  >
+    <v-card class="pa-0 ma-0 rounded-lg">
+      <v-card-title class="pa-0">
+        <v-sheet class="pa-2 ma-0 text-body-1 d-flex flex-row justify-space-between" color="primary" density="compact" variant="plain">
+          <div>
+            <v-icon color="foreground" icon="mdi-pencil-off-outline" size="small" />
+            <span class="ml-2 text-body-1">Unsaved attribute changes</span>
+          </div>
+          <v-btn
+            color="foreground"
+            icon="mdi-close"
+            size="medium"
+            variant="text"
+            @click="onDiscardAttributesCanceled"
+          />
+        </v-sheet>
+      </v-card-title>
+      <v-card-text class="pa-0 px-5 pt-5 ma-2">
+        <span class="text-body-1">You have unsaved attribute changes. Save them, discard them, or keep editing?</span>
+      </v-card-text>
+      <v-card-actions class="py-6 px-6 d-flex justify-end flex-wrap">
+        <v-btn
+          class="mr-2"
+          color="grey"
+          variant="text"
+          @click="onDiscardAttributesCanceled"
+        >
+          Keep Editing
+        </v-btn>
+        <v-btn
+          class="mr-2"
+          color="warning"
+          prepend-icon="mdi-close-circle-outline"
+          variant="text"
+          @click="onDiscardAttributesConfirmed"
+        >
+          Discard
+        </v-btn>
+        <v-btn
+          color="success"
+          prepend-icon="mdi-content-save-outline"
+          variant="outlined"
+          @click="onSaveAndClose"
+        >
+          Save &amp; Close
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <style scoped>

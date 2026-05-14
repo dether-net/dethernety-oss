@@ -36,8 +36,14 @@
   const newName = ref('')
   const newDescription = ref('')
   const control = ref<Control | null>(null)
-  const controlId = ref(props.id)
   const controlsToDelete = ref('')
+  const form = ref<HTMLFormElement | null>(null)
+
+  const nameRules = [
+    (v: string) => !!v || 'Name is required',
+    (v: string) => v.length <= 100 || 'Name must be less than 100 characters',
+    (v: string) => v.length >= 3 || 'Name must be at least 3 characters',
+  ]
   const showDeleteControlsDialog = ref(false)
   const showCountermeasureDialog = ref(false)
   const showDeleteCountermeasureDialog = ref(false)
@@ -55,7 +61,7 @@
 
   const availableClasses = ref<Class[]>([])
 
-  const attributesData = ref({})
+  const lastLoadedAttributes = ref<object>({})
   const attributesSchema = ref<object | null>(null)
   const attributesUiSchema = ref<UISchemaElement | null>(null)
   const attributesLoading = ref(false)
@@ -86,9 +92,135 @@
 
   // Initialize selected class IDs
   const selectedClassIds = ref<string[]>([])
-  watch(() => control.value, () => {
-    selectedClassIds.value = control.value?.controlClasses?.map(cls => cls.id) || []
+
+  // Class un-assignment confirm: cache populated on getControl by parallel-
+  // fetching getAttributesFromClassRelationship for every assigned class.
+  // Used by onClassSelectionChange to gate the prompt — only classes that
+  // have stored attributes prompt on un-assign (those are the destructive
+  // toggles). Maintained in sync by onAttributesSave (B3).
+  const classesWithAttributes = ref<Set<string>>(new Set())
+  const showClassRemovalConfirmDialog = ref(false)
+  const pendingClassSelection = ref<string[]>([])
+  const pendingRemovedClassIds = ref<string[]>([])
+  // Bumped on cancel-removal so v-data-table fully re-mounts and reads
+  // :model-value cleanly from selectedClassIds (which still reflects the
+  // un-clicked selection). Vuetify's table doesn't reliably revert its
+  // internal selection from a same-content prop reassign — a re-mount
+  // is the surest reset.
+  const classTableKey = ref(0)
+
+  // Dirty tracking — initialState snapshot captured on getControl resolve and
+  // refreshed on every successful save. Attributes deliberately excluded:
+  // they're persisted via their own onAttributesChanged flow, so they're
+  // "always clean" from the General/Classes buffer's perspective.
+  const initialState = ref<{ name: string; description: string; classIds: string[] }>({
+    name: '',
+    description: '',
+    classIds: [],
   })
+
+  const setEqual = (a: string[], b: string[]) =>
+    a.length === b.length && a.every(x => b.includes(x))
+
+  const isDirty = computed(() =>
+    newName.value !== initialState.value.name ||
+    newDescription.value !== initialState.value.description ||
+    !setEqual(selectedClassIds.value, initialState.value.classIds)
+  )
+
+  const showDiscardChangesDialog = ref(false)
+
+  const onAttemptClose = () => {
+    if (isDirty.value) {
+      showDiscardChangesDialog.value = true
+    } else {
+      emits('control:closed')
+    }
+  }
+
+  const onDiscardConfirmed = () => {
+    showDiscardChangesDialog.value = false
+    emits('control:closed')
+  }
+
+  const onDiscardCanceled = () => {
+    showDiscardChangesDialog.value = false
+  }
+
+  const onClassSelectionChange = (newSelection: string[]) => {
+    const oldSelection = selectedClassIds.value
+    const removed = oldSelection.filter(id => !newSelection.includes(id))
+    const removedWithAttrs = removed.filter(id => classesWithAttributes.value.has(id))
+
+    if (removedWithAttrs.length === 0) {
+      selectedClassIds.value = newSelection
+      return
+    }
+
+    pendingClassSelection.value = newSelection
+    pendingRemovedClassIds.value = removedWithAttrs
+    showClassRemovalConfirmDialog.value = true
+  }
+
+  const onClassRemovalConfirmed = () => {
+    const newClassIds = pendingClassSelection.value
+    const removedIds = pendingRemovedClassIds.value
+    pendingClassSelection.value = []
+    pendingRemovedClassIds.value = []
+    showClassRemovalConfirmDialog.value = false
+
+    // Commit the un-assignment immediately. Use the persisted name /
+    // description from initialState so this commits ONLY the class
+    // change — any pending name / description edits stay dirty for the
+    // user's main Save click.
+    controlsStore.updateControl({
+      controlId: control.value?.id || '',
+      name: initialState.value.name,
+      description: initialState.value.description,
+      controlClasses: newClassIds,
+      folderId: control.value?.folder?.id || undefined,
+    }).then(ret => {
+      if (ret) {
+        selectedClassIds.value = newClassIds
+        removedIds.forEach(id => classesWithAttributes.value.delete(id))
+        initialState.value = {
+          name: initialState.value.name,
+          description: initialState.value.description,
+          classIds: [...newClassIds],
+        }
+        snackBar.value = { show: true, message: 'Class removed', color: 'success' }
+        fetchCountermeasures()
+      } else {
+        snackBar.value = { show: true, message: 'Failed to remove class', color: 'error' }
+        // Restore the table's checkbox to match the unchanged
+        // selectedClassIds — re-mount via key bump (same reason as
+        // onClassRemovalCanceled).
+        classTableKey.value++
+      }
+    }).catch(() => {
+      snackBar.value = { show: true, message: 'Failed to remove class', color: 'error' }
+      classTableKey.value++
+    })
+  }
+
+  const onClassRemovalCanceled = () => {
+    // ConfirmDeleteDialog double-fires delete:canceled (once from its
+    // showDialog watcher, once from cancelDelete itself) — and ALSO
+    // fires it as a side effect of confirm (showDialog flips to false
+    // before the explicit confirm emit, tripping the watcher). Guard
+    // makes this handler idempotent: only the first invocation does
+    // work; subsequent firings short-circuit on the already-false flag.
+    if (!showClassRemovalConfirmDialog.value) return
+    pendingClassSelection.value = []
+    pendingRemovedClassIds.value = []
+    showClassRemovalConfirmDialog.value = false
+    // Force v-data-table to fully re-mount so the checkbox re-syncs to
+    // selectedClassIds (which still reflects the un-clicked state).
+    // Reassigning the array with the same content was insufficient —
+    // Vuetify's selection logic doesn't reliably revert from a prop
+    // change when the content compares equal.
+    classTableKey.value++
+  }
 
   const availableModules = computed(() => controlsStore.modules)
   const selectedModules = ref<String[]>([])
@@ -111,31 +243,41 @@
 
   const countermeasures = ref<Countermeasure[]>([])
   const fetchCountermeasures = () => {
-    controlsStore.getCountermeasuresFromControl({ controlId: controlId.value }).then(cm => {
+    controlsStore.getCountermeasuresFromControl({ controlId: props.id }).then(cm => {
       if (cm) {
         countermeasures.value = cm
       }
     })
   }
 
-  watch(() => controlId.value, () => {
-    fetchCountermeasures()
-  })
-
-  watch(showCountermeasureDialog, () => {
-    if (!showCountermeasureDialog.value) {
-      // Add a slight delay to ensure backend data is updated
-      setTimeout(fetchCountermeasures, 500)
-    }
-  })
-
   const getControl = async () => {
-    controlsStore.getControl({ controlId: props.id }).then(controlData => {
+    controlsStore.getControl({ controlId: props.id }).then(async controlData => {
       control.value = controlData
       newName.value = control.value?.name || ''
       newDescription.value = control.value?.description || ''
       selectedClassIds.value = control.value?.controlClasses?.map(cls => cls.id) || []
       onlySelected.value = (control.value?.controlClasses?.length ?? 0) > 0
+      initialState.value = {
+        name: newName.value,
+        description: newDescription.value,
+        classIds: [...selectedClassIds.value],
+      }
+      const classIds = control.value?.controlClasses?.map(cls => cls.id) || []
+      if (classIds.length > 0) {
+        const results = await Promise.all(
+          classIds.map(classId =>
+            controlsStore.getAttributesFromClassRelationship({
+              classId,
+              componentId: props.id,
+            })
+              .then(attrs => ({ classId, hasAttrs: Object.keys(attrs ?? {}).length > 0 }))
+              .catch(() => ({ classId, hasAttrs: false }))
+          )
+        )
+        classesWithAttributes.value = new Set(
+          results.filter(r => r.hasAttrs).map(r => r.classId)
+        )
+      }
     })
   }
 
@@ -218,10 +360,10 @@
           attributesUiSchema.value = currentItemClass.value.template.uischema as UISchemaElement
           controlsStore.getAttributesFromClassRelationship({
             classId: classId,
-            componentId: controlId.value,
+            componentId: props.id,
           }).then(attributes => {
             if (attributes) {
-              attributesData.value = unflattenProperties(attributes)
+              lastLoadedAttributes.value = unflattenProperties(attributes)
               attributesLoading.value = false
             }
           })
@@ -235,23 +377,38 @@
     }
   }
 
-  const onAttributesChanged = (data: object) => {
-    controlsStore.setInstantiationAttributes({
+  const saveAttributes = (pending: object): Promise<boolean> => {
+    return controlsStore.setInstantiationAttributes({
       classId: selectedClassId.value,
-      componentId: controlId.value,
-      attributes: data,
+      componentId: props.id,
+      attributes: pending,
     }).then(ret => {
       if (ret) {
-        attributesData.value = data
-        snackBar.value = { show: true, message: 'Attributes added', color: 'success' }
-        setTimeout(fetchCountermeasures, 500)
-      } else {
-        snackBar.value = { show: true, message: 'Failed to add attributes', color: 'error' }
+        lastLoadedAttributes.value = pending
+        if (Object.keys(pending).length > 0) {
+          classesWithAttributes.value.add(selectedClassId.value)
+        } else {
+          classesWithAttributes.value.delete(selectedClassId.value)
+        }
+        snackBar.value = { show: true, message: 'Attributes saved', color: 'success' }
+        fetchCountermeasures()
+        return true
       }
+      snackBar.value = { show: true, message: 'Failed to save attributes', color: 'error' }
+      return false
     }).catch(() => {
-      snackBar.value = { show: true, message: 'Failed to add attributes', color: 'error' }
+      snackBar.value = { show: true, message: 'Failed to save attributes', color: 'error' }
+      return false
     })
-    // showClassControlDialog.value = false
+  }
+
+  const onAttributesSave = (pending: object) => {
+    saveAttributes(pending)
+  }
+
+  const onAttributesSaveAndClose = async (pending: object) => {
+    const success = await saveAttributes(pending)
+    if (success) showClassControlDialog.value = false
   }
 
   const showDelete = (id: string) => {
@@ -266,7 +423,7 @@
   }
 
   const onControlDelete = () => {
-    controlsStore.deleteControl({ controlId: controlId.value }).then(ret => {
+    controlsStore.deleteControl({ controlId: props.id }).then(ret => {
       if (ret) {
         emits('control:deleted', true)
       } else {
@@ -276,29 +433,10 @@
     showDeleteControlsDialog.value = false
   }
 
-  // const onClassControlDialogCancel = () => {
-  //   showClassControlDialog.value = false
-  // }
-
-  // const onClassControlDialogSubmit = (attributes: any) => {
-  //   controlsStore.setInstantiationAttributes({
-  //     classId: selectedClassId.value,
-  //     componentId: controlId.value,
-  //     attributes,
-  //   }).then(ret => {
-  //     if (ret) {
-  //       snackBar.value = { show: true, message: 'Attributes added', color: 'success' }
-  //       setTimeout(fetchCountermeasures, 500)
-  //     } else {
-  //       snackBar.value = { show: true, message: 'Failed to add attributes', color: 'error' }
-  //     }
-  //   }).catch(() => {
-  //     snackBar.value = { show: true, message: 'Failed to add attributes', color: 'error' }
-  //   })
-  //   showClassControlDialog.value = false
-  // }
-
-  const onSubmit = () => {
+  const onSubmit = async () => {
+    if (!form.value) return
+    const { valid } = await form.value.validate()
+    if (!valid) return
     controlsStore.updateControl({
       controlId: control.value?.id || '',
       name: newName.value,
@@ -307,22 +445,27 @@
       folderId: control.value?.folder?.id || undefined,
     }).then(ret => {
       if (ret) {
-        // snackBar.value = { show: true, message: 'Control updated', color: 'success' }
+        initialState.value = {
+          name: newName.value,
+          description: newDescription.value,
+          classIds: [...selectedClassIds.value],
+        }
+        snackBar.value = { show: true, message: 'Control updated', color: 'success' }
         emits('control:saved', true)
-        setTimeout(fetchCountermeasures, 500)
+        fetchCountermeasures()
       } else {
-        // snackBar.value = { show: true, message: 'Failed to update control', color: 'error' }
+        snackBar.value = { show: true, message: 'Failed to update control', color: 'error' }
         emits('control:saved', false)
       }
     }).catch(() => {
-      // snackBar.value = { show: true, message: 'Failed to update control', color: 'error' }
+      snackBar.value = { show: true, message: 'Failed to update control', color: 'error' }
       emits('control:saved', false)
     })
   }
 
   const moveToFolder = (folderId: string) => {
     controlsStore.updateControl({
-      controlId: controlId.value,
+      controlId: props.id,
       name: newName.value,
       description: newDescription.value,
       controlClasses: selectedClassIds.value,
@@ -350,8 +493,9 @@
     v-model="showControlDialog"
     class="pa-0 ma-0"
     max-width="75vw"
-    @click:outside="emits('control:closed')"
-    @keydown.esc="emits('control:closed')"
+    :persistent="isDirty"
+    @click:outside="onAttemptClose"
+    @keydown.esc="onAttemptClose"
   >
     <v-card
       class="pa-0 ma-0 rounded-lg"
@@ -367,12 +511,12 @@
             icon="mdi-close"
             size="medium"
             variant="text"
-            @click="emits('control:closed')"
+            @click="onAttemptClose"
           />
         </v-sheet>
       </v-card-title>
       <v-card-text>
-        <v-form @submit.prevent="onSubmit">
+        <v-form ref="form" @submit.prevent="onSubmit">
           <v-card class="model-card border-thin elevation-8 mb-4">
             <v-container class="pa-5 px-10" fluid>
               <!-- Tabs -->
@@ -391,7 +535,7 @@
                   <v-tabs-window-item value="general">
                     <v-container fluid>
                       <v-row>
-                        <v-text-field v-model="newName" class="pt-6 px-3" label="Name" />
+                        <v-text-field v-model="newName" class="pt-6 px-3" label="Name" required :rules="nameRules" />
                       </v-row>
                       <v-row>
                         <!-- <v-col cols="5">
@@ -408,14 +552,16 @@
                   <!-- Controls Tab -->
                   <v-tabs-window-item class="pt-1" value="classes">
                     <v-data-table
-                      v-model="selectedClassIds"
+                      :key="classTableKey"
                       class="control-classes"
                       :headers="headers"
                       item-key="id"
                       :items="filteredControlClasses"
                       items-per-page="5"
                       :items-per-page-options="itemsPerPage"
+                      :model-value="selectedClassIds"
                       show-select
+                      @update:model-value="onClassSelectionChange"
                     >
                       <!-- Search Bar -->
                       <template #top>
@@ -512,26 +658,13 @@
               <v-btn
                 class="ma-3"
                 color="success"
+                :disabled="!isDirty"
                 icon="mdi-content-save-outline"
                 size="x-large"
                 type="submit"
                 variant="outlined"
               />
               <template v-if="showFileActions">
-                <v-btn
-                  class="ma-3"
-                  color="secondary"
-                  icon="mdi-download-outline"
-                  size="x-large"
-                  variant="outlined"
-                />
-                <v-btn
-                  class="ma-3"
-                  color="secondary"
-                  icon="mdi-content-duplicate"
-                  size="x-large"
-                  variant="outlined"
-                />
                 <v-btn
                   class="ma-3"
                   color="secondary"
@@ -546,7 +679,7 @@
                   icon="mdi-trash-can-outline"
                   size="x-large"
                   variant="outlined"
-                  @click="showDelete(controlId)"
+                  @click="showDelete(props.id)"
                 />
               </template>
             </v-card-actions>
@@ -557,26 +690,20 @@
         <v-snackbar v-model="snackBar.show" :color="snackBar.color" timeout="5000" top>
           {{ snackBar.message }}
         </v-snackbar>
-        <!-- <ClassConfigDialog
-          v-if="showClassControlDialog"
-          :id="controlId"
-          :classid="selectedClassId"
-          :show="showClassControlDialog"
-          @cancel="onClassControlDialogCancel"
-          @submit="onClassControlDialogSubmit"
-        /> -->
         <AttributesDialog
           v-if="showClassControlDialog"
-          :show="showClassControlDialog"
-          :item-class="currentItemClass"
-          :item-id="controlId ?? null"
-          :item-name="controlsStore.controls.find(control => control.id === id)?.name ?? null"
-          :attributes-data="attributesData"
-          :attributes-schema="attributesSchema"
-          :attributes-ui-schema="attributesUiSchema"
+          :attributes-data="lastLoadedAttributes"
           :attributes-loading="attributesLoading"
+          :attributes-schema="attributesSchema"
           :attributes-template-warning="attributesTemplateWarning"
-          @attributes:changed="onAttributesChanged"
+          :attributes-ui-schema="attributesUiSchema"
+          buffered-mode
+          :item-class="currentItemClass"
+          :item-id="props.id ?? null"
+          :item-name="controlsStore.controls.find(control => control.id === id)?.name ?? null"
+          :show="showClassControlDialog"
+          @attributes:save="onAttributesSave"
+          @attributes:save-and-close="onAttributesSaveAndClose"
           @close="showClassControlDialog = false"
         />
         <ConfirmDeleteDialog
@@ -601,7 +728,7 @@
         <CounterMeasureDialog
           v-if="showCountermeasureDialog"
           :action="countermeasureAction"
-          :controlId="controlId"
+          :controlId="props.id"
           :countermeasureId="countermeasureId"
           :showDialog="showCountermeasureDialog"
           @close="showCountermeasureDialog = false"
@@ -621,6 +748,28 @@
           :show="showFolderSelectDialog"
           @close="showFolderSelectDialog = false"
           @move="moveToFolder"
+        />
+        <ConfirmDeleteDialog
+          v-if="showDiscardChangesDialog"
+          confirmColor="warning"
+          confirmIcon="mdi-close-circle-outline"
+          icon="mdi-pencil-off-outline"
+          message="You have unsaved changes. Are you sure you want to discard them?"
+          :show="showDiscardChangesDialog"
+          title="Discard unsaved changes?"
+          @delete:canceled="onDiscardCanceled"
+          @delete:confirmed="onDiscardConfirmed"
+        />
+        <ConfirmDeleteDialog
+          v-if="showClassRemovalConfirmDialog"
+          confirmColor="warning"
+          confirmIcon="mdi-check-circle-outline"
+          icon="mdi-shield-off-outline"
+          :message="`Removing the following class${pendingRemovedClassIds.length > 1 ? 'es' : ''} will delete their stored attributes when you save: ${pendingRemovedClassIds.map(id => availableClasses.find(c => c.id === id)?.name ?? id).join(', ')}. Continue?`"
+          :show="showClassRemovalConfirmDialog"
+          title="Remove class with stored attributes?"
+          @delete:canceled="onClassRemovalCanceled"
+          @delete:confirmed="onClassRemovalConfirmed"
         />
       </v-card-text>
     </v-card>

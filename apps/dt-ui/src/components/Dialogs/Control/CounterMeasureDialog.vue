@@ -18,7 +18,19 @@
   const tab = ref('information')
   const controlId = ref(props.controlId)
   const controlsStore = useControlsStore()
+  const form = ref<HTMLFormElement | null>(null)
   const techniques = ref<MitreDefendTechnique[]>([])
+
+  const nameRules = [
+    (v: string) => !!v || 'Name is required',
+    (v: string) => v.length <= 100 || 'Name must be less than 100 characters',
+    (v: string) => v.length >= 3 || 'Name must be at least 3 characters',
+  ]
+
+  const scoreRules = [
+    (v: string | number) =>
+      v === '' || v === null || Number.isFinite(Number(v)) || 'Score must be a number',
+  ]
   const subTechniqueTab = ref('')
   const searchMitigation = ref('')
   const selectedMitigationIds = ref<string[]>([])
@@ -94,7 +106,10 @@
     }
   })
 
-  const onSubmit = () => {
+  const onSubmit = async () => {
+    if (!form.value) return
+    const { valid } = await form.value.validate()
+    if (!valid) return
     if (action.value === 'create') {
       countermeasure.value.mitigations = selectedMitigationIds.value.map(
         id => mitreAttackMitigations.value.find(mitigation => mitigation.id === id)
@@ -156,7 +171,7 @@
     width="80vw"
     @keydown.esc="closeDialog"
   >
-    <v-form @submit.prevent="onSubmit">
+    <v-form ref="form" @submit.prevent="onSubmit">
       <v-card>
         <v-card-title class="pa-0">
           <v-sheet class="pa-2 ma-0 text-body-1 d-flex flex-row justify-space-between" color="primary" density="compact" variant="plain">
@@ -190,10 +205,17 @@
                       <v-container>
                         <v-row>
                           <v-col cols="5">
-                            <v-text-field v-model="countermeasure.name" label="Name" required />
+                            <v-text-field v-model="countermeasure.name" label="Name" required :rules="nameRules" />
                           </v-col>
                           <v-col cols="3">
-                            <v-text-field v-model="countermeasure.score" label="Score" required />
+                            <v-text-field
+                              :model-value="countermeasure.score"
+                              label="Score"
+                              required
+                              :rules="scoreRules"
+                              type="number"
+                              @update:model-value="v => countermeasure.score = v === '' || v === null ? 0 : Number(v)"
+                            />
                           </v-col>
                           <v-col cols="4">
                             <v-text-field v-model="countermeasure.type" label="Type" required />
