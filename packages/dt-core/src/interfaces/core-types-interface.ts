@@ -198,6 +198,8 @@ export interface ComponentData extends Element {
   parentBoundary?: { id: string }
   controls?: Control[]
   dataItems?: DataItem[]
+  componentClass?: { id: string }[]
+  representedModel?: { id: string }[]
 }
 
 export interface BoundaryData extends Element {
@@ -213,6 +215,8 @@ export interface BoundaryData extends Element {
   parentBoundary?: { id: string }
   controls?: Control[]
   dataItems?: DataItem[]
+  securityBoundaryClass?: { id: string }[]
+  representedModel?: { id: string }[]
 }
 
 export interface DataFlowData extends Element {

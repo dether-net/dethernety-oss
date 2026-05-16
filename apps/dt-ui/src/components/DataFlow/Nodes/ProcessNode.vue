@@ -1,5 +1,7 @@
 <script setup lang="ts">
+  import { computed } from 'vue'
   import { Handle, Position } from '@vue-flow/core'
+  import UnclassifiedPill from '@/components/DataFlow/ClassPicker/UnclassifiedPill.vue'
 
   const props = defineProps({
     id: {
@@ -11,6 +13,10 @@
       required: true,
     },
   })
+
+  const unclassified = computed(
+    () => !props.data.classId && !props.data.representedModelId,
+  )
 </script>
 
 <template>
@@ -19,9 +25,6 @@
     <Handle id="right" :position="Position.Right" />
     <Handle id="bottom" :position="Position.Bottom" />
     <Handle id="left" :position="Position.Left" />
-    <!--Handle id="handle-proc5" :position="Position.Right" style="top: 11px; right: 11px;" />
-    <Handle id="handle-proc6" :position="Position.Right" style="bottom: 8px; right: 8px; top: auto;" />
-    <Handle id="handle=proc7" :position="Position.Left" style="top: 11px; left: 11px;"/>
-    <Handle id="handle=proc8" :position="Position.Left" style="bottom: 8px; left: 8px; top: auto"/-->
+    <UnclassifiedPill :visible="unclassified" placement="circle" />
   </div>
 </template>

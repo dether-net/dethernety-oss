@@ -7,6 +7,7 @@
   import { Exposure } from '@dethernety/dt-core'
   import AttributesForm from '@/components/DataFlow/AttributesForm.vue'
   import AttributesDialog from '@/components/DataFlow/AttributesDialog.vue'
+  import ClassPicker from '@/components/DataFlow/ClassPicker/ClassPicker.vue'
   import IssueDialog from '@/components/Dialogs/Issues/IssueDialog.vue'
   import { useRouter } from 'vue-router'
   import { Class } from '@dethernety/dt-core'
@@ -25,7 +26,6 @@
   const name = ref('')
   const description = ref('')
   const dataClass = ref<string | null>(null)
-  const availableClasses = ref<{ id: string; name: string }[]>([])
 
   // Attributes — buffered model matching SettingsWindow's post-Sprint-D pattern.
   // lastLoadedAttributes is the backend snapshot; pendingAttributes is the UI buffer that
@@ -239,14 +239,6 @@
   })
 
   const getCurrentDataItem = async () => {
-    const modules = flowStore.modules
-    availableClasses.value = modules
-      .flatMap((module: any) =>
-        module.dataClasses.map((cls: any) => ({
-          id: cls.id,
-          name: cls.name,
-        }))
-      ).sort((a: { name: string; }, b: { name: any; }) => a.name.localeCompare(b.name))
     if (action.value === 'edit' && dataId.value) {
       const currentDataItem = flowStore.getDataItem({ dataItemId: dataId.value })
       if (currentDataItem) {
@@ -434,12 +426,18 @@
     showDiscardChangesDialog.value = false
   }
 
+  const onPickerCommitRequest = (payload: { classId: string }) => onClassPickerChange(payload.classId)
+
   const onClassPickerChange = (newId: string) => {
     if (newId === dataClass.value) return
-    // Initial class pick (create mode before save, or edit mode where dataClass was never set):
-    // no existing class to lose, no attribute schema to invalidate. Skip the dialog.
+    // Initial class pick: dataClass was never set, or the entity doesn't exist yet
+    // (create mode before save). No existing class to lose, no attribute schema to
+    // invalidate — skip the confirm dialog.
     if (!dataClass.value || !dataId.value) {
       dataClass.value = newId
+      // Auto-persist when we have an entity to update. In pure create mode (no
+      // dataId) the explicit Save creates the entity with the staged class.
+      if (dataId.value) onSubmit()
       return
     }
     pendingClassId.value = newId
@@ -448,36 +446,31 @@
 
   const onClassChangeCommit = async () => {
     showClassChangeDialog.value = false
-    if (isDirty.value) {
-      await onSubmit()
-      if (isDirty.value) {
-        emit('update:snackBar', { show: true, message: 'Could not commit pending edits; class change cancelled.', color: 'error' })
-        pendingClassId.value = null
-        return
-      }
-    }
     if (pendingClassId.value) {
       dataClass.value = pendingClassId.value
       pendingClassId.value = null
     }
+    // Single save persists the class change plus any pending name/description
+    // edits — matches SettingsGeneralTab's behaviour where class picks flow
+    // through the same auto-save machinery as every other field.
+    if (isDirty.value) await onSubmit()
   }
 
-  const onClassChangeDiscard = () => {
+  const onClassChangeDiscard = async () => {
     showClassChangeDialog.value = false
     if (dataId.value) {
       const currentDataItem = flowStore.getDataItem({ dataItemId: dataId.value })
       if (currentDataItem) {
         name.value = currentDataItem.name
         description.value = currentDataItem.description
-        // Don't touch initialState — name and description now equal the persisted snapshot
-        // (clean), and dataClass will differ from initialState.dataClass after the assignment
-        // below (dirty). The class change is correctly the only pending edit; Save persists it.
       }
     }
     if (pendingClassId.value) {
       dataClass.value = pendingClassId.value
       pendingClassId.value = null
     }
+    // After discarding pending edits, only the class is dirty — save it.
+    if (isDirty.value) await onSubmit()
   }
 
   const onClassChangeCancel = () => {
@@ -574,26 +567,30 @@
                   <v-tabs-window-item value="general">
                     <v-container>
                       <v-row>
-                        <v-col cols="4">
+                        <v-col cols="7">
                           <v-text-field
                             v-model="name"
                             label="Name"
                             required
                           />
-                          <v-autocomplete
-                            item-title="name"
-                            item-value="id"
-                            :items="availableClasses"
-                            label="Class"
-                            :model-value="dataClass"
-                            required
-                            @update:model-value="onClassPickerChange"
-                          />
-                        </v-col>
-                        <v-col cols="7">
                           <v-textarea
                             v-model="description"
                             label="Description"
+                          />
+                        </v-col>
+                        <v-col cols="5">
+                          <ClassPicker
+                            class-label="DATA"
+                            :current-class-name="currentItemClass?.name ?? null"
+                            :current-class-category="currentItemClass?.category ?? null"
+                            :current-class-description="currentItemClass?.description ?? null"
+                            :current-class-module-name="currentItemClass?.module?.name ?? null"
+                            :element-description="description"
+                            :element-name="name"
+                            label="Class"
+                            :model-id="flowStore.modelId"
+                            :model-value="dataClass"
+                            @commit-request="onPickerCommitRequest"
                           />
                         </v-col>
                       </v-row>
@@ -618,7 +615,6 @@
                       <template #default="{ isHovering, props }">
                         <v-sheet
                           class="position-absolute top-0 right-0 ma-0 mt-0 mr-1 pa-0 d-flex flex-row align-center justify-center border-thin border-tertiary border-opacity-50 rounded-lg opacity-80"
-                          @hover="console.log('hover')"
                         >
                           <v-fab
                             v-bind="props"

@@ -1,5 +1,8 @@
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
+import { CancelledError } from './errors.js'
+
+export { CancelledError } from './errors.js'
 
 export interface RetryConfig {
   maxRetries: number
@@ -18,6 +21,7 @@ export class DtUtils {
   private mutex: Map<string, Promise<any>> = new Map()
   private requestDeduplicator = new Map<string, Promise<any>>()
   private requestMetadata = new Map<string, { timestamp: number; count: number }>()
+  private cancellableLatestTokens: Map<string, symbol> = new Map()
 
   constructor(client: Apollo.ApolloClient) {
     this.apolloClient = client
@@ -44,6 +48,44 @@ export class DtUtils {
     } finally {
       // Clean up the mutex entry
       this.mutex.delete(key)
+    }
+  }
+
+  /**
+   * Cancel-on-replace: execute `fn` keyed by `key`. When a newer call with the
+   * same key arrives before the older one settles, the older caller's promise
+   * rejects with a `CancelledError`. The underlying network request still
+   * completes; only the stale resolved value is discarded. Use for fast-typing
+   * UX (autocomplete, search) where only the latest query's result is relevant.
+   *
+   * Note: `performQuery` already mutexes per `(action, variables)`. For typical
+   * fast-typing UX variables differ per keystroke so the inner mutex is a no-op;
+   * for identical-variables calls it serialises them, which is harmless — the
+   * newer caller's token still wins at settlement time.
+   *
+   * @param key - cancellation key; concurrent calls sharing a key supersede each other
+   * @param fn  - the operation to run; runs unconditionally regardless of cancellation
+   * @returns the latest call's resolved value; older callers reject with `CancelledError`
+   */
+  async withCancellableLatest<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const token = Symbol(key)
+    this.cancellableLatestTokens.set(key, token)
+    try {
+      const value = await fn()
+      if (this.cancellableLatestTokens.get(key) !== token) {
+        throw new CancelledError(key)
+      }
+      this.cancellableLatestTokens.delete(key)
+      return value
+    } catch (err) {
+      if (this.cancellableLatestTokens.get(key) !== token) {
+        throw new CancelledError(key)
+      }
+      // Latest token — propagate the real error and clean up our entry.
+      if (this.cancellableLatestTokens.get(key) === token) {
+        this.cancellableLatestTokens.delete(key)
+      }
+      throw err
     }
   }
   /**

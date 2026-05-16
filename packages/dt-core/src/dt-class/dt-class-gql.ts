@@ -195,6 +195,7 @@ export const MATCH_CLASSES = gql`
           classDescription
           classCategory
           classType
+          moduleId
           moduleName
           matchType
           confidence
@@ -202,6 +203,42 @@ export const MATCH_CLASSES = gql`
         }
       }
       unmatched
+      vectorAvailable
+    }
+  }
+`
+
+export const LIST_CLASSES = gql`
+  query ListClasses($input: ListClassesInput!) {
+    listClasses(input: $input) {
+      items {
+        classId
+        className
+        classDescription
+        classCategory
+        classType
+        moduleId
+        moduleName
+        matchType
+        confidence
+        similarityScore
+      }
+      totalCount
+      facetCounts {
+        categories {
+          value
+          count
+        }
+        modules {
+          moduleId
+          moduleName
+          count
+        }
+        types {
+          value
+          count
+        }
+      }
     }
   }
 `

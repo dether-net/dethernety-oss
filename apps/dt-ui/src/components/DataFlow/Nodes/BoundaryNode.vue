@@ -3,6 +3,7 @@
   import { NodeResizer } from '@vue-flow/node-resizer'
   import '@vue-flow/node-resizer/dist/style.css'
   import { useFlowStore } from '@/stores/flowStore'
+  import UnclassifiedPill from '@/components/DataFlow/ClassPicker/UnclassifiedPill.vue'
 
   const props = defineProps({
     id: {
@@ -30,6 +31,9 @@
 
   const minWidth = computed(() => data.value.minWidth || 100)
   const minHeight = computed(() => data.value.minHeight || 100)
+  const unclassified = computed(
+    () => !data.value.classId && !data.value.representedModelId,
+  )
 
   const onResizeEnd = (event: ResizeDragEvent) => {
     flowStore.updateNode({
@@ -64,6 +68,7 @@
       @resize-end="onResizeEnd"
       @resize-start="onResizeStart"
     />
+    <UnclassifiedPill :visible="unclassified" />
   </div>
 </template>
 

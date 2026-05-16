@@ -1,9 +1,11 @@
 <script setup lang="ts">
-  import { nextTick, onMounted, ref, watch } from 'vue'
+  import { computed, nextTick, onMounted, ref, watch } from 'vue'
   import type { Edge, Node } from '@vue-flow/core'
   import { useFlowStore } from '@/stores/flowStore'
   import { Class, Model } from '@dethernety/dt-core'
 
+  import ClassPicker from '@/components/DataFlow/ClassPicker/ClassPicker.vue'
+  import ModelPreview from '@/components/DataFlow/ClassPicker/ModelPreview.vue'
   import ConfirmClassOrModelChangeDialog from '@/components/Dialogs/DataFlow/ConfirmClassOrModelChangeDialog.vue'
   import ContentSelectDialog from '@/components/Dialogs/Browser/ContentSelectDialog.vue'
 
@@ -30,7 +32,6 @@
   const flowStore = useFlowStore()
 
   const props = defineProps<Props>()
-  const availableClasses = ref<{ id: string; name: string }[]>([])
 
   // Emits
   const emit = defineEmits<{
@@ -64,7 +65,12 @@
 
   const updateDisplayType = () => {
     selectedItem.value = flowStore.selectedItem
-    displayType.value = 'Component'
+    const item = selectedItem.value
+    if (item && typeof item === 'object' && 'type' in item && 'position' in item) {
+      displayType.value = item.type === 'BOUNDARY' ? 'Boundary' : 'Component'
+    } else {
+      displayType.value = 'Data Flow'
+    }
   }
 
   // Type guards
@@ -72,45 +78,32 @@
     return item !== null && typeof item === 'object' && 'type' in item && 'position' in item
   }
 
+  const classLabel = computed<'COMPONENT' | 'DATA_FLOW' | 'SECURITY_BOUNDARY'>(() => {
+    const item = selectedItem.value
+    if (item && isNode(item)) {
+      // @ts-ignore TS2589 — IDE-only false positive on vue-flow Node<T,U>
+      // narrowing depth; vue-tsc in the build sees the type fine.
+      return item.type === 'BOUNDARY' ? 'SECURITY_BOUNDARY' : 'COMPONENT'
+    }
+    return 'DATA_FLOW'
+  })
+
+  const componentType = computed<'PROCESS' | 'STORE' | 'EXTERNAL_ENTITY' | null>(() => {
+    const item = selectedItem.value
+    if (item && isNode(item) && classLabel.value === 'COMPONENT'
+        && (item.type === 'PROCESS' || item.type === 'STORE' || item.type === 'EXTERNAL_ENTITY')) {
+      return item.type
+    }
+    return null
+  })
+
   // Watchers
   watch(() => flowStore.selectedItem, () => {
     updateDisplayType()
-    getAvailableClasses()
   })
-
-  const getAvailableClasses = () => {
-    const modules = flowStore.modules
-
-    const getClassesForItem = (module: any) => {
-      const item = selectedItem.value as any
-      if (!isNode(item)) {
-        return module.dataFlowClasses || []
-      }
-
-      if (item.type === 'BOUNDARY') {
-        return module.securityBoundaryClasses || []
-      }
-
-      return (module.componentClasses || [])
-        .filter((cls: any) => cls.type === item?.type)
-    }
-
-    const allClasses: { id: string; name: string }[] = []
-
-    modules.forEach((module: any) => {
-      const classes = getClassesForItem(module)
-      classes.forEach((cls: any) => {
-        if (cls && cls.id && cls.name) {
-          allClasses.push({ id: cls.id, name: cls.name })
-        }
-      })
-    })
-    availableClasses.value = allClasses.sort((a, b) => a.name.localeCompare(b.name))
-  }
 
   onMounted(() => {
     updateDisplayType()
-    getAvailableClasses()
   })
 
   const updateFormData = (field: keyof FormData, value: any) => {
@@ -121,29 +114,98 @@
     emit('update:isFromClass', value)
   }
 
-  const onClassOrModelChange = () => {
+  // Staged class-commit pattern. We hold the pending classId until the confirm
+  // dialog resolves; only then do we mutate formData.class. This avoids the old
+  // v-autocomplete behaviour of writing the new class up-front and leaving
+  // formData dirty on cancel.
+  const pendingClassId = ref<string | null>(null)
+  // Remember last picked class so toggling isFromClass off-then-on restores it.
+  const lastPickedClass = ref<string>(props.formData.class || '')
+
+  const onPickerCommitRequest = ({ classId }: { classId: string }) => {
+    pendingClassId.value = classId
     if (props.itemClass || props.representedModel) {
       showClassOrModelChangeDialog.value = true
     } else {
-      // No prior class/model — nothing to commit / discard, just proceed.
+      applyPendingClass()
       emit('class-change-commit')
+    }
+  }
+
+  const applyPendingClass = () => {
+    if (pendingClassId.value !== null) {
+      updateFormData('class', pendingClassId.value)
+      lastPickedClass.value = pendingClassId.value
+      pendingClassId.value = null
+      // The parent's class-change-commit / class-change-discard handler owns
+      // the resulting save via its own `if (isDirty) await onSubmit()` branch.
+      // Clearing the queue here prevents the pickerActive watcher from firing
+      // a second, redundant saveItem when the dialog closes.
+      blurredFields.value.clear()
     }
   }
 
   const onClassChangeCommit = () => {
     showClassOrModelChangeDialog.value = false
+    applyPendingClass()
     emit('class-change-commit')
   }
 
   const onClassChangeDiscard = () => {
     showClassOrModelChangeDialog.value = false
+    applyPendingClass()
     emit('class-change-discard')
   }
 
   const onClassChangeCancel = () => {
     showClassOrModelChangeDialog.value = false
+    pendingClassId.value = null
     emit('class-change-cancel')
   }
+
+  watch(() => props.isFromClass, (now, was) => {
+    if (was && !now) {
+      lastPickedClass.value = props.formData.class || lastPickedClass.value
+    } else if (!was && now && lastPickedClass.value && !props.formData.class) {
+      updateFormData('class', lastPickedClass.value)
+    }
+  })
+
+  // Keep lastPickedClass current with the active element — without this, switching
+  // to a different node (which swaps formData) would leave a stale id behind that
+  // the isFromClass-off-then-on flow would then incorrectly restore.
+  watch(() => props.formData.class, newClass => {
+    if (props.isFromClass && newClass) {
+      lastPickedClass.value = newClass
+    }
+  })
+
+  // Reset lastPickedClass when the selected element changes (a different node was clicked).
+  watch(() => flowStore.selectedItem, (next, prev) => {
+    if (next !== prev) {
+      lastPickedClass.value = props.isFromClass ? (props.formData.class || '') : ''
+    }
+  })
+
+  // Save-on-blur suppression. While the picker has focus or the sheet
+  // is open, we hold back saves and coalesce them into a single fire when
+  // focus returns to the form.
+  const pickerFocused = ref(false)
+  const sheetOpen = ref(false)
+  const blurredFields = ref<Set<'name' | 'description'>>(new Set())
+
+  // Treat the confirm dialog as part of the picker session — a dialog open
+  // means a commit is being decided; saves must not race that decision.
+  const pickerActive = computed(() =>
+    pickerFocused.value || sheetOpen.value || showClassOrModelChangeDialog.value,
+  )
+
+  watch(pickerActive, active => {
+    if (!active && blurredFields.value.size > 0) {
+      blurredFields.value.clear()
+      emit('saveItem')
+    }
+  })
 
   const findModel = () => {
     showContentSelectDialog.value = true
@@ -163,10 +225,13 @@
     }
   }
 
-  const saveItem = () => {
-    if (selectedItem.value) {
-      emit('saveItem')
+  const saveItem = (field?: 'name' | 'description') => {
+    if (!selectedItem.value) return
+    if (pickerActive.value) {
+      if (field) blurredFields.value.add(field)
+      return
     }
+    emit('saveItem')
   }
 
 </script>
@@ -175,23 +240,59 @@
   <v-card v-if="selectedItem" flat>
     <v-container>
       <v-row>
-        <v-col cols="4">
+        <v-col cols="7">
           <v-text-field
             label="Name"
             :model-value="formData.name"
             required
             :rules="nameRules"
-            @blur="saveItem"
+            @blur="saveItem('name')"
             @update:model-value="updateFormData('name', $event)"
           />
-          <v-autocomplete
+          <v-textarea
+            label="Description"
+            :model-value="formData.description"
+            :rules="descriptionRules"
+            @blur="saveItem('description')"
+            @update:model-value="updateFormData('description', $event)"
+          />
+          <div class="d-flex justify-space-between align-center">
+            <v-switch
+              v-if="selectedItem && selectedItem.type && 'position' in selectedItem"
+              :label="isFromClass ? 'Inherited from a Class' : 'Represents a Model'"
+              :model-value="isFromClass"
+              @update:model-value="val => updateIsFromClass(val === true)"
+            />
+            <v-btn
+              v-if="!isFromClass && formData.model"
+              class="mx-3 my-0"
+              color="secondary"
+              icon="mdi-arrow-right-bold-outline"
+              size="x-large"
+              variant="outlined"
+              @click="openModel"
+            />
+          </div>
+        </v-col>
+        <v-col cols="5">
+          <ClassPicker
             v-if="isFromClass"
-            item-title="name"
-            item-value="id"
-            :items="availableClasses"
+            :model-value="formData.class || null"
+            :class-label="classLabel"
+            :component-type="componentType"
+            :current-class-name="itemClass?.name ?? null"
+            :current-class-category="itemClass?.category ?? null"
+            :current-class-description="itemClass?.description ?? null"
+            :current-class-module-name="itemClass?.module?.name ?? null"
+            :element-description="formData.description"
+            :element-name="formData.name"
             :label="`${displayType} Class`"
-            :model-value="formData.class"
-            @update:model-value="updateFormData('class', $event); onClassOrModelChange()"
+            :model-id="flowStore.modelId"
+            @commit-request="onPickerCommitRequest"
+            @picker:blur="pickerFocused = false"
+            @picker:focus="pickerFocused = true"
+            @picker:sheet-close="sheetOpen = false"
+            @picker:sheet-open="sheetOpen = true"
           />
           <div
             v-else
@@ -211,38 +312,10 @@
               @click="findModel"
             />
           </div>
-          <v-text-field
-            v-if="isFromClass"
-            label="Category"
-            :model-value="formData.category"
-            readonly
-          />
-          <div v-if="!isFromClass && formData.model" class="d-flex justify-end">
-            <v-btn
-              class="mx-3 my-0"
-              color="secondary"
-              icon="mdi-arrow-right-bold-outline"
-              size="x-large"
-              variant="outlined"
-              @click="openModel"
-            />
-          </div>
-        </v-col>
-        <v-col cols="7">
-          <v-textarea
-            label="Description"
-            :model-value="formData.description"
-            :rules="descriptionRules"
-            @blur="saveItem"
-            @update:model-value="updateFormData('description', $event)"
-          />
-          <div class="d-flex justify-space-between">
-            <v-switch
-              v-if="selectedItem && selectedItem.type && 'position' in selectedItem"
-              :label="isFromClass ? 'Inherited from a Class' : 'Represents a Model'"
-              :model-value="isFromClass"
-              @update:model-value="val => updateIsFromClass(val === true)"
-            />
+          <div v-if="!isFromClass && representedModel" class="current-model-preview">
+            <div class="current-model-preview__box">
+              <ModelPreview :model-item="representedModel" />
+            </div>
           </div>
         </v-col>
       </v-row>
@@ -269,3 +342,23 @@
     @select="onSelectContent"
   />
 </template>
+
+<style scoped>
+  .current-model-preview {
+    /* Outer layer: vertical breathing room. */
+    margin-top: 2px;
+    margin-bottom: 8px;
+  }
+  .current-model-preview__box {
+    /* Inner layer: bordered region with capped height + internal scroll.
+       Budget rationale: the model branch has an extra "Represented Model"
+       disabled text-field row above the preview (~76px), so the column
+       budget for this card is tighter than the class side. Capped at 100px
+       to keep the bottom border + bottom margin visible inside the 300px
+       overflow-hidden settings window. */
+    max-height: 200px;
+    overflow-y: auto;
+    border: thin solid rgba(var(--v-border-color), var(--v-border-opacity));
+    border-radius: 4px;
+  }
+</style>

@@ -13,6 +13,7 @@ import { SetInstantiationAttributesService } from './resolver-services/set-insta
 import { AnalysisResolverService } from './resolver-services/analysis-resolver.service';
 import { IssueResolverService } from './resolver-services/issue-resolver.service';
 import { MatchClassesResolverService } from './resolver-services/match-classes-resolver.service';
+import { ListClassesResolverService } from './resolver-services/list-classes-resolver.service';
 import { ControlGapsResolverService } from './resolver-services/control-gaps-resolver.service';
 import { ControlCandidatesResolverService } from './resolver-services/control-candidates-resolver.service';
 import { ClassIdentityResolverService } from './resolver-services/class-identity-resolver.service';
@@ -29,6 +30,7 @@ const resolverServiceClasses = [
   AnalysisResolverService,
   IssueResolverService,
   MatchClassesResolverService,
+  ListClassesResolverService,
   ControlGapsResolverService,
   ControlCandidatesResolverService,
   // Admin GraphQL surface for class-identity (events + admin mutations).

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref } from 'vue'
+  import { ref } from 'vue'
   import { useModelsStore } from '@/stores/modelsStore'
   import { useRouter } from 'vue-router'
   import { Class, Control, Model, Module } from '@dethernety/dt-core'
@@ -26,7 +26,6 @@
   const router = useRouter()
   const modelsStore = useModelsStore()
   const issueStore = useIssueStore()
-  const modules = computed(() => modelsStore.modules)
   const model = ref<Model | null>(null)
   const emits = defineEmits(['model:saved', 'model:open', 'model:moved', 'model:deleted', 'model:closed', 'redirect:issue'])
   const showFolderSelectDialog = ref(false)
@@ -44,8 +43,6 @@
 
   const showIssueDialog = ref(false)
   const issueClass = ref<Class | null>(null)
-
-  modelsStore.fetchModules()
 
   const headers = [
     { title: 'Name', key: 'name' },
@@ -239,19 +236,8 @@
                   <v-tabs-window-item value="general">
                     <v-container>
                       <v-row>
-                        <v-col cols="7">
+                        <v-col cols="12">
                           <v-text-field v-model="newName" label="Name" />
-                        </v-col>
-                        <v-col cols="5">
-                          <v-combobox
-                            v-model="newModules"
-                            chips
-                            item-title="name"
-                            item-value="id"
-                            :items="modules"
-                            label="Selected Modules"
-                            multiple
-                          />
                         </v-col>
                       </v-row>
                       <v-row>

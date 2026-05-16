@@ -132,8 +132,16 @@ type Model implements Element  @authentication @node {
   description: String
   "Top-level security boundaries in this model"
   defaultBoundary: [SecurityBoundary!]! @relationship(type: "CONTAINS", direction: OUT)
-  "Modules loaded for this model"
-  modules: [Module!]! @relationship(type: "HAS_MODULE", direction: OUT)
+  """
+  Modules previously attached to this model. UI-deprecated as of 2026-05 —
+  the class picker uses the global module catalogue via listClasses / matchClasses.
+  Reserved for potential future governance use cases (catalogue scoping policy).
+  Do not reintroduce a UI for this relationship without revisiting the
+  class-picker design.
+  """
+  modules: [Module!]!
+    @relationship(type: "HAS_MODULE", direction: OUT)
+    @deprecated(reason: "UI-deprecated as of 2026-05. Class picker uses the global catalogue via listClasses/matchClasses. Reserved for future governance use cases — do not reintroduce a UI without revisiting the class-picker design.")
   "Controls applied to this model"
   controls: [Control!]! @relationship(type: "SUPPORTS", direction: IN)
   "Data elements defined in this model"
@@ -1515,6 +1523,8 @@ type ClassCandidate {
   classCategory: String
   "Class type (included when 'type' is in fields)"
   classType: String
+  "ID of the module providing this class"
+  moduleId: ID!
   "Name of the module providing this class"
   moduleName: String!
   "How this match was determined"
@@ -1539,6 +1549,56 @@ type MatchClassesResult {
   matches: [ElementMatch!]!
   "Element names that matched at no priority level"
   unmatched: [String!]!
+  "Whether the deployment supports semantic search (Memgraph 3.0+ with vector module). False on Neo4j or older Memgraph. Does not guarantee that any specific class label has an embedded index."
+  vectorAvailable: Boolean!
+}
+
+"""Input for the listClasses query — paginated, server-aggregated class catalogue."""
+input ListClassesInput {
+  "Which class node label to list"
+  classLabel: ClassLabelEnum!
+  "Filter ComponentClass nodes by type (only when classLabel = COMPONENT)"
+  componentType: ComponentType
+  "Case-insensitive substring filter on class name"
+  search: String
+  "OR within: classes matching any of these categories"
+  categories: [String!]
+  "OR within: classes provided by any of these modules"
+  moduleIds: [ID!]
+  "Result offset for pagination"
+  offset: Int = 0
+  "Maximum number of items to return (clamped server-side to [1, 200])"
+  limit: Int = 50
+}
+
+"""One facet bucket for a string-valued dimension (categories, types)."""
+type ClassFacetEntry {
+  value: String!
+  count: Int!
+}
+
+"""One facet bucket for the modules dimension — carries id (for filter input) and name (for display)."""
+type ClassModuleFacetEntry {
+  moduleId: ID!
+  moduleName: String!
+  count: Int!
+}
+
+"""Server-aggregated facet counts over the filtered listClasses candidate set."""
+type ClassFacetCounts {
+  categories: [ClassFacetEntry!]!
+  modules: [ClassModuleFacetEntry!]!
+  types: [ClassFacetEntry!]!
+}
+
+"""Top-level result for the listClasses query."""
+type ListClassesResult {
+  "Page of class candidates (reuses ClassCandidate shape; matchType is 'type_match', similarityScore is null)"
+  items: [ClassCandidate!]!
+  "Total candidates across all pages, given the current filter"
+  totalCount: Int!
+  "Facet counts derived from the same filtered set as items"
+  facetCounts: ClassFacetCounts!
 }
 
 """Input for the controlGaps query."""
@@ -1752,6 +1812,10 @@ type Query {
 
   "Match elements against class catalog nodes using a multi-priority pipeline"
   matchClasses(input: MatchClassesInput!): MatchClassesResult!
+    @authentication
+
+  "Paginated class catalogue with server-aggregated facet counts. Powers the class-picker side-sheet's browse-all path."
+  listClasses(input: ListClassesInput!): ListClassesResult!
     @authentication
 
   "Find control IDs that have a SUPPORTS relationship to any of the given element IDs"
