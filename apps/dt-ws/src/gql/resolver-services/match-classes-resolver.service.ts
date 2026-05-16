@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { AuthorizationService } from '../services/authorization.service';
 import { MonitoringService } from '../services/monitoring.service';
 import { EmbeddingService } from '../services/embedding.service';
-import { ALLOWED_CLASS_LABELS } from '../interfaces/module-management.interface';
+import { classLabelToNodeLabel } from './shared/class-label-map';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
 
 // --- Constants ---
@@ -11,19 +11,6 @@ import { safeErrorMessage } from '../../common/utils/safe-error-message';
 const MAX_ELEMENTS = 100;
 const DEFAULT_TOP_N = 3;
 const MIN_SUBSTRING_LENGTH = 3;
-
-/**
- * Maps ClassLabelEnum values (from the GraphQL schema) to graph node labels.
- * This is the only place where label strings are defined — all Cypher label
- * interpolation flows through this map, preventing injection.
- */
-const CLASS_LABEL_TO_NODE_LABEL: Record<string, string> = {
-  COMPONENT: 'ComponentClass',
-  SECURITY_BOUNDARY: 'SecurityBoundaryClass',
-  DATA_FLOW: 'DataFlowClass',
-  DATA: 'DataClass',
-  CONTROL: 'ControlClass',
-};
 
 /**
  * Maps graph node labels to Memgraph HNSW vector index names.
@@ -60,6 +47,7 @@ interface ClassRecord {
   description: string | null;
   category: string | null;
   type: string | null;
+  moduleId: string;
   moduleName: string;
 }
 
@@ -69,6 +57,7 @@ interface ClassCandidate {
   classDescription: string | null;
   classCategory: string | null;
   classType: string | null;
+  moduleId: string;
   moduleName: string;
   matchType: string;
   confidence: string;
@@ -83,6 +72,7 @@ interface ElementMatch {
 interface MatchClassesResult {
   matches: ElementMatch[];
   unmatched: string[];
+  vectorAvailable: boolean;
 }
 
 // --- Service ---
@@ -92,6 +82,12 @@ export class MatchClassesResolverService {
   private readonly logger = new Logger(MatchClassesResolverService.name);
 
   private vectorSearchAvailable: boolean | null = null;
+  private vectorSearchAvailableCheckedAt = 0;
+  // 10-minute TTL — the vector module's availability rarely toggles, but
+  // dt-ws restarts shouldn't be required to pick up a Memgraph upgrade
+  // (or rollback) that flips the answer. Process-lifetime caching is too
+  // sticky; per-request probing wastes a round-trip.
+  private static readonly VECTOR_CHECK_TTL_MS = 10 * 60 * 1000;
   private vectorIndexesEnsured = false;
 
   constructor(
@@ -102,24 +98,6 @@ export class MatchClassesResolverService {
     private readonly embeddingService: EmbeddingService,
   ) {
     this.logger.log('MatchClassesResolverService initialized');
-  }
-
-  // --- Label security ---
-
-  /**
-   * Convert a ClassLabelEnum value to the corresponding graph node label.
-   * Validates against both the local map and ALLOWED_CLASS_LABELS as defense-in-depth.
-   * Throws if the label is not recognized — never interpolates unvalidated strings.
-   */
-  private classLabelToNodeLabel(classLabel: string): string {
-    const nodeLabel = CLASS_LABEL_TO_NODE_LABEL[classLabel];
-    if (!nodeLabel) {
-      throw new Error(`Invalid classLabel: ${classLabel}`);
-    }
-    if (!ALLOWED_CLASS_LABELS.has(nodeLabel)) {
-      throw new Error(`Node label ${nodeLabel} is not in the allowed set`);
-    }
-    return nodeLabel;
   }
 
   // --- Input validation ---
@@ -134,7 +112,7 @@ export class MatchClassesResolverService {
       );
     }
     // Validate classLabel maps to a known node label (also catches injection)
-    this.classLabelToNodeLabel(input.classLabel);
+    classLabelToNodeLabel(input.classLabel);
 
     // componentType only valid for COMPONENT
     if (input.componentType && input.classLabel !== 'COMPONENT') {
@@ -170,11 +148,11 @@ export class MatchClassesResolverService {
            WHERE m.id IN $moduleIds
            RETURN c.id AS classId, c.name AS className,
                   c.description AS description, c.category AS category,
-                  c.type AS type, m.name AS moduleName`
+                  c.type AS type, m.id AS moduleId, m.name AS moduleName`
         : `MATCH (c:${nodeLabel})<-[:HAS_CLASS]-(m:Module)
            RETURN c.id AS classId, c.name AS className,
                   c.description AS description, c.category AS category,
-                  c.type AS type, m.name AS moduleName`;
+                  c.type AS type, m.id AS moduleId, m.name AS moduleName`;
 
       const result = await session.executeRead(async (tx: any) => {
         return await tx.run(query, hasModuleFilter ? { moduleIds } : {});
@@ -186,6 +164,7 @@ export class MatchClassesResolverService {
         description: record.get('description') ?? null,
         category: record.get('category') ?? null,
         type: record.get('type') ?? null,
+        moduleId: record.get('moduleId'),
         moduleName: record.get('moduleName'),
       }));
     } finally {
@@ -262,7 +241,13 @@ export class MatchClassesResolverService {
    * Caches the result — probes at most once per service lifetime.
    */
   private async checkVectorSearchAvailability(): Promise<boolean> {
-    if (this.vectorSearchAvailable !== null) return this.vectorSearchAvailable;
+    const now = Date.now();
+    if (
+      this.vectorSearchAvailable !== null &&
+      now - this.vectorSearchAvailableCheckedAt < MatchClassesResolverService.VECTOR_CHECK_TTL_MS
+    ) {
+      return this.vectorSearchAvailable;
+    }
 
     const session = this.neo4jDriver.session({
       database: this.configService.get('database.name') || 'neo4j',
@@ -279,6 +264,7 @@ export class MatchClassesResolverService {
     } finally {
       await session.close();
     }
+    this.vectorSearchAvailableCheckedAt = now;
     return this.vectorSearchAvailable;
   }
 
@@ -436,7 +422,7 @@ export class MatchClassesResolverService {
         WHERE $module_ids IS NULL OR m.id IN $module_ids
         RETURN node.id AS classId, node.name AS className,
                node.description AS description, node.category AS category,
-               node.type AS type, m.name AS moduleName,
+               node.type AS type, m.id AS moduleId, m.name AS moduleName,
                node.embeddingModel AS embeddingModel, similarity
         ORDER BY similarity DESC
         LIMIT ${Math.floor(Number(topN))}
@@ -469,6 +455,7 @@ export class MatchClassesResolverService {
           description: record.get('description') ?? null,
           category: record.get('category') ?? null,
           type: record.get('type') ?? null,
+          moduleId: record.get('moduleId'),
           moduleName: record.get('moduleName'),
         },
         similarity: record.get('similarity'),
@@ -493,6 +480,7 @@ export class MatchClassesResolverService {
       classDescription: fields.has('description') ? record.description : null,
       classCategory: fields.has('category') ? record.category : null,
       classType: fields.has('type') ? record.type : null,
+      moduleId: record.moduleId,
       moduleName: record.moduleName,
       matchType,
       confidence,
@@ -507,9 +495,18 @@ export class MatchClassesResolverService {
   ): Promise<MatchClassesResult> {
     this.validateInput(input);
 
-    const nodeLabel = this.classLabelToNodeLabel(input.classLabel);
+    const nodeLabel = classLabelToNodeLabel(input.classLabel);
     const topN = input.topN ?? DEFAULT_TOP_N;
     const fields = new Set(input.fields ?? []);
+
+    // Eagerly resolve vector availability for the response field. The Priority-3
+    // branch below evaluates the same flags lazily, but we always populate
+    // vectorAvailable so callers (UI, MCP tool) can surface the signal even
+    // when the cascade short-circuits at Priority 1 or 2. The DB probe is
+    // memoised on this.vectorSearchAvailable after the first call.
+    const vectorAvailable =
+      this.embeddingService.isEnabled() &&
+      (await this.checkVectorSearchAvailability());
 
     // Single DB fetch — all classes of this label, optionally scoped to modules
     const allClasses = await this.fetchClasses(nodeLabel, input.moduleIds);
@@ -603,7 +600,7 @@ export class MatchClassesResolverService {
       }
     }
 
-    return { matches, unmatched };
+    return { matches, unmatched, vectorAvailable };
   }
 
   // --- Reindex ---
@@ -776,7 +773,9 @@ export class MatchClassesResolverService {
               duration,
             });
 
-            throw error;
+            throw new Error(safeErrorMessage(error, 'matchClasses failed'), {
+              cause: error,
+            });
           }
         },
       },
@@ -843,7 +842,9 @@ export class MatchClassesResolverService {
               duration,
             });
 
-            throw error;
+            throw new Error(safeErrorMessage(error, 'reindexClassEmbeddings failed'), {
+              cause: error,
+            });
           }
         },
       },

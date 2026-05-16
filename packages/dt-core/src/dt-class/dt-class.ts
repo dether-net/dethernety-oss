@@ -15,6 +15,7 @@ import {
   GET_BOUNDARY_CLASS_BY_ID,
   GET_DATA_FLOW_CLASS_BY_ID,
   MATCH_CLASSES,
+  LIST_CLASSES,
 } from './dt-class-gql.js'
 import yaml from 'js-yaml';
 
@@ -471,6 +472,7 @@ export class DtClass {
         classDescription?: string;
         classCategory?: string;
         classType?: string;
+        moduleId: string;
         moduleName: string;
         matchType: string;
         confidence: string;
@@ -478,40 +480,141 @@ export class DtClass {
       }>;
     }>;
     unmatched: string[];
+    vectorAvailable: boolean;
   }> => {
-    const response = await this.dtUtils.performQuery<{
-      matchClasses: {
-        matches: Array<{
-          elementName: string;
-          candidates: Array<{
+    // Cancel-on-replace keyed per call-site context: rapid-fire keystrokes from
+    // the same picker (same classLabel + componentType) supersede each other.
+    const key = `matchClasses:${classLabel}:${componentType ?? '_'}`
+    return this.dtUtils.withCancellableLatest(key, async () => {
+      const response = await this.dtUtils.performQuery<{
+        matchClasses: {
+          matches: Array<{
+            elementName: string;
+            candidates: Array<{
+              classId: string;
+              className: string;
+              classDescription?: string;
+              classCategory?: string;
+              classType?: string;
+              moduleId: string;
+              moduleName: string;
+              matchType: string;
+              confidence: string;
+              similarityScore?: number;
+            }>;
+          }>;
+          unmatched: string[];
+          vectorAvailable: boolean;
+        };
+      }>({
+        query: MATCH_CLASSES,
+        variables: {
+          input: {
+            elements,
+            classLabel,
+            ...(componentType ? { componentType } : {}),
+            ...(moduleIds ? { moduleIds } : {}),
+            ...(topN !== undefined ? { topN } : {}),
+            ...(fields ? { fields } : {}),
+          },
+        },
+        action: 'matchClasses',
+        fetchPolicy: 'network-only',
+      })
+      return response.matchClasses
+    })
+  }
+
+  /**
+   * Paginated class catalogue with server-aggregated facet counts. Powers the
+   * class-picker side-sheet's browse-all path. Cancel-on-replace keyed by
+   * `classLabel + componentType` so rapid filter/pagination changes within a
+   * single picker discard stale results.
+   *
+   * @param classLabel    - Which class node label to list (COMPONENT, CONTROL, etc.)
+   * @param componentType - Filter ComponentClass by type (only when classLabel = COMPONENT)
+   * @param search        - Optional case-insensitive substring filter on class name
+   * @param categories    - Optional category filter (OR within)
+   * @param moduleIds     - Optional module filter (OR within)
+   * @param offset        - Pagination offset (default 0 on server)
+   * @param limit         - Pagination size (default 50, capped at 200 on server)
+   */
+  listClasses = async ({
+    classLabel,
+    componentType,
+    search,
+    categories,
+    moduleIds,
+    offset,
+    limit,
+  }: {
+    classLabel: string;
+    componentType?: string;
+    search?: string;
+    categories?: string[];
+    moduleIds?: string[];
+    offset?: number;
+    limit?: number;
+  }): Promise<{
+    items: Array<{
+      classId: string;
+      className: string;
+      classDescription?: string | null;
+      classCategory?: string | null;
+      classType?: string | null;
+      moduleId: string;
+      moduleName: string;
+      matchType: string;
+      confidence: string;
+      similarityScore?: number | null;
+    }>;
+    totalCount: number;
+    facetCounts: {
+      categories: Array<{ value: string; count: number }>;
+      modules: Array<{ moduleId: string; moduleName: string; count: number }>;
+      types: Array<{ value: string; count: number }>;
+    };
+  }> => {
+    const key = `listClasses:${classLabel}:${componentType ?? '_'}`
+    return this.dtUtils.withCancellableLatest(key, async () => {
+      const response = await this.dtUtils.performQuery<{
+        listClasses: {
+          items: Array<{
             classId: string;
             className: string;
-            classDescription?: string;
-            classCategory?: string;
-            classType?: string;
+            classDescription?: string | null;
+            classCategory?: string | null;
+            classType?: string | null;
+            moduleId: string;
             moduleName: string;
             matchType: string;
             confidence: string;
-            similarityScore?: number;
+            similarityScore?: number | null;
           }>;
-        }>;
-        unmatched: string[];
-      };
-    }>({
-      query: MATCH_CLASSES,
-      variables: {
-        input: {
-          elements,
-          classLabel,
-          ...(componentType ? { componentType } : {}),
-          ...(moduleIds ? { moduleIds } : {}),
-          ...(topN !== undefined ? { topN } : {}),
-          ...(fields ? { fields } : {}),
+          totalCount: number;
+          facetCounts: {
+            categories: Array<{ value: string; count: number }>;
+            modules: Array<{ moduleId: string; moduleName: string; count: number }>;
+            types: Array<{ value: string; count: number }>;
+          };
+        };
+      }>({
+        query: LIST_CLASSES,
+        variables: {
+          input: {
+            classLabel,
+            ...(componentType ? { componentType } : {}),
+            ...(search ? { search } : {}),
+            ...(categories ? { categories } : {}),
+            ...(moduleIds ? { moduleIds } : {}),
+            ...(offset !== undefined ? { offset } : {}),
+            ...(limit !== undefined ? { limit } : {}),
+          },
         },
-      },
-      action: 'matchClasses',
-      fetchPolicy: 'network-only',
+        action: 'listClasses',
+        fetchPolicy: 'network-only',
+      })
+      return response.listClasses
     })
-    return response.matchClasses
   }
 }

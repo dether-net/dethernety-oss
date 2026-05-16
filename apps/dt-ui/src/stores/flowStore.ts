@@ -524,6 +524,14 @@ export const useFlowStore = defineStore('flow', () => {
     return false
   }
 
+  const writeLocalClassId = (nodeId: string, classId: string | null): void => {
+    const idx = getNodeIndexById({ nodeId })
+    if (idx === -1) return
+    const cur = nodes.value[idx]
+    nodes.value.splice(idx, 1, { ...cur, data: { ...cur.data, classId } })
+    nodes.value = [...nodes.value]
+  }
+
   const updateNodeClass = async (
     { nodeId, classId }:
     { nodeId: string, classId: string }
@@ -534,7 +542,7 @@ export const useFlowStore = defineStore('flow', () => {
       queueUpdateForTempNode(nodeId, { classId })
       return true
     }
-    
+
     try {
       let node: any = null
       if (nodeId === defaultBoundaryId.value) {
@@ -543,11 +551,11 @@ export const useFlowStore = defineStore('flow', () => {
         node = getNodeById({ nodeId }) || null
       }
       if (node) {
-        if (node.type === 'BOUNDARY') {
-          return dtBoundary.updateBoundaryClass({ boundaryId: nodeId, classId })
-        } else {
-          return dtComponent.updateComponentClass({ componentId: nodeId, classId })
-        }
+        const ok = node.type === 'BOUNDARY'
+          ? await dtBoundary.updateBoundaryClass({ boundaryId: nodeId, classId })
+          : await dtComponent.updateComponentClass({ componentId: nodeId, classId })
+        if (ok) writeLocalClassId(nodeId, classId)
+        return ok
       }
     } catch (error) {
       dtUtils.handleError({ action: 'updateNodeClass', error })

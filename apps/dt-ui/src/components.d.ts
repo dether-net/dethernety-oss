@@ -20,6 +20,12 @@ declare module 'vue' {
     BlockedInstallsBanner: typeof import('./components/Modules/BlockedInstallsBanner.vue')['default']
     BoundaryNode: typeof import('./components/DataFlow/Nodes/BoundaryNode.vue')['default']
     CascadeDeleteDialog: typeof import('./components/Dialogs/Module/CascadeDeleteDialog.vue')['default']
+    ClassPicker: typeof import('./components/DataFlow/ClassPicker/ClassPicker.vue')['default']
+    ClassPickerFacets: typeof import('./components/DataFlow/ClassPicker/ClassPickerFacets.vue')['default']
+    ClassPickerInline: typeof import('./components/DataFlow/ClassPicker/ClassPickerInline.vue')['default']
+    ClassPickerResults: typeof import('./components/DataFlow/ClassPicker/ClassPickerResults.vue')['default']
+    ClassPickerSheet: typeof import('./components/DataFlow/ClassPicker/ClassPickerSheet.vue')['default']
+    ClassPreview: typeof import('./components/DataFlow/ClassPicker/ClassPreview.vue')['default']
     ConfirmClassCreationDialog: typeof import('./components/Dialogs/General/ConfirmClassCreationDialog.vue')['default']
     ConfirmClassOrModelChangeDialog: typeof import('./components/Dialogs/DataFlow/ConfirmClassOrModelChangeDialog.vue')['default']
     ConfirmDeleteDialog: typeof import('./components/Dialogs/General/ConfirmDeleteDialog.vue')['default']
@@ -47,6 +53,7 @@ declare module 'vue' {
     IssueDialog: typeof import('./components/Dialogs/Issues/IssueDialog.vue')['default']
     IssueSelector: typeof import('./components/Dialogs/General/IssueSelector.vue')['default']
     ModelDialog: typeof import('./components/Dialogs/Model/ModelDialog.vue')['default']
+    ModelPreview: typeof import('./components/DataFlow/ClassPicker/ModelPreview.vue')['default']
     ModuleCard: typeof import('./components/Dialogs/Module/ModuleCard.vue')['default']
     ModuleHealthTable: typeof import('./components/Modules/ModuleHealthTable.vue')['default']
     OrphanedClassesPanel: typeof import('./components/Modules/OrphanedClassesPanel.vue')['default']
@@ -60,6 +67,7 @@ declare module 'vue' {
     SettingsGeneralTab: typeof import('./components/DataFlow/SettingsTabs/SettingsGeneralTab.vue')['default']
     SettingsWindow: typeof import('./components/DataFlow/SettingsWindow.vue')['default']
     StoreNode: typeof import('./components/DataFlow/Nodes/StoreNode.vue')['default']
+    UnclassifiedPill: typeof import('./components/DataFlow/ClassPicker/UnclassifiedPill.vue')['default']
     UserQuestionDialog: typeof import('./components/Dialogs/Analysis/UserQuestionDialog.vue')['default']
   }
 }

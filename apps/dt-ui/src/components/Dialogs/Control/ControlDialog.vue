@@ -1,9 +1,11 @@
 <script setup lang="ts">
   import { computed, onMounted, ref, watch } from 'vue'
   import { useControlsStore } from '@/stores/controlsStore'
+  import { useClassSuggestionsStore } from '@/stores/classSuggestionsStore'
   import { Class, Control, Countermeasure } from '@dethernety/dt-core'
   import { unflattenProperties } from '@/utils/dataFlowUtils'
   import type { UISchemaElement } from '@jsonforms/core'
+  import ClassPickerSheet from '@/components/DataFlow/ClassPicker/ClassPickerSheet.vue'
 
   interface Props {
     show: boolean
@@ -59,21 +61,12 @@
 
   const showFolderSelectDialog = ref(false)
 
-  const availableClasses = ref<Class[]>([])
-
   const lastLoadedAttributes = ref<object>({})
   const attributesSchema = ref<object | null>(null)
   const attributesUiSchema = ref<UISchemaElement | null>(null)
   const attributesLoading = ref(false)
   const attributesTemplateWarning = ref(false)
 
-  // Data table headers
-  const headers = [
-    { title: 'Name', key: 'name' },
-    { title: 'Description', key: 'description' },
-    { title: 'Module', key: 'module.name' },
-    { title: '', key: 'actions' },
-  ]
   const itemsPerPage = [
     { value: 5, title: '5' },
     { value: 10, title: '10' },
@@ -108,6 +101,111 @@
   // internal selection from a same-content prop reassign — a re-mount
   // is the surest reset.
   const classTableKey = ref(0)
+
+  // --- Bound-list rendering ---
+  // selectedClassIds (declared above) holds the WORKING DRAFT of bound class
+  // ids. localClassInfo is the row-info lookup for the bound table — seeded
+  // from control.controlClasses on load (server-resolved shape), augmented
+  // on each picker commit (read from classSuggestionsStore).
+  //
+  // Why a separate map: control.value is loaded once by getControl and is
+  // NOT refreshed after updateControl; selectedClassIds drives isDirty and
+  // the un-assign-confirm machinery. Joining the two via a computed gives
+  // an optimistic render that reflects edits before the server round-trip.
+
+  const classStore = useClassSuggestionsStore()
+  const CONTROL_STATE_KEY = 'CONTROL:_'  // classLabel:componentType key shape; CONTROL has no componentType
+
+  interface BoundClassRow {
+    id: string
+    name: string
+    description: string | null
+    category: string | null
+    module: { name: string }
+  }
+
+  const localClassInfo = ref<Map<string, BoundClassRow>>(new Map())
+  const showAddSheet = ref(false)
+  const boundSearch = ref('')
+
+  const boundHeaders = [
+    { title: 'Name',        key: 'name' },
+    { title: 'Description', key: 'description' },
+    { title: 'Category',    key: 'category' },
+    { title: 'Module',      key: 'module.name' },
+    { title: '',            key: 'actions', sortable: false, width: '120px' },
+  ]
+
+  const boundClasses = computed<BoundClassRow[]>(() =>
+    // selectedClassIds is the reactivity trigger; localClassInfo is just a lookup.
+    // Order: render in selectedClassIds order so user-added rows append visibly.
+    selectedClassIds.value.flatMap(id => {
+      const info = localClassInfo.value.get(id)
+      return info ? [info] : []
+    })
+  )
+
+  const filteredBoundClasses = computed<BoundClassRow[]>(() => {
+    const q = boundSearch.value.trim().toLowerCase()
+    if (!q) return boundClasses.value
+    return boundClasses.value.filter(c =>
+      c.name.toLowerCase().includes(q)
+      || (c.description?.toLowerCase().includes(q) ?? false)
+    )
+  })
+
+  function seedLocalClassInfoFromControl(): void {
+    for (const c of control.value?.controlClasses ?? []) {
+      localClassInfo.value.set(c.id, {
+        id: c.id,
+        name: c.name ?? '',
+        description: c.description ?? null,
+        category: c.category ?? null,
+        module: { name: c.module?.name ?? '' },
+      })
+    }
+  }
+
+  function onAddClass({ classId }: { classId: string }): void {
+    if (selectedClassIds.value.includes(classId)) return  // no-op for double-pick
+    // Sheet renders rows from listResults/matchResults; a sheet-emitted id is
+    // guaranteed to be in one of those maps at the moment of commit. If lookup
+    // somehow misses (torn store, race), warn and skip rather than render a
+    // half-formed row — getControlClassById doesn't return module info, so a
+    // fallback fetch can't fully populate the row anyway.
+    const matched =
+      classStore.matchResults.get(CONTROL_STATE_KEY)?.find(c => c.classId === classId)
+      ?? classStore.listResults.get(CONTROL_STATE_KEY)?.items.find(c => c.classId === classId)
+    if (!matched) {
+      console.warn('[ControlDialog] onAddClass: classId not in suggestions store', classId)
+      snackBar.value = {
+        show: true,
+        message: 'Failed to add class — please retry from the picker.',
+        color: 'error',
+      }
+      return
+    }
+    localClassInfo.value.set(classId, {
+      id: classId,
+      name: matched.className,
+      description: matched.classDescription ?? null,
+      category: matched.classCategory ?? null,
+      module: { name: matched.moduleName },
+    })
+    // selectedClassIds mutation is the reactivity trigger for boundClasses.
+    // Replace (don't mutate) so v-data-table notices.
+    selectedClassIds.value = [...selectedClassIds.value, classId]
+    // Sheet stays open: parent does NOT flip showAddSheet here. The user closes
+    // it via the sheet's Cancel button when done with the multi-pick session.
+  }
+
+  function onRemoveClass(classId: string): void {
+    // Delegate to the existing un-assign-with-attributes confirm machinery.
+    // It gates on classesWithAttributes and prompts when stored attrs would
+    // be destroyed. localClassInfo is intentionally NOT pruned — cheap to
+    // keep, and re-adding the same class short-circuits the store lookup.
+    onClassSelectionChange(selectedClassIds.value.filter(id => id !== classId))
+  }
 
   // Dirty tracking — initialState snapshot captured on getControl resolve and
   // refreshed on every successful save. Attributes deliberately excluded:
@@ -222,25 +320,6 @@
     classTableKey.value++
   }
 
-  const availableModules = computed(() => controlsStore.modules)
-  const selectedModules = ref<String[]>([])
-
-  // Search term
-  const search = ref('')
-  const onlySelected = ref(false)
-
-  const filteredControlClasses = computed(() => {
-    const searchTerm = search.value.toLowerCase()
-    return availableClasses.value.filter(cls => {
-      const nameMatches = cls.name?.toLowerCase().includes(searchTerm)
-      const descriptionMatches = cls.description?.toLowerCase().includes(searchTerm)
-      const onlySelectedIdsMatch = onlySelected.value ? selectedClassIds.value.includes(cls.id) : true
-      const moduleIdsMatch = selectedModules.value?.length === 0 ||
-        (cls.module?.id && selectedModules.value.includes(cls.module.id))
-      return onlySelectedIdsMatch && moduleIdsMatch && (nameMatches || descriptionMatches)
-    })
-  })
-
   const countermeasures = ref<Countermeasure[]>([])
   const fetchCountermeasures = () => {
     controlsStore.getCountermeasuresFromControl({ controlId: props.id }).then(cm => {
@@ -256,7 +335,7 @@
       newName.value = control.value?.name || ''
       newDescription.value = control.value?.description || ''
       selectedClassIds.value = control.value?.controlClasses?.map(cls => cls.id) || []
-      onlySelected.value = (control.value?.controlClasses?.length ?? 0) > 0
+      seedLocalClassInfoFromControl()
       initialState.value = {
         name: newName.value,
         description: newDescription.value,
@@ -264,6 +343,10 @@
       }
       const classIds = control.value?.controlClasses?.map(cls => cls.id) || []
       if (classIds.length > 0) {
+        // N+1: one `getAttributesFromClassRelationship` call per bound class.
+        // Tolerable at typical control sizes (≤10 classes); revisit with a
+        // batched resolver if a control's bound-list grows large enough to
+        // produce visible load latency.
         const results = await Promise.all(
           classIds.map(classId =>
             controlsStore.getAttributesFromClassRelationship({
@@ -284,14 +367,8 @@
   onMounted(() => {
     controlsStore.fetchMitreAttackMitigations()
     controlsStore.fetchMitreDefendTactics()
-    controlsStore.fetchClasses({
-      moduleWhere: {},
-      classWhere: {},
-    }).then(classes => {
-      availableClasses.value = classes.map((cls: { controlClasses: any; }) => cls.controlClasses).flat()
-    })
-    controlsStore.fetchModules()
     getControl()
+    fetchCountermeasures()
   })
 
   const onCountermeasureUpdated = () => {
@@ -481,8 +558,6 @@
     })
   }
 
-  fetchCountermeasures()
-
 </script>
 
 <template>
@@ -550,51 +625,48 @@
                   </v-tabs-window-item>
 
                   <!-- Controls Tab -->
+                  <!-- Bound-classes tab — bound-list table + picker-sheet add flow -->
                   <v-tabs-window-item class="pt-1" value="classes">
+                    <div class="bound-classes-toolbar d-flex align-center justify-space-between mb-3">
+                      <v-text-field
+                        v-model="boundSearch"
+                        append-inner-icon="mdi-magnify"
+                        class="bound-search"
+                        density="compact"
+                        hide-details
+                        label="Search bound classes"
+                      />
+                      <v-btn
+                        class="ml-3"
+                        color="secondary"
+                        icon="mdi-plus"
+                        variant="outlined"
+                        size="x-large"
+                        @click="showAddSheet = true"
+                      />
+                    </div>
                     <v-data-table
                       :key="classTableKey"
                       class="control-classes"
-                      :headers="headers"
+                      :headers="boundHeaders"
                       item-key="id"
-                      :items="filteredControlClasses"
+                      :items="filteredBoundClasses"
                       items-per-page="5"
                       :items-per-page-options="itemsPerPage"
-                      :model-value="selectedClassIds"
-                      show-select
-                      @update:model-value="onClassSelectionChange"
                     >
-                      <!-- Search Bar -->
-                      <template #top>
-                        <div class="d-flex justify-space-around mb-6">
-                          <v-text-field v-model="search" append-icon="mdi-magnify" class="mx-4 my-0" label="Search" />
-                          <v-autocomplete
-                            v-model="selectedModules"
-                            chips
-                            class="moduleSelector"
-                            item-title="name"
-                            item-value="id"
-                            :items="availableModules"
-                            label="In modules"
-                            multiple
-                          />
-                          <v-btn
-                            v-model="onlySelected"
-                            class="mx-3 my-0"
-                            :color="onlySelected ? 'secondary' : 'grey'"
-                            :icon="onlySelected ? 'mdi-filter-check-outline' : 'mdi-filter-outline'"
-                            size="x-large"
-                            variant="outlined"
-                            @click="onlySelected = !onlySelected"
-                          />
-                        </div>
-                      </template>
                       <template #item.actions="{ item }">
                         <v-btn
                           class="mr-2"
-                          color="primary"
+                          color="secondary"
                           icon="mdi-tune"
                           variant="plain"
                           @click="showClassControl(item.id)"
+                        />
+                        <v-btn
+                          color="error"
+                          icon="mdi-trash-can-outline"
+                          variant="plain"
+                          @click="onRemoveClass(item.id)"
                         />
                       </template>
                     </v-data-table>
@@ -706,6 +778,15 @@
           @attributes:save-and-close="onAttributesSaveAndClose"
           @close="showClassControlDialog = false"
         />
+        <ClassPickerSheet
+          :bound-class-ids="selectedClassIds"
+          class-label="CONTROL"
+          :current-class-id="null"
+          :initial-search="''"
+          :model-value="showAddSheet"
+          @commit-request="onAddClass"
+          @update:model-value="showAddSheet = $event"
+        />
         <ConfirmDeleteDialog
           v-if="showDeleteControlsDialog"
           :message="`Are you sure you want to delete this Control: ${control?.name ?? ''}?`"
@@ -765,7 +846,7 @@
           confirmColor="warning"
           confirmIcon="mdi-check-circle-outline"
           icon="mdi-shield-off-outline"
-          :message="`Removing the following class${pendingRemovedClassIds.length > 1 ? 'es' : ''} will delete their stored attributes when you save: ${pendingRemovedClassIds.map(id => availableClasses.find(c => c.id === id)?.name ?? id).join(', ')}. Continue?`"
+          :message="`Removing the following class${pendingRemovedClassIds.length > 1 ? 'es' : ''} will delete their stored attributes when you save: ${pendingRemovedClassIds.map(id => localClassInfo.get(id)?.name ?? id).join(', ')}. Continue?`"
           :show="showClassRemovalConfirmDialog"
           title="Remove class with stored attributes?"
           @delete:canceled="onClassRemovalCanceled"
@@ -782,12 +863,15 @@
   }
 
   .model-tab {
-    height: 380px;
+    /* Bumped from 380px to absorb the toolbar above the bound-list table
+       (search + Add class), which was moved out of the table's #top slot
+       in the ControlDialog redesign. Old budget = toolbar-in-slot; new
+       budget = toolbar-outside + natural table. */
+    height: 460px;
     overflow-y: auto;
   }
 
-  .control-classes {
-    height: 370px;
-    overflow-y: auto;
-  }
+  /* .control-classes — no explicit height. The table is paginated at 5
+     rows so its natural height is bounded; the .model-tab wrapper above
+     handles any overflow without nesting a second scrollbar. */
 </style>

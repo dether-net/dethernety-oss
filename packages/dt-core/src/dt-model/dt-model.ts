@@ -138,6 +138,8 @@ export class DtModel {
             }
             results.defaultBoundary = defaultBoundary
 
+            const firstId = (arr: { id: string }[] | undefined): string | null =>
+              arr && arr.length > 0 ? arr[0].id : null
             const mapComponent = (component: ComponentData): Node => ({
               id: component.id,
               type: component.type,
@@ -147,6 +149,8 @@ export class DtModel {
                 description: component.description,
                 controls: component.controls?.map(control => control.id),
                 dataItems: component.dataItems?.map(dataItem => dataItem.id),
+                classId: firstId(component.componentClass),
+                representedModelId: firstId(component.representedModel),
               },
               parentNode:
                 Array.isArray(component.parentBoundary) &&
@@ -167,6 +171,8 @@ export class DtModel {
                 minWidth: boundary.dimensionsMinWidth,
                 minHeight: boundary.dimensionsMinHeight,
                 dataItems: boundary.dataItems?.map(dataItem => dataItem.id),
+                classId: firstId(boundary.securityBoundaryClass),
+                representedModelId: firstId(boundary.representedModel),
               },
               width: boundary.dimensionsWidth || 0,
               height: boundary.dimensionsHeight || 0,

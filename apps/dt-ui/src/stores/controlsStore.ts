@@ -14,7 +14,6 @@ import {
 export const useControlsStore = defineStore('controls', () => {
   // State
   const controls = ref<Control[]>([])
-  const modules = ref<Module[]>([])
   const mitreAttackMitigations = ref<MitreAttackMitigation[]>([])
   const mitreDefendTactics = ref<MitreDefendTactic[]>([])
 
@@ -25,8 +24,6 @@ export const useControlsStore = defineStore('controls', () => {
     creatingControl: false,
     updatingControl: false,
     deletingControl: false,
-    fetchingModules: false,
-    fetchingClasses: false,
     fetchingMitreAttack: false,
     fetchingMitreDefend: false,
   })
@@ -168,7 +165,6 @@ export const useControlsStore = defineStore('controls', () => {
 
   const resetStore = () => {
     controls.value = []
-    modules.value = []
     mitreAttackMitigations.value = []
     mitreDefendTactics.value = []
     errors.value = {}
@@ -177,8 +173,6 @@ export const useControlsStore = defineStore('controls', () => {
       creatingControl: false,
       updatingControl: false,
       deletingControl: false,
-      fetchingModules: false,
-      fetchingClasses: false,
       fetchingMitreAttack: false,
       fetchingMitreDefend: false,
     }
@@ -205,57 +199,6 @@ export const useControlsStore = defineStore('controls', () => {
     } catch (error) {
       setError(operation, error as Error, 'fetch controls')
       return []
-    } finally {
-      setOperationLoading(operation, false)
-    }
-  }
-
-  const fetchClasses = async (
-    { moduleWhere, classWhere }: { moduleWhere: any, classWhere: any }
-  ) => {
-    const operation = 'fetchingClasses'
-    
-    try {
-      setOperationLoading(operation, true)
-      clearError(operation)
-      
-      const response = await dtClass.getControlClasses({ moduleWhere, classWhere })
-      return response
-    } catch (error) {
-      setError(operation, error as Error, 'fetch classes')
-      return []
-    } finally {
-      setOperationLoading(operation, false)
-    }
-  }
-
-  const fetchModules = async (useCache: boolean = true): Promise<boolean> => {
-    const operation = 'fetchingModules'
-    const cacheKey = 'modules'
-    
-    // Check cache first
-    if (useCache) {
-      const cached = getCached(cacheKey)
-      if (cached) {
-        modules.value = cached
-        return true
-      }
-    }
-    
-    try {
-      setOperationLoading(operation, true)
-      clearError(operation)
-      
-      const results = await dtModule.getModules()
-      modules.value = results as Module[]
-      
-      // Cache the results
-      setCache(cacheKey, results)
-      
-      return true
-    } catch (error) {
-      setError(operation, error as Error, 'fetch modules')
-      return false
     } finally {
       setOperationLoading(operation, false)
     }
@@ -570,26 +513,25 @@ export const useControlsStore = defineStore('controls', () => {
   return {
     // State
     controls,
-    modules,
     mitreAttackMitigations,
     mitreDefendTactics,
-    
+
     // Loading states
     isLoading,
     operationStates,
-    
+
     // Error states
     errors,
-    
+
     // Utility functions
     clearError,
     clearCache,
-    
+
     // Resetting functions
     resetStore,
-    
+
     // Fetching functions
-    fetchClasses, fetchControls, fetchModules, getClass,
+    fetchControls, getClass,
     
     // Module functions
     getModuleByName, getModuleById, resetModule,

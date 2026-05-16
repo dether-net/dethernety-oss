@@ -63,6 +63,10 @@ export class EnsureIndexesService implements OnApplicationBootstrap {
     // Module is the join hub for upsertClass / Phase-4 reconciliation
     // queries; module-name lookup happens on every install.
     { label: 'Module', property: 'name' },
+    // Back `MATCH ... <-[:HAS_CLASS]-(m:Module) WHERE m.id IN $moduleIds`
+    // in list-classes-resolver and the same pattern in match-classes-resolver.
+    // Without this, moduleIds filtering degrades to a post-traversal filter.
+    { label: 'Module', property: 'id' },
     // Back the @cypher `createAnalysisIdempotent` mutation:
     // `MERGE (a:Analysis {id})` + `MATCH (e:{ElementLabel} {id})` for
     // ANALYZED_BY binding. Without these, the MERGE/MATCH pair degrades

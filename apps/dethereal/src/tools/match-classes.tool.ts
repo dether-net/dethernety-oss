@@ -49,6 +49,10 @@ interface MatchClassesOutput {
   total_elements: number
   matched_count: number
   unmatched_count: number
+  /** Whether semantic (vector) search is available on this deployment. */
+  vector_search_available: boolean
+  /** Present only when vector_search_available === false; a human-readable hint AI agents can relay. */
+  clarification?: string
 }
 
 export class MatchClassesTool extends ClientDependentTool<MatchClassesInput, MatchClassesOutput> {
@@ -73,13 +77,25 @@ export class MatchClassesTool extends ClientDependentTool<MatchClassesInput, Mat
         ...(input.fields ? { fields: input.fields } : {}),
       })
 
+      // Destructure rather than spread: re-emit `vectorAvailable` under the
+      // snake_case `vector_search_available` so the output has one canonical
+      // spelling for AI agents to read.
+      const { matches, unmatched, vectorAvailable } = result
       return {
         success: true,
         data: {
-          ...result,
+          matches,
+          unmatched,
           total_elements: input.elements.length,
-          matched_count: result.matches.length,
-          unmatched_count: result.unmatched.length,
+          matched_count: matches.length,
+          unmatched_count: unmatched.length,
+          vector_search_available: vectorAvailable,
+          ...(vectorAvailable
+            ? {}
+            : {
+                clarification:
+                  'Semantic (vector) search is not available on this deployment; results are name- and type-based only.',
+              }),
         },
       }
     } catch (error) {

@@ -1,4 +1,22 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import type { ToolContext } from '../base-tool.js'
+
+// Stub @dethernety/dt-core's DtClass so we can drive matchClasses' return
+// shape — including the new `vectorAvailable` flag — without spinning up Apollo.
+const { mockMatchClasses } = vi.hoisted(() => ({ mockMatchClasses: vi.fn() }))
+
+vi.mock('@dethernety/dt-core', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>
+  return {
+    ...actual,
+    DtClass: class MockDtClass {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+      constructor(_apolloClient: any) {}
+      matchClasses = mockMatchClasses
+    },
+  }
+})
+
 import { matchClassesTool } from '../match-classes.tool.js'
 
 describe('MatchClassesTool', () => {
@@ -106,5 +124,102 @@ describe('MatchClassesTool', () => {
       fields: ['description', 'category'],
     })
     expect(result.success).toBe(true)
+  })
+})
+
+describe('MatchClassesTool.execute', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const contextWithClient: ToolContext = { debug: false, apolloClient: {} as any }
+  const contextWithoutClient: ToolContext = { debug: false }
+
+  const sampleCandidate = {
+    classId: 'cls-1',
+    className: 'AuthService',
+    moduleName: 'dethernety-module',
+    matchType: 'exact_name',
+    confidence: 'high',
+  }
+
+  beforeEach(() => {
+    mockMatchClasses.mockReset()
+  })
+
+  it('surfaces vector_search_available: true and omits clarification when DtClass reports vectorAvailable=true', async () => {
+    mockMatchClasses.mockResolvedValueOnce({
+      matches: [{ elementName: 'auth-service', candidates: [sampleCandidate] }],
+      unmatched: [],
+      vectorAvailable: true,
+    })
+
+    const result = await matchClassesTool.execute(
+      { elements: [{ name: 'auth-service' }], classLabel: 'COMPONENT', topN: 3 },
+      contextWithClient,
+    )
+
+    expect(result.success).toBe(true)
+    const data = result.data!
+    expect(data.vector_search_available).toBe(true)
+    expect(data.clarification).toBeUndefined()
+    expect(data.matches).toHaveLength(1)
+    // Confirm the camelCase signal is NOT also leaked through (one canonical spelling).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((data as any).vectorAvailable).toBeUndefined()
+  })
+
+  it('surfaces vector_search_available: false and appends the spec clarification when vectorAvailable=false', async () => {
+    mockMatchClasses.mockResolvedValueOnce({
+      matches: [],
+      unmatched: ['unknown-thing'],
+      vectorAvailable: false,
+    })
+
+    const result = await matchClassesTool.execute(
+      { elements: [{ name: 'unknown-thing' }], classLabel: 'COMPONENT', topN: 3 },
+      contextWithClient,
+    )
+
+    expect(result.success).toBe(true)
+    const data = result.data!
+    expect(data.vector_search_available).toBe(false)
+    expect(data.clarification).toBe(
+      'Semantic (vector) search is not available on this deployment; results are name- and type-based only.',
+    )
+  })
+
+  it('preserves total_elements / matched_count / unmatched_count alongside the new field', async () => {
+    mockMatchClasses.mockResolvedValueOnce({
+      matches: [
+        { elementName: 'a', candidates: [sampleCandidate] },
+        { elementName: 'b', candidates: [sampleCandidate] },
+      ],
+      unmatched: ['c'],
+      vectorAvailable: true,
+    })
+
+    const result = await matchClassesTool.execute(
+      {
+        elements: [{ name: 'a' }, { name: 'b' }, { name: 'c' }],
+        classLabel: 'COMPONENT',
+        topN: 3,
+      },
+      contextWithClient,
+    )
+
+    expect(result.success).toBe(true)
+    const data = result.data!
+    expect(data.total_elements).toBe(3)
+    expect(data.matched_count).toBe(2)
+    expect(data.unmatched_count).toBe(1)
+    expect(data.vector_search_available).toBe(true)
+  })
+
+  it('returns success: false when context.apolloClient is absent (no DtClass call made)', async () => {
+    const result = await matchClassesTool.execute(
+      { elements: [{ name: 'x' }], classLabel: 'COMPONENT', topN: 3 },
+      contextWithoutClient,
+    )
+
+    expect(result.success).toBe(false)
+    expect(mockMatchClasses).not.toHaveBeenCalled()
   })
 })

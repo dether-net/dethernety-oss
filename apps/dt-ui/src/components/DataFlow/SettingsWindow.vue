@@ -229,7 +229,7 @@
         isFromClass.value = false
       }
 
-      pendingFormData.value.class = itemClass.value?.name || ''
+      pendingFormData.value.class = itemClass.value?.id || ''
       pendingFormData.value.model = representedModel.value?.id || ''
       pendingFormData.value.modelName = representedModel.value?.name || ''
       pendingFormData.value.category = itemClass.value?.category || ''

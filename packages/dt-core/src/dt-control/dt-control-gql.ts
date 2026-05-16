@@ -10,6 +10,8 @@ export const GET_CONTROLS = gql`
       controlClasses {
         id
         name
+        description
+        category
         supportedTypes
         supportedCategories
         module {

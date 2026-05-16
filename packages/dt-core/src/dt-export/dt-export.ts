@@ -29,14 +29,14 @@ export interface ExportedDataFlow extends Omit<DataFlowData, '__typename'> {
   attributes?: any
 }
 
-export interface ExportedComponent extends Omit<ComponentData, '__typename'> {
+export interface ExportedComponent extends Omit<ComponentData, '__typename' | 'representedModel'> {
   dataItemIds?: string[]
   classData?: ExportedClassData
   attributes?: any
   representedModel?: Omit<Model, '__typename'> | null
 }
 
-export interface ExportedBoundary extends Omit<BoundaryData, '__typename'> {
+export interface ExportedBoundary extends Omit<BoundaryData, '__typename' | 'representedModel'> {
   dataItemIds?: string[]
   components?: ExportedComponent[]
   boundaries?: ExportedBoundary[]

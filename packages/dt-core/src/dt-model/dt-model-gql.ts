@@ -126,6 +126,12 @@ export const DUMP_MODEL_DATA = gql`
           dataItems {
             id
           }
+          componentClass {
+            id
+          }
+          representedModel {
+            id
+          }
         }
         allDescendantBoundaries {
           id
@@ -145,6 +151,12 @@ export const DUMP_MODEL_DATA = gql`
             name
           }
           dataItems {
+            id
+          }
+          securityBoundaryClass {
+            id
+          }
+          representedModel {
             id
           }
         }
