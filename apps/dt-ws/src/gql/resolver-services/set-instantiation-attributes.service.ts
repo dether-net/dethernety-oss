@@ -1,8 +1,11 @@
 import { Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ModuleRegistryService } from '../module-management-services/module-registry.service';
-import { Countermeasure, Exposure } from '@dethernety/dt-module';
 import { safeErrorMessage } from '../../common/utils/safe-error-message';
+import {
+  sanitiseExposureAttrs,
+  sanitiseCountermeasureAttrs,
+} from './shared/finding-attrs';
 import { AuthorizationService } from '../services/authorization.service';
 import { MonitoringService } from '../services/monitoring.service';
 import {
@@ -61,6 +64,9 @@ export function describeNonPrimitiveValue(value: unknown): string | null {
   }
   return `value must be a primitive or a list of primitives (Memgraph property model); got ${t === 'object' ? 'nested object' : t}`;
 }
+
+// Allowlist + sanitiser helpers live in ./shared/finding-attrs (re-used by
+// ElementBindingService for the changeElementBinding mutation).
 
 @Injectable()
 export class SetInstantiationAttributesService implements OnModuleInit, OnModuleDestroy {
@@ -285,11 +291,18 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         operationId,
       });
 
+      // The `createdBy = 'SYSTEM' OR createdBy IS NULL` clause protects
+      // hand-authored findings (createdBy = 'USER') from being deleted by
+      // this cleanup path even if their name is absent from the module's
+      // current declaration. Legacy null-createdBy nodes (pre-provenance-
+      // field data) are treated as SYSTEM-style and are eligible for
+      // cleanup.
       const result = await tx.run(
         `
         MATCH (class {id: $classId})
         MATCH (c {id: $elementId})-[r:${request.relation}]->(e)-[]->(class)
         WHERE NOT e.name IN $validNames
+          AND (e.createdBy = 'SYSTEM' OR e.createdBy IS NULL)
         DETACH DELETE e
         RETURN COUNT(e) as deletedCount
         `,
@@ -339,7 +352,99 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   }
 
   /**
-   * Upsert exposures using modern Neo4j v5 executeWrite pattern
+   * Tx-bound exposure upsert primitive. Runs the §4.7 scoped Cypher upsert
+   * + MITRE technique linking for each exposure in `request.exposures`.
+   * Does NOT run obsolete-finding cleanup — that semantic belongs to the
+   * caller (the `setInstantiationAttributes` rebuild path keeps the
+   * legacy "match module exactly" behavior; `changeElementBinding`'s flow
+   * runs an explicit destructive sweep before this).
+   *
+   * Public so `ElementBindingService` can call it from inside its own
+   * `executeWrite` transaction. Returns the list of finding names that
+   * landed, deduplicated by Cypher's `RETURN DISTINCT`.
+   */
+  public async upsertExposuresInTx(
+    tx: DatabaseTransaction,
+    request: UpsertExposuresRequest,
+  ): Promise<string[]> {
+    const instantiated: string[] = [];
+    for (const exposure of request.exposures) {
+      const attributes = sanitiseExposureAttrs(exposure);
+
+      // Scoped exposure upsert: USER-authored same-name nodes are
+      // invisible to the OPTIONAL MATCH (scoped to SYSTEM-or-null
+      // createdBy), so a class-derived exposure named "X" coexists with
+      // a hand-authored "X" rather than silently merging. The
+      // FOREACH(_ IN CASE WHEN ...) construct is Cypher's idiom for a
+      // conditional CREATE (MERGE doesn't accept WHERE on its pattern).
+      // RETURN DISTINCT defends against duplicate-row returns in the
+      // documented v1 concurrent-upsert race.
+      //
+      // NOTE: `name` MUST be set inline at CREATE time. Without it, the
+      // post-FOREACH MATCH (which filters by name) cannot find the
+      // just-created node, and the subsequent SET silently no-ops.
+      const result = await tx.run(
+        `
+        MATCH (c {id: $componentId}), (klass {id: $classId})
+        WHERE any(l IN labels(klass) WHERE l ENDS WITH 'Class')
+        OPTIONAL MATCH (c)-[:HAS_EXPOSURE]->(existing:Exposure {name: $attributes.name})-[:IS_EXPOSURE_OF]->(klass)
+          WHERE existing.createdBy = 'SYSTEM' OR existing.createdBy IS NULL
+        WITH c, klass, existing
+        FOREACH (_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |
+          CREATE (c)-[:HAS_EXPOSURE]->(:Exposure {
+            id: randomUUID(),
+            name: $attributes.name,
+            createdBy: 'SYSTEM'
+          })-[:IS_EXPOSURE_OF]->(klass)
+        )
+        WITH c, klass
+        MATCH (c)-[:HAS_EXPOSURE]->(e:Exposure {name: $attributes.name})-[:IS_EXPOSURE_OF]->(klass)
+        WHERE e.createdBy = 'SYSTEM' OR e.createdBy IS NULL
+        SET e += $attributes
+        SET e.createdBy = 'SYSTEM'
+        RETURN DISTINCT e.name AS instantiatedName
+        `,
+        {
+          componentId: request.componentId,
+          attributes,
+          classId: request.classId,
+        },
+      );
+      for (const record of result.records) {
+        const name = record.get('instantiatedName') as string | null;
+        if (name) instantiated.push(name);
+      }
+
+      // Link to MITRE techniques
+      for (const technique of exposure.exploitedBy || []) {
+        const target: ExternalObjectTarget = typeof technique === 'string'
+          ? {
+              label: 'MitreAttackTechnique',
+              property: 'attack_id',
+              value: technique,
+            }
+          : technique;
+
+        const linkRequest: LinkExternalObjectRequest = {
+          elementId: request.componentId,
+          elementToOriginRelation: 'HAS_EXPOSURE',
+          originName: exposure.name,
+          relationName: 'EXPLOITED_BY',
+          target,
+        };
+
+        await this.linkToExternalObject(tx, linkRequest);
+      }
+    }
+    return instantiated;
+  }
+
+  /**
+   * Session-bound exposure upsert used by the `setInstantiationAttributes`
+   * rebuild path. Opens an executeWrite transaction, delegates the
+   * per-exposure work to `upsertExposuresInTx`, and then runs the
+   * obsolete-cleanup step that gives this entry point its
+   * "match the module's current declaration" semantic.
    */
   private async upsertExposures(
     session: DatabaseSession,
@@ -357,64 +462,21 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
       const exposureNames = request.exposures.map((exposure) => exposure.name);
       let totalProcessed = 0;
-      
-      // Use modern Neo4j v5 executeWrite pattern
+
       await session.executeWrite(async (tx: DatabaseTransaction) => {
-        for (const exposure of request.exposures) {
-          const omitExploitedBy = (exposure: Exposure): Omit<Exposure, 'exploitedBy'> => {
-             
-            const { exploitedBy, ...rest } = exposure;
-            return rest;
-          };
+        const instantiated = await this.upsertExposuresInTx(tx, request);
+        totalProcessed = instantiated.length;
 
-          // Upsert exposure node
-          await tx.run(
-            `
-            MATCH (c {id: $componentId})
-            MATCH (t {id: $classId})
-            MERGE (c)-[:HAS_EXPOSURE]->(e:Exposure {name: $attributes.name})-[:IS_EXPOSURE_OF]->(t)
-            ON CREATE SET e.id = randomUUID()
-            SET e += $attributes
-            `,
-            {
-              componentId: request.componentId,
-              attributes: omitExploitedBy(exposure),
-              classId: request.classId,
-            },
-          );
-
-          // Link to MITRE techniques
-          for (const technique of exposure.exploitedBy || []) {
-            const target: ExternalObjectTarget = typeof technique === 'string'
-              ? {
-                  label: 'MitreAttackTechnique',
-                  property: 'attack_id',
-                  value: technique,
-                }
-              : technique;
-
-            const linkRequest: LinkExternalObjectRequest = {
-              elementId: request.componentId,
-              elementToOriginRelation: 'HAS_EXPOSURE',
-              originName: exposure.name,
-              relationName: 'EXPLOITED_BY',
-              target,
-            };
-
-            await this.linkToExternalObject(tx, linkRequest);
-          }
-          
-          totalProcessed++;
-        }
-
-        // Clean up obsolete exposures
+        // Clean up obsolete exposures (rebuild-to-match semantic — owned
+        // by setInstantiationAttributes; ElementBindingService runs an
+        // explicit §4.3/§4.4 sweep before calling upsertExposuresInTx).
         const deleteRequest: DeleteObsoleteObjectsRequest = {
           elementId: request.componentId,
           relation: 'HAS_EXPOSURE',
           validNames: exposureNames,
           classId: request.classId,
         };
-        
+
         const deleteResult = await this.deleteObsoleteExternalObjects(tx, deleteRequest);
         if (!deleteResult.success) {
           throw this.createSetInstantiationError(
@@ -471,7 +533,80 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   }
 
   /**
-   * Upsert countermeasures using modern Neo4j v5 executeWrite pattern
+   * Tx-bound countermeasure upsert primitive. Symmetric to
+   * `upsertExposuresInTx` — see that method's docblock. No obsolete cleanup.
+   */
+  public async upsertCountermeasuresInTx(
+    tx: DatabaseTransaction,
+    request: UpsertCountermeasuresRequest,
+  ): Promise<string[]> {
+    const instantiated: string[] = [];
+    for (const countermeasure of request.countermeasures) {
+      const attributes = sanitiseCountermeasureAttrs(countermeasure);
+
+      // Scoped countermeasure upsert (mirrors the exposure variant). See
+      // upsertExposuresInTx sibling for full pattern rationale and the
+      // `name` inline-set requirement.
+      const result = await tx.run(
+        `
+        MATCH (c {id: $componentId}), (klass {id: $classId})
+        WHERE any(l IN labels(klass) WHERE l ENDS WITH 'Class')
+        OPTIONAL MATCH (c)-[:HAS_COUNTERMEASURE]->(existing:Countermeasure {name: $attributes.name})-[:IS_COUNTERMEASURE_OF]->(klass)
+          WHERE existing.createdBy = 'SYSTEM' OR existing.createdBy IS NULL
+        WITH c, klass, existing
+        FOREACH (_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |
+          CREATE (c)-[:HAS_COUNTERMEASURE]->(:Countermeasure {
+            id: randomUUID(),
+            name: $attributes.name,
+            createdBy: 'SYSTEM'
+          })-[:IS_COUNTERMEASURE_OF]->(klass)
+        )
+        WITH c, klass
+        MATCH (c)-[:HAS_COUNTERMEASURE]->(cm:Countermeasure {name: $attributes.name})-[:IS_COUNTERMEASURE_OF]->(klass)
+        WHERE cm.createdBy = 'SYSTEM' OR cm.createdBy IS NULL
+        SET cm += $attributes
+        SET cm.createdBy = 'SYSTEM'
+        RETURN DISTINCT cm.name AS instantiatedName
+        `,
+        {
+          componentId: request.componentId,
+          attributes,
+          classId: request.classId,
+        },
+      );
+      for (const record of result.records) {
+        const name = record.get('instantiatedName') as string | null;
+        if (name) instantiated.push(name);
+      }
+
+      // Link to MITRE mitigations
+      for (const response of countermeasure.respondsWith || []) {
+        const target: ExternalObjectTarget = typeof response === 'string'
+          ? {
+              label: 'MitreAttackMitigation',
+              property: 'attack_id',
+              value: response,
+            }
+          : response;
+
+        const linkRequest: LinkExternalObjectRequest = {
+          elementId: request.componentId,
+          elementToOriginRelation: 'HAS_COUNTERMEASURE',
+          originName: countermeasure.name,
+          relationName: 'RESPONDS_WITH',
+          target,
+        };
+
+        await this.linkToExternalObject(tx, linkRequest);
+      }
+    }
+    return instantiated;
+  }
+
+  /**
+   * Session-bound countermeasure upsert used by the
+   * `setInstantiationAttributes` rebuild path. Delegates the per-cm work to
+   * `upsertCountermeasuresInTx`, then runs the obsolete-cleanup step.
    */
   private async upsertCountermeasures(
     session: DatabaseSession,
@@ -491,66 +626,18 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         (countermeasure) => countermeasure.name,
       );
       let totalProcessed = 0;
-      
-      // Use modern Neo4j v5 executeWrite pattern
+
       await session.executeWrite(async (tx: DatabaseTransaction) => {
-        for (const countermeasure of request.countermeasures) {
-          const omitRespondsWith = (
-            countermeasure: Countermeasure,
-          ): Omit<Countermeasure, 'respondsWith'> => {
-             
-            const { respondsWith, ...rest } = countermeasure;
-            return rest;
-          };
+        const instantiated = await this.upsertCountermeasuresInTx(tx, request);
+        totalProcessed = instantiated.length;
 
-          // Upsert countermeasure node
-          await tx.run(
-            `
-            MATCH (c {id: $componentId})
-            MATCH (t {id: $classId})
-            MERGE (c)-[:HAS_COUNTERMEASURE]->(cm:Countermeasure {name: $attributes.name})-[:IS_COUNTERMEASURE_OF]->(t)
-            ON CREATE SET cm.id = randomUUID()
-            SET cm += $attributes
-            `,
-            {
-              componentId: request.componentId,
-              attributes: omitRespondsWith(countermeasure),
-              classId: request.classId,
-            },
-          );
-
-          // Link to MITRE mitigations
-          for (const response of countermeasure.respondsWith || []) {
-            const target: ExternalObjectTarget = typeof response === 'string'
-              ? {
-                  label: 'MitreAttackMitigation',
-                  property: 'attack_id',
-                  value: response,
-                }
-              : response;
-
-            const linkRequest: LinkExternalObjectRequest = {
-              elementId: request.componentId,
-              elementToOriginRelation: 'HAS_COUNTERMEASURE',
-              originName: countermeasure.name,
-              relationName: 'RESPONDS_WITH',
-              target,
-            };
-
-            await this.linkToExternalObject(tx, linkRequest);
-          }
-          
-          totalProcessed++;
-        }
-
-        // Clean up obsolete countermeasures
         const deleteRequest: DeleteObsoleteObjectsRequest = {
           elementId: request.componentId,
           relation: 'HAS_COUNTERMEASURE',
           validNames: countermeasureNames,
           classId: request.classId,
         };
-        
+
         const deleteResult = await this.deleteObsoleteExternalObjects(tx, deleteRequest);
         if (!deleteResult.success) {
           throw this.createSetInstantiationError(

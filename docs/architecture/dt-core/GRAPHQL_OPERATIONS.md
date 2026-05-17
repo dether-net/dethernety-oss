@@ -135,10 +135,10 @@ Manages system components (processes, services, databases, external entities).
 |--------|-------------|------------|---------|
 | `createComponentNode` | Create new component | `{ newNode, classId, defaultBoundaryId }` | `Promise<Node \| null>` |
 | `updateComponent` | Update component properties | `{ componentId, name?, description?, x?, y?, controls?, dataItems? }` | `Promise<ComponentData>` |
-| `updateComponentClass` | Change component classification | `{ componentId, classId }` | `Promise<void>` |
-| `updateComponentRepresentedModel` | Link to represented model | `{ componentId, modelId }` | `Promise<void>` |
 | `getComponentRepresentedModel` | Get linked model | `{ componentId }` | `Promise<Model \| null>` |
 | `deleteComponent` | Delete component | `{ componentId }` | `Promise<boolean>` |
+
+> **Class / model binding changes** for components, boundaries, data flows, data items, and controls all flow through [`DtClass.changeElementBinding`](#dtclass) — the atomic single-mutation surface that owns destructive-sweep + rewire + constructive-upsert. The legacy per-type wrappers (`updateComponentClass`, `updateComponentRepresentedModel`, `updateBoundaryClass`, `updateBoundaryRepresentedModel`, `updateDataFlowClass`) were removed in the atomic class-change consolidation.
 
 ### Example Usage
 
@@ -165,10 +165,10 @@ await dtComponent.updateComponent({
   y: 250
 })
 
-// Link component to another model (composition)
-await dtComponent.updateComponentRepresentedModel({
-  componentId: 'comp-123',
-  modelId: 'other-model-456'
+// Link component to another model (composition) — routes through DtClass.changeElementBinding.
+await dtClass.changeElementBinding({
+  elementId: 'comp-123',
+  target: { kind: 'REPRESENTED_MODEL', modelId: 'other-model-456' },
 })
 ```
 
@@ -186,11 +186,11 @@ Manages security boundaries and trust zones.
 |--------|-------------|------------|---------|
 | `createBoundaryNode` | Create new boundary | `{ newNode, classId, parentBoundaryId }` | `Promise<Node \| null>` |
 | `updateBoundaryNode` | Update boundary properties | `{ boundaryId, name?, description?, x?, y?, width?, height? }` | `Promise<BoundaryData>` |
-| `updateBoundaryClass` | Change boundary classification | `{ boundaryId, classId }` | `Promise<void>` |
-| `updateBoundaryRepresentedModel` | Link to represented model | `{ boundaryId, modelId }` | `Promise<void>` |
 | `getBoundaryRepresentedModel` | Get linked model | `{ boundaryId }` | `Promise<Model \| null>` |
 | `getDescendants` | Get direct children | `{ boundaryId }` | `Promise<DirectDescendant[]>` |
 | `deleteBoundary` | Delete boundary | `{ boundaryId }` | `Promise<boolean>` |
+
+> Class / model binding changes route through [`DtClass.changeElementBinding`](#dtclass) — see the DtComponent block above.
 
 ### Example Usage
 
@@ -234,8 +234,9 @@ Manages data flow edges between components.
 |--------|-------------|------------|---------|
 | `createDataFlow` | Create new data flow | `{ sourceId, targetId, classId, name, description }` | `Promise<DataFlowData>` |
 | `updateDataFlow` | Update data flow properties | `{ dataFlowId, name?, description?, sourceHandle?, targetHandle? }` | `Promise<DataFlowData>` |
-| `updateDataFlowClass` | Change data flow classification | `{ dataFlowId, classId }` | `Promise<void>` |
 | `deleteDataFlow` | Delete data flow | `{ dataFlowId }` | `Promise<boolean>` |
+
+> Class binding changes route through [`DtClass.changeElementBinding`](#dtclass) — see the DtComponent block above.
 
 ### Example Usage
 
@@ -251,10 +252,10 @@ const flow = await dtDataflow.createDataFlow({
   description: 'SQL queries from API to DB'
 })
 
-// Update flow classification
-await dtDataflow.updateDataFlowClass({
-  dataFlowId: flow.id,
-  classId: 'class-encrypted-connection'
+// Update flow classification — routes through DtClass.changeElementBinding.
+await dtClass.changeElementBinding({
+  elementId: flow.id,
+  target: { kind: 'CLASS', classIds: ['class-encrypted-connection'] },
 })
 ```
 
@@ -272,8 +273,10 @@ Manages data classification entities.
 |--------|-------------|------------|---------|
 | `getDataItems` | Get all data items | `{ modelId?: string }` | `Promise<DataItem[]>` |
 | `createDataItem` | Create new data item | `{ name, description, classId }` | `Promise<DataItem>` |
-| `updateDataItem` | Update data item | `{ dataItemId, name?, description?, classId? }` | `Promise<DataItem>` |
+| `updateDataItem` | Update data item — bundled binding + residual write. When `classId` is supplied the call routes the binding portion through `DtClass.changeElementBinding` and the residual property update through the auto-generated `updateData` mutation. | `{ dataItemId, name?, description?, classId? }` | `Promise<{ dataItem: DataItem \| null, bindingResult: ChangeElementBindingResult \| null, residualOk: boolean }>` |
 | `deleteDataItem` | Delete data item | `{ dataItemId }` | `Promise<boolean>` |
+
+> **`updateDataItem` return shape.** The bundled return surfaces both halves so callers can render partial-failure UX: if the class binding committed but the residual property update failed, `bindingResult.success` is `true`, `dataItem` is `null`, and `residualOk` is `false`. The frontend uses this to fire a separate "settings could not be saved" toast in addition to the class-change delta-receipt snackbar.
 
 ---
 
@@ -281,12 +284,13 @@ Manages data classification entities.
 
 **Source:** `packages/dt-core/src/dt-class/`
 
-Manages entity classifications and templates.
+Manages entity classifications, templates, and atomic class / model binding.
 
 ### Methods
 
 | Method | Description | Parameters | Returns |
 |--------|-------------|------------|---------|
+| `changeElementBinding` | Atomically change an element's class / representedModel / none binding (destructive sweep + rewire + constructive upsert). The single sanctioned write path for `IS_INSTANCE_OF` and `REPRESENTS_MODEL` edges. | `{ elementId, target: ClassBinding \| RepresentedModelBinding \| NoBinding }` | `Promise<ChangeElementBindingResult>` |
 | `getComponentClass` | Get component's classification | `{ componentId }` | `Promise<Class \| null>` |
 | `getBoundaryClass` | Get boundary's classification | `{ boundaryId }` | `Promise<Class \| null>` |
 | `getDataFlowClass` | Get data flow's classification | `{ dataFlowId }` | `Promise<Class \| null>` |
@@ -295,6 +299,36 @@ Manages entity classifications and templates.
 | `getControlClassById` | Get specific control class | `{ classId }` | `Promise<Class \| null>` |
 | `setInstantiationAttributes` | Set element attributes from class | `{ elementId, elementType, attributes }` | `Promise<void>` |
 | `getAttributesFromClassRelationship` | Get instantiation attributes | `{ elementId, elementType }` | `Promise<object \| null>` |
+
+### `changeElementBinding` — atomic class / model binding
+
+Single mutation that replaces five legacy per-type wrappers (`updateComponentClass`, `updateBoundaryClass`, `updateDataFlowClass`, `updateControlClass`, `updateBoundaryRepresentedModel`). Every binding transition — class → class, class → none, none → class, class → represented-model, represented-model → class — runs in one Bolt transaction with destructive sweep of stale derived findings, idempotent rewire, and scoped exposure / countermeasure upsert.
+
+```typescript
+const result = await dtClass.changeElementBinding({
+  elementId: 'comp-1',
+  target: { kind: 'CLASS', classIds: ['cc-webserver'] },
+})
+
+if (result.success) {
+  // result.deltas: instantiatedDerivedExposures, deletedDerivedExposures,
+  //                instantiatedDerivedCountermeasures, deletedDerivedCountermeasures,
+  //                preservedCustomExposures, preservedCustomCountermeasures
+  console.log(result.deltas)
+} else {
+  // result.errorCode is one of:
+  //   VALIDATION_ERROR | ELEMENT_NOT_FOUND | CLASS_NOT_FOUND | MODEL_NOT_FOUND
+  //   ORPHAN_CLASS_REFUSED | REPRESENTED_MODEL_NOT_ALLOWED | MODULE_ERROR | DATABASE_ERROR
+  console.error(result.errorCode, result.errorMessage)
+}
+```
+
+Target shapes:
+- `{ kind: 'CLASS', classIds: string[] }` — bind to one or more classes (Controls allow multi-class; other elements take a single id)
+- `{ kind: 'REPRESENTED_MODEL', modelId: string }` — bind to a model (Components / Security Boundaries only)
+- `{ kind: 'NONE' }` — unbind; sweeps all SYSTEM-derived findings, preserves USER-authored ones
+
+Identity transitions (target equals current) short-circuit server-side with zero deltas — safe to retry.
 
 ### Special Handling
 
@@ -384,8 +418,10 @@ Manages security controls.
 |--------|-------------|------------|---------|
 | `getControls` | Get all controls | `{ folderId?: string }` | `Promise<Control[]>` |
 | `createControl` | Create new control | `{ name, description, folderId }` | `Promise<Control>` |
-| `updateControl` | Update control | `{ controlId, name?, description?, controlClasses? }` | `Promise<Control>` |
+| `updateControl` | Update control — bundled binding + residual write. When `controlClasses` is supplied the call routes the binding portion through `DtClass.changeElementBinding` and the residual property update through the auto-generated `updateControls` mutation. | `{ controlId, name?, description?, controlClasses? }` | `Promise<{ control: Control \| null, bindingResult: ChangeElementBindingResult \| null, residualOk: boolean }>` |
 | `deleteControl` | Delete control | `{ controlId }` | `Promise<boolean>` |
+
+> **`updateControl` return shape.** Same bundled `{ control, bindingResult, residualOk }` shape as `updateDataItem` above: callers can render two distinct snackbars when the binding committed but the residual property update failed. See [`changeElementBinding`](#dtclass) for the binding-portion contract.
 
 ---
 

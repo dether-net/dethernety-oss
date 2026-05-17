@@ -12,6 +12,8 @@ export const GET_COUNTERMEASURE = gql`
       score
       references
       addressedExposures
+      createdBy
+      authoredBy
       mitigations {
         id
         name
@@ -40,6 +42,8 @@ export const CREATE_COUNTERMEASURE = gql`
         score
         references
         addressedExposures
+        createdBy
+        authoredBy
         mitigations {
           id
           name
@@ -65,6 +69,8 @@ export const UPDATE_COUNTERMEASURE = gql`
         score
         references
         addressedExposures
+        createdBy
+        authoredBy
         mitigations {
           id
           name
@@ -97,6 +103,8 @@ export const GET_COUNTERMEASURES_FROM_CONTROL = gql`
         references
         addressedExposures
         tags
+        createdBy
+        authoredBy
         mitigations {
           id
           name

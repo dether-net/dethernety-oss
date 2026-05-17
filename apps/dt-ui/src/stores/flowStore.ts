@@ -7,11 +7,12 @@ import { Edge, Node } from '@vue-flow/core'
 import {
   // Core classes
   DtBoundary, DtClass, DtComponent, DtControl, DtDataflow, DtDataItem,
-  DtExposure, DtMitreAttack, DtModel, DtModule, DtUtils, 
+  DtExposure, DtMitreAttack, DtModel, DtModule, DtUtils,
 
   // Core types
   Exposure, Class, Control, DataItem, DirectDescendant, Model, Module,
   MitreAttackTactic, MitreAttackTechnique,
+  ChangeElementBindingResult,
 } from '@dethernety/dt-core'
 
 export const useFlowStore = defineStore('flow', () => {
@@ -270,13 +271,15 @@ export const useFlowStore = defineStore('flow', () => {
   const getModels = () => { return dtModel.getNotRepresentingModels({ modelId: modelId.value || '' }) }
   const getModelData = async ({ modelId }: { modelId: string }): Promise<any> => { return dtModel.getModelData({ modelId }) }
 
-  const updateRepresentedModel = async ({ nodeId, modelId }: { nodeId: string, modelId: string }): Promise<boolean> => {
+  const updateRepresentedModel = async (
+    { nodeId, modelId }: { nodeId: string, modelId: string }
+  ): Promise<ChangeElementBindingResult | null> => {
     const operationKey = `updateRepresentedModel-${nodeId}`
-    
+
     try {
       clearError(operationKey)
       setOperationLoading(operationKey, true)
-      
+
       let node: Node | null = null
       if (nodeId === defaultBoundaryId.value) {
         // @ts-ignore
@@ -284,22 +287,21 @@ export const useFlowStore = defineStore('flow', () => {
       } else {
         node = getNodeById({ nodeId }) || null
       }
-      
+
       // @ts-ignore - Type instantiation issue with Node
       if (!node) {
         throw new Error('Node not found')
       }
-      
-      if (node.type === 'BOUNDARY') {
-        return await dtBoundary.updateBoundaryRepresentedModel({ boundaryId: nodeId, modelId })
-      } else {
-        return await dtComponent.updateComponentRepresentedModel({ componentId: nodeId, modelId })
-      }
+
+      return await dtClass.changeElementBinding({
+        elementId: nodeId,
+        target: { kind: 'REPRESENTED_MODEL', modelId },
+      })
     } catch (error) {
       const errorMessage = handleApiError(error as Error, 'update represented model')
       setError(operationKey, errorMessage)
       dtUtils.handleError({ action: 'updateRepresentedModel', error })
-      return false
+      return null
     } finally {
       setOperationLoading(operationKey, false)
     }
@@ -535,12 +537,12 @@ export const useFlowStore = defineStore('flow', () => {
   const updateNodeClass = async (
     { nodeId, classId }:
     { nodeId: string, classId: string }
-  ): Promise<boolean> => {
+  ): Promise<ChangeElementBindingResult | null> => {
     // Check if this is a temporary node from optimistic update
     if (isPendingNode(nodeId)) {
       console.log(`Queueing class update for temporary node ${nodeId}: ${classId}`)
       queueUpdateForTempNode(nodeId, { classId })
-      return true
+      return null
     }
 
     try {
@@ -551,16 +553,17 @@ export const useFlowStore = defineStore('flow', () => {
         node = getNodeById({ nodeId }) || null
       }
       if (node) {
-        const ok = node.type === 'BOUNDARY'
-          ? await dtBoundary.updateBoundaryClass({ boundaryId: nodeId, classId })
-          : await dtComponent.updateComponentClass({ componentId: nodeId, classId })
-        if (ok) writeLocalClassId(nodeId, classId)
-        return ok
+        const result = await dtClass.changeElementBinding({
+          elementId: nodeId,
+          target: { kind: 'CLASS', classIds: [classId] },
+        })
+        if (result.success) writeLocalClassId(nodeId, classId)
+        return result
       }
     } catch (error) {
       dtUtils.handleError({ action: 'updateNodeClass', error })
     }
-    return false
+    return null
   }
 
   const updateComponentNode = async ({ updatedNode }: { updatedNode: Node }): Promise<boolean> => {
@@ -794,8 +797,18 @@ export const useFlowStore = defineStore('flow', () => {
     return false
   }
 
-  const updateDataFlowClass = async ({ dataFlowId, classId }: { dataFlowId: string, classId: string }): Promise<boolean> => {
-    return dtDataflow.updateDataFlowClass({ dataFlowId, classId })
+  const updateDataFlowClass = async (
+    { dataFlowId, classId }: { dataFlowId: string, classId: string }
+  ): Promise<ChangeElementBindingResult | null> => {
+    try {
+      return await dtClass.changeElementBinding({
+        elementId: dataFlowId,
+        target: { kind: 'CLASS', classIds: [classId] },
+      })
+    } catch (error) {
+      dtUtils.handleError({ action: 'updateDataFlowClass', error })
+      return null
+    }
   }
 
   const deleteDataFlow = async ({ dataFlowId }: { dataFlowId: string }) => {
@@ -897,17 +910,20 @@ export const useFlowStore = defineStore('flow', () => {
       clearError(operationKey)
       setOperationLoading(operationKey, true)
       
-      const updatedDataItem = await dtDataItem.updateDataItem({ 
-        dataItemId, 
-        name, 
-        description, 
+      const { dataItem: updatedDataItem, bindingResult, residualOk } = await dtDataItem.updateDataItem({
+        dataItemId,
+        name,
+        description,
         classId
       })
-      
-      if (!updatedDataItem) {
+
+      if (bindingResult?.errorCode) {
+        throw new Error(bindingResult.errorMessage ?? `Failed to update data item binding (${bindingResult.errorCode})`)
+      }
+      if (!residualOk || !updatedDataItem) {
         throw new Error('Failed to update data item')
       }
-      
+
       const idx = dataItems.value.findIndex(data => data.id === dataItemId)
       if (idx !== -1) {
         dataItems.value.splice(idx, 1, updatedDataItem)

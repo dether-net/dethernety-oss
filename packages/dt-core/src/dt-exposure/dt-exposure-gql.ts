@@ -11,6 +11,8 @@ export const GET_EXPOSURES = gql`
       category
       score
       attackVector
+      createdBy
+      authoredBy
       exploitedBy {
         id
         name
@@ -31,6 +33,8 @@ export const GET_EXPOSURE = gql`
       category
       score
       attackVector
+      createdBy
+      authoredBy
       exploitedBy {
         id
         name
@@ -77,6 +81,8 @@ export const UPDATE_EXPOSURE = gql`
         mitigationSuggestions
         detectionMethods
         tags
+        createdBy
+        authoredBy
         exploitedBy {
           id
           name

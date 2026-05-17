@@ -7,6 +7,7 @@ import { accessSync } from 'fs';
 import * as path from 'path';
 import { ResolverService, ResolverMap, ResolverFunction, SchemaService as ISchemaService } from '../interfaces/resolver.interface';
 import { GqlConfig } from '../gql.config';
+import { populateAuthoredByOnCreate, stampCreatedByUserOnCreate } from '../populated-by/authored-by';
 
 @Injectable()
 export class SchemaService implements ISchemaService {
@@ -64,6 +65,23 @@ export class SchemaService implements ISchemaService {
       // if (this.config.enableSubscriptions) {
       //   features.subscriptions = true;
       // }
+
+      // @populatedBy callbacks for context-derived fields on Exposure /
+      // Countermeasure CREATE:
+      //   - populateAuthoredByOnCreate: stamps `authoredBy = context.user.sub`
+      //     (the JWT subject claim); null when no auth context.
+      //   - stampCreatedByUserOnCreate: stamps `createdBy = 'USER'`
+      //     unconditionally. Replaces `@default(value: USER)` because
+      //     `@default + @settable(onCreate: false)` is broken in
+      //     @neo4j/graphql v7 — the default doesn't fire when the field
+      //     is unsettable on create. See authored-by.ts docblock for the
+      //     library-behaviour explanation.
+      features.populatedBy = {
+        callbacks: {
+          populateAuthoredByOnCreate,
+          stampCreatedByUserOnCreate,
+        },
+      };
 
       // Add authorization if OIDC is configured
       if (this.config.oidcJwksUri) {

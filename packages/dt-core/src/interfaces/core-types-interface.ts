@@ -292,6 +292,10 @@ export interface Exposure extends Element {
   detectionMethods?: string[]
   tags?: string[]
   exploitedBy?: MitreAttackTechnique[]
+  /** Authorship kind. SYSTEM = module-instantiated. USER = hand-authored. Nullable for legacy data. */
+  createdBy?: 'SYSTEM' | 'USER'
+  /** For USER findings: the authenticated user id. For SYSTEM: optional module-provided attribution. */
+  authoredBy?: string
 }
 
 export interface MitreAttackMitigation {
@@ -337,7 +341,10 @@ export interface Countermeasure extends Element {
   mitigations?: MitreAttackMitigation[];
   defendedTechniques?: MitreDefendTechnique[];
   control?: Control;
-
+  /** Authorship kind. SYSTEM = module-instantiated. USER = hand-authored. Nullable for legacy data. */
+  createdBy?: 'SYSTEM' | 'USER';
+  /** For USER findings: the authenticated user id. For SYSTEM: optional module-provided attribution. */
+  authoredBy?: string;
 }
 
 

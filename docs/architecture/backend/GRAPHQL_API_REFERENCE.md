@@ -117,6 +117,33 @@ Value types for dynamic attributes.
 | `BOOLEAN` | A true/false value |
 | `DATE` | A date or datetime value |
 
+### ElementBindingKind
+
+Discriminator for the desired binding kind on an element.
+
+| Value | Description |
+|-------|-------------|
+| `CLASS` |  |
+| `REPRESENTED_MODEL` |  |
+| `NONE` |  |
+
+### ElementBindingErrorCode
+
+Structured error codes returned from changeElementBinding. Null on
+success. UI branches on the code; `errorMessage` carries a sanitised
+human-readable string suitable for snackbar display.
+
+| Value | Description |
+|-------|-------------|
+| `VALIDATION_ERROR` |  |
+| `ELEMENT_NOT_FOUND` |  |
+| `CLASS_NOT_FOUND` |  |
+| `MODEL_NOT_FOUND` |  |
+| `ORPHAN_CLASS_REFUSED` |  |
+| `REPRESENTED_MODEL_NOT_ALLOWED` |  |
+| `MODULE_ERROR` |  |
+| `DATABASE_ERROR` |  |
+
 ## Interfaces
 
 ### Element
@@ -159,7 +186,11 @@ Implements: `Element`
 | `name` | `String!` | Model name |
 | `description` | `String` | Free-text description |
 | `defaultBoundary` | `[SecurityBoundary!]!` | Top-level security boundaries in this model (→ `CONTAINS`) |
-| `modules` | `[Module!]!` | Modules loaded for this model (→ `HAS_MODULE`) |
+| `modules` | `[Module!]!` | Modules previously attached to this model. UI-deprecated as of 2026-05 —
+the class picker uses the global module catalogue via listClasses / matchClasses.
+Reserved for potential future governance use cases (catalogue scoping policy).
+Do not reintroduce a UI for this relationship without revisiting the
+class-picker design. (→ `HAS_MODULE`) |
 | `controls` | `[Control!]!` | Controls applied to this model (← `SUPPORTS`) |
 | `dataItems` | `[Data!]!` | Data elements defined in this model (→ `CONTAINS`) |
 | `representedBy` | `[Element!]!` | Components that represent this model (for model-in-model composition) (← `REPRESENTS_MODEL`) |
@@ -352,6 +383,8 @@ Implements: `Element`
 | `tags` | `[String!]` | Tags for filtering and grouping |
 | `techniques` | `[String!]` | MITRE ATT&CK technique IDs |
 | `attackVector` | `AttackVector` | CVSS-aligned attack vector classification |
+| `createdBy` | `String` | Authorship kind. 'SYSTEM' = module-instantiated via class binding. 'USER' = hand-authored. Null on legacy data is treated as SYSTEM by the cleanup paths. Server-enforced via @populatedBy on the auto-generated CREATE mutations — the callback overrides any client-supplied value with 'USER'. The SYSTEM write path goes via Cypher (SetInstantiationAttributesService) and bypasses this directive. |
+| `authoredBy` | `String` | Creator reference, populated server-side at CREATE time. For USER findings: the authenticated user identifier (JWT sub claim) from context, set by the @populatedBy callback. For SYSTEM findings: an optional module-provided attribution string (feed name, advisory id, researcher name) that the module includes in its return; the module value flows through the resolver's sanitised \$attrs allowlist. Client-supplied values on auto-generated CREATE mutations are overridden by the @populatedBy callback. |
 | `component` | `[Component!]!` | Components affected by this exposure (← `HAS_EXPOSURE`) |
 | `securityBoundary` | `[SecurityBoundary!]!` | Boundaries affected by this exposure (← `HAS_EXPOSURE`) |
 | `dataFlow` | `[DataFlow!]!` | Data flows affected by this exposure (← `HAS_EXPOSURE`) |
@@ -377,6 +410,8 @@ Implements: `Element`
 | `references` | `String` | External references |
 | `addressedExposures` | `[String!]` | Exposure names this countermeasure addresses |
 | `tags` | `[String!]` | Tags for filtering and grouping |
+| `createdBy` | `String` | Authorship kind. 'SYSTEM' = module-instantiated via class binding. 'USER' = hand-authored. Server-enforced via @populatedBy on the auto-generated CREATE mutations — the callback overrides client input. See the matching field on Exposure for full rationale. |
+| `authoredBy` | `String` | Creator reference, populated server-side at CREATE time. See the matching field on Exposure for full rationale. Client-supplied values on auto-generated CREATE mutations are overridden by the @populatedBy callback. |
 | `mitigations` | `[MitreAttackMitigation!]!` | ATT&CK mitigations implemented by this countermeasure (→ `RESPONDS_WITH`) |
 | `defendedTechniques` | `[MitreDefendTechnique!]!` | D3FEND techniques implemented by this countermeasure (→ `RESPONDS_WITH`) |
 | `control` | `[Control!]!` | Control that provides this countermeasure (← `HAS_COUNTERMEASURE`) |
@@ -511,6 +546,7 @@ A single candidate class match.
 | `classDescription` | `String` | Class description (included when 'description' is in fields) |
 | `classCategory` | `String` | Class category (included when 'category' is in fields) |
 | `classType` | `String` | Class type (included when 'type' is in fields) |
+| `moduleId` | `ID!` | ID of the module providing this class |
 | `moduleName` | `String!` | Name of the module providing this class |
 | `matchType` | `MatchType!` | How this match was determined |
 | `confidence` | `ConfidenceLevel!` | Confidence level of the match |
@@ -533,6 +569,46 @@ Top-level result for the matchClasses query.
 |-------|------|-------------|
 | `matches` | `[ElementMatch!]!` | Match results per element, in input order |
 | `unmatched` | `[String!]!` | Element names that matched at no priority level |
+| `vectorAvailable` | `Boolean!` | Whether the deployment supports semantic search (Memgraph 3.0+ with vector module). False on Neo4j or older Memgraph. Does not guarantee that any specific class label has an embedded index. |
+
+### ClassFacetEntry
+
+One facet bucket for a string-valued dimension (categories, types).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `value` | `String!` |  |
+| `count` | `Int!` |  |
+
+### ClassModuleFacetEntry
+
+One facet bucket for the modules dimension — carries id (for filter input) and name (for display).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `moduleId` | `ID!` |  |
+| `moduleName` | `String!` |  |
+| `count` | `Int!` |  |
+
+### ClassFacetCounts
+
+Server-aggregated facet counts over the filtered listClasses candidate set.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `categories` | `[ClassFacetEntry!]!` |  |
+| `modules` | `[ClassModuleFacetEntry!]!` |  |
+| `types` | `[ClassFacetEntry!]!` |  |
+
+### ListClassesResult
+
+Top-level result for the listClasses query.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `items` | `[ClassCandidate!]!` | Page of class candidates (reuses ClassCandidate shape; matchType is 'type_match', similarityScore is null) |
+| `totalCount` | `Int!` | Total candidates across all pages, given the current filter |
+| `facetCounts` | `ClassFacetCounts!` | Facet counts derived from the same filtered set as items |
 
 ### UnmitigatedExposure
 
@@ -666,6 +742,66 @@ refresh pipelines. See CONTROL_LIBRARY.md §7.
 | `controlId` | `ID!` | Control UUID |
 | `classId` | `ID` | ControlClass UUID — null if the Control has no IS_INSTANCE_OF edge to any ControlClass |
 | `attributes` | `JSON` | Edge properties (the per-instance attribute payload). Null when classId is null. |
+
+### ClassBinding
+
+Class-based binding state (one or more ControlClasses, or exactly one of any other *Class).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `classIds` | `[ID!]!` |  |
+
+### RepresentedModelBinding
+
+Represented-model binding state (Component / SecurityBoundary only).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `modelId` | `ID!` |  |
+
+### NoBinding
+
+Empty-binding state. GraphQL union members must declare at least one
+field, so `_empty` is a placeholder. Consumers should branch on
+`__typename`, not read this field.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `_empty` | `Boolean` |  |
+
+### ElementBindingDeltas
+
+Per-mutation counts of what the single executeWrite transaction touched.
+All values are zero on identity-transition short-circuit or any error
+path. Counts of SYSTEM findings are split between deleted and instantiated;
+USER findings only ever appear in `preserved*` (cleanup never touches
+them — see ElementBindingService's destructive sweep predicates, which
+require `createdBy = 'SYSTEM' OR createdBy IS NULL`).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `deletedDerivedExposures` | `Int!` |  |
+| `instantiatedDerivedExposures` | `Int!` |  |
+| `preservedCustomExposures` | `Int!` |  |
+| `deletedDerivedCountermeasures` | `Int!` |  |
+| `instantiatedDerivedCountermeasures` | `Int!` |  |
+| `preservedCustomCountermeasures` | `Int!` |  |
+
+### ChangeElementBindingResult
+
+Resolver-returned envelope. On success: `errorCode` and `errorMessage`
+are null, `deltas` carry the transaction counts, `targetBinding` echoes
+the binding that landed. On failure: `success = false`, `errorCode` set,
+all deltas zero, no graph mutation persisted.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `success` | `Boolean!` |  |
+| `elementId` | `ID!` |  |
+| `targetBinding` | `ElementBinding!` |  |
+| `deltas` | `ElementBindingDeltas!` |  |
+| `errorCode` | `ElementBindingErrorCode` |  |
+| `errorMessage` | `String` |  |
 
 ## Class types
 
@@ -1125,6 +1261,18 @@ Match elements against class catalog nodes using a multi-priority pipeline
 |----------|------|
 | `input` | `MatchClassesInput!` |
 
+### listClasses
+
+Paginated class catalogue with server-aggregated facet counts. Powers the class-picker side-sheet's browse-all path.
+
+**Returns:** `ListClassesResult!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `input` | `ListClassesInput!` |
+
 ### controlIdsByElements
 
 Find control IDs that have a SUPPORTS relationship to any of the given element IDs
@@ -1291,6 +1439,28 @@ Set configuration attributes on a component's class instantiation relationship
 | `componentId` | `String!` |
 | `classId` | `String!` |
 | `attributes` | `JSON!` |
+
+### changeElementBinding
+
+Atomically change the class or representedModel binding of an element.
+Enforces class XOR representedModel mutual exclusion. Cleans up
+class-derived exposures/countermeasures for any class being disconnected,
+preserves user-authored findings (createdBy = USER) unconditionally, and
+instantiates derived findings for newly-connected classes via the module
+SDK — all in a single executeWrite transaction.
+
+Result envelope carries structured errorCode for failure paths;
+targetBinding echoes the binding that landed; deltas summarise the
+transaction counts (deleted/instantiated derived; preserved custom).
+
+**Returns:** `ChangeElementBindingResult!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `elementId` | `ID!` |
+| `target` | `ElementBindingInput!` |
 
 ### resetModule
 

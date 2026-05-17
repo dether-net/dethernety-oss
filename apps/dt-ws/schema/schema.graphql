@@ -82,6 +82,16 @@ enum AttackVector {
   UNSPECIFIED
 }
 
+# NOTE: The `createdBy` field on Exposure and Countermeasure is typed as
+# String (not a GraphQL enum) so the @populatedBy directive can be
+# applied — @populatedBy in @neo4j/graphql v7 is restricted to scalar
+# field types (no enum support). Allowed values are 'SYSTEM' and 'USER'.
+# Server-enforced via @populatedBy(callback: stampCreatedByUserOnCreate)
+# which overrides client input on the auto-generated CREATE mutations.
+# Cypher-direct SYSTEM writes (SetInstantiationAttributesService) stamp
+# 'SYSTEM' inline. The dt-core TypeScript interface narrows this as a
+# string literal union `'SYSTEM' | 'USER'` for client-side type safety.
+
 """Value types for dynamic attributes."""
 enum ValueType {
   "A text value"
@@ -704,6 +714,14 @@ type Exposure implements Element  @authentication @node {
   techniques: [String!]
   "CVSS-aligned attack vector classification"
   attackVector: AttackVector
+  "Authorship kind. 'SYSTEM' = module-instantiated via class binding. 'USER' = hand-authored. Null on legacy data is treated as SYSTEM by the cleanup paths. Server-enforced via @populatedBy on the auto-generated CREATE mutations — the callback overrides any client-supplied value with 'USER'. The SYSTEM write path goes via Cypher (SetInstantiationAttributesService) and bypasses this directive."
+  createdBy: String
+    @populatedBy(callback: "stampCreatedByUserOnCreate", operations: [CREATE])
+    @settable(onUpdate: false)
+  "Creator reference, populated server-side at CREATE time. For USER findings: the authenticated user identifier (JWT sub claim) from context, set by the @populatedBy callback. For SYSTEM findings: an optional module-provided attribution string (feed name, advisory id, researcher name) that the module includes in its return; the module value flows through the resolver's sanitised \\$attrs allowlist. Client-supplied values on auto-generated CREATE mutations are overridden by the @populatedBy callback."
+  authoredBy: String
+    @populatedBy(callback: "populateAuthoredByOnCreate", operations: [CREATE])
+    @settable(onUpdate: false)
   "Components affected by this exposure"
   component: [Component!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
   "Boundaries affected by this exposure"
@@ -874,6 +892,14 @@ type Countermeasure implements Element  @authentication @node {
   addressedExposures: [String!]
   "Tags for filtering and grouping"
   tags: [String!]
+  "Authorship kind. 'SYSTEM' = module-instantiated via class binding. 'USER' = hand-authored. Server-enforced via @populatedBy on the auto-generated CREATE mutations — the callback overrides client input. See the matching field on Exposure for full rationale."
+  createdBy: String
+    @populatedBy(callback: "stampCreatedByUserOnCreate", operations: [CREATE])
+    @settable(onUpdate: false)
+  "Creator reference, populated server-side at CREATE time. See the matching field on Exposure for full rationale. Client-supplied values on auto-generated CREATE mutations are overridden by the @populatedBy callback."
+  authoredBy: String
+    @populatedBy(callback: "populateAuthoredByOnCreate", operations: [CREATE])
+    @settable(onUpdate: false)
   "ATT&CK mitigations implemented by this countermeasure"
   mitigations: [MitreAttackMitigation!]! @relationship(type: "RESPONDS_WITH", direction: OUT)
   "D3FEND techniques implemented by this countermeasure"
@@ -1261,6 +1287,24 @@ type Mutation {
     classId: String!
     attributes: JSON!
   ): Boolean!
+    @authentication
+
+  """
+  Atomically change the class or representedModel binding of an element.
+  Enforces class XOR representedModel mutual exclusion. Cleans up
+  class-derived exposures/countermeasures for any class being disconnected,
+  preserves user-authored findings (createdBy = USER) unconditionally, and
+  instantiates derived findings for newly-connected classes via the module
+  SDK — all in a single executeWrite transaction.
+
+  Result envelope carries structured errorCode for failure paths;
+  targetBinding echoes the binding that landed; deltas summarise the
+  transaction counts (deleted/instantiated derived; preserved custom).
+  """
+  changeElementBinding(
+    elementId: ID!
+    target: ElementBindingInput!
+  ): ChangeElementBindingResult!
     @authentication
 
   "Reset a module, clearing its cached state and reloading from disk"
@@ -1955,4 +1999,105 @@ type AIResponse {
 type Subscription {
   "Subscribe to streamed AI responses for a given analysis session"
   streamResponse(sessionId: String!): AIResponse!
+}
+
+# ---------------------------------------------------------------------------
+# changeElementBinding supporting types.
+#
+# Discriminated input shape — GraphQL has no native input unions, so the
+# `kind` enum gates which of `classIds` / `modelId` is required. The
+# resolver validates the combination per the comments on each field.
+#
+# The output `targetBinding` is a real GraphQL union so consumers can
+# pattern-match on `__typename`.
+# ---------------------------------------------------------------------------
+
+"Discriminator for the desired binding kind on an element."
+enum ElementBindingKind {
+  CLASS
+  REPRESENTED_MODEL
+  NONE
+}
+
+"""
+Input shape for the desired post-mutation binding. Exactly one of
+`classIds` / `modelId` must be set, gated by `kind`:
+- kind = CLASS: `classIds` non-empty (length 1 for non-Controls; 0+ for Controls).
+- kind = REPRESENTED_MODEL: `modelId` non-null.
+- kind = NONE: both `classIds` and `modelId` null.
+"""
+input ElementBindingInput {
+  kind: ElementBindingKind!
+  classIds: [ID!]
+  modelId: ID
+}
+
+"Class-based binding state (one or more ControlClasses, or exactly one of any other *Class)."
+type ClassBinding {
+  classIds: [ID!]!
+}
+
+"Represented-model binding state (Component / SecurityBoundary only)."
+type RepresentedModelBinding {
+  modelId: ID!
+}
+
+"""
+Empty-binding state. GraphQL union members must declare at least one
+field, so `_empty` is a placeholder. Consumers should branch on
+`__typename`, not read this field.
+"""
+type NoBinding {
+  _empty: Boolean
+}
+
+"Discriminated union describing the (echoed) post-mutation binding state."
+union ElementBinding = ClassBinding | RepresentedModelBinding | NoBinding
+
+"""
+Per-mutation counts of what the single executeWrite transaction touched.
+All values are zero on identity-transition short-circuit or any error
+path. Counts of SYSTEM findings are split between deleted and instantiated;
+USER findings only ever appear in `preserved*` (cleanup never touches
+them — see ElementBindingService's destructive sweep predicates, which
+require `createdBy = 'SYSTEM' OR createdBy IS NULL`).
+"""
+type ElementBindingDeltas {
+  deletedDerivedExposures: Int!
+  instantiatedDerivedExposures: Int!
+  preservedCustomExposures: Int!
+  deletedDerivedCountermeasures: Int!
+  instantiatedDerivedCountermeasures: Int!
+  preservedCustomCountermeasures: Int!
+}
+
+"""
+Structured error codes returned from changeElementBinding. Null on
+success. UI branches on the code; `errorMessage` carries a sanitised
+human-readable string suitable for snackbar display.
+"""
+enum ElementBindingErrorCode {
+  VALIDATION_ERROR
+  ELEMENT_NOT_FOUND
+  CLASS_NOT_FOUND
+  MODEL_NOT_FOUND
+  ORPHAN_CLASS_REFUSED
+  REPRESENTED_MODEL_NOT_ALLOWED
+  MODULE_ERROR
+  DATABASE_ERROR
+}
+
+"""
+Resolver-returned envelope. On success: `errorCode` and `errorMessage`
+are null, `deltas` carry the transaction counts, `targetBinding` echoes
+the binding that landed. On failure: `success = false`, `errorCode` set,
+all deltas zero, no graph mutation persisted.
+"""
+type ChangeElementBindingResult {
+  success: Boolean!
+  elementId: ID!
+  targetBinding: ElementBinding!
+  deltas: ElementBindingDeltas!
+  errorCode: ElementBindingErrorCode
+  errorMessage: String
 }

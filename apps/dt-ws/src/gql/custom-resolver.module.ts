@@ -10,6 +10,7 @@ import { ClassIdentityEventLog } from './module-management-services/class-identi
 import { ClassIdentityMigrationService } from './module-management-services/class-identity-migration.service';
 import { ModuleManagementResolverService } from './resolver-services/module-management-resolver.service';
 import { SetInstantiationAttributesService } from './resolver-services/set-instantiation-attributes.service';
+import { ElementBindingService } from './resolver-services/element-binding.service';
 import { AnalysisResolverService } from './resolver-services/analysis-resolver.service';
 import { IssueResolverService } from './resolver-services/issue-resolver.service';
 import { MatchClassesResolverService } from './resolver-services/match-classes-resolver.service';
@@ -27,6 +28,7 @@ const resolverServiceClasses = [
   TemplateResolverService,
   ModuleManagementResolverService,
   SetInstantiationAttributesService,
+  ElementBindingService,
   AnalysisResolverService,
   IssueResolverService,
   MatchClassesResolverService,

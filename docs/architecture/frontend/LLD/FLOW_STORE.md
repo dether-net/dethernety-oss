@@ -295,6 +295,14 @@ const applyDeferredUpdates = async (tempId: string, realId: string) => {
       console.error('Failed to apply deferred class update:', error)
     }
   }
+  //
+  // `updateNodeClass` is a thin wrapper around `dtClass.changeElementBinding(
+  //   { elementId, target: { kind: 'CLASS', classIds: [classId] } })`, which
+  // is the single sanctioned write path for the `IS_INSTANCE_OF` /
+  // `REPRESENTS_MODEL` edges. The returned `ChangeElementBindingResult` —
+  // not the boolean from the legacy per-type wrappers — is what callers
+  // should branch on to drive snackbar feedback (see Class-change feedback
+  // pattern in Data architecture/IMPLEMENTATION_PATTERNS.md).
 
   // Apply merged regular updates
   if (Object.keys(nodeUpdates).length > 0) {
