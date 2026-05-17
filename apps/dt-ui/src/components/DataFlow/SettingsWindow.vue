@@ -4,7 +4,9 @@
   import { useFlowStore } from '@/stores/flowStore'
   import { useRouter } from 'vue-router'
   import { Class, Control, Exposure, Model } from '@dethernety/dt-core'
+  import type { ChangeElementBindingResult } from '@dethernety/dt-core'
   import { getPageDisplayName, flattenProperties, unflattenProperties } from '@/utils/dataFlowUtils'
+  import { emitBindingChangeFeedback } from '@/utils/bindingChangeFeedback'
   import type { UISchemaElement } from '@jsonforms/core'
   import SettingsGeneralTab from '@/components/DataFlow/SettingsTabs/SettingsGeneralTab.vue'
   // import SettingsAttributesTab from '@/components/DataFlow/SettingsTabs/SettingsAttributesTab.vue'
@@ -461,7 +463,7 @@
   }
 
   const proceedWithClassChange = async () => {
-    let res = false
+    let res: ChangeElementBindingResult | null = null
 
     if (pendingFormData.value.class &&
       selectedItem.value &&
@@ -482,11 +484,13 @@
           classId: pendingFormData.value.class,
         })
       }
-      if (res) {
+      if (res?.success) {
         if (isFreshlyCreated.value) emit('clear-freshly-created')
-        showSnackbar('Class updated successfully', 'success')
+        const toast = emitBindingChangeFeedback(res, { kind: 'exposures' })
+        if (toast) showSnackbar(toast.message, toast.color)
       } else {
-        showSnackbar('Failed to update class', 'error')
+        const toast = emitBindingChangeFeedback(res, { kind: 'exposures' })
+        showSnackbar(toast?.message ?? 'Failed to update class', 'error')
       }
       updateForm()
     } else if (
@@ -503,11 +507,17 @@
           modelId: pendingFormData.value.model,
         })
       }
-      if (res) {
+      if (res?.success) {
         if (isFreshlyCreated.value) emit('clear-freshly-created')
-        showSnackbar('Represented Model updated successfully', 'success')
+        const toast = emitBindingChangeFeedback(res, {
+          kind: 'exposures',
+          transition: 'class-to-model',
+          modelName: pendingFormData.value.modelName,
+        })
+        if (toast) showSnackbar(toast.message, toast.color)
       } else {
-        showSnackbar('Failed to update represented model', 'error')
+        const toast = emitBindingChangeFeedback(res, { kind: 'exposures' })
+        showSnackbar(toast?.message ?? 'Failed to update represented model', 'error')
       }
       updateForm()
     } else {

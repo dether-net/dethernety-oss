@@ -2,8 +2,10 @@
   import { computed, onMounted, ref, watch } from 'vue'
   import { useControlsStore } from '@/stores/controlsStore'
   import { useClassSuggestionsStore } from '@/stores/classSuggestionsStore'
+  import { useAuthStore } from '@/stores/authStore'
   import { Class, Control, Countermeasure } from '@dethernety/dt-core'
   import { unflattenProperties } from '@/utils/dataFlowUtils'
+  import { emitBindingChangeFeedback } from '@/utils/bindingChangeFeedback'
   import type { UISchemaElement } from '@jsonforms/core'
   import ClassPickerSheet from '@/components/DataFlow/ClassPicker/ClassPickerSheet.vue'
 
@@ -32,6 +34,43 @@
   const emits = defineEmits(['control:deleted', 'control:moved', 'control:closed', 'control:saved'])
 
   const controlsStore = useControlsStore()
+  const authStore = useAuthStore()
+  const currentUserId = computed(() => authStore.user?.id ?? null)
+
+  /**
+   * Provenance icon rendering matrix. Mirrors the helper in
+   * SettingsExposuresTab.vue — see that file for the rendering matrix
+   * and icon-choice rationale.
+   */
+  type ProvenanceKind = 'user' | 'system' | 'none'
+  const countermeasureProvenanceInfo = (item: Countermeasure | { createdBy?: string | null, authoredBy?: string | null }): {
+    kind: ProvenanceKind
+    tooltip: string
+    iconName: string
+    iconColor: string
+  } => {
+    const createdBy = 'createdBy' in item ? (item.createdBy ?? null) : null
+    const authoredBy = 'authoredBy' in item ? (item.authoredBy ?? null) : null
+    if (createdBy === 'USER') {
+      const isSelf = authoredBy && currentUserId.value && authoredBy === currentUserId.value
+      return {
+        kind: 'user',
+        tooltip: isSelf ? 'Authored by you' : `Authored by ${authoredBy ?? 'a user'}`,
+        iconName: 'mdi-account-outline',
+        iconColor: 'primary',
+      }
+    }
+    if (createdBy === 'SYSTEM' && authoredBy) {
+      return {
+        kind: 'system',
+        tooltip: `Source: ${authoredBy}`,
+        iconName: 'mdi-database-outline',
+        iconColor: 'grey',
+      }
+    }
+    return { kind: 'none', tooltip: '', iconName: '', iconColor: '' }
+  }
+
   const showClassControlDialog = ref(false)
   const selectedClassId = ref('')
   const currentItemClass = ref<Class | null>(null)
@@ -278,7 +317,8 @@
       controlClasses: newClassIds,
       folderId: control.value?.folder?.id || undefined,
     }).then(ret => {
-      if (ret) {
+      const ok = ret.residualOk && !ret.bindingResult?.errorCode
+      if (ok) {
         selectedClassIds.value = newClassIds
         removedIds.forEach(id => classesWithAttributes.value.delete(id))
         initialState.value = {
@@ -521,17 +561,47 @@
       controlClasses: selectedClassIds.value,
       folderId: control.value?.folder?.id || undefined,
     }).then(ret => {
-      if (ret) {
+      const bindingFailed = ret.bindingResult?.errorCode != null
+      if (bindingFailed) {
+        const toast = emitBindingChangeFeedback(ret.bindingResult, { kind: 'countermeasures' })
+        snackBar.value = toast
+          ? { show: true, message: toast.message, color: toast.color }
+          : { show: true, message: 'Failed to update control', color: 'error' }
+        emits('control:saved', false)
+        return
+      }
+
+      const bindingToast = emitBindingChangeFeedback(ret.bindingResult, { kind: 'countermeasures' })
+      if (ret.residualOk) {
         initialState.value = {
           name: newName.value,
           description: newDescription.value,
           classIds: [...selectedClassIds.value],
         }
-        snackBar.value = { show: true, message: 'Control updated', color: 'success' }
+        if (bindingToast) {
+          // Binding had real deltas (or returned the identity-short-circuit
+          // "No changes to apply." neutral) — surface as the primary toast.
+          snackBar.value = { show: true, message: bindingToast.message, color: bindingToast.color }
+        } else {
+          snackBar.value = { show: true, message: 'Control updated', color: 'success' }
+        }
         emits('control:saved', true)
         fetchCountermeasures()
       } else {
-        snackBar.value = { show: true, message: 'Failed to update control', color: 'error' }
+        // Partial-failure (binding applied, residual save failed). Surface
+        // both outcomes atomically via a single composite warning toast —
+        // a single-`snackBar`-ref setTimeout pattern would overwrite the
+        // binding receipt before the user could see it. Branch on the
+        // structural `kind` discriminator rather than substring-matching
+        // the rendered copy so the logic survives copy or locale changes.
+        const bindingFragment = bindingToast && bindingToast.kind === 'delta'
+          ? `${bindingToast.message} `
+          : ''
+        snackBar.value = {
+          show: true,
+          message: `${bindingFragment}Could not save name / description — try saving again.`,
+          color: 'warning',
+        }
         emits('control:saved', false)
       }
     }).catch(() => {
@@ -548,7 +618,8 @@
       controlClasses: selectedClassIds.value,
       folderId,
     }).then(ret => {
-      if (ret) {
+      const ok = ret.residualOk && !ret.bindingResult?.errorCode
+      if (ok) {
         snackBar.value = { show: true, message: 'Control moved to folder', color: 'success' }
         emits('control:moved', folderId)
       } else {
@@ -684,6 +755,26 @@
                           variant="outlined"
                           @click="showCountermeasure(null)"
                         />
+                      </template>
+                      <template #item.name="{ item }">
+                        <div class="d-flex align-center">
+                          <v-tooltip
+                            v-if="countermeasureProvenanceInfo(item).kind !== 'none'"
+                            :text="countermeasureProvenanceInfo(item).tooltip"
+                            location="top"
+                          >
+                            <template #activator="{ props: tooltipProps }">
+                              <v-icon
+                                v-bind="tooltipProps"
+                                :color="countermeasureProvenanceInfo(item).iconColor"
+                                size="18"
+                                class="mr-2"
+                                :icon="countermeasureProvenanceInfo(item).iconName"
+                              />
+                            </template>
+                          </v-tooltip>
+                          <span>{{ item.name }}</span>
+                        </div>
                       </template>
                       <template #item.mitigations="{ item }">
                         <v-chip

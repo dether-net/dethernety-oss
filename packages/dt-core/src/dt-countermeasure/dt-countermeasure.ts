@@ -84,21 +84,21 @@ export class DtCountermeasure {
         control: {
           connect: {
             where: {
-              node: { id: controlId },
+              node: { id: { eq: controlId } },
             },
           },
         },
         defendedTechniques: {
           connect: countermeasure.defendedTechniques?.map(technique => ({
             where: {
-              node: { id: technique.id },
+              node: { id: { eq: technique.id } },
             },
           })),
         },
         mitigations: {
           connect: countermeasure.mitigations?.map(mitigation => ({
             where: {
-              node: { id: mitigation.id },
+              node: { id: { eq: mitigation.id } },
             },
           })),
         },
@@ -139,13 +139,13 @@ export class DtCountermeasure {
         mitigations: {
           disconnect: {},
           connect: countermeasure.mitigations?.map(mitigation => ({
-            where: { node: { id: mitigation.id } },
+            where: { node: { id: { eq: mitigation.id } } },
           })),
         },
         defendedTechniques: {
           disconnect: {},
           connect: countermeasure.defendedTechniques?.map(technique => ({
-            where: { node: { id: technique.id } },
+            where: { node: { id: { eq: technique.id } } },
           })),
         },
       }

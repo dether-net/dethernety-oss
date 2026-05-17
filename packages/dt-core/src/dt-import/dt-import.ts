@@ -338,10 +338,11 @@ export class DtImport {
         if (classId) {
           try {
             // First set the class
-            const success = await this.dtBoundary.updateBoundaryClass({
-              boundaryId: defaultBoundaryId,
-              classId
+            const bindingResult = await this.dtClass.changeElementBinding({
+              elementId: defaultBoundaryId,
+              target: { kind: 'CLASS', classIds: [classId] }
             })
+            const success = !bindingResult.errorCode
             if (success) {
               // Then set attributes if available
               if (boundaryData.attributes) {
@@ -368,10 +369,11 @@ export class DtImport {
         try {
           const representedModel = await this.dtModel.getModel({ modelId: boundaryData.representedModel.id })
           if (representedModel) {
-            const success = await this.dtBoundary.updateBoundaryRepresentedModel({
-              boundaryId: defaultBoundaryId,
-              modelId: boundaryData.representedModel.id
+            const bindingResult = await this.dtClass.changeElementBinding({
+              elementId: defaultBoundaryId,
+              target: { kind: 'REPRESENTED_MODEL', modelId: boundaryData.representedModel.id }
             })
+            const success = !bindingResult.errorCode
             if (!success) {
               this.warnings.push(`Failed to set represented model for default boundary`)
             }
@@ -479,10 +481,11 @@ export class DtImport {
         try {
           const representedModel = await this.dtModel.getModel({ modelId: componentData.representedModel.id })
           if (representedModel) {
-            const success = await this.dtComponent.updateComponentRepresentedModel({
-              componentId: newComponent.id,
-              modelId: componentData.representedModel.id
+            const bindingResult = await this.dtClass.changeElementBinding({
+              elementId: newComponent.id,
+              target: { kind: 'REPRESENTED_MODEL', modelId: componentData.representedModel.id }
             })
+            const success = !bindingResult.errorCode
             if (!success) {
               this.warnings.push(`Failed to set represented model for component ${componentData.name}`)
             }
@@ -579,10 +582,11 @@ export class DtImport {
         try {
           const representedModel = await this.dtModel.getModel({ modelId: boundaryData.representedModel.id })
           if (representedModel) {
-            const success = await this.dtBoundary.updateBoundaryRepresentedModel({
-              boundaryId: newBoundary.id,
-              modelId: boundaryData.representedModel.id
+            const bindingResult = await this.dtClass.changeElementBinding({
+              elementId: newBoundary.id,
+              target: { kind: 'REPRESENTED_MODEL', modelId: boundaryData.representedModel.id }
             })
+            const success = !bindingResult.errorCode
             if (!success) {
               this.warnings.push(`Failed to set represented model for boundary ${boundaryData.name}`)
             }

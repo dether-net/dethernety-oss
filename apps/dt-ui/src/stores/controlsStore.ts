@@ -1,4 +1,5 @@
 // stores/modelsStore.js
+import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import apolloClient from '@/plugins/apolloClient'
 import {
@@ -9,6 +10,7 @@ import {
   // Core types
   Class, Control, Countermeasure, MitreAttackMitigation,
   MitreDefendTactic, MitreDefendTechnique, Module,
+  UpdateControlResult,
 } from '@dethernety/dt-core'
 
 export const useControlsStore = defineStore('controls', () => {
@@ -324,67 +326,70 @@ export const useControlsStore = defineStore('controls', () => {
   const updateControl = async (
     { controlId, name, description, controlClasses, folderId }:
     { controlId: string, name: string, description: string, controlClasses: string[], folderId: string | undefined }
-  ): Promise<Control | null> => {
+  ): Promise<UpdateControlResult> => {
     const operation = 'updatingControl'
-    
+
     // Validate input
     const validationErrors = validateControl({ name, description })
     if (validationErrors.length > 0) {
       setError(operation, new Error(validationErrors.join(', ')), 'update control')
-      return null
+      return { control: null, bindingResult: null, residualOk: false }
     }
-    
+
     // Check if we have the control in our local state
     const controlIndex = controls.value.findIndex(control => control.id === controlId)
     const hasLocalControl = controlIndex !== -1
-    
+
     // Store original state for rollback (only if we have local state)
     const originalControls = hasLocalControl ? [...controls.value] : null
-    
+
     // Optimistic update (only if we have the control locally)
     if (hasLocalControl) {
-      const optimisticUpdate = { 
-        ...controls.value[controlIndex], 
-        name, 
-        description, 
-        pending: true 
+      const optimisticUpdate = {
+        ...controls.value[controlIndex],
+        name,
+        description,
+        pending: true
       }
       controls.value = controls.value.map(control =>
         control.id === controlId ? optimisticUpdate : control
       )
     }
-    
+
     try {
       setOperationLoading(operation, true)
       clearError(operation)
-      
-      const updatedControl = await retryOperation(() =>
-        dtControl.updateControl({ 
-          controlId, name, description, controlClasses, folderId 
+
+      const result = await retryOperation(() =>
+        dtControl.updateControl({
+          controlId, name, description, controlClasses, folderId
         })
       )
-      
-      if (updatedControl) {
-        // Update local state only if we have it
-        if (hasLocalControl) {
-          syncControlUpdate(updatedControl)
-        }
-        return updatedControl
-      } else {
-        // Rollback on failure (only if we have local state)
+
+      // Rollback whenever the binding portion failed or the residual portion
+      // failed, so local optimistic state never diverges from server truth.
+      const failed = result.bindingResult?.errorCode != null || !result.residualOk
+      if (failed) {
         if (hasLocalControl && originalControls) {
           controls.value = originalControls
         }
-        setError(operation, new Error('Failed to update control'), 'update control')
-        return null
+        setError(operation, new Error(
+          result.bindingResult?.errorMessage ?? 'Failed to update control'
+        ), 'update control')
+        return result
       }
+
+      if (result.control && hasLocalControl) {
+        syncControlUpdate(result.control)
+      }
+      return result
     } catch (error) {
       // Rollback on error (only if we have local state)
       if (hasLocalControl && originalControls) {
         controls.value = originalControls
       }
       setError(operation, error as Error, 'update control')
-      return null
+      return { control: null, bindingResult: null, residualOk: false }
     } finally {
       setOperationLoading(operation, false)
     }

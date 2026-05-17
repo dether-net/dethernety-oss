@@ -264,3 +264,27 @@ query GetControlClasses(
   }
 }
 `
+
+export const CHANGE_ELEMENT_BINDING = gql`
+  mutation ChangeElementBinding($elementId: ID!, $target: ElementBindingInput!) {
+    changeElementBinding(elementId: $elementId, target: $target) {
+      success
+      elementId
+      targetBinding {
+        __typename
+        ... on ClassBinding { classIds }
+        ... on RepresentedModelBinding { modelId }
+      }
+      deltas {
+        deletedDerivedExposures
+        instantiatedDerivedExposures
+        preservedCustomExposures
+        deletedDerivedCountermeasures
+        instantiatedDerivedCountermeasures
+        preservedCustomCountermeasures
+      }
+      errorCode
+      errorMessage
+    }
+  }
+`

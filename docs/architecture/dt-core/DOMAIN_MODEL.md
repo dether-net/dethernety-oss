@@ -460,6 +460,8 @@ interface Exposure extends Element {
   detectionMethods?: string[]
   tags?: string[]
   exploitedBy?: MitreAttackTechnique[]  // Linked ATT&CK techniques
+  createdBy?: string | null       // Provenance: 'USER' | 'SYSTEM' | null. Server-stamped at CREATE time; sealed against UPDATE-path forgery.
+  authoredBy?: string | null      // USER findings: JWT sub claim. SYSTEM findings: optional module-provided attribution string. Same write-once seal as createdBy.
 }
 ```
 
@@ -481,8 +483,12 @@ interface Countermeasure extends Element {
   mitigations?: MitreAttackMitigation[]
   defendedTechniques?: MitreDefendTechnique[]
   control?: Control
+  createdBy?: string | null       // Provenance: 'USER' | 'SYSTEM' | null. Same semantics as Exposure.createdBy.
+  authoredBy?: string | null      // Same semantics as Exposure.authoredBy.
 }
 ```
+
+> **Provenance fields.** `createdBy` and `authoredBy` are populated server-side at CREATE time and are immutable thereafter. They drive the destructive-sweep predicate inside `changeElementBinding` (USER findings are preserved unconditionally; SYSTEM findings are diff-cleaned) and the provenance icon UX in the exposures and countermeasures tables. The full server-side mechanism is in [backend SCHEMA.md — Provenance fields](../backend/LLD/SCHEMA.md#provenance-fields-on-exposure-and-countermeasure).
 
 ---
 

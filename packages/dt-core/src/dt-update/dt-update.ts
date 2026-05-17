@@ -588,9 +588,9 @@ export class DtUpdate {
     try {
       // Update class if provided
       if (boundaryData.classData?.id) {
-        await this.dtBoundary.updateBoundaryClass({
-          boundaryId: this.defaultBoundaryId,
-          classId: boundaryData.classData.id
+        await this.dtClass.changeElementBinding({
+          elementId: this.defaultBoundaryId,
+          target: { kind: 'CLASS', classIds: [boundaryData.classData.id] }
         })
       }
 
@@ -738,9 +738,9 @@ export class DtUpdate {
 
       // Update class if provided
       if (boundaryData.classData?.id) {
-        await this.dtBoundary.updateBoundaryClass({
-          boundaryId,
-          classId: boundaryData.classData.id
+        await this.dtClass.changeElementBinding({
+          elementId: boundaryId,
+          target: { kind: 'CLASS', classIds: [boundaryData.classData.id] }
         })
 
         // Set instantiation attributes if provided
@@ -909,9 +909,9 @@ export class DtUpdate {
 
       // Update class if provided
       if (componentData.classData?.id) {
-        await this.dtComponent.updateComponentClass({
-          componentId,
-          classId: componentData.classData.id
+        await this.dtClass.changeElementBinding({
+          elementId: componentId,
+          target: { kind: 'CLASS', classIds: [componentData.classData.id] }
         })
 
         // Set instantiation attributes if provided
@@ -1089,9 +1089,9 @@ export class DtUpdate {
 
       // Update class if provided
       if (flowData.classData?.id) {
-        await this.dtDataflow.updateDataFlowClass({
-          dataFlowId: flowId,
-          classId: flowData.classData.id
+        await this.dtClass.changeElementBinding({
+          elementId: flowId,
+          target: { kind: 'CLASS', classIds: [flowData.classData.id] }
         })
 
         // Set instantiation attributes if provided

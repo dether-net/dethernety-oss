@@ -150,44 +150,6 @@ export class DtDataflow {
   }
 
   /**
-   * Update the class of a data flow
-   * @param dataFlowId - The ID of the data flow
-   * @param classId - The ID of the class to update the data flow to
-   * @returns True if the class was updated, false otherwise
-   */
-  updateDataFlowClass = async (
-    { dataFlowId, classId }:
-    { dataFlowId: string, classId: string }
-  ): Promise<boolean> => {
-    const mutexKey = `updateDataFlowClass_${dataFlowId}_${classId}`
-    return this.dtUtils.withMutex(mutexKey, async () => {
-      try {
-        const variables = {
-          dataFlowId,
-          input: {
-            dataFlowClass: {
-              disconnect: {},
-              connect: { where: { node: { id: { eq: classId } } } },
-            },
-          },
-        }
-        const updatedDataFlow = await this.dtUtils.performMutation<DataFlowData>({
-          mutation: UPDATE_DATA_FLOW,
-          variables,
-          dataPath: 'updateDataFlows.dataFlows[0]',
-          action: 'updateDataFlowClass',
-        })
-        if (updatedDataFlow) {
-          return true
-        }
-      } catch (error) {
-        this.dtUtils.handleError({ action: 'updateDataFlowClass', error })
-      }
-      return false
-    })
-  }
-
-  /**
    * Delete a data flow
    * @param dataFlowId - The ID of the data flow to delete
    * @returns True if the data flow was deleted, false otherwise

@@ -16,7 +16,46 @@ import {
   GET_DATA_FLOW_CLASS_BY_ID,
   MATCH_CLASSES,
   LIST_CLASSES,
+  CHANGE_ELEMENT_BINDING,
 } from './dt-class-gql.js'
+
+export type ElementBindingTarget =
+  | { kind: 'CLASS'; classIds: string[] }
+  | { kind: 'REPRESENTED_MODEL'; modelId: string }
+  | { kind: 'NONE' }
+
+export type ElementBindingErrorCode =
+  | 'VALIDATION_ERROR'
+  | 'ELEMENT_NOT_FOUND'
+  | 'CLASS_NOT_FOUND'
+  | 'MODEL_NOT_FOUND'
+  | 'ORPHAN_CLASS_REFUSED'
+  | 'REPRESENTED_MODEL_NOT_ALLOWED'
+  | 'MODULE_ERROR'
+  | 'DATABASE_ERROR'
+
+export interface ElementBindingDeltas {
+  deletedDerivedExposures: number
+  instantiatedDerivedExposures: number
+  preservedCustomExposures: number
+  deletedDerivedCountermeasures: number
+  instantiatedDerivedCountermeasures: number
+  preservedCustomCountermeasures: number
+}
+
+export type ElementBindingEcho =
+  | { __typename: 'ClassBinding'; classIds: string[] }
+  | { __typename: 'RepresentedModelBinding'; modelId: string }
+  | { __typename: 'NoBinding' }
+
+export interface ChangeElementBindingResult {
+  success: boolean
+  elementId: string
+  targetBinding: ElementBindingEcho
+  deltas: ElementBindingDeltas
+  errorCode: ElementBindingErrorCode | null
+  errorMessage: string | null
+}
 import yaml from 'js-yaml';
 
 /**
@@ -616,5 +655,57 @@ export class DtClass {
       })
       return response.listClasses
     })
+  }
+
+  /**
+   * Atomically change an element's binding (class / representedModel / none).
+   * Dispatches the server-side `changeElementBinding` mutation which owns the
+   * single-transaction destructive-sweep + rewire + constructive-upsert flow
+   * for derived exposures and countermeasures.
+   *
+   * Mutex scope: the `binding_${elementId}` key serialises same-element calls
+   * **on this DtClass instance only**. Cross-store / cross-Dt*-class races
+   * fall through to the backend `executeWrite` — the frontend mutex is a
+   * latency hedge, not a distributed coordination primitive. Verified in
+   * `__tests__/change-element-binding.test.ts` (same-instance same-elementId
+   * serialisation; cross-elementId parallelism).
+   */
+  changeElementBinding = async (
+    { elementId, target }:
+    { elementId: string; target: ElementBindingTarget }
+  ): Promise<ChangeElementBindingResult> => {
+    const mutexKey = `binding_${elementId}`
+    return this.dtUtils.withMutex(mutexKey, async () => {
+      const variables = {
+        elementId,
+        target: this.normaliseBindingTarget(target),
+      }
+      const result = await this.dtUtils.performMutation<ChangeElementBindingResult>({
+        mutation: CHANGE_ELEMENT_BINDING,
+        variables,
+        dataPath: 'changeElementBinding',
+        action: 'changeElementBinding',
+      })
+      return result
+    })
+  }
+
+  /**
+   * Coerce the discriminated input shape to the GraphQL `ElementBindingInput`
+   * payload. The server re-validates the combination; this is just a
+   * one-roundtrip pre-shape (drops irrelevant fields per `kind`).
+   */
+  private normaliseBindingTarget(target: ElementBindingTarget): {
+    kind: 'CLASS' | 'REPRESENTED_MODEL' | 'NONE'
+    classIds?: string[]
+    modelId?: string
+  } {
+    if (target.kind === 'CLASS') {
+      return { kind: 'CLASS', classIds: target.classIds }
+    }
+    if (target.kind === 'REPRESENTED_MODEL') {
+      return { kind: 'REPRESENTED_MODEL', modelId: target.modelId }
+    }
+    return { kind: 'NONE' }
   }
 }

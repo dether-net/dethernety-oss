@@ -112,10 +112,26 @@ interface SetInstantiationStatistics {
 - `processComponentExposures()` - Handle exposures for non-control components
 
 ### Database Operations (Neo4j v5)
-- `upsertExposures()` - Upsert exposures using `executeWrite` pattern
-- `upsertCountermeasures()` - Upsert countermeasures using `executeWrite` pattern
+- `upsertExposures()` - Upsert exposures using `executeWrite` pattern (owns its own session + transaction)
+- `upsertCountermeasures()` - Upsert countermeasures using `executeWrite` pattern (owns its own session + transaction)
+- `upsertExposuresInTx(tx, request)` - **Public tx-bound helper.** Runs the scoped Cypher upsert inside a caller-supplied `DatabaseTransaction`. Performs no session management of its own; used by `ElementBindingService` to fold the constructive-upsert step into its single `executeWrite` block. See [Tx-bound helpers shared with `changeElementBinding`](#tx-bound-helpers-shared-with-changeelementbinding).
+- `upsertCountermeasuresInTx(tx, request)` - **Public tx-bound helper.** Same pattern as `upsertExposuresInTx`, for Countermeasures.
 - `linkToExternalObject()` - Link to MITRE ATT&CK techniques/mitigations
 - `deleteObsoleteExternalObjects()` - Clean up obsolete security objects
+
+### Tx-bound helpers shared with `changeElementBinding`
+
+`upsertExposuresInTx` and `upsertCountermeasuresInTx` are the public, transaction-bound forms of the standard upsert helpers. They take an already-open `DatabaseTransaction` as their first argument and perform no session management of their own, so a caller can fold the constructive-upsert step into its own `executeWrite` block.
+
+The atomic class-change resolver in [`ElementBindingService`](../../../../apps/dt-ws/src/gql/resolver-services/element-binding.service.ts) is the second caller. Its single `executeWrite` runs in sequence:
+
+1. In-tx authoritative read of the current binding.
+2. Identity short-circuit (if target matches current, exit with zero deltas).
+3. Destructive sweep of stale SYSTEM-derived findings (predicate: `createdBy = 'SYSTEM' OR createdBy IS NULL`).
+4. Rewire of the `IS_INSTANCE_OF` / `REPRESENTS_MODEL` edges.
+5. **`upsertExposuresInTx` / `upsertCountermeasuresInTx`** for the newly-bound classes.
+
+All five steps share one Bolt transaction. On any error, Bolt rolls back the rewire and the upsert together — no partial graph state can land. The shared module-attribute sanitiser lives in [`src/gql/resolver-services/shared/finding-attrs.ts`](../../../../apps/dt-ws/src/gql/resolver-services/shared/finding-attrs.ts); both write paths (the `setInstantiationAttributes` mutation and `changeElementBinding`) apply the same positive allowlist (`EXPOSURE_ATTR_KEYS`, `COUNTERMEASURE_ATTR_KEYS`) to keys returned by module SDKs. This excludes server-owned fields (`id`, `createdBy`) and any module-supplied keys not in the schema.
 
 ### Batch Processing
 - `setAttributesWithBatching()` - Debounced batch processing for auto-save

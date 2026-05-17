@@ -84,13 +84,7 @@ mutation DeleteControl($controlId: ID! ){
 }
 `
 export const UPDATE_CONTROL = gql`
-mutation UpdateControl($controlId: ID!, $input: ControlUpdateInput!, $countermeasureDeletion: CountermeasureWhere) {
-  deleteCountermeasures(
-    where: $countermeasureDeletion
-  ) {
-    nodesDeleted
-    relationshipsDeleted
-  }
+mutation UpdateControl($controlId: ID!, $input: ControlUpdateInput!) {
   updateControls(
     where: {
       id: { eq: $controlId }
@@ -151,6 +145,8 @@ export const FIND_CONTROLS = gql`
         name
         type
         score
+        createdBy
+        authoredBy
       }
       folder {
         id

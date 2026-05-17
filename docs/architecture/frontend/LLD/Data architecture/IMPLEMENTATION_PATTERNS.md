@@ -570,6 +570,31 @@ const clearError = () => {
 </script>
 ```
 
+### 4. Class-change feedback (per-parent snackbar)
+
+Components that drive class / model binding changes (e.g. `DataFlow/SettingsWindow.vue`, `Dialogs/Control/ControlDialog.vue`) own their own `<v-snackbar>` ref and dispatch through the pure `emitBindingChangeFeedback` helper in [`src/utils/bindingChangeFeedback.ts`](../../../../../apps/dt-ui/src/utils/bindingChangeFeedback.ts). There is no global toast queue — each parent dialog renders the snackbar within its own card so the feedback is colocated with the failed control and survives the parent's lifecycle.
+
+The helper translates a `ChangeElementBindingResult` envelope into a discriminated `SnackbarPayload`:
+
+```typescript
+import { emitBindingChangeFeedback } from '@/utils/bindingChangeFeedback'
+
+const res = await controlsStore.updateControl({ controlId, controlClasses, ... })
+const toast = emitBindingChangeFeedback(res.bindingResult, { kind: 'countermeasures' })
+if (toast) {
+  snackbar.value = toast  // { show: true, message, color: 'success' | 'error', kind: 'identity' | 'delta' | 'error' }
+}
+```
+
+**Branching order** inside `emitBindingChangeFeedback`:
+1. `errorCode` set → error toast with sanitised `errorMessage`, falling back to `FRIENDLY_ERROR_MESSAGES[code]` for each of the 8 `ElementBindingErrorCode` values.
+2. All-zero deltas (identity short-circuit on the server) → return `null`, suppressing the snackbar entirely. The user's no-op round-trip is silent.
+3. Otherwise → success toast with delta-receipt copy ("N auto-generated exposures replaced, M of yours preserved").
+
+**Why a `kind` discriminator on the payload.** Composite-warning rendering (e.g. amber-coloured "warning" variant when `preservedCustom*` is non-zero) branches on `payload.kind === 'delta'` rather than substring-matching the rendered copy. This makes the UI survive copy edits and future localisation without behavioural regression. Calling components MUST NOT inspect `payload.message` to make rendering decisions.
+
+**Two-snackbar partial-failure UX.** `controlsStore.updateControl` and the `DataItem` counterpart return `{ control | dataItem, bindingResult, residualOk }`. When `bindingResult.success === true` but `residualOk === false`, the parent component fires two snackbars: the delta-receipt for the binding (committed server-side) plus a second toast announcing that the residual property update failed and can be retried.
+
 ## Concurrency Patterns
 
 ### 1. Mutex Protection

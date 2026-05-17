@@ -2,8 +2,10 @@
   import { ref } from 'vue'
   import type { Edge, Node } from '@vue-flow/core'
   import { Class, Exposure } from '@dethernety/dt-core'
+  import { computed } from 'vue'
   import { useFlowStore } from '@/stores/flowStore'
   import { useIssueStore } from '@/stores/issueStore'
+  import { useAuthStore } from '@/stores/authStore'
   import { useRouter } from 'vue-router'
   import { getPageDisplayName } from '@/utils/dataFlowUtils'
   import ExposureDialog from '@/components/Dialogs/DataFlow/ExposureDialog.vue'
@@ -28,7 +30,59 @@
   // Stores
   const flowStore = useFlowStore()
   const issueStore = useIssueStore()
+  const authStore = useAuthStore()
   const router = useRouter()
+
+  const currentUserId = computed(() => authStore.user?.id ?? null)
+
+  /**
+   * Provenance icon rendering matrix:
+   *  - createdBy = USER         → `mdi-account-outline` icon + "Authored by …"
+   *  - createdBy = SYSTEM + authoredBy non-null → `mdi-database-outline` icon
+   *                                                + "Source: …" tooltip
+   *  - createdBy = SYSTEM + authoredBy null     → no icon, no tooltip
+   *  - createdBy = null (legacy) → treated as SYSTEM (no icon, no tooltip)
+   *
+   * Icon-choice notes:
+   *   - USER uses `mdi-account-outline` (not `mdi-account-edit`) — the
+   *     "edit" connotation conflicts with the click-to-edit affordance.
+   *   - SYSTEM-with-authoredBy carries a visible icon (not hover-tooltip
+   *     only), so module-attributed findings are visible at a glance.
+   *   - When authoredBy matches the current user we render "Authored by
+   *     you". Cross-user display-name resolution (showing the author's
+   *     `User.name` instead of the raw id) is not currently supported —
+   *     `User.name` exists on the dt-core interface but the dt-ui
+   *     authStore exposes only the current user, so a directory-lookup
+   *     surface would need to be added first.
+   */
+  type ProvenanceKind = 'user' | 'system' | 'none'
+  const provenanceInfo = (item: Exposure | { createdBy?: string | null, authoredBy?: string | null }): {
+    kind: ProvenanceKind
+    tooltip: string
+    iconName: string
+    iconColor: string
+  } => {
+    const createdBy = 'createdBy' in item ? (item.createdBy ?? null) : null
+    const authoredBy = 'authoredBy' in item ? (item.authoredBy ?? null) : null
+    if (createdBy === 'USER') {
+      const isSelf = authoredBy && currentUserId.value && authoredBy === currentUserId.value
+      return {
+        kind: 'user',
+        tooltip: isSelf ? 'Authored by you' : `Authored by ${authoredBy ?? 'a user'}`,
+        iconName: 'mdi-account-outline',
+        iconColor: 'primary',
+      }
+    }
+    if (createdBy === 'SYSTEM' && authoredBy) {
+      return {
+        kind: 'system',
+        tooltip: `Source: ${authoredBy}`,
+        iconName: 'mdi-database-outline',
+        iconColor: 'grey',
+      }
+    }
+    return { kind: 'none', tooltip: '', iconName: '', iconColor: '' }
+  }
 
   // Data
   const exposureTableHeaders = [
@@ -179,7 +233,20 @@
       </template>
 
       <template #item.name="{ item }">
-        <span class="text-capitalize" @click="editExposure(item.id)">{{ item.name.replaceAll('_', ' ') }}</span>
+        <div class="d-flex align-center">
+          <v-tooltip v-if="provenanceInfo(item).kind !== 'none'" :text="provenanceInfo(item).tooltip" location="top">
+            <template #activator="{ props: tooltipProps }">
+              <v-icon
+                v-bind="tooltipProps"
+                :color="provenanceInfo(item).iconColor"
+                size="18"
+                class="mr-2"
+                :icon="provenanceInfo(item).iconName"
+              />
+            </template>
+          </v-tooltip>
+          <span class="text-capitalize" @click="editExposure(item.id)">{{ item.name.replaceAll('_', ' ') }}</span>
+        </div>
       </template>
       <template #item.exploitedBy="{ item }">
         <div>

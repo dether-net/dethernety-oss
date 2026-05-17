@@ -1,7 +1,22 @@
 import { DtUtils } from '../dt-utils/dt-utils.js'
-import { DtClass } from '../dt-class/dt-class.js'
+import { DtClass, ChangeElementBindingResult } from '../dt-class/dt-class.js'
 import * as Apollo from '@apollo/client'
 import { Class, Control, ControlCandidate, ControlGapsResult, Element as DtElement } from '../interfaces/core-types-interface.js'
+
+/**
+ * Bundled-method return shape: the residual UPDATE_CONTROL surfaces `control`,
+ * the binding portion of the call surfaces `bindingResult`. Either half may be
+ * null (binding skipped when `controlClasses` not passed; control null on
+ * residual failure). `residualOk` is the boolean view of the residual call.
+ *
+ * `ControlDialog.vue` reads `bindingResult` for the delta-receipt snackbar
+ * and may fire a second residual-failure toast when `residualOk === false`.
+ */
+export interface UpdateControlResult {
+  control: Control | null
+  bindingResult: ChangeElementBindingResult | null
+  residualOk: boolean
+}
 import {
   CREATE_CONTROL,
   DELETE_CONTROL,
@@ -195,69 +210,55 @@ export class DtControl {
   }
 
   /**
-   * Update a control
-   * @param controlId - The ID of the control
-   * @param name - The name of the control
-   * @param description - The description of the control
-   * @param controlClasses - The IDs of the classes
-   * @returns The updated control or null if an error occurs
+   * Update a control. Bundled method: when `controlClasses` is part of the
+   * call (always today), the binding portion routes through
+   * {@link DtClass.changeElementBinding} first; the residual UPDATE_CONTROL
+   * mutation then handles name / description / folder. The atomic backend
+   * transaction owns class-derived countermeasure cleanup, so the legacy
+   * `countermeasureDeletion` filter is gone.
+   *
+   * @param controlClasses - When length > 0: targets CLASS kind. When empty:
+   *   targets NONE kind. Backend identity-short-circuits if unchanged.
+   * @returns UpdateControlResult — both halves observable so callers can
+   *   render the two-snackbar partial-failure UX.
    */
   updateControl = async (
     { controlId, name, description, controlClasses, folderId }:
     { controlId: string, name: string, description: string, controlClasses: string[], folderId: string | undefined }
-  ): Promise<Control | null> => {
-    if (!controlId) return null
-    
+  ): Promise<UpdateControlResult> => {
+    if (!controlId) {
+      return { control: null, bindingResult: null, residualOk: false }
+    }
+
+    let bindingResult: ChangeElementBindingResult | null = null
     try {
-      const variables = {
+      bindingResult = await this.dtClass.changeElementBinding({
+        elementId: controlId,
+        target: controlClasses.length > 0
+          ? { kind: 'CLASS', classIds: controlClasses }
+          : { kind: 'NONE' },
+      })
+    } catch (error) {
+      this.dtUtils.handleError({ action: 'updateControl:changeElementBinding', error })
+      return { control: null, bindingResult: null, residualOk: false }
+    }
+
+    if (bindingResult.errorCode) {
+      return { control: null, bindingResult, residualOk: false }
+    }
+
+    try {
+      const variables: any = {
         controlId,
         input: {
           name: { set: name },
           description: { set: description },
-          controlClasses: {
-            disconnect: {
-              where: {
-                NOT: {
-                  OR: controlClasses.map((cls: string) => ({
-                    node: { id: { eq: cls } },
-                  })),
-                },
-              },
-            },
-            connect: controlClasses.map((cls: string) => ({
-              where: { node: { id: { eq: cls } } },
-            })),
-          },
-          folder: { },
-        },
-        countermeasureDeletion: {
-          control: {
-            some: {
-              id: { eq: controlId },
-            },
-          },
-          controlClass: {
-            some: {
-              NOT: {
-                OR: controlClasses.map((cls: string) => ({ id: { eq: cls } })),
-              },
-            },
-          },
+          folder: folderId
+            ? { disconnect: {}, connect: { where: { node: { id: { eq: folderId } } } } }
+            : { disconnect: {} },
         },
       }
-      if (folderId) {
-        variables.input.folder = {
-          disconnect: {},
-          connect: {
-            where: { node: { id: { eq: folderId } } },
-          },
-        }
-      } else {
-        variables.input.folder = {
-          disconnect: {},
-        }
-      }
-      
+
       const result = await this.dtUtils.performMutation<Control>({
         mutation: UPDATE_CONTROL,
         variables,
@@ -265,9 +266,9 @@ export class DtControl {
         action: 'updateControl',
         deduplicationKey: `update-control-${controlId}`
       })
-      
+
       if (result) {
-        return {
+        const control: Control = {
           ...result,
           folder: result.folder && Array.isArray(result.folder) && result.folder.length > 0
             ? result.folder[0]
@@ -279,10 +280,12 @@ export class DtControl {
               : controlClass.module,
           })),
         }
+        return { control, bindingResult, residualOk: true }
       }
-      return null
+      return { control: null, bindingResult, residualOk: false }
     } catch (error) {
-      throw error
+      this.dtUtils.handleError({ action: 'updateControl:residual', error })
+      return { control: null, bindingResult, residualOk: false }
     }
   }
 

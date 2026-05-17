@@ -20,6 +20,7 @@ graph TB
         AR[AnalysisResolverService]
         SIAR[SetInstantiationAttributesService]
         CIR[ClassIdentityResolverService]
+        EBS[ElementBindingService]
     end
 
     subgraph "Shared Services"
@@ -46,6 +47,7 @@ graph TB
     SCHEMA --> AR
     SCHEMA --> SIAR
     SCHEMA --> CIR
+    SCHEMA --> EBS
 
     MMR --> AUTH
     MMR --> MON
@@ -75,6 +77,9 @@ graph TB
     MRS --> MODULES
     AR --> NEO4J
     SIAR --> NEO4J
+    EBS --> SIAR
+    EBS --> NEO4J
+    EBS --> MRS
 ```
 
 ## Service Index
@@ -85,7 +90,8 @@ graph TB
 4. [AnalysisResolverService](#4-analysisresolverservice)
 5. [SetInstantiationAttributesService](#5-setinstantiationattributesservice)
 6. [ClassIdentityResolverService](#6-classidentityresolverservice)
-7. [Shared Services](#7-shared-services)
+7. [ElementBindingService](#7-elementbindingservice)
+8. [Shared Services](#8-shared-services)
 
 ---
 
@@ -981,7 +987,68 @@ Mutations that produce a class-identity event (`migrateClassId` is mechanically 
 
 ---
 
-## 7. Shared Services
+## 7. ElementBindingService
+
+**Location**: [`src/gql/resolver-services/element-binding.service.ts`](../../../../apps/dt-ws/src/gql/resolver-services/element-binding.service.ts)
+
+### Purpose
+
+Owns the `changeElementBinding` mutation — the single sanctioned write path for the `IS_INSTANCE_OF` and `REPRESENTS_MODEL` edges. Replaces five legacy per-type wrappers with one atomic mutation that handles every binding transition (class → class, class → none, none → class, class → represented-model, represented-model → class) for Components, Security Boundaries, Data Flows, Data items, and Controls.
+
+### Surfaces
+
+| Kind | Field | Description |
+|------|-------|-------------|
+| Mutation | `changeElementBinding(elementId: ID!, target: ElementBindingInput!): ChangeElementBindingResult!` | Atomic binding change. Discriminated input (`kind: CLASS \| REPRESENTED_MODEL \| NONE`); structured result with `targetBinding` union, `deltas`, and `errorCode` taxonomy |
+
+### Transaction shape
+
+The mutation handler runs validation and a preflight read outside any transaction, then opens **one** `session.executeWrite(...)` block that performs:
+
+1. **In-tx authoritative re-read** of the current binding (`IS_INSTANCE_OF` and `REPRESENTS_MODEL`). The preflight read is an optimisation that lets the resolver invoke module SDKs (which produce the to-be-instantiated exposures / countermeasures) before opening the write transaction; the in-tx read is the authority.
+2. **Identity short-circuit** — if the in-tx-current binding equals the requested target, exit with `success = true, deltas = all-zero, errorCode = null`. No graph mutation persisted.
+3. **Destructive sweep** of stale SYSTEM-derived findings on the disconnected class(es). The sweep predicate `createdBy = 'SYSTEM' OR createdBy IS NULL` is the contract that protects USER-authored findings from cascading deletes; null-`createdBy` legacy rows are treated as SYSTEM.
+4. **Rewire** of `IS_INSTANCE_OF` / `REPRESENTS_MODEL` edges (idempotent `MERGE`).
+5. **Constructive upsert** via the public tx-bound helpers `upsertExposuresInTx` / `upsertCountermeasuresInTx` from [`SetInstantiationAttributesService`](./SET_INSTANTIATION_ATTRIBUTES.md) — both write paths share one upsert implementation and one module-attribute sanitiser ([`shared/finding-attrs.ts`](../../../../apps/dt-ws/src/gql/resolver-services/shared/finding-attrs.ts)).
+
+All five steps share one Bolt transaction. On any error inside the block (module-SDK failure, database error, constraint violation), Bolt rolls back the rewire and the upsert together — no partial graph state can land.
+
+### Error taxonomy
+
+`ElementBindingErrorCode` is an 8-value enum. The UI branches on the code rather than the message string so copy / locale changes don't break behaviour:
+
+| Code | Meaning |
+|------|---------|
+| `VALIDATION_ERROR` | Input shape inconsistent with `kind` (e.g. `kind: CLASS` with `classIds` empty for a non-Control) |
+| `ELEMENT_NOT_FOUND` | `elementId` resolves to no node |
+| `CLASS_NOT_FOUND` | One or more `classIds` resolve to no class node |
+| `MODEL_NOT_FOUND` | `modelId` resolves to no model node |
+| `ORPHAN_CLASS_REFUSED` | Target class is in the orphaned-classes set (its module is uninstalled or unhealthy) |
+| `REPRESENTED_MODEL_NOT_ALLOWED` | `REPRESENTED_MODEL` binding requested on an element type other than Component / SecurityBoundary |
+| `MODULE_ERROR` | Module SDK call threw or returned an unusable payload |
+| `DATABASE_ERROR` | Bolt rejected the transaction |
+
+### Authz model
+
+`@authentication` on the mutation in `schema.graphql`. The service performs no in-resolver authz — per project convention, JWT validation in the context factory and Neo4j session scoping own the authorization story; resolver and module code never duplicate it.
+
+### Key invariants
+
+- **Single write path.** Every `IS_INSTANCE_OF` and `REPRESENTS_MODEL` mutation routes through this service. Custom resolvers and modules MUST NOT bypass it with direct `MERGE` / `DELETE` of those edges.
+- **USER findings are sacred.** The destructive sweep's `createdBy = 'SYSTEM' OR createdBy IS NULL` predicate never touches `createdBy = 'USER'` rows. Verified by the `provenance.e2e-spec.ts` legacy-null adoption suite.
+- **Last-writer-wins on concurrent calls.** Two concurrent calls against the same `elementId` produce a deterministic forensic trail (both Bolt transactions commit; the later one wins the binding state). The frontend `binding_${elementId}` mutex serialises the common single-tab case; the in-tx authoritative read closes the window for the cross-tab / cross-client case.
+- **Identity short-circuit returns zero deltas.** The client trusts the server's identity decision — the UI suppresses snackbar feedback on all-zero deltas, so a no-op round-trip is silent.
+
+### Related
+
+- [Atomic binding mutation in SCHEMA.md](./SCHEMA.md#atomic-binding-mutation-changeelementbinding)
+- [Provenance fields on Exposure and Countermeasure](./SCHEMA.md#provenance-fields-on-exposure-and-countermeasure)
+- [Tx-bound helpers in SetInstantiationAttributesService](./SET_INSTANTIATION_ATTRIBUTES.md#tx-bound-helpers-shared-with-changeelementbinding)
+- [`DtClass.changeElementBinding` dt-core entry point](../../dt-core/GRAPHQL_OPERATIONS.md#changeelementbinding--atomic-class--model-binding)
+
+---
+
+## 8. Shared Services
 
 ### AuthorizationService
 

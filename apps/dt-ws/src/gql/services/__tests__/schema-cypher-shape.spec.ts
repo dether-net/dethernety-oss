@@ -79,3 +79,78 @@ describe('schema.graphql — Cypher depth-bound shape snapshot', () => {
     }
   });
 });
+
+/**
+ * Provenance immutability guardrail.
+ *
+ * Both `createdBy` and `authoredBy` on `Exposure` and `Countermeasure`
+ * carry `@populatedBy(operations: [CREATE])` (callback stamps the field
+ * server-side at create) AND `@settable(onUpdate: false)` (strips the
+ * field from the auto-generated UPDATE input shape entirely).
+ *
+ * Why both:
+ * - `@populatedBy(operations: [CREATE])` removes the field from the
+ *   CREATE input — clients can't forge it at create time.
+ * - `@settable(onUpdate: false)` removes the field from the UPDATE input
+ *   — clients can't overwrite it after the fact via `*Update` mutations.
+ *
+ * Without the @settable directive, an authenticated client could call
+ * `updateExposures(where: { id_EQ: "x" }, update: { createdBy_SET: "SYSTEM",
+ * authoredBy_SET: "<victim>" })` and (a) impersonate another user, or
+ * (b) flip a USER-authored finding to SYSTEM so it gets swept by
+ * ElementBindingService on the next class-rebinding pass.
+ *
+ * These string-snapshot assertions catch:
+ * - Accidental removal of @settable from any of the four fields.
+ * - Accidental loss of @populatedBy on the same fields.
+ * - Accidental sprawl of @settable(onUpdate: false) onto unrelated fields
+ *   (exact-count assertion).
+ *
+ * The end-to-end runtime contract — that GraphQL validation actually
+ * rejects `createdBy_SET` / `authoredBy_SET` on the UPDATE input — is
+ * proven by the UPDATE-path negative tests in
+ * `test/integration/provenance.e2e-spec.ts`.
+ */
+describe('schema.graphql — provenance field immutability guardrails', () => {
+  let schema: string;
+
+  beforeAll(async () => {
+    schema = await fs.readFile(SCHEMA_PATH, 'utf-8');
+  });
+
+  it('every @populatedBy on a provenance callback is followed by @settable(onUpdate: false)', () => {
+    // Capture each populatedBy line and the line immediately after it.
+    // The schema convention puts these directives on adjacent lines below
+    // the field declaration. If a future refactor reorders or removes the
+    // adjacent @settable, this regex fails loudly.
+    const provenancePopulatedBy = schema.match(
+      /@populatedBy\(callback: "(stampCreatedByUserOnCreate|populateAuthoredByOnCreate)", operations: \[CREATE\]\)\s*\n\s*@settable\(onUpdate: false\)/g,
+    ) ?? [];
+    // Exposure: createdBy + authoredBy = 2 sites.
+    // Countermeasure: createdBy + authoredBy = 2 sites.
+    expect(provenancePopulatedBy.length).toBe(4);
+  });
+
+  it('@settable(onUpdate: false) appears exactly 4 times (sprawl guard)', () => {
+    // Total count must equal the four provenance fields. Any additional
+    // occurrence indicates someone added @settable elsewhere — that may
+    // be legitimate, but should force a deliberate update of this test
+    // so that future readers know the count grew on purpose.
+    const settableLockdowns = schema.match(/@settable\(onUpdate: false\)/g) ?? [];
+    expect(settableLockdowns.length).toBe(4);
+  });
+
+  it('createdBy and authoredBy each have @populatedBy on Exposure and Countermeasure (no callback drift)', () => {
+    const stampCreated = schema.match(
+      /@populatedBy\(callback: "stampCreatedByUserOnCreate", operations: \[CREATE\]\)/g,
+    ) ?? [];
+    // One on Exposure.createdBy, one on Countermeasure.createdBy.
+    expect(stampCreated.length).toBe(2);
+
+    const populateAuthored = schema.match(
+      /@populatedBy\(callback: "populateAuthoredByOnCreate", operations: \[CREATE\]\)/g,
+    ) ?? [];
+    // One on Exposure.authoredBy, one on Countermeasure.authoredBy.
+    expect(populateAuthored.length).toBe(2);
+  });
+});

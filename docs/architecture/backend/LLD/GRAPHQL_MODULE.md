@@ -119,6 +119,7 @@ const schema = await schemaService.buildSchemaWithResolvers(customResolvers);
 - Validates Neo4j connection
 - Integrates custom resolvers
 - Handles authentication setup
+- Registers `@populatedBy` callbacks via the `features.populatedBy.callbacks` map. The two callbacks `populateAuthoredByOnCreate` and `stampCreatedByUserOnCreate` (defined in [`src/gql/populated-by/authored-by.ts`](../../../../apps/dt-ws/src/gql/populated-by/authored-by.ts)) stamp `authoredBy` and `createdBy` on Exposure / Countermeasure CREATE mutations from the GraphQL context's JWT claims. Both fields are also annotated with `@settable(onUpdate: false)` in [`schema.graphql`](../../../../apps/dt-ws/schema/schema.graphql) so they are excluded from auto-generated UPDATE input types — sealing the provenance fields against client mutation through either the CREATE-path callback override or the UPDATE-path input shape.
 - Error handling with structured logging
 
 ##### `mergeResolvers(resolverServices: ResolverService[]): ResolverMap`

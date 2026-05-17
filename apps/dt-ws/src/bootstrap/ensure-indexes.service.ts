@@ -77,6 +77,14 @@ export class EnsureIndexesService implements OnApplicationBootstrap {
     { label: 'Data', property: 'id' },
     { label: 'DataFlow', property: 'id' },
     { label: 'Issue', property: 'id' },
+    // Back the §4.7 scoped upsert in SetInstantiationAttributesService
+    // (and the upcoming ElementBindingService): the `OPTIONAL MATCH ...
+    // (existing:Exposure {name: $attributes.name})` lookup walks
+    // HAS_EXPOSURE neighbours filtered by name; without an index the
+    // filter is O(degree) on elements with many findings. Same rationale
+    // for Countermeasure under HAS_COUNTERMEASURE.
+    { label: 'Exposure', property: 'name' },
+    { label: 'Countermeasure', property: 'name' },
   ];
 
   constructor(private readonly databaseService: DatabaseService) {}

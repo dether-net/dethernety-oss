@@ -263,14 +263,14 @@ export class DtSomeEntity {
 | Component | Description | Key Methods |
 |-----------|-------------|-------------|
 | `DtModel` | **Threat Model Management** - Operations for threat models including creation, updates, data export/import, and model lifecycle management | `getModels()`, `getModel()`, `createModel()`, `updateModel()`, `deleteModel()`, `dumpModelData()`, `getModelData()`, `getNotRepresentingModels()` |
-| `DtComponent` | **System Components** - Operations for system components like processes, data stores, and external entities within threat models | `createComponentNode()`, `updateComponent()`, `updateComponentClass()`, `updateComponentRepresentedModel()`, `getComponentRepresentedModel()`, `deleteComponent()` |
-| `DtBoundary` | **Security Boundaries** - Operations for security boundaries and trust zones that define security perimeters in threat models | `createBoundaryNode()`, `updateBoundaryNode()`, `updateBoundaryClass()`, `updateBoundaryRepresentedModel()`, `getBoundaryRepresentedModel()`, `getDescendants()`, `deleteBoundary()` |
-| `DtDataFlow` | **Data Flows** - Operations for data flows between components, representing how data moves through the system | `createDataFlow()`, `updateDataFlow()`, `updateDataFlowClass()`, `deleteDataFlow()` |
+| `DtComponent` | **System Components** - Operations for system components like processes, data stores, and external entities within threat models | `createComponentNode()`, `updateComponent()`, `getComponentRepresentedModel()`, `deleteComponent()` |
+| `DtBoundary` | **Security Boundaries** - Operations for security boundaries and trust zones that define security perimeters in threat models | `createBoundaryNode()`, `updateBoundaryNode()`, `getBoundaryRepresentedModel()`, `getDescendants()`, `deleteBoundary()` |
+| `DtDataFlow` | **Data Flows** - Operations for data flows between components, representing how data moves through the system | `createDataFlow()`, `updateDataFlow()`, `deleteDataFlow()` |
 | `DtDataItem` | **Data Items** - Operations for data items that are carried by data flows, representing the actual data being transmitted | `createDataItem()`, `updateDataItem()`, `deleteDataItem()` |
 | `DtExposure` | **Security Exposures** - Operations for managing security exposures and vulnerabilities identified in threat models | `getExposures()`, `getExposure()`, `createExposure()`, `updateExposure()`, `deleteExposure()` |
 | `DtControl` | **Security Controls** - Operations for security controls that mitigate threats and reduce risk in the system | `getControls()`, `getControl()`, `createControl()`, `updateControl()`, `deleteControl()` |
 | `DtCountermeasure` | **Countermeasures** - Operations for countermeasures that are linked to security controls for threat mitigation | `getCountermeasuresFromControl()`, `getCountermeasure()`, `createCountermeasure()`, `updateCountermeasure()`, `deleteCountermeasure()` |
-| `DtClass` | **Class Definitions** - Operations for component and control class definitions that provide templates and attributes | `getComponentClass()`, `getBoundaryClass()`, `getDataFlowClass()`, `getDataClass()`, `getControlClasses()`, `getControlClassById()`, `setInstantiationAttributes()`, `getAttributesFromClassRelationship()` |
+| `DtClass` | **Class Definitions & Atomic Binding** - Operations for component and control class definitions that provide templates and attributes; owns the single atomic mutation `changeElementBinding` that drives every element's class / model / none binding lifecycle | `changeElementBinding()`, `getComponentClass()`, `getBoundaryClass()`, `getDataFlowClass()`, `getDataClass()`, `getControlClasses()`, `getControlClassById()`, `setInstantiationAttributes()`, `getAttributesFromClassRelationship()` |
 | `DtModule` | **Module Management** - Operations for managing modules that provide reusable components, classes, and configurations | `getModules()`, `getModuleById()`, `getModuleByName()`, `saveModule()`, `resetModule()` |
 | `DtAnalysis` | **AI-Powered Analysis** - Operations for AI-powered threat analysis, including analysis execution, chat interactions, and result processing | `findAnalysisClasses()`, `findAnalyses()`, `createAnalysis()`, `updateAnalysis()`, `deleteAnalysis()`, `runAnalysis()`, `resumeAnalysis()`, `getAnalysisValues()`, `subscribeToStream()`, `startChat()` |
 | `DtMitreAttack` | **MITRE ATT&CK Integration** - Operations for integrating with the MITRE ATT&CK framework for threat intelligence | `getMitreAttackTechnique()`, `getMitreAttackMitigation()`, `getMitreAttackTactics()` |
@@ -399,10 +399,13 @@ try {
     })
   })
 
-  // Update component class (with mutex protection)
-  await dtComponent.updateComponentClass({
-    componentId: newComponent.id,
-    classId: 'updated-web-server-class-id'
+  // Update component class — routes through DtClass.changeElementBinding,
+  // the atomic single-mutation surface for every class / model / none
+  // transition (with mutex protection + server-side single-transaction
+  // sweep + rewire + instantiate).
+  await dtClass.changeElementBinding({
+    elementId: newComponent.id,
+    target: { kind: 'CLASS', classIds: ['updated-web-server-class-id'] },
   })
 
 } catch (error) {

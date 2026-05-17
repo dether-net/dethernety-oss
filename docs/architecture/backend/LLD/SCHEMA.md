@@ -218,6 +218,8 @@ Represents a potential security vulnerability.
 - `tags` ([String!]) — Tags
 - `techniques` ([String!]) — Related techniques
 - `attackVector` (AttackVector) — CVSS v3.1-aligned attack vector (NETWORK, ADJACENT, LOCAL, PHYSICAL, UNSPECIFIED)
+- `createdBy` (String) — Provenance marker, server-stamped at CREATE. See [Provenance fields on Exposure and Countermeasure](#provenance-fields-on-exposure-and-countermeasure).
+- `authoredBy` (String) — Author reference, server-stamped at CREATE. See [Provenance fields on Exposure and Countermeasure](#provenance-fields-on-exposure-and-countermeasure).
 
 **Relationships:**
 - `(Exposure)<-[:HAS_EXPOSURE]-(Component|DataFlow|SecurityBoundary|Data)` — Element with this exposure
@@ -257,6 +259,8 @@ Represents a specific countermeasure implementation.
 - `references` (String) — References
 - `addressedExposures` ([String!]) — Addressed exposures
 - `tags` ([String!]) — Tags
+- `createdBy` (String) — Provenance marker, server-stamped at CREATE. See [Provenance fields on Exposure and Countermeasure](#provenance-fields-on-exposure-and-countermeasure).
+- `authoredBy` (String) — Author reference, server-stamped at CREATE. See [Provenance fields on Exposure and Countermeasure](#provenance-fields-on-exposure-and-countermeasure).
 
 **Relationships:**
 - `(Countermeasure)-[:RESPONDS_WITH]->(MitreAttackMitigation)` — ATT&CK mitigations
@@ -264,6 +268,19 @@ Represents a specific countermeasure implementation.
 - `(Countermeasure)<-[:HAS_COUNTERMEASURE]-(Control)` — Parent control
 - `(Countermeasure)-[:IS_COUNTERMEASURE_OF]->(ControlClass)` — Control class
 - `(Countermeasure)-[:HAS_ISSUE]->(Issue)` — Issues associated with this countermeasure
+
+### Provenance fields on Exposure and Countermeasure
+
+Every `Exposure` and `Countermeasure` carries two server-stamped provenance fields:
+
+| Field | Values | Set by |
+|-------|--------|--------|
+| `createdBy` | `'USER'` &#124; `'SYSTEM'` &#124; `null` (legacy data, treated as SYSTEM by cleanup paths) | CREATE-time only. USER findings: `stampCreatedByUserOnCreate` `@populatedBy` callback in [`src/gql/populated-by/authored-by.ts`](../../../../apps/dt-ws/src/gql/populated-by/authored-by.ts) fires on the auto-generated `createExposures` / `createCountermeasures` mutations. SYSTEM findings: stamped inline by the Cypher MERGE in `SetInstantiationAttributesService` / `ElementBindingService`. |
+| `authoredBy` | USER: the authenticated user identifier (JWT `sub` claim). SYSTEM: optional module-provided attribution string (feed name, advisory id, researcher name) flowing through the resolver's sanitised attribute allowlist. | CREATE-time only. USER findings: `populateAuthoredByOnCreate` callback (same file). SYSTEM findings: included in the module-returned `Exposure` / `Countermeasure` object, passed through the allowlist in [`src/gql/resolver-services/shared/finding-attrs.ts`](../../../../apps/dt-ws/src/gql/resolver-services/shared/finding-attrs.ts). |
+
+Both fields are sealed against UPDATE-path forgery: each is declared with `@populatedBy(operations: [CREATE])` **and** `@settable(onUpdate: false)`. The `@populatedBy` directive overrides any client-supplied value on the auto-generated `createExposures` / `createCountermeasures` shapes; the `@settable(onUpdate: false)` directive removes the field from the auto-generated `updateExposures` / `updateCountermeasures` input types entirely. Together they preserve `createdBy = 'USER'` as a tamper-evident marker that the destructive sweep in [`changeElementBinding`](#mutations) can trust.
+
+The sweep predicates in `ElementBindingService` require `createdBy = 'SYSTEM' OR createdBy IS NULL` — USER findings are preserved unconditionally; legacy null-`createdBy` rows are treated as SYSTEM (covered by the legacy-null adoption suite in `test/integration/provenance.e2e-spec.ts`).
 
 ---
 
@@ -462,6 +479,7 @@ All MITRE types implement the `Element` interface (`id`, `name`, `description`).
 | Mutation | Parameters | Returns | Description |
 |----------|-----------|---------|-------------|
 | `setInstantiationAttributes` | `componentId`, `classId`, `attributes` | `Boolean!` | Set attributes on an IS_INSTANCE_OF relationship |
+| `changeElementBinding` | `elementId`, `target: ElementBindingInput` | `ChangeElementBindingResult!` | Atomically change an element's `IS_INSTANCE_OF` / `REPRESENTS_MODEL` binding. Single sanctioned write path: destructive sweep of stale SYSTEM-derived findings → rewire → constructive upsert, all in one `executeWrite`. See [Atomic binding mutation](#atomic-binding-mutation-changeelementbinding) below. |
 | `deleteModel` | `modelId` | `DeletionStats!` | Delete a model and all contained elements |
 | `runAnalysis` | `analysisId`, `additionalParams?` | `Session!` | Start an analysis run |
 | `startChat` | `analysisId`, `userQuestion`, `additionalParams?` | `Session!` | Start a chat session with an analysis |
@@ -476,6 +494,33 @@ All MITRE types implement the `Element` interface (`id`, `name`, `description`).
 | `runIdentityMigration` | `dryRun` | `IdentityMigrationReport!` | Admin: re-run the idempotent class-identity cleanup |
 
 > **Admin mutations** (`migrateClassId`, `reviveOrphanedClass`, `deleteOrphanedClass`, `runIdentityMigration`) and the `classIdentityEvents` admin query are gated at resolver entry via `requireAdmin(ctx)` — see [`ClassIdentityResolverService`](../../../../apps/dt-ws/src/gql/resolver-services/class-identity-resolver.service.ts). The schema directive on these operations is `@authentication` (token validity); the role check happens in TypeScript, not in the schema, to keep the admin contract role-aware without introducing a new schema directive. Every admin mutation emits a `Logger.warn` audit entry capturing operator identity before performing the work.
+
+### Atomic binding mutation (`changeElementBinding`)
+
+`changeElementBinding` is the **only** sanctioned write path for the `IS_INSTANCE_OF` and `REPRESENTS_MODEL` edges. Direct `@cypher` edits, ad-hoc `MERGE (a)-[:IS_INSTANCE_OF]->(b)` from custom resolvers, and auto-generated `connect` / `disconnect` operations on these edges are excluded by convention — every binding transition routes through this mutation to keep the destructive sweep, rewire, and constructive upsert atomic.
+
+**Input shape.** Discriminated by `ElementBindingInput.kind`:
+
+| Kind | Required field | Effect |
+|------|----------------|--------|
+| `CLASS` | `classIds: [ID!]!` (length 1 for non-Controls; 0+ for Controls) | Bind to one class (single-class elements) or N control classes |
+| `REPRESENTED_MODEL` | `modelId: ID!` | Bind a Component or SecurityBoundary to a model via `REPRESENTS_MODEL` |
+| `NONE` | (neither) | Unbind; sweeps all SYSTEM-derived findings |
+
+GraphQL has no native input unions, so the `kind` enum is the discriminator — the resolver validates the combination per the comments on each field of `ElementBindingInput` in [`schema.graphql`](../../../../apps/dt-ws/schema/schema.graphql).
+
+**Output shape.** `ChangeElementBindingResult` carries:
+- `success` — `false` only when an error path fired before the `executeWrite`; `true` for both real transitions and identity short-circuits.
+- `targetBinding` — a real GraphQL union (`ClassBinding | RepresentedModelBinding | NoBinding`) echoing the binding that landed. Consumers should branch on `__typename`.
+- `deltas: ElementBindingDeltas` — six counters split by finding kind (Exposure / Countermeasure) and disposition (deleted-derived / instantiated-derived / preserved-custom). All zero on identity short-circuit or any error path.
+- `errorCode: ElementBindingErrorCode` — null on success. The 8-value enum is structured for UI branching: `VALIDATION_ERROR`, `ELEMENT_NOT_FOUND`, `CLASS_NOT_FOUND`, `MODEL_NOT_FOUND`, `ORPHAN_CLASS_REFUSED`, `REPRESENTED_MODEL_NOT_ALLOWED`, `MODULE_ERROR`, `DATABASE_ERROR`.
+- `errorMessage: String` — sanitised human-readable string suitable for snackbar display.
+
+**Transaction discipline.** The resolver runs validation and a preflight read outside the transaction, then opens a single `session.executeWrite(...)` block that performs an **in-tx authoritative re-read** of the current binding, identity short-circuit, destructive sweep, rewire, and constructive upsert. The in-tx read is authoritative — the preflight is an optimisation that lets the resolver call module SDKs (to produce module-supplied exposure / countermeasure data) before opening the write transaction. On any database error inside the transaction, Bolt rolls back the entire write — no partial graph state can persist.
+
+**Authorization.** Enforced exclusively by `@authentication` on the mutation. The service does no in-resolver authz checks (per the project convention: module and resolver code never owns authz — the JWT guard and Neo4j session scoping do).
+
+Service: [`ElementBindingService`](../../../../apps/dt-ws/src/gql/resolver-services/element-binding.service.ts). It reuses the public tx-bound helpers `upsertExposuresInTx` / `upsertCountermeasuresInTx` from [`SetInstantiationAttributesService`](SET_INSTANTIATION_ATTRIBUTES.md) so both write paths share one upsert implementation. Module-supplied attributes flow through the shared positive allowlist in [`src/gql/resolver-services/shared/finding-attrs.ts`](../../../../apps/dt-ws/src/gql/resolver-services/shared/finding-attrs.ts).
 
 ### Subscriptions
 
