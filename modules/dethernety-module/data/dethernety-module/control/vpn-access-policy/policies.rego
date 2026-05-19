@@ -10,20 +10,20 @@ _cipher_suite_enforcement_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ET",
             "name": "Encrypted Tunnels",
             "relevance": "Encrypted tunnels directly enforce the use of strong cipher suites for protecting data in transit."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1041",
             "name": "Encrypt Sensitive Information",
             "relevance": "Enforcing cipher suites is a core mechanism for encrypting sensitive information and ensuring strong cryptographic standards."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1020",
             "name": "SSL/TLS Inspection",
@@ -52,20 +52,20 @@ _protocol_version_restriction_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ACH",
             "name": "Application Configuration Hardening",
             "relevance": "Restricting protocol versions is a configuration hardening activity applied at the application level."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1042",
             "name": "Disable or Remove Feature or Program",
             "relevance": "Disabling deprecated or insecure protocol versions is a direct application of removing vulnerable features."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1020",
             "name": "SSL/TLS Inspection",
@@ -98,13 +98,13 @@ _multi_factor_authentication_requirement_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-MFA",
             "name": "Multi-factor Authentication",
             "relevance": "Directly implements the multi-factor authentication requirement for user and system access."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1032",
             "name": "Multi-factor Authentication",
@@ -112,7 +112,7 @@ _multi_factor_authentication_requirement_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CH",
             "name": "Credential Hardening",
             "relevance": "Credential hardening encompasses MFA as a key control to strengthen authentication mechanisms."
@@ -149,20 +149,20 @@ _access_rule_precision_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTF",
             "name": "Network Traffic Filtering",
             "relevance": "Precise access rules are implemented through network traffic filtering to allow or deny specific traffic flows."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ITF",
             "name": "Inbound Traffic Filtering",
             "relevance": "Inbound traffic filtering enforces granular access rules controlling what traffic can reach protected resources."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1035",
             "name": "Limit Access to Resource Over Network",
@@ -199,20 +199,20 @@ _session_timeout_and_idle_control_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ST",
             "name": "Session Termination",
             "relevance": "Session termination directly implements timeout and idle session control by ending inactive sessions."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-WSAM",
             "name": "Web Session Access Mediation",
             "relevance": "Web session access mediation enforces session lifecycle policies including timeouts and idle controls."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1036",
             "name": "Account Use Policies",
@@ -248,21 +248,21 @@ _certificate_and_key_management_coverage_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CBAN",
             "name": "Certificate-based Authentication",
             "relevance": "Certificate-based authentication is central to certificate and key management coverage for secure identity verification."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CP",
             "name": "Certificate Pinning",
             "relevance": "Certificate pinning ensures that only trusted certificates are accepted, directly addressing key management integrity."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CERO",
             "name": "Certificate Rotation",
             "relevance": "Certificate rotation is a key management practice that ensures certificates are regularly updated to maintain security coverage."
@@ -291,20 +291,20 @@ _remote_session_logging_completeness_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-RTSD",
             "name": "Remote Terminal Session Detection",
             "relevance": "Remote terminal session detection directly supports logging completeness by identifying and recording remote sessions."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-WSAA",
             "name": "Web Session Activity Analysis",
             "relevance": "Analyzing web session activity contributes to complete logging of remote session events and behaviors."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -334,14 +334,14 @@ _policy_consistency_and_maintainability_def := {
     "score": 2,
     "responds_with": [
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1054",
             "name": "Software Configuration",
             "relevance": "Consistent software configuration management is fundamental to maintaining coherent and maintainable security policies."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",

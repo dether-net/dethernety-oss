@@ -12,13 +12,13 @@ _least_privilege_enforcement_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AMED",
             "name": "Access Mediation",
             "relevance": "Access mediation directly enforces least privilege by controlling and restricting access decisions at the policy level."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1026",
             "name": "Privileged Account Management",
@@ -26,7 +26,7 @@ _least_privilege_enforcement_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3F-UGPH",
             "name": "User Group Permissions",
             "relevance": "Defining and enforcing group-based permissions supports least privilege by scoping access to only what is needed."
@@ -61,13 +61,13 @@ _role_assignment_accuracy_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-JFAPA",
             "name": "Job Function Access Pattern Analysis",
             "relevance": "Analyzing access patterns relative to job functions directly validates that role assignments match actual user responsibilities."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1015",
             "name": "Active Directory Configuration",
@@ -75,7 +75,7 @@ _role_assignment_accuracy_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3F-UGPH",
             "name": "User Group Permissions",
             "relevance": "User group permissions management ensures that role assignments accurately reflect organizational access requirements."
@@ -109,20 +109,20 @@ _permission_boundary_coverage_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AM",
             "name": "Access Modeling",
             "relevance": "Access modeling defines and validates the boundaries of permissions across systems, ensuring comprehensive coverage."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-JFAPA",
             "name": "Job Function Access Pattern Analysis",
             "relevance": "Analyzing access patterns by job function identifies gaps or overreach in permission boundaries."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1026",
             "name": "Privileged Account Management",
@@ -152,20 +152,20 @@ _separation_of_duties_support_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3F-UGPH",
             "name": "User Group Permissions",
             "relevance": "User group permissions enable separation of duties by assigning distinct permission sets to different roles or groups."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1026",
             "name": "Privileged Account Management",
             "relevance": "Privileged account management supports separation of duties by restricting who can perform sensitive administrative actions."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1018",
             "name": "User Account Management",
@@ -199,13 +199,13 @@ _access_decision_logging_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-RAPA",
             "name": "Resource Access Pattern Analysis",
             "relevance": "Resource access pattern analysis relies on and supports logging of access decisions to detect anomalous behavior."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -213,7 +213,7 @@ _access_decision_logging_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AM",
             "name": "Access Modeling",
             "relevance": "Access modeling uses logged access decision data to build baselines and detect deviations."
@@ -242,20 +242,20 @@ _role_lifecycle_maintainability_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-APA",
             "name": "Access Policy Administration",
             "relevance": "Access policy administration directly supports the lifecycle management of roles by enabling policy creation, modification, and retirement."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AM",
             "name": "Access Modeling",
             "relevance": "Access modeling provides the framework needed to maintain and evolve role definitions throughout their lifecycle."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1018",
             "name": "User Account Management",
@@ -285,20 +285,20 @@ _centralized_policy_enforcement_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ACH",
             "name": "Application Configuration Hardening",
             "relevance": "Application configuration hardening supports centralized policy enforcement by standardizing security settings across systems."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1026",
             "name": "Privileged Account Management",
             "relevance": "Centrally managing privileged accounts ensures consistent policy enforcement across the enterprise."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1036",
             "name": "Account Use Policies",
@@ -327,20 +327,20 @@ _privileged_action_prevention_coverage_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-OPR",
             "name": "Operating Mode Restriction",
             "relevance": "Operating mode restriction limits the conditions under which privileged actions can be executed, reducing the attack surface."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AL",
             "name": "Account Locking",
             "relevance": "Account locking prevents unauthorized or malicious privileged actions by disabling accounts upon suspicious activity."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1026",
             "name": "Privileged Account Management",
@@ -369,20 +369,20 @@ _integration_with_identity_provider_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AA",
             "name": "Agent Authentication",
             "relevance": "Agent authentication directly relates to integrating with identity providers to verify user and service identities."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1015",
             "name": "Active Directory Configuration",
             "relevance": "Active Directory configuration is central to identity provider integration for authentication and authorization services."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1032",
             "name": "Multi-factor Authentication",
@@ -417,20 +417,20 @@ _role_review_and_recertification_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-JFAPA",
             "name": "Job Function Access Pattern Analysis",
             "relevance": "Job function access pattern analysis identifies misaligned access rights, directly supporting periodic role recertification processes."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AM",
             "name": "Access Modeling",
             "relevance": "Access modeling provides the baseline needed to evaluate and recertify whether current role assignments remain appropriate."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",

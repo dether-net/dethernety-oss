@@ -10,20 +10,20 @@ _known_vulnerability_closure_rate_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NVA",
             "name": "Network Vulnerability Assessment",
             "relevance": "Directly supports tracking and measuring the closure rate of known vulnerabilities across network assets."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SYSVA",
             "name": "System Vulnerability Assessment",
             "relevance": "Enables identification and tracking of known vulnerabilities on systems to measure remediation closure rates."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1051",
             "name": "Update Software",
@@ -56,7 +56,7 @@ _patch_deployment_automation_def := {
     "score": 8,
     "responds_with": [
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1051",
             "name": "Update Software",
@@ -64,13 +64,13 @@ _patch_deployment_automation_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SJA",
             "name": "Scheduled Job Analysis",
             "relevance": "Monitoring scheduled jobs is relevant to ensuring patch automation tasks execute correctly and are not tampered with."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1054",
             "name": "Software Configuration",
@@ -105,20 +105,20 @@ _patch_compliance_visibility_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SYSVA",
             "name": "System Vulnerability Assessment",
             "relevance": "System vulnerability assessments provide direct visibility into patch compliance status across managed systems."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-EHB",
             "name": "Endpoint Health Beacon",
             "relevance": "Endpoint health beacons report patch and compliance status from individual endpoints for centralized visibility."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1016",
             "name": "Vulnerability Scanning",
@@ -148,13 +148,13 @@ _zero_day_gap_period_minimization_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AVE",
             "name": "Asset Vulnerability Enumeration",
             "relevance": "Enumerating asset vulnerabilities rapidly identifies zero-day exposures to minimize the window of risk."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1050",
             "name": "Exploit Protection",
@@ -162,7 +162,7 @@ _zero_day_gap_period_minimization_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NVA",
             "name": "Network Vulnerability Assessment",
             "relevance": "Network vulnerability assessments help identify zero-day exposures quickly to minimize the unpatched gap period."
@@ -196,13 +196,13 @@ _rollback_and_stability_assurance_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SU",
             "name": "Software Update",
             "relevance": "Software update processes include rollback capabilities to restore stable states when patches cause instability."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1053",
             "name": "Data Backup",
@@ -210,7 +210,7 @@ _rollback_and_stability_assurance_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-TBI",
             "name": "TPM Boot Integrity",
             "relevance": "TPM boot integrity verification ensures system stability and detects unauthorized changes after patch deployment."
@@ -244,7 +244,7 @@ _patch_logging_and_audit_trail_def := {
     "score": 5,
     "responds_with": [
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -252,13 +252,13 @@ _patch_logging_and_audit_trail_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AEM",
             "name": "Application Exception Monitoring",
             "relevance": "Monitoring application exceptions during patching contributes to a complete audit trail of patch deployment events."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1054",
             "name": "Software Configuration",
@@ -290,20 +290,20 @@ _third_party_component_coverage_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SU",
             "name": "Software Update",
             "relevance": "Software update processes must extend to third-party components to ensure comprehensive patch coverage."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1051",
             "name": "Update Software",
             "relevance": "Updating third-party software components is a direct mitigation for vulnerabilities in those components."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1033",
             "name": "Limit Software Installation",
@@ -341,20 +341,20 @@ _baseline_configuration_enforcement_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ACH",
             "name": "Application Configuration Hardening",
             "relevance": "Application configuration hardening directly enforces secure baseline configurations for applications."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-PH",
             "name": "Platform Hardening",
             "relevance": "Platform hardening establishes and enforces baseline security configurations across system platforms."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1054",
             "name": "Software Configuration",

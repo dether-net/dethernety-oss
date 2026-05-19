@@ -10,21 +10,21 @@ _detection_sensitivity_tuning_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-PMAD",
             "name": "Protocol Metadata Anomaly Detection",
             "relevance": "Detecting anomalies in protocol metadata requires careful sensitivity tuning to distinguish legitimate from malicious traffic."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANAA",
             "name": "Administrative Network Activity Analysis",
             "relevance": "Tuning detection sensitivity for administrative network activity helps reduce false positives while catching genuine threats."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AEM",
             "name": "Application Exception Monitoring",
             "relevance": "Application exception monitoring thresholds must be carefully tuned to balance detection coverage and noise."
@@ -57,21 +57,21 @@ _alert_fatigue_reduction_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANET",
             "name": "Authentication Event Thresholding",
             "relevance": "Thresholding authentication events reduces alert fatigue by grouping or suppressing low-signal repeated alerts."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AEM",
             "name": "Application Exception Monitoring",
             "relevance": "Focused application exception monitoring helps prioritize meaningful alerts and reduce noise-driven fatigue."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANAA",
             "name": "Administrative Network Activity Analysis",
             "relevance": "Analyzing administrative network activity with proper context reduces spurious alerts from routine operations."
@@ -105,21 +105,21 @@ _baseline_deviation_coverage_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-PMAD",
             "name": "Protocol Metadata Anomaly Detection",
             "relevance": "Protocol metadata anomaly detection directly identifies deviations from established communication baselines."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANAA",
             "name": "Administrative Network Activity Analysis",
             "relevance": "Monitoring administrative network activity against baselines helps detect unauthorized or anomalous behavior."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AEM",
             "name": "Application Exception Monitoring",
             "relevance": "Application exception monitoring detects deviations from normal application behavior patterns."
@@ -153,21 +153,21 @@ _tiered_severity_classification_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AEM",
             "name": "Application Exception Monitoring",
             "relevance": "Application exceptions can be classified into severity tiers based on exception type and impact scope."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANET",
             "name": "Authentication Event Thresholding",
             "relevance": "Authentication events can be tiered by severity based on failure counts, account sensitivity, and access patterns."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-OMM",
             "name": "Operating Mode Monitoring",
             "relevance": "Monitoring operating modes supports tiered severity classification by identifying when systems deviate from expected states."
@@ -202,21 +202,21 @@ _automated_response_triggering_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CAA",
             "name": "Connection Attempt Analysis",
             "relevance": "Analyzing connection attempts can directly trigger automated responses when suspicious patterns exceed defined thresholds."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AZET",
             "name": "Authorization Event Thresholding",
             "relevance": "Authorization event thresholds can be configured to automatically trigger responses upon policy violations."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANAA",
             "name": "Administrative Network Activity Analysis",
             "relevance": "Detecting anomalous administrative network activity can serve as a trigger for automated defensive responses."
@@ -252,20 +252,20 @@ _threshold_audit_and_change_tracking_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-FIM",
             "name": "File Integrity Monitoring",
             "relevance": "File integrity monitoring tracks changes to configuration files where thresholds are stored, ensuring auditability."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANAA",
             "name": "Administrative Network Activity Analysis",
             "relevance": "Tracking administrative network activity provides an audit trail for threshold changes made by privileged users."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -301,21 +301,21 @@ _cross_metric_correlation_coverage_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-PMAD",
             "name": "Protocol Metadata Anomaly Detection",
             "relevance": "Protocol metadata anomaly detection correlates multiple network metrics to identify complex attack patterns."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANET",
             "name": "Authentication Event Thresholding",
             "relevance": "Correlating authentication events with other metrics improves coverage for detecting coordinated attack campaigns."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AEM",
             "name": "Application Exception Monitoring",
             "relevance": "Cross-correlating application exceptions with network and authentication metrics provides broader detection coverage."
@@ -343,21 +343,21 @@ _time_window_scoping_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANET",
             "name": "Authentication Event Thresholding",
             "relevance": "Authentication event thresholding inherently relies on time window scoping to count events within defined periods."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-PMAD",
             "name": "Protocol Metadata Anomaly Detection",
             "relevance": "Protocol metadata anomaly detection uses time-scoped windows to identify burst or slow-and-low attack patterns."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AZET",
             "name": "Authorization Event Thresholding",
             "relevance": "Authorization event thresholding depends on time window scoping to detect rapid privilege escalation attempts."
@@ -385,20 +385,20 @@ _notification_channel_integration_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-MA",
             "name": "Message Analysis",
             "relevance": "Message analysis is directly relevant to integrating and validating notification channels used for alert delivery."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AEM",
             "name": "Application Exception Monitoring",
             "relevance": "Application exception monitoring feeds into notification channels to ensure timely alert delivery to responders."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1060",
             "name": "Out-of-Band Communications Channel",
@@ -427,20 +427,20 @@ _operational_maintainability_through_templating_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ACH",
             "name": "Application Configuration Hardening",
             "relevance": "Application configuration hardening templates standardize security settings, improving maintainability across deployments."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AH",
             "name": "Application Hardening",
             "relevance": "Application hardening through reusable templates ensures consistent security posture and reduces operational overhead."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1054",
             "name": "Software Configuration",
