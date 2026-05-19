@@ -12,20 +12,20 @@ _centralized_policy_enforcement_coverage_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-APA",
             "name": "Access Policy Administration",
             "relevance": "Directly addresses centralized enforcement of access policies across an organization."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AMED",
             "name": "Access Mediation",
             "relevance": "Ensures all access requests are mediated through a central policy enforcement point."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1030",
             "name": "Network Segmentation",
@@ -61,13 +61,13 @@ _multi_factor_authentication_integration_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-MFA",
             "name": "Multi-factor Authentication",
             "relevance": "Directly maps to the integration of MFA as an authentication security control."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1032",
             "name": "Multi-factor Authentication",
@@ -75,7 +75,7 @@ _multi_factor_authentication_integration_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANET",
             "name": "Authentication Event Thresholding",
             "relevance": "Complements MFA integration by monitoring and thresholding authentication attempts."
@@ -111,20 +111,20 @@ _role_based_access_control_granularity_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3F-UGPH",
             "name": "User Group Permissions",
             "relevance": "Directly relates to defining granular role-based permissions for user groups."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AM",
             "name": "Access Modeling",
             "relevance": "Supports designing and validating granular RBAC models."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1018",
             "name": "User Account Management",
@@ -159,20 +159,20 @@ _service_account_lifecycle_management_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CRO",
             "name": "Credential Rotation",
             "relevance": "Directly addresses rotating credentials for service accounts throughout their lifecycle."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CE",
             "name": "Credential Eviction",
             "relevance": "Supports removing or revoking service account credentials when accounts are decommissioned."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1026",
             "name": "Privileged Account Management",
@@ -213,13 +213,13 @@ _authentication_event_logging_completeness_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANET",
             "name": "Authentication Event Thresholding",
             "relevance": "Requires comprehensive authentication event logging to detect and threshold anomalies."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -227,7 +227,7 @@ _authentication_event_logging_completeness_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AZET",
             "name": "Authorization Event Thresholding",
             "relevance": "Complements authentication logging by capturing and analyzing authorization events."
@@ -255,21 +255,21 @@ _anomalous_access_pattern_detection_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-UBA",
             "name": "User Behavior Analysis",
             "relevance": "Directly identifies anomalous access patterns through behavioral analytics."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-RAPA",
             "name": "Resource Access Pattern Analysis",
             "relevance": "Analyzes resource access patterns to detect deviations indicative of anomalous activity."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-JFAPA",
             "name": "Job Function Access Pattern Analysis",
             "relevance": "Detects when access patterns deviate from expected job function baselines."
@@ -297,20 +297,20 @@ _cross_zone_federated_identity_integration_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-TBA",
             "name": "Token-based Authentication",
             "relevance": "Token-based authentication is fundamental to federated identity across security zones."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CTS",
             "name": "Credential Transmission Scoping",
             "relevance": "Scopes credential transmission to prevent credential leakage across federated zones."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1026",
             "name": "Privileged Account Management",
@@ -347,20 +347,20 @@ _automated_access_review_and_recertification_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CS",
             "name": "Credential Scrubbing",
             "relevance": "Automated scrubbing of stale or unauthorized credentials aligns with access recertification workflows."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CR",
             "name": "Credential Revocation",
             "relevance": "Automated revocation of credentials is a core outcome of access review and recertification processes."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",

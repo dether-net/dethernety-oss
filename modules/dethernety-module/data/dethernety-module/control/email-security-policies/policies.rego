@@ -10,21 +10,21 @@ _sender_authentication_enforcement_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-MAN",
             "name": "Message Authentication",
             "relevance": "Directly addresses enforcement of sender authentication protocols such as SPF, DKIM, and DMARC for incoming messages."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SRA",
             "name": "Sender Reputation Analysis",
             "relevance": "Evaluates sender identity and trustworthiness as part of authentication enforcement decisions."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SMRA",
             "name": "Sender MTA Reputation Analysis",
             "relevance": "Assesses the reputation of the sending mail transfer agent to enforce sender authentication policies."
@@ -58,21 +58,21 @@ _spam_filtering_accuracy_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CF",
             "name": "Content Filtering",
             "relevance": "Directly applies content-based analysis to identify and filter spam messages accurately."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SRA",
             "name": "Sender Reputation Analysis",
             "relevance": "Uses sender reputation signals to improve spam detection accuracy and reduce false positives."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-MA",
             "name": "Message Analysis",
             "relevance": "Analyzes message content and metadata to distinguish spam from legitimate email."
@@ -106,21 +106,21 @@ _dmarc_policy_disposition_automation_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-EF",
             "name": "Email Filtering",
             "relevance": "Automates the filtering and disposition of messages based on DMARC policy outcomes (none, quarantine, reject)."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CQ",
             "name": "Content Quarantine",
             "relevance": "Supports automated quarantine disposition for messages that fail DMARC evaluation."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ER",
             "name": "Email Removal",
             "relevance": "Enables automated removal/rejection of messages that fail DMARC policy checks."
@@ -154,21 +154,21 @@ _header_inspection_depth_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-MA",
             "name": "Message Analysis",
             "relevance": "Encompasses deep inspection of email headers to detect anomalies, spoofing, and policy violations."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-EF",
             "name": "Email Filtering",
             "relevance": "Applies header-based filtering rules to identify and block suspicious or malformed messages."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-HD",
             "name": "Homoglyph Detection",
             "relevance": "Inspects header fields for homoglyph-based deception in sender addresses and display names."
@@ -201,7 +201,7 @@ _url_and_attachment_sandboxing_integration_def := {
     "score": 8,
     "responds_with": [
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1048",
             "name": "Application Isolation and Sandboxing",
@@ -209,14 +209,14 @@ _url_and_attachment_sandboxing_integration_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-DA",
             "name": "Dynamic Analysis",
             "relevance": "Executes URLs and attachments dynamically in a sandbox to detect malicious activity."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-UA",
             "name": "URL Analysis",
             "relevance": "Analyzes URLs found in messages to identify malicious links before delivery to end users."
@@ -245,7 +245,7 @@ _delivery_log_completeness_def := {
     "score": 5,
     "responds_with": [
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -253,14 +253,14 @@ _delivery_log_completeness_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-MA",
             "name": "Message Analysis",
             "relevance": "Supports capturing and analyzing message metadata to ensure delivery log completeness."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ISVA",
             "name": "Inbound Session Volume Analysis",
             "relevance": "Tracks inbound session data that contributes to comprehensive delivery log records."
@@ -291,13 +291,13 @@ _outbound_policy_enforcement_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-OTF",
             "name": "Outbound Traffic Filtering",
             "relevance": "Directly enforces policies on outbound email traffic to prevent unauthorized or policy-violating messages."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1057",
             "name": "Data Loss Prevention",
@@ -305,7 +305,7 @@ _outbound_policy_enforcement_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-EF",
             "name": "Email Filtering",
             "relevance": "Applies outbound filtering rules to enforce organizational email transmission policies."
@@ -338,7 +338,7 @@ _rule_maintainability_and_updateability_def := {
     "score": 2,
     "responds_with": [
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1051",
             "name": "Update Software",
@@ -346,14 +346,14 @@ _rule_maintainability_and_updateability_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CF",
             "name": "Content Filtering",
             "relevance": "Content filtering rule sets require ongoing maintenance and updates to remain effective against evolving threats."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTF",
             "name": "Network Traffic Filtering",
             "relevance": "Maintainable and updateable network filtering rules are central to sustaining effective security posture."
@@ -387,20 +387,20 @@ _quarantine_management_workflow_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CQ",
             "name": "Content Quarantine",
             "relevance": "Directly describes the quarantine of suspicious content as part of a managed workflow for review and disposition."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CF",
             "name": "Content Filtering",
             "relevance": "Content filtering feeds the quarantine workflow by identifying messages requiring manual review or holding."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1049",
             "name": "Antivirus/Antimalware",

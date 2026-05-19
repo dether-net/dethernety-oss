@@ -10,13 +10,13 @@ _packet_filtering_coverage_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTF",
             "name": "Network Traffic Filtering",
             "relevance": "Directly addresses packet filtering by controlling which network packets are allowed or denied based on policy."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1037",
             "name": "Filter Network Traffic",
@@ -24,7 +24,7 @@ _packet_filtering_coverage_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-OTF",
             "name": "Outbound Traffic Filtering",
             "relevance": "Specifically addresses filtering of outbound packets, complementing inbound packet filtering coverage."
@@ -58,13 +58,13 @@ _network_segmentation_enforcement_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-BDI",
             "name": "Broadcast Domain Isolation",
             "relevance": "Directly enforces network segmentation by isolating broadcast domains to prevent lateral movement."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1030",
             "name": "Network Segmentation",
@@ -72,7 +72,7 @@ _network_segmentation_enforcement_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NI",
             "name": "Network Isolation",
             "relevance": "Enforces segmentation by isolating network segments to contain threats and restrict unauthorized access."
@@ -100,13 +100,13 @@ _route_advertisement_integrity_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-RAM",
             "name": "Routing Access Mediation",
             "relevance": "Directly controls and mediates routing access to ensure integrity of route advertisements."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1037",
             "name": "Filter Network Traffic",
@@ -114,7 +114,7 @@ _route_advertisement_integrity_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTPM",
             "name": "Network Traffic Policy Mapping",
             "relevance": "Maps network traffic policies to detect deviations in route advertisement that may indicate integrity violations."
@@ -149,13 +149,13 @@ _traffic_logging_and_visibility_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTA",
             "name": "Network Traffic Analysis",
             "relevance": "Directly provides visibility into network traffic by analyzing patterns and behaviors for security monitoring."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -163,7 +163,7 @@ _traffic_logging_and_visibility_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANAA",
             "name": "Administrative Network Activity Analysis",
             "relevance": "Provides visibility into administrative network activity, critical for detecting unauthorized or anomalous traffic."
@@ -197,21 +197,21 @@ _ingress_egress_policy_consistency_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ITF",
             "name": "Inbound Traffic Filtering",
             "relevance": "Enforces consistent ingress policy by filtering inbound traffic according to defined security rules."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-OTF",
             "name": "Outbound Traffic Filtering",
             "relevance": "Enforces consistent egress policy by filtering outbound traffic to match ingress policy controls."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTPM",
             "name": "Network Traffic Policy Mapping",
             "relevance": "Maps and validates that ingress and egress policies are consistently applied across network boundaries."
@@ -244,13 +244,13 @@ _management_plane_access_restriction_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-LAMED",
             "name": "LAN Access Mediation",
             "relevance": "Mediates LAN-level access to management interfaces, directly restricting unauthorized management plane access."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1035",
             "name": "Limit Access to Resource Over Network",
@@ -258,7 +258,7 @@ _management_plane_access_restriction_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-RAM",
             "name": "Routing Access Mediation",
             "relevance": "Controls routing-level access to management plane networks, limiting which paths can reach management interfaces."
@@ -288,20 +288,20 @@ _traffic_prioritization_and_qos_control_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTPM",
             "name": "Network Traffic Policy Mapping",
             "relevance": "Maps network traffic policies that underpin QoS controls and traffic prioritization decisions."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTA",
             "name": "Network Traffic Analysis",
             "relevance": "Analyzes traffic patterns necessary for informed QoS policy enforcement and prioritization."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1037",
             "name": "Filter Network Traffic",
@@ -330,20 +330,20 @@ _null_route_and_blackhole_response_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-RAM",
             "name": "Routing Access Mediation",
             "relevance": "Directly controls routing decisions including implementation of null routes and blackhole routing responses."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-FRIDL",
             "name": "Forward Resolution IP Denylisting",
             "relevance": "Denylisting IPs at the DNS/forwarding level complements null route and blackhole techniques for blocking malicious traffic."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1037",
             "name": "Filter Network Traffic",
@@ -378,13 +378,13 @@ _acl_rule_maintainability_and_audit_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTPM",
             "name": "Network Traffic Policy Mapping",
             "relevance": "Maps existing ACL rules and network traffic policies to support maintainability and audit of access control lists."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -392,7 +392,7 @@ _acl_rule_maintainability_and_audit_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ACH",
             "name": "Application Configuration Hardening",
             "relevance": "Hardening configuration processes ensures ACL rules are maintained in a secure and auditable state."

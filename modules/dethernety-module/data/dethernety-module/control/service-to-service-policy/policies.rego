@@ -10,20 +10,20 @@ _mutual_tls_enforcement_coverage_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CBAN",
             "name": "Certificate-based Authentication",
             "relevance": "Directly addresses mutual TLS enforcement by requiring certificate-based authentication for both client and server."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CP",
             "name": "Certificate Pinning",
             "relevance": "Strengthens mTLS enforcement by pinning expected certificates, preventing impersonation attacks."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1020",
             "name": "SSL/TLS Inspection",
@@ -52,13 +52,13 @@ _service_identity_verification_accuracy_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CH",
             "name": "Credential Hardening",
             "relevance": "Hardens service identity credentials to improve accuracy and resistance to compromise in verification processes."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1032",
             "name": "Multi-factor Authentication",
@@ -66,7 +66,7 @@ _service_identity_verification_accuracy_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CCSA",
             "name": "Credential Compromise Scope Analysis",
             "relevance": "Identifies the scope of compromised service identities to improve verification accuracy."
@@ -98,20 +98,20 @@ _authorization_policy_granularity_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AMED",
             "name": "Access Mediation",
             "relevance": "Directly supports fine-grained authorization policy enforcement by mediating access decisions."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CTS",
             "name": "Credential Transmission Scoping",
             "relevance": "Scopes credential transmission to appropriate contexts, supporting granular authorization policies."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1035",
             "name": "Limit Access to Resource Over Network",
@@ -148,20 +148,20 @@ _unauthorized_call_prevention_coverage_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-APCA",
             "name": "Application Protocol Command Analysis",
             "relevance": "Detects and prevents unauthorized API/service calls by analyzing application protocol commands."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-EI",
             "name": "Execution Isolation",
             "relevance": "Isolates service execution to prevent unauthorized cross-service calls."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1035",
             "name": "Limit Access to Resource Over Network",
@@ -196,20 +196,20 @@ _authentication_event_logging_completeness_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANET",
             "name": "Authentication Event Thresholding",
             "relevance": "Directly monitors authentication events and thresholds, ensuring completeness of authentication logging."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CAA",
             "name": "Connection Attempt Analysis",
             "relevance": "Captures and analyzes connection attempts to ensure authentication events are fully logged."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -238,21 +238,21 @@ _certificate_lifecycle_management_integration_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CERO",
             "name": "Certificate Rotation",
             "relevance": "Directly addresses certificate lifecycle management by automating certificate rotation processes."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ACA",
             "name": "Active Certificate Analysis",
             "relevance": "Actively monitors certificate status and validity as part of lifecycle management integration."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CRO",
             "name": "Credential Rotation",
             "relevance": "Supports certificate lifecycle management by ensuring timely rotation of certificate-based credentials."
@@ -280,20 +280,20 @@ _policy_as_code_maintainability_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-APA",
             "name": "Access Policy Administration",
             "relevance": "Directly supports policy-as-code maintainability by providing structured access policy administration frameworks."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CV",
             "name": "Content Validation",
             "relevance": "Validates policy code content to ensure correctness and maintainability of policy definitions."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1054",
             "name": "Software Configuration",
@@ -327,21 +327,21 @@ _anomalous_call_pattern_detection_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AZET",
             "name": "Authorization Event Thresholding",
             "relevance": "Detects anomalous call patterns by thresholding authorization events and identifying deviations."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTCD",
             "name": "Network Traffic Community Deviation",
             "relevance": "Identifies anomalous service call patterns by detecting deviations from established network traffic communities."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CAA",
             "name": "Connection Attempt Analysis",
             "relevance": "Analyzes connection attempts to identify anomalous call patterns between services."

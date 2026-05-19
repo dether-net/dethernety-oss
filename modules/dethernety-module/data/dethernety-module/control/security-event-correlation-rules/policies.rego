@@ -12,20 +12,20 @@ _rule_based_detection_accuracy_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTSA",
             "name": "Network Traffic Signature Analysis",
             "relevance": "Signature-based analysis directly supports rule-based detection accuracy by matching traffic patterns against known threat signatures."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-FCR",
             "name": "File Content Rules",
             "relevance": "File content rules are a core mechanism for rule-based detection, enabling precise identification of malicious content."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1038",
             "name": "Execution Prevention",
@@ -55,21 +55,21 @@ _behavioral_baseline_deviation_detection_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-PMAD",
             "name": "Protocol Metadata Anomaly Detection",
             "relevance": "Anomaly detection in protocol metadata directly identifies deviations from established behavioral baselines."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANAA",
             "name": "Administrative Network Activity Analysis",
             "relevance": "Analyzing administrative network activity helps detect deviations from normal administrative behavior patterns."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-WSAA",
             "name": "Web Session Activity Analysis",
             "relevance": "Web session activity analysis identifies anomalous user behavior deviating from established baselines."
@@ -97,20 +97,20 @@ _multi_source_log_correlation_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTA",
             "name": "Network Traffic Analysis",
             "relevance": "Network traffic analysis aggregates data from multiple sources, enabling correlation across logs for threat detection."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-PLA",
             "name": "Process Lineage Analysis",
             "relevance": "Process lineage analysis correlates process-related log events across sources to identify attack chains."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -146,21 +146,21 @@ _alert_triage_and_prioritization_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANET",
             "name": "Authentication Event Thresholding",
             "relevance": "Thresholding authentication events helps prioritize alerts by identifying anomalous authentication volumes requiring triage."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AZET",
             "name": "Authorization Event Thresholding",
             "relevance": "Authorization event thresholding supports alert prioritization by flagging abnormal authorization patterns."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AEM",
             "name": "Application Exception Monitoring",
             "relevance": "Monitoring application exceptions provides critical signals for triaging and prioritizing security alerts."
@@ -196,20 +196,20 @@ _automated_response_orchestration_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AL",
             "name": "Account Locking",
             "relevance": "Account locking is a direct automated response action that can be orchestrated in response to detected threats."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AZET",
             "name": "Authorization Event Thresholding",
             "relevance": "Authorization event thresholding triggers automated responses when authorization anomalies exceed defined thresholds."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1037",
             "name": "Filter Network Traffic",
@@ -238,21 +238,21 @@ _detection_rule_coverage_breadth_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTA",
             "name": "Network Traffic Analysis",
             "relevance": "Network traffic analysis provides broad coverage across multiple attack vectors, expanding detection rule breadth."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANAA",
             "name": "Administrative Network Activity Analysis",
             "relevance": "Analyzing administrative network activity broadens detection coverage to include privileged action abuse."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CAA",
             "name": "Connection Attempt Analysis",
             "relevance": "Connection attempt analysis extends detection coverage to network-based intrusion attempts across many techniques."
@@ -285,13 +285,13 @@ _log_ingestion_completeness_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SDM",
             "name": "System Daemon Monitoring",
             "relevance": "Monitoring system daemons ensures comprehensive log ingestion from critical system-level processes."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1029",
             "name": "Remote Data Storage",
@@ -299,7 +299,7 @@ _log_ingestion_completeness_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CAA",
             "name": "Connection Attempt Analysis",
             "relevance": "Connection attempt analysis requires complete ingestion of network logs to ensure no connection events are missed."
@@ -327,20 +327,20 @@ _rule_tuning_and_operational_maintainability_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-FIM",
             "name": "File Integrity Monitoring",
             "relevance": "File integrity monitoring rules require regular tuning to maintain accuracy and reduce false positives over time."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANAA",
             "name": "Administrative Network Activity Analysis",
             "relevance": "Administrative activity analysis rules need ongoing tuning to reflect evolving administrative patterns and maintain operational accuracy."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1016",
             "name": "Vulnerability Scanning",
@@ -376,20 +376,20 @@ _threat_intelligence_integration_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-IHN",
             "name": "Integrated Honeynet",
             "relevance": "Integrated honeynets generate threat intelligence from attacker interactions, directly supporting threat intelligence integration."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTSA",
             "name": "Network Traffic Signature Analysis",
             "relevance": "Network traffic signature analysis leverages threat intelligence feeds to update signatures and improve detection."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1019",
             "name": "Threat Intelligence Program",
@@ -423,14 +423,14 @@ _historical_log_retention_and_forensic_querying_def := {
     "score": 2,
     "responds_with": [
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1029",
             "name": "Remote Data Storage",
             "relevance": "Remote data storage is essential for retaining historical logs in a tamper-resistant location for forensic investigations."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1053",
             "name": "Data Backup",
@@ -438,7 +438,7 @@ _historical_log_retention_and_forensic_querying_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-FAPA",
             "name": "File Access Pattern Analysis",
             "relevance": "File access pattern analysis supports forensic investigations by enabling historical querying of file access logs."

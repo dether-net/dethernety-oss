@@ -10,20 +10,20 @@ _baseline_configuration_enforcement_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-PH",
             "name": "Platform Hardening",
             "relevance": "Platform hardening directly enforces baseline security configurations across system components."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1054",
             "name": "Software Configuration",
             "relevance": "Software configuration management is the core mitigation for enforcing baseline configurations."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1028",
             "name": "Operating System Configuration",
@@ -57,20 +57,20 @@ _configuration_drift_detection_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-OPM",
             "name": "Operational Process Monitoring",
             "relevance": "Monitoring operational processes enables detection of deviations from expected baseline configurations."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
             "relevance": "Auditing system states and configurations is the primary method for detecting configuration drift."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1028",
             "name": "Operating System Configuration",
@@ -100,20 +100,20 @@ _immutable_infrastructure_provisioning_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-EI",
             "name": "Execution Isolation",
             "relevance": "Execution isolation supports immutable infrastructure by preventing unauthorized modifications to provisioned environments."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-PH",
             "name": "Platform Hardening",
             "relevance": "Platform hardening ensures provisioned infrastructure maintains a locked-down, immutable state."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1033",
             "name": "Limit Software Installation",
@@ -142,20 +142,20 @@ _secrets_and_credential_injection_control_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CRO",
             "name": "Credential Rotation",
             "relevance": "Credential rotation is a key control for managing the lifecycle of injected secrets and credentials."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CH",
             "name": "Credential Hardening",
             "relevance": "Credential hardening directly addresses securing credentials during injection and storage."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1043",
             "name": "Credential Access Protection",
@@ -184,20 +184,20 @@ _automated_remediation_response_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SICA",
             "name": "System Init Config Analysis",
             "relevance": "Analyzing system initialization configurations supports automated detection and remediation of configuration issues."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1051",
             "name": "Update Software",
             "relevance": "Automated software updates are a common form of automated remediation response to vulnerabilities."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1016",
             "name": "Vulnerability Scanning",
@@ -232,20 +232,20 @@ _environment_parity_assurance_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-OLV",
             "name": "Operational Logic Validation",
             "relevance": "Validating operational logic ensures consistency and parity across different environments."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1039",
             "name": "Environment Variable Permissions",
             "relevance": "Controlling environment variable permissions ensures consistent and secure configuration across environments."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -278,20 +278,20 @@ _configuration_change_audit_logging_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANAA",
             "name": "Administrative Network Activity Analysis",
             "relevance": "Analyzing administrative network activity captures configuration changes made through administrative interfaces."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-USICA",
             "name": "User Session Init Config Analysis",
             "relevance": "User session initialization config analysis directly supports logging and auditing configuration changes."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -341,20 +341,20 @@ _policy_as_code_validation_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CV",
             "name": "Content Validation",
             "relevance": "Content validation directly supports policy-as-code by validating that code and configurations meet defined policies."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SFA",
             "name": "System File Analysis",
             "relevance": "System file analysis enables validation that policy-as-code definitions match deployed configurations."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -383,20 +383,20 @@ _dependency_and_package_version_pinning_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SU",
             "name": "Software Update",
             "relevance": "Software update management is directly related to controlling dependency and package versions."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SCH",
             "name": "Source Code Hardening",
             "relevance": "Source code hardening includes practices like pinning dependency versions to prevent supply chain risks."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1051",
             "name": "Update Software",
@@ -431,21 +431,21 @@ _operational_maintainability_of_config_templates_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SICA",
             "name": "System Init Config Analysis",
             "relevance": "Analyzing system initialization configurations supports maintaining and validating configuration templates."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-RC",
             "name": "Restore Configuration",
             "relevance": "Configuration restore capabilities are essential for operational maintainability of configuration templates."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CI",
             "name": "Configuration Inventory",
             "relevance": "Maintaining a configuration inventory is fundamental to operationally managing and maintaining config templates."

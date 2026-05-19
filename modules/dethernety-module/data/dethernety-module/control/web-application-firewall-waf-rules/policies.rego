@@ -10,21 +10,21 @@ _rule_set_coverage_depth_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-APCA",
             "name": "Application Protocol Command Analysis",
             "relevance": "Directly assesses the depth of protocol-level inspection coverage within rule sets."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-FAPA",
             "name": "File Access Pattern Analysis",
             "relevance": "Evaluates breadth of rule coverage by analyzing patterns across file access behaviors."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANAA",
             "name": "Administrative Network Activity Analysis",
             "relevance": "Measures coverage depth by monitoring administrative network activities that rule sets must address."
@@ -58,20 +58,20 @@ _false_positive_minimization_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-DNSTA",
             "name": "DNS Traffic Analysis",
             "relevance": "Granular DNS traffic analysis helps distinguish legitimate from malicious activity, reducing false positives."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTF",
             "name": "Network Traffic Filtering",
             "relevance": "Precise filtering rules reduce erroneous alerts by accurately classifying benign network traffic."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1035",
             "name": "Limit Access to Resource Over Network",
@@ -106,21 +106,21 @@ _inline_blocking_enforcement_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ITF",
             "name": "Inbound Traffic Filtering",
             "relevance": "Inline inbound traffic filtering directly enforces blocking of malicious requests in real time."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-FRIDL",
             "name": "Forward Resolution IP Denylisting",
             "relevance": "IP-based denylisting enforces inline blocking by preventing connections to known malicious destinations."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-FRDDL",
             "name": "Forward Resolution Domain Denylisting",
             "relevance": "Domain denylisting enforces inline blocking at the DNS resolution layer before connections are established."
@@ -148,20 +148,20 @@ _request_inspection_completeness_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SEA",
             "name": "Script Execution Analysis",
             "relevance": "Inspects script content within requests to ensure completeness of threat detection coverage."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-DQSA",
             "name": "Database Query String Analysis",
             "relevance": "Analyzes query strings in requests to detect injection attacks, ensuring thorough request inspection."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1020",
             "name": "SSL/TLS Inspection",
@@ -193,21 +193,21 @@ _custom_rule_configurability_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ACH",
             "name": "Application Configuration Hardening",
             "relevance": "Custom rule configurability directly relates to hardening application security configurations."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTPM",
             "name": "Network Traffic Policy Mapping",
             "relevance": "Policy mapping supports the creation and management of custom traffic inspection rules."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTF",
             "name": "Network Traffic Filtering",
             "relevance": "Custom filter rules are the primary mechanism through which network traffic filtering is configured."
@@ -235,20 +235,20 @@ _logging_and_audit_completeness_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-WSAA",
             "name": "Web Session Activity Analysis",
             "relevance": "Web session logging provides critical audit data for completeness of security event records."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-PA",
             "name": "Process Analysis",
             "relevance": "Process-level logging ensures audit completeness by capturing endpoint execution events."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -279,21 +279,21 @@ _rate_limiting_and_throttling_enforcement_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ISVA",
             "name": "Inbound Session Volume Analysis",
             "relevance": "Session volume analysis directly supports rate limiting by detecting abnormal request rates."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ITF",
             "name": "Inbound Traffic Filtering",
             "relevance": "Inbound traffic filtering enforces throttling policies by controlling the flow of incoming requests."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTF",
             "name": "Network Traffic Filtering",
             "relevance": "Network-level filtering enforces rate limiting rules across all traffic entering the environment."
@@ -321,20 +321,20 @@ _ssl_tls_traffic_inspection_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-OTF",
             "name": "Outbound Traffic Filtering",
             "relevance": "Outbound traffic filtering requires SSL/TLS inspection to analyze encrypted egress communications."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTA",
             "name": "Network Traffic Analysis",
             "relevance": "Network traffic analysis depends on SSL/TLS inspection to examine encrypted traffic content."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1020",
             "name": "SSL/TLS Inspection",
@@ -368,20 +368,20 @@ _siem_and_alerting_integration_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AEM",
             "name": "Application Exception Monitoring",
             "relevance": "Application exception monitoring feeds critical security events into SIEM alerting pipelines."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-WSAA",
             "name": "Web Session Activity Analysis",
             "relevance": "Web session activity data is a primary source for SIEM correlation rules and alerting."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -409,20 +409,20 @@ _rule_update_and_patch_currency_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-SFA",
             "name": "System File Analysis",
             "relevance": "System file analysis detects outdated or tampered rule files requiring updates or patches."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1051",
             "name": "Update Software",
             "relevance": "Keeping rule sets and WAF software updated is directly addressed by this patching mitigation."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1019",
             "name": "Threat Intelligence Program",
@@ -456,21 +456,21 @@ _geo_ip_and_reputation_based_filtering_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTA",
             "name": "Network Traffic Analysis",
             "relevance": "Network traffic analysis provides the visibility needed to apply geo-IP and reputation-based filtering decisions."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ITF",
             "name": "Inbound Traffic Filtering",
             "relevance": "Inbound traffic filtering is the enforcement mechanism for geo-IP and reputation-based block rules."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-OTF",
             "name": "Outbound Traffic Filtering",
             "relevance": "Outbound filtering applies reputation-based controls to prevent connections to known malicious destinations."

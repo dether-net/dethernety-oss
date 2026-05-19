@@ -3,13 +3,13 @@
   "respondsWith": [
     {
       "label": "MitreDefendTechnique",
-      "property": "defense_id",
+      "property": "d3fendId",
       "value": "D3-AMED",
       "name": "Access Mediation",
       "relevance": "Access mediation directly enforces least privilege by controlling and restricting access decisions at the policy level."
     },
     {
-      "label": "MitreAttackTechnique",
+      "label": "MitreAttackMitigation",
       "property": "attack_id",
       "value": "M1026",
       "name": "Privileged Account Management",
@@ -17,20 +17,20 @@
     },
     {
       "label": "MitreDefendTechnique",
-      "property": "defense_id",
+      "property": "d3fendId",
       "value": "D3F-UGPH",
       "name": "User Group Permissions",
       "relevance": "Defining and enforcing group-based permissions supports least privilege by scoping access to only what is needed."
     },
     {
       "label": "MitreDefendTechnique",
-      "property": "defense_id",
+      "property": "d3fendId",
       "value": "D3-JFAPA",
       "name": "Job Function Access Pattern Analysis",
       "relevance": "Analyzing access patterns relative to job functions directly validates that role assignments match actual user responsibilities."
     },
     {
-      "label": "MitreAttackTechnique",
+      "label": "MitreAttackMitigation",
       "property": "attack_id",
       "value": "M1015",
       "name": "Active Directory Configuration",
@@ -38,13 +38,13 @@
     },
     {
       "label": "MitreDefendTechnique",
-      "property": "defense_id",
+      "property": "d3fendId",
       "value": "D3-AM",
       "name": "Access Modeling",
       "relevance": "Access modeling defines and validates the boundaries of permissions across systems, ensuring comprehensive coverage."
     },
     {
-      "label": "MitreAttackTechnique",
+      "label": "MitreAttackMitigation",
       "property": "attack_id",
       "value": "M1018",
       "name": "User Account Management",
@@ -52,13 +52,13 @@
     },
     {
       "label": "MitreDefendTechnique",
-      "property": "defense_id",
+      "property": "d3fendId",
       "value": "D3-RAPA",
       "name": "Resource Access Pattern Analysis",
       "relevance": "Resource access pattern analysis relies on and supports logging of access decisions to detect anomalous behavior."
     },
     {
-      "label": "MitreAttackTechnique",
+      "label": "MitreAttackMitigation",
       "property": "attack_id",
       "value": "M1047",
       "name": "Audit",
@@ -66,20 +66,20 @@
     },
     {
       "label": "MitreDefendTechnique",
-      "property": "defense_id",
+      "property": "d3fendId",
       "value": "D3-APA",
       "name": "Access Policy Administration",
       "relevance": "Access policy administration directly supports the lifecycle management of roles by enabling policy creation, modification, and retirement."
     },
     {
       "label": "MitreDefendTechnique",
-      "property": "defense_id",
+      "property": "d3fendId",
       "value": "D3-ACH",
       "name": "Application Configuration Hardening",
       "relevance": "Application configuration hardening supports centralized policy enforcement by standardizing security settings across systems."
     },
     {
-      "label": "MitreAttackTechnique",
+      "label": "MitreAttackMitigation",
       "property": "attack_id",
       "value": "M1036",
       "name": "Account Use Policies",
@@ -87,27 +87,27 @@
     },
     {
       "label": "MitreDefendTechnique",
-      "property": "defense_id",
+      "property": "d3fendId",
       "value": "D3-OPR",
       "name": "Operating Mode Restriction",
       "relevance": "Operating mode restriction limits the conditions under which privileged actions can be executed, reducing the attack surface."
     },
     {
       "label": "MitreDefendTechnique",
-      "property": "defense_id",
+      "property": "d3fendId",
       "value": "D3-AL",
       "name": "Account Locking",
       "relevance": "Account locking prevents unauthorized or malicious privileged actions by disabling accounts upon suspicious activity."
     },
     {
       "label": "MitreDefendTechnique",
-      "property": "defense_id",
+      "property": "d3fendId",
       "value": "D3-AA",
       "name": "Agent Authentication",
       "relevance": "Agent authentication directly relates to integrating with identity providers to verify user and service identities."
     },
     {
-      "label": "MitreAttackTechnique",
+      "label": "MitreAttackMitigation",
       "property": "attack_id",
       "value": "M1032",
       "name": "Multi-factor Authentication",

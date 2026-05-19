@@ -10,20 +10,20 @@ _segment_boundary_enforcement_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NI",
             "name": "Network Isolation",
             "relevance": "Directly enforces segment boundaries by isolating network segments to prevent unauthorized cross-segment communication."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTPM",
             "name": "Network Traffic Policy Mapping",
             "relevance": "Maps and enforces traffic policies at segment boundaries to ensure only authorized flows are permitted."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1030",
             "name": "Network Segmentation",
@@ -52,20 +52,20 @@ _lateral_movement_containment_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NI",
             "name": "Network Isolation",
             "relevance": "Isolates network segments to prevent adversaries from moving laterally between them."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-BDI",
             "name": "Broadcast Domain Isolation",
             "relevance": "Isolates broadcast domains to limit lateral movement opportunities within the same network layer."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1030",
             "name": "Network Segmentation",
@@ -99,20 +99,20 @@ _cross_segment_traffic_logging_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTA",
             "name": "Network Traffic Analysis",
             "relevance": "Analyzes network traffic crossing segment boundaries to detect anomalies and log cross-segment flows."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CAA",
             "name": "Connection Attempt Analysis",
             "relevance": "Logs and analyzes connection attempts between segments to identify unauthorized cross-segment access."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -146,20 +146,20 @@ _unauthorized_access_attempt_detection_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CAA",
             "name": "Connection Attempt Analysis",
             "relevance": "Directly detects unauthorized access attempts by analyzing anomalous or failed connection attempts."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANAA",
             "name": "Administrative Network Activity Analysis",
             "relevance": "Detects unauthorized administrative access attempts by monitoring abnormal administrative network activity."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1031",
             "name": "Network Intrusion Prevention",
@@ -188,20 +188,20 @@ _policy_consistency_enforcement_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-APA",
             "name": "Access Policy Administration",
             "relevance": "Administers and enforces consistent access policies across the environment."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTPM",
             "name": "Network Traffic Policy Mapping",
             "relevance": "Maps network traffic policies to ensure consistent enforcement across all segments and devices."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1037",
             "name": "Filter Network Traffic",
@@ -230,20 +230,20 @@ _least_privilege_access_coverage_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AMED",
             "name": "Access Mediation",
             "relevance": "Mediates access requests to enforce least privilege principles across all resources."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NAM",
             "name": "Network Access Mediation",
             "relevance": "Controls network access at a granular level to enforce least privilege for network resources."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1035",
             "name": "Limit Access to Resource Over Network",
@@ -278,20 +278,20 @@ _policy_audit_and_review_maintainability_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ORA",
             "name": "Operational Risk Assessment",
             "relevance": "Supports policy audit and review by continuously assessing operational risks and policy gaps."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
             "relevance": "Directly enables policy audit and review to maintain accurate and up-to-date security policies."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1026",
             "name": "Privileged Account Management",
@@ -328,21 +328,21 @@ _siem_integration_depth_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-NTSA",
             "name": "Network Traffic Signature Analysis",
             "relevance": "Feeds signature-based network traffic analysis data into SIEM for correlation and alerting."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-PA",
             "name": "Process Analysis",
             "relevance": "Provides process-level telemetry to SIEM for deep integration and threat detection."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ANET",
             "name": "Authentication Event Thresholding",
             "relevance": "Sends authentication event thresholds and alerts to SIEM for integrated security monitoring."
@@ -376,21 +376,21 @@ _dynamic_policy_response_automation_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-APA",
             "name": "Access Policy Administration",
             "relevance": "Enables automated dynamic updates to access policies in response to detected threats."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AZET",
             "name": "Authorization Event Thresholding",
             "relevance": "Triggers automated policy responses when authorization event thresholds are exceeded."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-AMED",
             "name": "Access Mediation",
             "relevance": "Dynamically mediates access decisions in real-time as part of automated policy response workflows."

@@ -10,20 +10,20 @@ _response_integrity_validation_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CA",
             "name": "Certificate Analysis",
             "relevance": "Certificate analysis directly validates the integrity of responses by examining cryptographic certificates used in securing communications."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1020",
             "name": "SSL/TLS Inspection",
             "relevance": "SSL/TLS inspection ensures encrypted response integrity by validating the authenticity and content of encrypted communications."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1045",
             "name": "Code Signing",
@@ -52,20 +52,20 @@ _origin_authenticity_verification_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CA",
             "name": "Certificate Analysis",
             "relevance": "Certificate analysis verifies the authenticity of the origin by examining the cryptographic certificates presented by communicating parties."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1020",
             "name": "SSL/TLS Inspection",
             "relevance": "SSL/TLS inspection validates origin authenticity by inspecting certificates and encryption parameters during communication establishment."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1045",
             "name": "Code Signing",
@@ -94,13 +94,13 @@ _chain_of_trust_coverage_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CA",
             "name": "Certificate Analysis",
             "relevance": "Certificate analysis validates the full chain of trust by examining certificate hierarchies and their cryptographic relationships."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1045",
             "name": "Code Signing",
@@ -108,7 +108,7 @@ _chain_of_trust_coverage_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-DTP",
             "name": "Domain Trust Policy",
             "relevance": "Domain trust policy directly governs the chain of trust coverage by defining and enforcing trust relationships between domains."
@@ -142,13 +142,13 @@ _negative_response_authentication_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CA",
             "name": "Certificate Analysis",
             "relevance": "Certificate analysis can authenticate negative responses by verifying the cryptographic signatures on denial-of-existence records such as NSEC/NSEC3 in DNSSEC."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1020",
             "name": "SSL/TLS Inspection",
@@ -156,7 +156,7 @@ _negative_response_authentication_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-DNSAL",
             "name": "DNS Allowlisting",
             "relevance": "DNS allowlisting supports negative response authentication by ensuring only authorized resolvers can provide negative DNS answers."
@@ -183,7 +183,7 @@ _validation_failure_detection_def := {
     "score": 5,
     "responds_with": [
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1040",
             "name": "Behavior Prevention on Endpoint",
@@ -191,13 +191,13 @@ _validation_failure_detection_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CA",
             "name": "Certificate Analysis",
             "relevance": "Certificate analysis detects validation failures by identifying invalid, expired, or untrusted certificates in communications."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1020",
             "name": "SSL/TLS Inspection",
@@ -226,21 +226,21 @@ _key_rollover_operational_continuity_def := {
     "responds_with": [
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CERO",
             "name": "Certificate Rotation",
             "relevance": "Certificate rotation directly addresses key rollover operational continuity by managing the lifecycle and replacement of cryptographic certificates."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-CRO",
             "name": "Credential Rotation",
             "relevance": "Credential rotation ensures operational continuity during key rollovers by systematically replacing cryptographic credentials without service disruption."
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-ACA",
             "name": "Active Certificate Analysis",
             "relevance": "Active certificate analysis monitors certificate validity and expiration to ensure continuity during key rollover operations."
@@ -273,7 +273,7 @@ _resolver_validation_enforcement_def := {
     "score": 5,
     "responds_with": [
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1020",
             "name": "SSL/TLS Inspection",
@@ -281,13 +281,13 @@ _resolver_validation_enforcement_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-DNSAL",
             "name": "DNS Allowlisting",
             "relevance": "DNS allowlisting directly enforces resolver validation by restricting DNS queries to approved, validated resolvers only."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1035",
             "name": "Limit Access to Resource Over Network",
@@ -322,21 +322,21 @@ _zone_signing_completeness_def := {
     "score": 2,
     "responds_with": [
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
             "relevance": "Auditing ensures zone signing completeness by systematically reviewing DNS zones to confirm all records are properly signed."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1015",
             "name": "Active Directory Configuration",
             "relevance": "Active Directory configuration supports zone signing completeness by enforcing proper DNSSEC configuration across DNS zones."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1020",
             "name": "SSL/TLS Inspection",
@@ -364,7 +364,7 @@ _signature_expiry_monitoring_def := {
     "score": 2,
     "responds_with": [
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1047",
             "name": "Audit",
@@ -372,13 +372,13 @@ _signature_expiry_monitoring_def := {
         },
         {
             "label": "MitreDefendTechnique",
-            "property": "defense_id",
+            "property": "d3fendId",
             "value": "D3-PMAD",
             "name": "Protocol Metadata Anomaly Detection",
             "relevance": "Protocol metadata anomaly detection can identify expired or soon-to-expire signatures by analyzing anomalous metadata patterns in DNS responses."
         },
         {
-            "label": "MitreAttackTechnique",
+            "label": "MitreAttackMitigation",
             "property": "attack_id",
             "value": "M1045",
             "name": "Code Signing",
