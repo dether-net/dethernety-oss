@@ -59,7 +59,7 @@ importers:
     dependencies:
       '@apollo/client':
         specifier: ^4.1.9
-        version: 4.1.9(graphql-ws@6.0.8(graphql@16.14.0)(ws@8.20.0))(graphql@16.14.0)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.14.0))
+        version: 4.1.9(graphql-ws@6.0.8(graphql@16.14.0)(ws@8.20.1))(graphql@16.14.0)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.14.0))
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
@@ -99,7 +99,7 @@ importers:
     dependencies:
       '@apollo/client':
         specifier: ^4.1.9
-        version: 4.1.9(graphql-ws@6.0.8(graphql@16.14.0)(ws@8.20.0))(graphql@16.14.0)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.14.0))
+        version: 4.1.9(graphql-ws@6.0.8(graphql@16.14.0)(ws@8.20.1))(graphql@16.14.0)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.14.0))
       '@dethernety/dt-core':
         specifier: workspace:*
         version: link:../../packages/dt-core
@@ -150,7 +150,7 @@ importers:
         version: 2.12.6(graphql@16.14.0)
       graphql-ws:
         specifier: ^6.0.8
-        version: 6.0.8(graphql@16.14.0)(ws@8.20.0)
+        version: 6.0.8(graphql@16.14.0)(ws@8.20.1)
       jwt-decode:
         specifier: ^4.0.0
         version: 4.0.0
@@ -280,7 +280,7 @@ importers:
         version: 10.0.33(graphql@16.14.0)
       '@langchain/langgraph-sdk':
         specifier: ^1.9.2
-        version: 1.9.2(vue@3.5.34(typescript@5.9.3))(ws@8.20.0)
+        version: 1.9.2(vue@3.5.34(typescript@5.9.3))(ws@8.20.1)
       '@neo4j/graphql':
         specifier: 7.2.0
         version: 7.2.0(graphql@16.14.0)(neo4j-driver@5.28.3)
@@ -346,7 +346,7 @@ importers:
         version: 0.3.2(graphql@16.14.0)
       graphql-ws:
         specifier: ^6.0.8
-        version: 6.0.8(graphql@16.14.0)(ws@8.20.0)
+        version: 6.0.8(graphql@16.14.0)(ws@8.20.1)
       json-logic-js:
         specifier: ^2.0.5
         version: 2.0.5
@@ -366,8 +366,8 @@ importers:
         specifier: ^7.8.2
         version: 7.8.2
       ws:
-        specifier: ^8.20.0
-        version: 8.20.0
+        specifier: ^8.20.1
+        version: 8.20.1
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1
@@ -461,7 +461,7 @@ importers:
     dependencies:
       '@apollo/client':
         specifier: ^4.1.9
-        version: 4.1.9(graphql-ws@6.0.8(graphql@16.14.0)(ws@8.20.0))(graphql@16.14.0)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.14.0))
+        version: 4.1.9(graphql-ws@6.0.8(graphql@16.14.0)(ws@8.20.1))(graphql@16.14.0)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.14.0))
       '@vue-flow/core':
         specifier: ^1.48.2
         version: 1.48.2(vue@3.5.34(typescript@5.9.3))
@@ -489,7 +489,7 @@ importers:
         version: link:../dt-core
       '@langchain/langgraph-sdk':
         specifier: ^1.9.2
-        version: 1.9.2(vue@3.5.34(typescript@5.9.3))(ws@8.20.0)
+        version: 1.9.2(vue@3.5.34(typescript@5.9.3))(ws@8.20.1)
       '@nestjs/common':
         specifier: ^11.1.19
         version: 11.1.19(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -8121,6 +8121,18 @@ packages:
       utf-8-validate:
         optional: true
 
+  ws@8.20.1:
+    resolution: {integrity: sha512-It4dO0K5v//JtTXuPkfEOaI3uUN87iYPnqo/ZzqCoG3g8uhA66QUMs/SrM0YK7/NAu+r4LMh/9dq2A7k+rHs+w==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   wsl-utils@0.3.1:
     resolution: {integrity: sha512-g/eziiSUNBSsdDJtCLB8bdYEUMj4jR7AGeUo96p/3dTafgjHhpF4RiCFPiRILwjQoDXx5MqkBr4fwWtR3Ky4Wg==}
     engines: {node: '>=20'}
@@ -8239,7 +8251,7 @@ snapshots:
     dependencies:
       graphql: 16.14.0
 
-  '@apollo/client@4.1.9(graphql-ws@6.0.8(graphql@16.14.0)(ws@8.20.0))(graphql@16.14.0)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.14.0))':
+  '@apollo/client@4.1.9(graphql-ws@6.0.8(graphql@16.14.0)(ws@8.20.1))(graphql@16.14.0)(rxjs@7.8.2)(subscriptions-transport-ws@0.11.0(graphql@16.14.0))':
     dependencies:
       '@graphql-typed-document-node/core': 3.2.0(graphql@16.14.0)
       '@wry/caches': 1.0.1
@@ -8251,7 +8263,7 @@ snapshots:
       rxjs: 7.8.2
       tslib: 2.8.1
     optionalDependencies:
-      graphql-ws: 6.0.8(graphql@16.14.0)(ws@8.20.0)
+      graphql-ws: 6.0.8(graphql@16.14.0)(ws@8.20.1)
       subscriptions-transport-ws: 0.11.0(graphql@16.14.0)
 
   '@apollo/federation-internals@2.13.3(graphql@16.14.0)':
@@ -9387,12 +9399,12 @@ snapshots:
 
   '@kurkle/color@0.3.4': {}
 
-  '@langchain/core@1.1.46(ws@8.20.0)':
+  '@langchain/core@1.1.46(ws@8.20.1)':
     dependencies:
       '@cfworker/json-schema': 4.1.1
       '@standard-schema/spec': 1.1.0
       js-tiktoken: 1.0.21
-      langsmith: 0.6.3(ws@8.20.0)
+      langsmith: 0.6.3(ws@8.20.1)
       mustache: 4.2.0
       p-queue: 6.6.2
       zod: 4.3.6
@@ -9403,9 +9415,9 @@ snapshots:
       - openai
       - ws
 
-  '@langchain/langgraph-sdk@1.9.2(vue@3.5.34(typescript@5.9.3))(ws@8.20.0)':
+  '@langchain/langgraph-sdk@1.9.2(vue@3.5.34(typescript@5.9.3))(ws@8.20.1)':
     dependencies:
-      '@langchain/core': 1.1.46(ws@8.20.0)
+      '@langchain/core': 1.1.46(ws@8.20.1)
       '@langchain/protocol': 0.0.15
       '@types/json-schema': 7.0.15
       p-queue: 9.2.0
@@ -13501,6 +13513,12 @@ snapshots:
     optionalDependencies:
       ws: 8.20.0
 
+  graphql-ws@6.0.8(graphql@16.14.0)(ws@8.20.1):
+    dependencies:
+      graphql: 16.14.0
+    optionalDependencies:
+      ws: 8.20.1
+
   graphql@16.14.0: {}
 
   hachure-fill@0.5.2: {}
@@ -14335,11 +14353,11 @@ snapshots:
 
   kolorist@1.8.0: {}
 
-  langsmith@0.6.3(ws@8.20.0):
+  langsmith@0.6.3(ws@8.20.1):
     dependencies:
       p-queue: 6.6.2
     optionalDependencies:
-      ws: 8.20.0
+      ws: 8.20.1
 
   language-subtag-registry@0.3.23: {}
 
@@ -16699,6 +16717,8 @@ snapshots:
   ws@7.5.10: {}
 
   ws@8.20.0: {}
+
+  ws@8.20.1: {}
 
   wsl-utils@0.3.1:
     dependencies:
