@@ -1,9 +1,23 @@
 <script setup lang="ts">
+  import { ref, computed, watch } from 'vue'
   import { useFlowStore } from '@/stores/flowStore'
-  import {
-    Exposure,
-    MitreAttackTechnique,
-  } from '@dethernety/dt-core'
+  import { useTechniqueSuggestionsStore } from '@/stores/techniqueSuggestionsStore'
+  import { Exposure } from '@dethernety/dt-core'
+  import TechniquePicker from '@/components/Mitre/TechniquePicker/TechniquePicker.vue'
+  import ConfirmDeleteDialog from '@/components/Dialogs/General/ConfirmDeleteDialog.vue'
+
+  /**
+   * Technique selection uses the TechniquePicker family.
+   *
+   * Dirty tracking mirrors ControlDialog: snapshot initialState on load,
+   * compare against current state for isDirty, gate close on confirm.
+   *
+   * mitreId ↔ internalId conversion: picker stores mitreIds (what the user sees).
+   * Backend's `connect.where.node.id` expects the internal graph UUID.
+   * - On load, we map exposure.exploitedBy (has both .id and .attack_id) → mitreIds.
+   * - On save, we map picker mitreIds → internalIds via the
+   *   techniqueSuggestionsStore catalog (hydrated by the picker on mount).
+   */
 
   interface Props {
     elementId: string | undefined
@@ -23,8 +37,8 @@
   })
   const emit = defineEmits(['update:showDialog', 'update:elementId', 'update:exposureCreated', 'update:exposureUpdated'])
   const flowStore = useFlowStore()
+  const techniqueStore = useTechniqueSuggestionsStore()
   const tab = ref('information')
-  const mitreAttackTacticTab = ref('')
   const exposure = ref<Exposure>({
     id: '',
     name: '',
@@ -34,9 +48,66 @@
     score: 0,
   })
 
-  const selectedTechniqueIds = ref<string[]>([])
+  const selectedTechniqueMitreIds = ref<string[]>([])
 
-  const mitreAttackTechniques = ref<MitreAttackTechnique[]>([])
+  // Picker ref for the "Suggest matches" link below.
+  const techniquePickerRef = ref<{ seedSearch: (text: string) => Promise<void> } | null>(null)
+
+  // Implicit query for the Suggest link: description only, whitespace-
+  // normalised. We DON'T include name — nomic-embed-text weights both leading
+  // and trailing tokens heavily, and an arbitrary user-typed name shifts the
+  // embedding centroid below the similarity threshold. Junk like "asdasd" in
+  // the name field broke recommendations entirely even when the description
+  // was a clean MITRE description verbatim. Description is the required field
+  // and carries the semantic content; real names duplicate description content
+  // anyway. Threshold 20 chars (dialog-side UX gate, separate from the
+  // picker's 4-char vector-eligibility gate).
+  const suggestQuery = computed<string>(() =>
+    (exposure.value.description ?? '').replace(/\s+/g, ' ').trim(),
+  )
+  const suggestEnabled = computed<boolean>(() => suggestQuery.value.length >= 20)
+  // Loading state for the Suggest button so a slow vector round-trip doesn't
+  // look like a dead click.
+  const isSuggesting = ref(false)
+  async function onSuggestMatches(): Promise<void> {
+    if (!suggestEnabled.value) return
+    isSuggesting.value = true
+    try {
+      await techniquePickerRef.value?.seedSearch(suggestQuery.value)
+    } finally {
+      isSuggesting.value = false
+    }
+  }
+
+  // Dirty tracking — initialState snapshot captured on load + refreshed after save.
+  const initialState = ref<{ name: string; description: string; techniqueMitreIds: string[] }>({
+    name: '',
+    description: '',
+    techniqueMitreIds: [],
+  })
+
+  const setEqual = (a: string[], b: string[]) =>
+    a.length === b.length && a.every(x => b.includes(x))
+
+  const isDirty = computed(() =>
+    exposure.value.name !== initialState.value.name ||
+    (exposure.value.description ?? '') !== initialState.value.description ||
+    !setEqual(selectedTechniqueMitreIds.value, initialState.value.techniqueMitreIds),
+  )
+
+  const showDiscardChangesDialog = ref(false)
+
+  function mitreIdsToInternalIds(mitreIds: string[]): string[] | null {
+    const catalog = techniqueStore.catalog.get('ATTACK_TECHNIQUE') ?? []
+    const lookup = new Map(catalog.map(e => [e.mitreId, e.internalId]))
+    const out: string[] = []
+    for (const m of mitreIds) {
+      const internal = lookup.get(m)
+      if (!internal) return null
+      out.push(internal)
+    }
+    return out
+  }
 
   watch(showDialog, newVal => {
     emit('update:showDialog', newVal)
@@ -50,23 +121,37 @@
     emit('update:showDialog', false)
   }
 
+  const onAttemptClose = () => {
+    if (isDirty.value) {
+      showDiscardChangesDialog.value = true
+    } else {
+      closeDialog()
+    }
+  }
+
+  const onDiscardConfirmed = () => {
+    showDiscardChangesDialog.value = false
+    closeDialog()
+  }
+
+  const onDiscardCanceled = () => {
+    showDiscardChangesDialog.value = false
+  }
+
+  function snapshotInitialState(): void {
+    initialState.value = {
+      name: exposure.value.name ?? '',
+      description: exposure.value.description ?? '',
+      techniqueMitreIds: [...selectedTechniqueMitreIds.value],
+    }
+  }
+
   const loadExposure = async () => {
     if (exposureId.value) {
       const response = await flowStore.getExposure({ exposureId: exposureId.value })
       exposure.value = response
-
-      selectedTechniqueIds.value = (response.exploitedBy || []).map(t => t.id)
-
-      if (response.exploitedBy?.length && flowStore.mitreAttackTactics.length) {
-        const firstTechnique = response.exploitedBy[0]
-        if (firstTechnique.tactics?.length) {
-          mitreAttackTacticTab.value = firstTechnique.tactics[0].id
-          await loadMitreAttackTechniques()
-        } else {
-          mitreAttackTacticTab.value = flowStore.mitreAttackTactics[0].id
-          await loadMitreAttackTechniques()
-        }
-      }
+      selectedTechniqueMitreIds.value = (response.exploitedBy || []).map(t => t.attack_id)
+      snapshotInitialState()
     }
   }
 
@@ -78,16 +163,24 @@
 
   const saveExposure = () => {
     if (elementId.value) {
+      const attackTechniqueIds = mitreIdsToInternalIds(selectedTechniqueMitreIds.value)
+      if (attackTechniqueIds === null) {
+        snackBar.value.show = true
+        snackBar.value.color = 'warning'
+        snackBar.value.message = 'Technique catalog is still loading — please try again in a moment.'
+        return
+      }
       if (props.action === 'create') {
         flowStore.createExposure({
           exposure: exposure.value,
           elementId: elementId.value,
-          attackTechniqueIds: selectedTechniqueIds.value,
+          attackTechniqueIds,
         }).then(response => {
           if (response) {
             snackBar.value.show = true
             snackBar.value.color = 'success'
             snackBar.value.message = 'Exposure created successfully'
+            snapshotInitialState()
             emit('update:exposureCreated', response)
             closeDialog()
           } else {
@@ -101,12 +194,13 @@
           flowStore.updateExposure({
             exposureId: exposureId.value,
             exposure: exposure.value,
-            attackTechniqueIds: selectedTechniqueIds.value,
+            attackTechniqueIds,
           }).then(response => {
             if (response) {
               snackBar.value.show = true
               snackBar.value.color = 'success'
               snackBar.value.message = 'Exposure updated successfully'
+              snapshotInitialState()
               emit('update:exposureUpdated', response)
               closeDialog()
             } else {
@@ -120,40 +214,24 @@
     }
   }
 
-  const loadMitreAttackTechniques = async () => {
-    const techniques = await flowStore.getMitreAttackTechniquesByTactic({ tacticId: mitreAttackTacticTab.value })
-    mitreAttackTechniques.value = techniques
-  }
-
-  const updateSelectedTechniques = (technique: MitreAttackTechnique, isSelected: boolean | null) => {
-    if (isSelected === true) {
-      if (!selectedTechniqueIds.value.includes(technique.id)) {
-        selectedTechniqueIds.value.push(technique.id)
-      }
-    } else {
-      const index = selectedTechniqueIds.value.indexOf(technique.id)
-      if (index !== -1) {
-        selectedTechniqueIds.value.splice(index, 1)
-      }
-    }
-  }
-
-  const isTechniqueSelected = (technique: MitreAttackTechnique) => selectedTechniqueIds.value.includes(technique.id)
-
   if (props.action === 'edit' && exposureId.value) {
     loadExposure()
+  } else if (props.action === 'create') {
+    // create flow starts with an empty exposure — snapshot the empty state so
+    // typing anything flips the dirty bit.
+    snapshotInitialState()
   }
 </script>
 
 <template>
   <!-- eslint-disable vue/v-on-event-hyphenation -->
-  <!-- eslint-disable vue/no-template-shadow -->
-  <!-- eslint-disable vue/no-lone-template -->
   <v-dialog
     v-model="showDialog"
     fluid
     width="60vw"
-    @keydown.esc="closeDialog"
+    :persistent="isDirty"
+    @click:outside="onAttemptClose"
+    @keydown.esc="onAttemptClose"
   >
     <v-form @submit.prevent="saveExposure">
       <v-card>
@@ -168,7 +246,7 @@
               icon="mdi-close"
               size="medium"
               variant="text"
-              @click="closeDialog"
+              @click="onAttemptClose"
             />
           </v-sheet>
         </v-card-title>
@@ -180,7 +258,7 @@
                   <v-col cols="3">
                     <v-tabs v-model="tab" direction="vertical">
                       <v-tab prepend-icon="mdi-information-outline" text="Information" value="information" />
-                      <v-tab prepend-icon="mdi-fencing" text="Attack Techniques" value="attack-techniques" />
+                      <v-tab prepend-icon="mdi-fencing" text="Techniques" value="attack-techniques" />
                     </v-tabs>
                   </v-col>
                   <v-col class="pa-1 px-6 elevation-1 rounded-lg" cols="9">
@@ -203,92 +281,33 @@
                         </v-container>
                       </v-tabs-window-item>
                       <v-tabs-window-item value="attack-techniques">
-                        <v-container>
-                          <v-row>
-                            <v-col cols="12">
-                              <v-row>
-                                <v-col cols="12">
-                                  <v-tabs v-model="mitreAttackTacticTab" direction="horizontal" @update:modelValue="loadMitreAttackTechniques">
-                                    <v-tab v-for="tactic in flowStore.mitreAttackTactics" :key="tactic.id" :text="tactic.name" :value="tactic.id" />
-                                  </v-tabs>
-                                </v-col>
-                              </v-row>
-                              <v-row>
-                                <v-col cols="12">
-                                  <v-tabs-window v-model="mitreAttackTacticTab" class="settings-window">
-                                    <v-tabs-window-item v-for="tactic in flowStore.mitreAttackTactics" :key="tactic.id" :value="tactic.id">
-                                      <v-container class="techniques-container">
-                                        <v-row>
-                                          <v-col cols="12">
-                                            <v-list>
-                                              <v-list-group
-                                                v-for="technique in [...mitreAttackTechniques].sort((a: MitreAttackTechnique, b: MitreAttackTechnique) => a.attack_id.localeCompare(b.attack_id))"
-                                                :key="technique.id"
-                                                class="mb-1"
-                                                :collapse-icon="technique.subTechniques?.length ? 'mdi-chevron-up' : 'mdi-circle-small'"
-                                                :expand-icon="technique.subTechniques?.length ? 'mdi-chevron-down' : 'mdi-circle-small'"
-                                                variant="outlined"
-                                              >
-                                                <template #activator="{ props }">
-                                                  <v-list-item
-                                                    v-bind="props"
-                                                    base-color="secondary"
-                                                    class="mb-1"
-                                                    color="primary"
-                                                    density="compact"
-                                                    elevation="11"
-                                                    variant="tonal"
-                                                  >
-                                                    <v-list-item-title>
-                                                      <div class="d-flex align-center justify-space-between">
-                                                        <v-checkbox
-                                                          class="ma-0 pa-0"
-                                                          :label="technique.name + ' (' + technique.attack_id + ')'"
-                                                          :model-value="isTechniqueSelected(technique)"
-                                                          @update:model-value="updateSelectedTechniques(technique, $event)"
-                                                        />
-                                                        <v-tooltip location="top" :text="technique.description" width="60vw">
-                                                          <template #activator="{ props }">
-                                                            <v-icon v-bind="props" class="ma-0 pa-0" icon="mdi-information-outline" />
-                                                          </template>
-                                                        </v-tooltip>
-                                                      </div>
-                                                    </v-list-item-title>
-                                                  </v-list-item>
-                                                </template>
-                                                <v-list-item
-                                                  v-for="subTechnique in [...(technique.subTechniques || [])].sort((a: MitreAttackTechnique, b: MitreAttackTechnique) => a.attack_id.localeCompare(b.attack_id))"
-                                                  :key="subTechnique.id"
-                                                  class="ml-5 mb-1"
-                                                  density="compact"
-                                                  variant="text"
-                                                >
-                                                  <v-list-item-title>
-                                                    <div class="d-flex align-center justify-space-between">
-                                                      <v-checkbox
-                                                        :label="subTechnique.name + ' (' + subTechnique.attack_id + ')'"
-                                                        :model-value="isTechniqueSelected(subTechnique)"
-                                                        @update:model-value="updateSelectedTechniques(subTechnique, $event)"
-                                                      />
-                                                      <v-tooltip location="top" :text="subTechnique.description" width="60vw">
-                                                        <template #activator="{ props }">
-                                                          <v-icon v-bind="props" class="ma-0 pa-0" icon="mdi-information-outline" />
-                                                        </template>
-                                                      </v-tooltip>
-                                                    </div>
-                                                  </v-list-item-title>
-                                                </v-list-item>
-                                              </v-list-group>
-                                            </v-list>
-                                          </v-col>
-                                        </v-row>
-                                      </v-container>
-                                    </v-tabs-window-item>
-                                  </v-tabs-window>
-                                </v-col>
-                              </v-row>
-                            </v-col>
-                          </v-row>
+                        <v-container class="techniques-container">
+                          <div class="d-flex justify-end mb-1">
+                            <v-tooltip
+                              :disabled="suggestEnabled"
+                              location="top"
+                              text="Add a description (20+ characters) to suggest matches"
+                            >
+                              <template #activator="{ props: tipProps }">
+                                <span v-bind="tipProps">
+                                  <v-btn
+                                    :disabled="!suggestEnabled"
+                                    :loading="isSuggesting"
+                                    prepend-icon="mdi-creation"
+                                    size="small"
+                                    variant="text"
+                                    @click="onSuggestMatches"
+                                  >Suggest matches</v-btn>
+                                </span>
+                              </template>
+                            </v-tooltip>
+                          </div>
+                          <TechniquePicker
+                            ref="techniquePickerRef"
+                            v-model="selectedTechniqueMitreIds"
+                            kind="ATTACK_TECHNIQUE"
+                            :model-id="flowStore.modelId"
+                          />
                         </v-container>
                       </v-tabs-window-item>
                     </v-tabs-window>
@@ -301,6 +320,7 @@
         <v-card-actions class="py-6 mx-6 d-flex justify-end">
           <v-btn
             color="secondary"
+            :disabled="action === 'edit' && !isDirty"
             icon="mdi-content-save"
             size="x-large"
             variant="outlined"
@@ -309,17 +329,26 @@
         </v-card-actions>
       </v-card>
     </v-form>
+    <ConfirmDeleteDialog
+      v-if="showDiscardChangesDialog"
+      confirmColor="warning"
+      confirmIcon="mdi-close-circle-outline"
+      icon="mdi-pencil-off-outline"
+      message="You have unsaved changes. Are you sure you want to discard them?"
+      :show="showDiscardChangesDialog"
+      title="Discard unsaved changes?"
+      @delete:canceled="onDiscardCanceled"
+      @delete:confirmed="onDiscardConfirmed"
+    />
   </v-dialog>
-  <template>
-    <v-snackbar
-      v-model="snackBar.show"
-      :color="snackBar.color"
-      timeout="5000"
-      top
-    >
-      {{ snackBar.message }}
-    </v-snackbar>
-  </template>
+  <v-snackbar
+    v-model="snackBar.show"
+    :color="snackBar.color"
+    timeout="5000"
+    top
+  >
+    {{ snackBar.message }}
+  </v-snackbar>
 </template>
 
 <style scoped>

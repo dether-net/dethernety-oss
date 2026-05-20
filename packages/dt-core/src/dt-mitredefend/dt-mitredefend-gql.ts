@@ -20,16 +20,19 @@ export const GET_MITRE_DEFEND_TECHNIQUE_BY_TACTIC = gql`
       description
       techniques {
         id
+        d3fendId
         name
         description
         uri
         subTechniques {
           id
+          d3fendId
           name
           description
           uri
           subTechniques {
             id
+            d3fendId
             name
             description
             uri

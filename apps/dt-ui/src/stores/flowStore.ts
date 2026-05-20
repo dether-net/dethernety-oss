@@ -9,10 +9,14 @@ import {
   DtBoundary, DtClass, DtComponent, DtControl, DtDataflow, DtDataItem,
   DtExposure, DtMitreAttack, DtModel, DtModule, DtUtils,
 
+  // Supersede orchestration helper (pure, Vue-free).
+  executeSupersedeFlow,
+
   // Core types
   Exposure, Class, Control, DataItem, DirectDescendant, Model, Module,
   MitreAttackTactic, MitreAttackTechnique,
   ChangeElementBindingResult,
+  DispositionKind, DispositionMutationResult,
 } from '@dethernety/dt-core'
 
 export const useFlowStore = defineStore('flow', () => {
@@ -974,8 +978,59 @@ export const useFlowStore = defineStore('flow', () => {
     return dtExposure.updateExposure({ exposureId, exposure, attackTechniqueIds })
   }
 
-  const deleteExposure = async ({ exposureId }: { exposureId: string }): Promise<boolean> => {
-    return dtExposure.deleteExposure({ exposureId })
+  /**
+   * Delete an exposure.
+   *
+   * For USER-authored deletes, the dt-core wrapper fires
+   * a fire-and-forget companion `updateExposures` that flips `dispositionStale`
+   * on any SYSTEM exposure whose disposition reason names the deleted USER copy.
+   * The store captures the exposure name before delete and passes it through.
+   */
+  const deleteExposure = async (
+    { exposureId, exposureName }: { exposureId: string, exposureName?: string }
+  ): Promise<boolean> => {
+    return dtExposure.deleteExposure({ exposureId, exposureName })
+  }
+
+  /**
+   * Author or replace a disposition on an exposure.
+   * dt-core returns a result envelope — domain errors (validation, not-found)
+   * come back with success=false + errorCode; transport errors propagate.
+   */
+  const disposeExposure = async (
+    { exposureId, kind, reason }:
+    { exposureId: string, kind: DispositionKind, reason: string }
+  ): Promise<DispositionMutationResult> => {
+    return dtExposure.disposeExposure({ exposureId, kind, reason })
+  }
+
+  /**
+   * Clear a disposition. Idempotent.
+   */
+  const clearDisposition = async (
+    { exposureId }: { exposureId: string }
+  ): Promise<DispositionMutationResult> => {
+    return dtExposure.clearDisposition({ exposureId })
+  }
+
+  /**
+   * Supersede flow — frontend-orchestrated.
+   *
+   * Composes createExposure + disposeExposure(SUPERSEDED) via the pure dt-core
+   * helper. Returns the full result so the caller (SettingsExposuresTab) can
+   * render the partial-failure snackbar with a Retry action when step 2 fails
+   * but step 1 succeeded.
+   */
+  const supersedeExposure = async (
+    { exposureId, elementId, exposure }:
+    { exposureId: string, elementId: string, exposure: Exposure }
+  ): Promise<{ userCopy: Exposure, systemDispositionResult: DispositionMutationResult }> => {
+    return executeSupersedeFlow({
+      systemExposureId: exposureId,
+      systemExposure: exposure,
+      elementId,
+      dtExposure,
+    })
   }
 
   /// ////////////////////////////////
@@ -988,6 +1043,19 @@ export const useFlowStore = defineStore('flow', () => {
 
   const setInstantiationAttributes = async ({ componentId, classId, attributes }: { componentId: string, classId: string, attributes: object }): Promise<boolean> => {
     return dtClass.setInstantiationAttributes({ componentId, classId, attributes })
+  }
+
+  /**
+   * Picker save path needs `staleFlippedCount` to
+   * drive the "N need review" badge on SettingsExposuresTab without a
+   * follow-up exposures refetch. Wraps the dt-core sibling method that
+   * selects the extra field.
+   */
+  const setInstantiationAttributesWithStaleCount = async (
+    { componentId, classId, attributes }:
+    { componentId: string, classId: string, attributes: object }
+  ): Promise<{ success: boolean, staleFlippedCount: number | null }> => {
+    return dtClass.setInstantiationAttributesWithStaleCount({ componentId, classId, attributes })
   }
   const getAttributesFromClassRelationship = async ({ componentId, classId }: { componentId: string, classId: string }): Promise<object> => {
     return dtClass.getAttributesFromClassRelationship({ componentId, classId })
@@ -1089,10 +1157,14 @@ export const useFlowStore = defineStore('flow', () => {
     
     // Exposures
     getExposures, getExposure, createExposure, updateExposure, deleteExposure,
-    
+
+    // Disposition + supersede surface
+    disposeExposure, clearDisposition, supersedeExposure,
+
     // Class related functions
     getComponentClass, getBoundaryClass, getDataFlowClass, getDataClass,
-    setInstantiationAttributes, getAttributesFromClassRelationship,
+    setInstantiationAttributes, setInstantiationAttributesWithStaleCount,
+    getAttributesFromClassRelationship,
     
     // Data fetching
     getModelData, setModelId, fetchData, fetchControls,

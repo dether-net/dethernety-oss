@@ -27,7 +27,7 @@
   const description = ref('')
   const dataClass = ref<string | null>(null)
 
-  // Attributes — buffered model matching SettingsWindow's post-Sprint-D pattern.
+  // Attributes — buffered model matching SettingsWindow's pattern.
   // lastLoadedAttributes is the backend snapshot; pendingAttributes is the UI buffer that
   // AttributesForm / AttributesDialog bind to; commits flow back into lastLoadedAttributes
   // via saveAttributes. attributesDirty signals the Attributes-tab portion of isDirty.
@@ -157,7 +157,11 @@
     try {
       const flatAttributes = flattenProperties(pendingAttributes.value)
 
-      await flowStore.setInstantiationAttributes({
+      // setInstantiationAttributesWithStaleCount returns the
+      // number of dispositioned exposures whose `dispositionStale` flipped to
+      // true inside the same write transaction. Surface the count to the user
+      // when non-zero.
+      const result = await flowStore.setInstantiationAttributesWithStaleCount({
         componentId: dataId.value,
         classId: dataClass.value,
         attributes: flatAttributes,
@@ -165,11 +169,23 @@
 
       lastLoadedAttributes.value = pendingAttributes.value
       attributesDirty.value = false
+      // Refetch exposures so the row-level stale flags propagate to the
+      // exposures table. The staleFlippedCount is the *count*, not the *which*
+      // — refetch tells SettingsExposuresTab which rows to mark stale.
       flowStore.getExposures({ elementId: dataId.value }).then(exp => {
         exposures.value = exp
       })
 
-      emit('update:snackBar', { show: true, message: 'Attributes saved successfully', color: 'success' })
+      const staleCount = result?.staleFlippedCount ?? 0
+      if (staleCount > 0) {
+        emit('update:snackBar', {
+          show: true,
+          message: `Attributes saved. ${staleCount} disposition${staleCount === 1 ? '' : 's'} now need${staleCount === 1 ? 's' : ''} review.`,
+          color: 'warning',
+        })
+      } else {
+        emit('update:snackBar', { show: true, message: 'Attributes saved successfully', color: 'success' })
+      }
     } catch (e) {
       console.error('Failed to save attributes', e)
       emit('update:snackBar', { show: true, message: 'Failed to save attributes', color: 'error' })

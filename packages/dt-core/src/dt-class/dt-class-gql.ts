@@ -171,7 +171,35 @@ export const SET_INSTANTIATION_ATTRIBUTES = gql`
       componentId: $componentId
       classId: $classId
       attributes: $attributes
-    ) 
+    ) {
+      success
+    }
+  }
+`
+
+/**
+ * Picker save path sibling mutation that additionally selects
+ * `staleFlippedCount` for the
+ * "N need review" badge on SettingsExposuresTab. Backend Cypher is unchanged;
+ * the resolver always counts the flipped dispositions. The existing
+ * SET_INSTANTIATION_ATTRIBUTES query stays the way it is for the 4 internal
+ * callers (dt-update / dt-update-split / dt-control / dt-control-library) so
+ * their `Promise<boolean>` surface doesn't drift.
+ */
+export const SET_INSTANTIATION_ATTRIBUTES_WITH_STALE_COUNT = gql`
+  mutation setAttributesWithStaleCount(
+    $componentId: String!,
+    $classId: String!,
+    $attributes: JSON!
+  ) {
+    setInstantiationAttributes(
+      componentId: $componentId
+      classId: $classId
+      attributes: $attributes
+    ) {
+      success
+      staleFlippedCount
+    }
   }
 `
 

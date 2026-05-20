@@ -8,6 +8,7 @@ import {
   GET_DATA_FLOW_CLASS,
   GET_DATA_CLASS_BY_ID,
   SET_INSTANTIATION_ATTRIBUTES,
+  SET_INSTANTIATION_ATTRIBUTES_WITH_STALE_COUNT,
   GET_ATTRIBUTES_FROM_CLASS_RELATIONSHIP,
   GET_CONTROL_CLASSES,
   GET_CONTROL_CLASS_BY_ID,
@@ -345,17 +346,63 @@ export class DtClass {
     { componentId, classId, attributes }:
     { componentId: string, classId: string, attributes: object }
   ): Promise<boolean> => {
+    // The mutation returns `SetInstantiationAttributesResult!`
+    // (was `Boolean!`). The GraphQL document selects `{ success }`; we
+    // extract that field via `dataPath: 'success'` so the wrapper's
+    // `Promise<boolean>` surface stays unchanged — the 4 internal call
+    // sites (dt-update, dt-update-split, dt-control, dt-control-library)
+    // continue to bind a boolean. The sibling method
+    // `setInstantiationAttributesWithStaleCount` serves the frontend picker
+    // save path that needs the `staleFlippedCount` value.
     try {
-      const response = await this.dtUtils.performMutation<any>({
+      // dataPath navigates inside response.data. The mutation's
+      // return type changed from Boolean to SetInstantiationAttributesResult, so the
+      // payload is `{ setInstantiationAttributes: { success: true } }`. The
+      // previous path `'success'` resolved to undefined on the root response
+      // and performMutation threw "No data returned"; the caller saw
+      // "Failed to save attributes" even though the write succeeded server-side.
+      const response = await this.dtUtils.performMutation<boolean>({
         mutation: SET_INSTANTIATION_ATTRIBUTES,
         variables: { componentId, classId, attributes },
-        dataPath: '',
+        dataPath: 'setInstantiationAttributes.success',
         action: 'setInstantiationAttributes',
         deduplicationKey: `set-attributes-${componentId}-${classId}`
       })
       return Boolean(response)
     } catch (error) {
       return false
+    }
+  }
+
+  /**
+   * Picker save path needs the `staleFlippedCount`
+   * to drive the "N need review" badge on SettingsExposuresTab without a
+   * follow-up exposures refetch.
+   *
+   * Same wire call as `setInstantiationAttributes`; the only differences are
+   * the GraphQL selection set (adds `staleFlippedCount`) and the return shape
+   * (full envelope instead of just `success`). The 4 internal callers stay on
+   * the boolean-returning sibling — they have no use for the count.
+   *
+   * Domain failure semantics also differ: this method does NOT swallow errors
+   * — it propagates them so the picker save path can surface specific
+   * messaging to the user. The boolean-returning sibling swallows for the
+   * fire-and-forget internal callers.
+   */
+  setInstantiationAttributesWithStaleCount = async (
+    { componentId, classId, attributes }:
+    { componentId: string, classId: string, attributes: object }
+  ): Promise<{ success: boolean, staleFlippedCount: number | null }> => {
+    const response = await this.dtUtils.performMutation<{ success: boolean, staleFlippedCount: number | null }>({
+      mutation: SET_INSTANTIATION_ATTRIBUTES_WITH_STALE_COUNT,
+      variables: { componentId, classId, attributes },
+      dataPath: 'setInstantiationAttributes',
+      action: 'setInstantiationAttributesWithStaleCount',
+      deduplicationKey: `set-attributes-with-count-${componentId}-${classId}`,
+    })
+    return {
+      success: Boolean(response?.success),
+      staleFlippedCount: response?.staleFlippedCount ?? null,
     }
   }
 

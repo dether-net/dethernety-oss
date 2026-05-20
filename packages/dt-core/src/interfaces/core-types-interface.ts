@@ -67,7 +67,7 @@ export interface Control extends Element {
   /**
    * Origin/confirmation source for this control reference.
    * Carried on `controls[]` entries in split-file models; round-trips through
-   * dt-export-split.ts. See CONTROL_LIBRARY.md §6 and controls-enrichment.md.
+   * dt-export-split.ts. See CONTROL_LIBRARY.md and controls-enrichment.md.
    */
   source?: 'discovered' | 'declared' | 'both';
   folder?: Folder
@@ -296,6 +296,24 @@ export interface Exposure extends Element {
   createdBy?: 'SYSTEM' | 'USER'
   /** For USER findings: the authenticated user id. For SYSTEM: optional module-provided attribution. */
   authoredBy?: string
+
+  // ---------------------------------------------------------------------------
+  // Disposition fields. All five are nullable; null
+  // means "no active disposition." Set via the structured disposeExposure /
+  // clearDisposition mutations (the Supersede flow internally calls disposeExposure
+  // with kind: SUPERSEDED). Direct-GraphQL updateExposures is also accepted for
+  // the USER-copy-delete companion staleness flip.
+  // ---------------------------------------------------------------------------
+  /** Structured argument the user authored for treating this finding differently. */
+  dispositionKind?: DispositionKind | null
+  /** Free-text justification authored by the user. Mandatory when dispositionKind is non-null. */
+  dispositionReason?: string | null
+  /** JWT sub claim of the user who authored the current disposition. */
+  dispositionedBy?: string | null
+  /** ISO-8601 string — when the disposition was authored or last re-affirmed. */
+  dispositionedAt?: string | null
+  /** True when an instantiation attribute changed since the disposition was authored / re-affirmed. */
+  dispositionStale?: boolean | null
 }
 
 export interface MitreAttackMitigation {
@@ -345,6 +363,23 @@ export interface Countermeasure extends Element {
   createdBy?: 'SYSTEM' | 'USER';
   /** For USER findings: the authenticated user id. For SYSTEM: optional module-provided attribution. */
   authoredBy?: string;
+
+  // ---------------------------------------------------------------------------
+  // Disposition fields. All five are
+  // nullable; null means "no active disposition." Set via the structured
+  // disposeCountermeasure / clearCountermeasureDisposition mutations (the
+  // Supersede flow internally calls disposeCountermeasure with kind: SUPERSEDED).
+  // ---------------------------------------------------------------------------
+  /** Structured argument the user authored for treating this finding differently. */
+  dispositionKind?: DispositionKind | null;
+  /** Free-text justification authored by the user. Mandatory when dispositionKind is non-null. */
+  dispositionReason?: string | null;
+  /** JWT sub claim of the user who authored the current disposition. */
+  dispositionedBy?: string | null;
+  /** ISO-8601 string — when the disposition was authored or last re-affirmed. */
+  dispositionedAt?: string | null;
+  /** True when an instantiation attribute changed since the disposition was authored / re-affirmed. */
+  dispositionStale?: boolean | null;
 }
 
 
@@ -513,4 +548,109 @@ export interface Issue extends Element {
   countermeasures?: Element[]
   elements?: Element[]
   elementsWithExtendedInfo?: IssueElement[]
+}
+
+// ============================================================================
+// Disposition surface
+// String-literal-union types mirror the existing `createdBy: 'SYSTEM' | 'USER'`
+// convention. The GraphQL schema-side enums are DispositionKind / DispositionErrorCode.
+// ============================================================================
+
+export type DispositionKind =
+  | 'NOT_APPLICABLE'
+  | 'FALSE_POSITIVE'
+  | 'COMPENSATING_CONTROL'
+  | 'RISK_ACCEPTED'
+  | 'WAIVED'
+  | 'SUPERSEDED'
+
+export type DispositionErrorCode =
+  | 'VALIDATION_ERROR'
+  | 'EXPOSURE_NOT_FOUND'
+  | 'DATABASE_ERROR'
+
+/**
+ * Result envelope returned by the disposeExposure and clearDisposition mutations.
+ * On success, errorCode / errorMessage are null and the disposition-* fields
+ * echo the state landed on the Exposure (cleared → all five null). On failure,
+ * success = false, errorCode set, no graph change persisted.
+ */
+export interface DispositionMutationResult {
+  success: boolean
+  exposureId: string
+  dispositionKind: DispositionKind | null
+  dispositionReason: string | null
+  dispositionedBy: string | null
+  dispositionedAt: string | null
+  dispositionStale: boolean | null
+  errorCode: DispositionErrorCode | null
+  errorMessage: string | null
+}
+
+// ============================================================================
+// matchMitreTechniques surface
+// MitreMatchType is distinct from the existing matchClasses MatchType enum
+// (which uses lowercase values like `exact_name` / `fuzzy_name`). MITRE
+// matching cascades through id / name / description / vector tiers.
+// ============================================================================
+
+export type MitreKind =
+  | 'ATTACK_TECHNIQUE'
+  | 'DEFEND_TECHNIQUE'
+  | 'ATTACK_MITIGATION'
+
+export type MitreMatchType =
+  | 'EXACT_ID'
+  | 'PREFIX_ID'
+  | 'NAME_MATCH'
+  | 'DESCRIPTION_MATCH'
+  | 'VECTOR_SIMILARITY'
+
+export type VectorDisabledReason =
+  | 'EMBEDDING_DISABLED'
+  | 'NO_INDEX_MODULE'
+  | 'NO_VECTORS'
+  | 'MODEL_MISMATCH'
+
+/** Single query as part of a MatchMitreTechniquesInput.queries batch. */
+export interface TechniqueQueryInput {
+  query: string
+}
+
+/** Input envelope for the matchMitreTechniques query. */
+export interface MatchMitreTechniquesInput {
+  queries: TechniqueQueryInput[]
+  kind: MitreKind
+  /** Per-query result cap. Clamped server-side to [1, 50]; default 3. */
+  topN?: number
+}
+
+/** A single MITRE candidate. Uniform shape across the three MitreKind values. */
+export interface MitreCandidate {
+  /** T1003 / T1003.001 / D3-PMAD / M1041. */
+  mitreId: string
+  name: string
+  description?: string | null
+  /** ATT&CK or D3FEND tactic name (same field, distinct vocabularies). */
+  tactic?: string | null
+  kind: MitreKind
+  matchType: MitreMatchType
+  /** Populated for VECTOR_SIMILARITY; null for the deterministic tiers. */
+  similarityScore?: number | null
+}
+
+/** Candidate list returned for a single TechniqueQueryInput. */
+export interface TechniqueQueryMatch {
+  /** Echoes the input query string so clients can correlate batched results. */
+  query: string
+  candidates: MitreCandidate[]
+}
+
+/** Result envelope returned by the matchMitreTechniques query. */
+export interface MatchMitreTechniquesResult {
+  matches: TechniqueQueryMatch[]
+  unmatched: string[]
+  vectorAvailable: boolean
+  /** When vectorAvailable is false, names the specific reason. Null when true. */
+  vectorDisabledReason?: VectorDisabledReason | null
 }

@@ -20,6 +20,7 @@ For platform overview, installation, and architecture, see the [main README](../
 | [Building Your First Model](BUILDING_YOUR_FIRST_MODEL.md) | Step-by-step tutorial for creating a threat model |
 | [Component Configuration Guide](COMPONENT_CONFIGURATION_GUIDE.md) | Component setup, class assignment, and attribute configuration |
 | [Security Analysis Workflow](SECURITY_ANALYSIS_WORKFLOW.md) | Running analysis and interpreting results |
+| [Managing Findings](MANAGING_FINDINGS.md) | Recording decisions (not applicable, false positive, waived, superseded) on system-generated exposures and countermeasures |
 
 ## Security Controls and Modules
 

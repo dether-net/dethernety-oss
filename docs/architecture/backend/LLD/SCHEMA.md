@@ -54,6 +54,23 @@ enum ValueType {
 }
 ```
 
+### DispositionKind
+
+The structured decision a user records on a SYSTEM-generated finding (`Exposure` or `Countermeasure`) instead of deleting it. See [Disposition fields on Exposure and Countermeasure](#disposition-fields-on-exposure-and-countermeasure).
+
+```graphql
+enum DispositionKind {
+  NOT_APPLICABLE
+  FALSE_POSITIVE
+  COMPENSATING_CONTROL
+  RISK_ACCEPTED
+  WAIVED
+  SUPERSEDED
+}
+```
+
+`COMPENSATING_CONTROL` and `RISK_ACCEPTED` are exposure-only; `WAIVED` is countermeasure-only; `SUPERSEDED` is system-set by the Supersede flow. The resolver gates the kind per node type — see [`DispositionResolverService`](./CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#8-dispositionresolverservice).
+
 ---
 
 ## Core Modeling Elements
@@ -220,6 +237,7 @@ Represents a potential security vulnerability.
 - `attackVector` (AttackVector) — CVSS v3.1-aligned attack vector (NETWORK, ADJACENT, LOCAL, PHYSICAL, UNSPECIFIED)
 - `createdBy` (String) — Provenance marker, server-stamped at CREATE. See [Provenance fields on Exposure and Countermeasure](#provenance-fields-on-exposure-and-countermeasure).
 - `authoredBy` (String) — Author reference, server-stamped at CREATE. See [Provenance fields on Exposure and Countermeasure](#provenance-fields-on-exposure-and-countermeasure).
+- `dispositionKind` (DispositionKind), `dispositionReason` (String), `dispositionedBy` (String), `dispositionedAt` (DateTime), `dispositionStale` (Boolean) — User-recorded decision on a SYSTEM finding. See [Disposition fields on Exposure and Countermeasure](#disposition-fields-on-exposure-and-countermeasure).
 
 **Relationships:**
 - `(Exposure)<-[:HAS_EXPOSURE]-(Component|DataFlow|SecurityBoundary|Data)` — Element with this exposure
@@ -261,6 +279,7 @@ Represents a specific countermeasure implementation.
 - `tags` ([String!]) — Tags
 - `createdBy` (String) — Provenance marker, server-stamped at CREATE. See [Provenance fields on Exposure and Countermeasure](#provenance-fields-on-exposure-and-countermeasure).
 - `authoredBy` (String) — Author reference, server-stamped at CREATE. See [Provenance fields on Exposure and Countermeasure](#provenance-fields-on-exposure-and-countermeasure).
+- `dispositionKind` (DispositionKind), `dispositionReason` (String), `dispositionedBy` (String), `dispositionedAt` (DateTime), `dispositionStale` (Boolean) — User-recorded decision on a SYSTEM finding. See [Disposition fields on Exposure and Countermeasure](#disposition-fields-on-exposure-and-countermeasure).
 
 **Relationships:**
 - `(Countermeasure)-[:RESPONDS_WITH]->(MitreAttackMitigation)` — ATT&CK mitigations
@@ -281,6 +300,24 @@ Every `Exposure` and `Countermeasure` carries two server-stamped provenance fiel
 Both fields are sealed against UPDATE-path forgery: each is declared with `@populatedBy(operations: [CREATE])` **and** `@settable(onUpdate: false)`. The `@populatedBy` directive overrides any client-supplied value on the auto-generated `createExposures` / `createCountermeasures` shapes; the `@settable(onUpdate: false)` directive removes the field from the auto-generated `updateExposures` / `updateCountermeasures` input types entirely. Together they preserve `createdBy = 'USER'` as a tamper-evident marker that the destructive sweep in [`changeElementBinding`](#mutations) can trust.
 
 The sweep predicates in `ElementBindingService` require `createdBy = 'SYSTEM' OR createdBy IS NULL` — USER findings are preserved unconditionally; legacy null-`createdBy` rows are treated as SYSTEM (covered by the legacy-null adoption suite in `test/integration/provenance.e2e-spec.ts`).
+
+### Disposition fields on Exposure and Countermeasure
+
+A *disposition* lets a user record a decision on a SYSTEM-generated finding instead of deleting it. Both `Exposure` (via `HAS_EXPOSURE`) and `Countermeasure` (via `HAS_COUNTERMEASURE`) carry the same five nullable fields. All five are null when the finding is active (no disposition).
+
+| Field | Type | Set by |
+|-------|------|--------|
+| `dispositionKind` | `DispositionKind` | Structured argument for treating the finding differently. The auto-generated `updateExposures` / `updateCountermeasures` input exposes it as writeable (a power-user direct-GraphQL surface), but the [`disposeExposure` / `disposeCountermeasure` mutations](../GRAPHQL_API_REFERENCE.md#disposeexposure) are the preferred path and the only one the UI exercises. |
+| `dispositionReason` | `String` | Free-text justification, mandatory (non-empty after trim) when `dispositionKind` is non-null. For `SUPERSEDED` dispositions authored by the Supersede flow, the default reason single-quote-wraps the superseding finding's name (`'<name>'`) — the wrapping is load-bearing for the USER-copy-delete companion flip below. |
+| `dispositionedBy` | `String` | The authenticating user (JWT `sub` claim), stamped server-side by the dispose resolver. **`@settable(onCreate: false, onUpdate: false)`** — the structured mutation is the only writer (forensic attribution; no direct-GraphQL spoofing). |
+| `dispositionedAt` | `DateTime` | ISO-8601 timestamp of the current disposition, stamped server-side. **`@settable(onCreate: false, onUpdate: false)`** — same forensic lock; no backdating via direct-GraphQL. |
+| `dispositionStale` | `Boolean` | True when an instantiation attribute value has changed since the disposition was last authored or re-affirmed. **Deliberately NOT `@settable`-locked**, so the auto-generated update mutation can flip it — the USER-copy-delete companion (below) depends on this. Cleared back to `false` by any subsequent dispose call (re-affirm). |
+
+**Why `dispositionStale` is unlocked while `dispositionedBy` / `dispositionedAt` stay locked.** The two attribution fields carry forensic provenance, so they share the `@settable(onCreate: false, onUpdate: false)` posture of `createdBy` / `authoredBy` — only the structured mutation writes them. `dispositionStale` is a self-affecting review flag, so it is left writeable through the generated `updateExposures` / `updateCountermeasures` mutation; the GUI approval dialogs are the guard on that surface.
+
+**Staleness flip on attribute change.** When an instantiation attribute value actually changes, [`SetInstantiationAttributesService`](./SET_INSTANTIATION_ATTRIBUTES.md) flips `dispositionStale = true` on every dispositioned finding hanging off the element, inside the same transaction that writes the change. See [Disposition staleness](./CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#disposition-staleness) for the two-statement Cypher detail and the `staleFlippedCount` return.
+
+**USER-copy-delete companion.** When a USER copy of a finding is deleted, a fire-and-forget `updateExposures` / `updateCountermeasures` flips `dispositionStale = true` on any `SUPERSEDED` finding whose `dispositionReason CONTAINS "'<name>'"` (single-quote-wrapped). This works only because `dispositionStale` is not `@settable`-locked.
 
 ---
 
@@ -457,6 +494,39 @@ Runtime status of an analysis (not a graph relationship — resolved via custom 
 
 All MITRE types implement the `Element` interface (`id`, `name`, `description`).
 
+### Technique matching
+
+The [`matchMitreTechniques`](#queries) query resolves user-typed text to candidates from one of three corpora, selected by `MitreKind`. It returns a structured envelope rather than raw nodes — see [`MatchMitreTechniquesResolverService`](./CUSTOM_RESOLVER_SERVICES_DOCUMENTATION.md#9-matchmitretechniquesresolverservice) for the five-tier cascade and vector-tier mechanics.
+
+**Enums:**
+
+```graphql
+enum MitreKind { ATTACK_TECHNIQUE, DEFEND_TECHNIQUE, ATTACK_MITIGATION }
+enum MitreMatchType { EXACT_ID, PREFIX_ID, NAME_MATCH, DESCRIPTION_MATCH, VECTOR_SIMILARITY }
+enum VectorDisabledReason { EMBEDDING_DISABLED, NO_INDEX_MODULE, NO_VECTORS, MODEL_MISMATCH }
+```
+
+`MitreMatchType` is a distinct vocabulary from the `MatchType` enum used by `matchClasses`.
+
+**Input** — `MatchMitreTechniquesInput`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `queries` | `[TechniqueQueryInput!]!` | Batch of `{ query: String! }`. The picker sends single-element arrays. Clamped to 25 server-side; each query capped at 500 chars. |
+| `kind` | `MitreKind!` | Corpus to match against — determines which HNSW index is consulted. |
+| `topN` | `Int` | Per-query result cap. Clamped to `[1, 50]`; defaults to 3. |
+
+**Result** — `MatchMitreTechniquesResult`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `matches` | `[TechniqueQueryMatch!]!` | Parallel to `queries` (same order, same length). Each carries the echoed `query` and a `[MitreCandidate!]!` list. |
+| `unmatched` | `[String!]!` | Queries that produced no candidates. |
+| `vectorAvailable` | `Boolean!` | False when the deployment has no HNSW indexes, the `vector_search` module is absent, embedding is disabled, or shipped vectors mismatch the runtime model. |
+| `vectorDisabledReason` | `VectorDisabledReason` | Set when `vectorAvailable` is false; null otherwise. |
+
+`MitreCandidate` carries `mitreId`, `name`, `description`, `tactic`, `kind`, `matchType`, and `similarityScore` (`Float`, populated only for `VECTOR_SIMILARITY` matches; null for the deterministic tiers). `mitreId` reads from `attack_id` (ATT&CK) or `d3fendId` (D3FEND).
+
 ---
 
 ## GraphQL Operations
@@ -472,6 +542,7 @@ All MITRE types implement the `Element` interface (`id`, `name`, `description`).
 | `getDocument` | `analysisId`, `filter` | `JSON!` | Get a document from an analysis |
 | `getAvailableFrontendModules` | — | `[String!]!` | List modules with frontend bundles |
 | `getModuleFrontendBundle` | `moduleName` | `String!` | Get a module's frontend JavaScript bundle |
+| `matchMitreTechniques` | `input: MatchMitreTechniquesInput` | `MatchMitreTechniquesResult!` | Resolve user text to MITRE technique / mitigation candidates via a five-tier cascade. See [Technique matching](#technique-matching). |
 | `classIdentityEvents` | `kind?`, `moduleName?`, `since?` | `[ClassIdentityEvent!]!` | Admin: read the in-memory class-identity event ring buffer (max 1000 events, process-local) |
 
 ### Mutations
@@ -488,6 +559,10 @@ All MITRE types implement the `Element` interface (`id`, `name`, `description`).
 | `resetModule` | `moduleId` | `Boolean!` | Reset a module's state |
 | `addElementsToIssue` | `issueId`, `elementIds` | `AddElementsToIssueResult!` | Link elements to an issue |
 | `removeElementFromIssue` | `issueId`, `elementId` | `Boolean!` | Remove an element from an issue |
+| `disposeExposure` | `exposureId`, `kind`, `reason` | `DispositionMutationResult!` | Author, modify, or re-affirm the disposition on an Exposure. See [Disposition fields](#disposition-fields-on-exposure-and-countermeasure). |
+| `clearDisposition` | `exposureId` | `DispositionMutationResult!` | Clear the disposition from an Exposure (nulls all five fields; idempotent). |
+| `disposeCountermeasure` | `countermeasureId`, `kind`, `reason` | `DispositionMutationResult!` | Author, modify, or re-affirm the disposition on a Countermeasure. |
+| `clearCountermeasureDisposition` | `countermeasureId` | `DispositionMutationResult!` | Clear the disposition from a Countermeasure (idempotent). |
 | `migrateClassId` | `moduleName`, `className`, `classKind`, `newId` | `Boolean!` | Admin: align a `(Module, *Class)` pair to a new id (audit-mode rebind) |
 | `reviveOrphanedClass` | `classId`, `classKind` | `Boolean!` | Admin: flip `HAS_ORPHANED_CLASS` → `HAS_CLASS` |
 | `deleteOrphanedClass` | `classId`, `classKind`, `cascade` | `Boolean!` | Admin: hard-delete an orphaned class (cascade gated, capped at 1000 incidents) |

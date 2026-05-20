@@ -77,6 +77,14 @@ services:
       start_period: 10s
 
   # --- Embedding model server -------------------------------------------
+  # EMBEDDING_MODEL env (default: embeddinggemma) drives which model Ollama
+  # pulls AND which model the dethernety service queries against. Override
+  # via the host environment to try a different model — the MITRE corpus
+  # and dethernety-module per-class embeddings must also be re-built against
+  # the new model (see README §Embedding-model swap).
+  #
+  # EMBEDDING_SIMILARITY_THRESHOLD is model-dependent. See the threshold
+  # table in the README for tuned values per model.
   ollama:
     image: ollama/ollama:latest
     container_name: demo-ollama
@@ -84,10 +92,12 @@ services:
       - demo-network
     volumes:
       - ./data/ollama:/root/.ollama
+    environment:
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-embeddinggemma}
     healthcheck:
-      test: ["CMD-SHELL", "ollama list | grep -q nomic-embed-text || ollama pull nomic-embed-text; ollama list | grep -q nomic-embed-text"]
+      test: ["CMD-SHELL", "ollama list | grep -q \"$$EMBEDDING_MODEL\" || ollama pull \"$$EMBEDDING_MODEL\"; ollama list | grep -q \"$$EMBEDDING_MODEL\""]
       interval: 15s
-      timeout: 30s
+      timeout: 60s
       retries: 5
       start_period: 30s
 
@@ -122,7 +132,8 @@ services:
       - EMBEDDING_ENABLED=true
       - EMBEDDING_URL=http://ollama:11434/api/embed
       # - EMBEDDING_API_KEY=
-      - EMBEDDING_MODEL=nomic-embed-text
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-embeddinggemma}
+      - EMBEDDING_SIMILARITY_THRESHOLD=${EMBEDDING_SIMILARITY_THRESHOLD:-0.40}
       # Auth-less mode — deliberate opt-in (no OIDC provider needed for demo)
       - ENABLE_NOAUTH=true
       - LANGGRAPH_API_URL=http://host.docker.internal:8123

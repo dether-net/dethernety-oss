@@ -5,3 +5,8 @@ python-dotenv
 neo4j
 openai>=1.0.0
 pyyaml
+# Memgraph HNSW embedding pipeline. nomic-embed-text-v1.5 is a
+# custom nomic-bert-2048 HF architecture that requires einops as a hard dep;
+# sentence-transformers does NOT auto-install it.
+sentence-transformers
+einops

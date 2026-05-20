@@ -13,6 +13,7 @@
   import SettingsDataTab from '@/components/DataFlow/SettingsTabs/SettingsDataTab.vue'
   import SettingsControlsTab from '@/components/DataFlow/SettingsTabs/SettingsControlsTab.vue'
   import SettingsExposuresTab from '@/components/DataFlow/SettingsTabs/SettingsExposuresTab.vue'
+  import StaleBadge from '@/components/Disposition/StaleBadge.vue'
   import ConfirmDeleteDialog from '@/components/Dialogs/General/ConfirmDeleteDialog.vue'
   import { useIssueStore } from '@/stores/issueStore'
 
@@ -43,6 +44,9 @@
   const tab = ref<'general' | 'attributes' | 'data' | 'controls' | 'exposures'>('general')
   const controls = ref<Control[]>([])
   const exposures = ref<Exposure[]>([])
+  // Stale-disposition count emitted by SettingsExposuresTab; drives the
+  // Exposures tab badge (mirrors the Countermeasures sub-table badge).
+  const exposureStaleCount = ref(0)
 
   // Attributes data management — lastLoadedAttributes is the backend snapshot; pendingAttributes (declared below) is the UI buffer.
   const lastLoadedAttributes = ref<object>({})
@@ -169,17 +173,32 @@
     try {
       const flatAttributes = flattenProperties(pendingAttributes.value)
 
-      await flowStore.setInstantiationAttributes({
+      // setInstantiationAttributesWithStaleCount returns the
+      // number of dispositioned exposures whose `dispositionStale` flipped to
+      // true inside the same write transaction. Surface the count to the user
+      // when non-zero.
+      const result = await flowStore.setInstantiationAttributesWithStaleCount({
         componentId: selectedItem.value.id,
         classId: itemClass.value.id,
         attributes: flatAttributes,
       })
 
       lastLoadedAttributes.value = pendingAttributes.value
+      // Refetch exposures so row-level stale flags propagate; the count is
+      // the headline, the refetch tells the table which rows to highlight.
       await loadExposures()
       clearDirty('attributes')
       if (isFreshlyCreated.value) emit('clear-freshly-created')
-      showSnackbar('Attributes saved successfully', 'success')
+
+      const staleCount = result?.staleFlippedCount ?? 0
+      if (staleCount > 0) {
+        showSnackbar(
+          `Attributes saved. ${staleCount} disposition${staleCount === 1 ? '' : 's'} now need${staleCount === 1 ? 's' : ''} review.`,
+          'warning',
+        )
+      } else {
+        showSnackbar('Attributes saved successfully', 'success')
+      }
     } catch (e) {
       console.error('Failed to save attributes', e)
       // Buffer stays at the user's edit so they can retry; auto-save is gone, no fresh-reference dance needed.
@@ -730,7 +749,7 @@
               Controls<span v-if="dirtyTabs.has('controls')" class="dirty-dot" aria-label="Unsaved changes">●</span>
             </v-tab>
             <v-tab prepend-icon="mdi-bug-outline" value="exposures">
-              Exposures<span v-if="dirtyTabs.has('exposures')" class="dirty-dot" aria-label="Unsaved changes">●</span>
+              Exposures<StaleBadge :count="exposureStaleCount" /><span v-if="dirtyTabs.has('exposures')" class="dirty-dot" aria-label="Unsaved changes">●</span>
             </v-tab>
           </v-tabs>
         </v-col>
@@ -824,6 +843,7 @@
                 :exposures="exposures"
                 :selectedItem="selectedItem"
                 @redirect:issue="emit('redirect:issue')"
+                @update:staleCount="exposureStaleCount = $event"
                 @updateForm="updateForm"
               />
             </v-tabs-window-item>

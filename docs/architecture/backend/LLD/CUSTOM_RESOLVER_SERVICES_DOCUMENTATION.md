@@ -21,6 +21,8 @@ graph TB
         SIAR[SetInstantiationAttributesService]
         CIR[ClassIdentityResolverService]
         EBS[ElementBindingService]
+        DRS[DispositionResolverService]
+        MMT[MatchMitreTechniquesResolverService]
     end
 
     subgraph "Shared Services"
@@ -28,6 +30,7 @@ graph TB
         MON[MonitoringService]
         TC[TemplateCacheService]
         AC[AnalysisCacheService]
+        EMB[EmbeddingService]
     end
 
     subgraph "Core Services"
@@ -48,6 +51,8 @@ graph TB
     SCHEMA --> SIAR
     SCHEMA --> CIR
     SCHEMA --> EBS
+    SCHEMA --> DRS
+    SCHEMA --> MMT
 
     MMR --> AUTH
     MMR --> MON
@@ -80,6 +85,15 @@ graph TB
     EBS --> SIAR
     EBS --> NEO4J
     EBS --> MRS
+
+    DRS --> AUTH
+    DRS --> MON
+    DRS --> NEO4J
+
+    MMT --> AUTH
+    MMT --> MON
+    MMT --> EMB
+    MMT --> NEO4J
 ```
 
 ## Service Index
@@ -91,7 +105,9 @@ graph TB
 5. [SetInstantiationAttributesService](#5-setinstantiationattributesservice)
 6. [ClassIdentityResolverService](#6-classidentityresolverservice)
 7. [ElementBindingService](#7-elementbindingservice)
-8. [Shared Services](#8-shared-services)
+8. [DispositionResolverService](#8-dispositionresolverservice)
+9. [MatchMitreTechniquesResolverService](#9-matchmitretechniquesresolverservice)
+10. [Shared Services](#10-shared-services)
 
 ---
 
@@ -1048,7 +1064,176 @@ All five steps share one Bolt transaction. On any error inside the block (module
 
 ---
 
-## 8. Shared Services
+## 8. DispositionResolverService
+
+**Location**: [`src/gql/resolver-services/disposition-resolver.service.ts`](../../../../apps/dt-ws/src/gql/resolver-services/disposition-resolver.service.ts)
+
+### Purpose
+
+Lets a user record a structured decision — a *disposition* — on a SYSTEM-generated finding instead of deleting it. Applies to two node types: `Exposure` (via `HAS_EXPOSURE`) and `Countermeasure` (via `HAS_COUNTERMEASURE`). Backs the disposition dialog and the Supersede flow.
+
+### Surfaces
+
+| Kind | Field | Description |
+|------|-------|-------------|
+| Mutation | `disposeExposure(exposureId, kind, reason)` | Apply / modify / re-affirm an Exposure disposition |
+| Mutation | `clearDisposition(exposureId)` | Clear an Exposure disposition |
+| Mutation | `disposeCountermeasure(countermeasureId, kind, reason)` | Apply / modify / re-affirm a Countermeasure disposition |
+| Mutation | `clearCountermeasureDisposition(countermeasureId)` | Clear a Countermeasure disposition |
+
+All four return the shared `DispositionMutationResult`. Its `exposureId` field carries the finding id for **both** node types (a deliberate no-rename decision). See [DispositionMutationResult](../GRAPHQL_API_REFERENCE.md#dispositionmutationresult).
+
+### Shared write logic
+
+The four public mutations are thin wrappers. Each delegates to one of two private helpers with a hard-coded label:
+
+- `disposeExposure` / `disposeCountermeasure` → `_applyDisposition(label, opName, pickable, args, ctx)`
+- `clearDisposition` / `clearCountermeasureDisposition` → `_clearDisposition(label, opName, args, ctx)`
+
+`label` is a hard-coded literal per public method (`'Exposure'` or `'Countermeasure'`), never user input — so the `MATCH (n:${label} {id: $id})` interpolation is injection-safe (the shipped single-label idiom). `id` is always a bound parameter.
+
+### Per-type pickable sets
+
+The `kind` is gated against a per-type allowlist passed by the caller — the server-side mirror of the dialog's UI filter. A kind outside the set returns `VALIDATION_ERROR`.
+
+| Node type | Pickable kinds |
+|-----------|----------------|
+| Exposure | `NOT_APPLICABLE`, `FALSE_POSITIVE`, `COMPENSATING_CONTROL`, `RISK_ACCEPTED`, `SUPERSEDED` |
+| Countermeasure | `NOT_APPLICABLE`, `FALSE_POSITIVE`, `WAIVED`, `SUPERSEDED` |
+
+`SUPERSEDED` is accepted on both (the Supersede orchestrator submits it) but hidden in the dialog. `WAIVED` is countermeasure-only; `COMPENSATING_CONTROL` / `RISK_ACCEPTED` are exposure-only.
+
+### Apply semantics
+
+`_applyDisposition` derives the actor from the JWT `sub` claim (`ctx.user.sub`); an absent actor returns `VALIDATION_ERROR` as defence-in-depth (it should be impossible under `@authentication`). `reason` is required, non-empty after trim, and ≤2000 chars. A single `SET` writes all five disposition fields atomically:
+
+- `dispositionKind` ← `kind`
+- `dispositionReason` ← trimmed reason
+- `dispositionedBy` ← actor (server-side)
+- `dispositionedAt` ← now (server-side)
+- `dispositionStale` ← `false`
+
+Zero matched rows returns `EXPOSURE_NOT_FOUND` (the code is reused for both labels). Re-affirming a stale disposition is an ordinary apply call that clears `dispositionStale` back to `false`.
+
+### Clear semantics
+
+`_clearDisposition` sets all five fields to null in a single `SET`. Clearing an already-cleared finding is a successful no-op (the `SET`-to-null writes the same value).
+
+### Error taxonomy
+
+Domain errors come back as `success: false` (not thrown). `DispositionErrorCode` has three values:
+
+| Code | Meaning |
+|------|---------|
+| `VALIDATION_ERROR` | Actor absent, id malformed, kind not pickable for the node type, or reason empty / over-length |
+| `EXPOSURE_NOT_FOUND` | No node matched the supplied id (reused for both Exposure and Countermeasure) |
+| `DATABASE_ERROR` | The graph write failed for an infrastructure reason |
+
+### Authz model
+
+`@authentication` on each mutation in `schema.graphql`. The service performs no in-resolver authz beyond deriving the actor for forensic attribution — per project convention, JWT validation and Neo4j session scoping own authorization.
+
+### Disposition staleness
+
+A disposition's `dispositionStale` flag tracks whether the finding has drifted since the user last reasoned about it. Two write paths flip it to `true`; both depend on `dispositionStale` **not** being `@settable`-locked (unlike `dispositionedBy` / `dispositionedAt`, which are):
+
+1. **Attribute-change flip.** When an instantiation attribute value actually changes, [`SetInstantiationAttributesService`](./SET_INSTANTIATION_ATTRIBUTES.md) runs **two sibling single-edge Cypher statements** inside the same transaction:
+
+   ```cypher
+   MATCH (c {id: $componentId})-[:HAS_EXPOSURE]->(e:Exposure)
+   WHERE e.dispositionKind IS NOT NULL
+   SET e.dispositionStale = true
+   ```
+
+   and the `HAS_COUNTERMEASURE` / `Countermeasure` analogue. Each no-ops for the wrong element type (a component carries exposures, a Control carries countermeasures — never both on one node), so these are two independent single-edge flips, not a label-disjunction or two-hop traversal. The flip is gated at the TypeScript level on a `valueChanged` boolean: Memgraph 3.8's planner does not constant-fold a Bolt boolean ahead of the seed lookup, so an unconditional run would waste the `MATCH`. The returned `staleFlippedCount` sums both statements.
+
+2. **USER-copy-delete companion.** When a USER copy of a finding is deleted, a fire-and-forget `updateExposures` / `updateCountermeasures` flips `dispositionStale = true` on any `SUPERSEDED` finding whose `dispositionReason CONTAINS "'<name>'"` (single-quote-wrapped). The single-quote wrapping in the default `SUPERSEDED` reason is load-bearing for this match.
+
+See [Disposition fields on Exposure and Countermeasure](./SCHEMA.md#disposition-fields-on-exposure-and-countermeasure) for the field-level contract.
+
+### Related
+
+- [Disposition fields in SCHEMA.md](./SCHEMA.md#disposition-fields-on-exposure-and-countermeasure)
+- [DispositionMutationResult and mutations in the API reference](../GRAPHQL_API_REFERENCE.md#disposeexposure)
+
+---
+
+## 9. MatchMitreTechniquesResolverService
+
+**Location**: [`src/gql/resolver-services/match-mitre-techniques-resolver.service.ts`](../../../../apps/dt-ws/src/gql/resolver-services/match-mitre-techniques-resolver.service.ts)
+
+### Purpose
+
+Resolves user-typed text to candidate MITRE entities for the technique picker. Backs the `matchMitreTechniques` query. Structurally mirrors the query path of the class-matching resolver — same auth + monitoring wrapping, same idempotent index-ensure, same graceful-degradation cascade.
+
+### Surfaces
+
+| Kind | Field | Description |
+|------|-------|-------------|
+| Query | `matchMitreTechniques(input: MatchMitreTechniquesInput!): MatchMitreTechniquesResult!` | Batch text → candidate match. `kind` selects one of three corpora (`ATTACK_TECHNIQUE`, `DEFEND_TECHNIQUE`, `ATTACK_MITIGATION`) |
+
+The result envelope carries `matches[]` (parallel to `input.queries`), `unmatched[]`, `vectorAvailable`, and `vectorDisabledReason`. See [the schema reference](../GRAPHQL_API_REFERENCE.md#matchmitretechniquesresult).
+
+### Five-tier cascade
+
+Each query runs through five tiers, short-circuiting at the **first** non-empty tier:
+
+| Tier | `MitreMatchType` | Gate |
+|------|------------------|------|
+| 1 | `EXACT_ID` | Normalised query equals the candidate's MITRE id |
+| 2 | `PREFIX_ID` | Query is a strict prefix of the MITRE id |
+| 3 | `NAME_MATCH` | Query length ≥ `MIN_SUBSTRING_LENGTH` (3); substring of the name |
+| 4 | `DESCRIPTION_MATCH` | Same length gate; substring of the description |
+| 5 | `VECTOR_SIMILARITY` | Vector tier available; query non-empty |
+
+Tiers 1–4 are deterministic and need no embeddings, so they serve results even when the vector tier is off.
+
+### Vector tier
+
+The vector tier uses Memgraph HNSW indexes — one per corpus — ensured lazily and idempotently, alongside auxiliary label-property indexes for the deterministic seeks. Indexes are created with:
+
+```cypher
+CREATE VECTOR INDEX <indexName> ON :<Label>(embedding)
+WITH CONFIG {"dimension": <d>, "capacity": <c>, "metric": "cos", "m": 16, "ef_construction": 200}
+```
+
+and queried via:
+
+```cypher
+CALL vector_search.search('<indexName>', <searchLimit>, $query_vector)
+YIELD node, similarity
+WITH node, similarity
+WHERE similarity >= $threshold
+...
+```
+
+The query **oversamples** — `searchLimit = max(topN * 10, 50)` — so candidates below the threshold do not starve the result of valid hits deeper in the HNSW result set.
+
+### Graceful degradation
+
+A per-corpus model-coherence precheck computes `vectorAvailable` and a structured `vectorDisabledReason`:
+
+| Reason | Cause |
+|--------|-------|
+| `EMBEDDING_DISABLED` | Embedding is disabled in the deployment's environment |
+| `NO_INDEX_MODULE` | The graph backend lacks the `vector_search` procedure (Neo4j, or older Memgraph) |
+| `NO_VECTORS` | No embeddings shipped, or per-label coverage is incomplete |
+| `MODEL_MISMATCH` | The corpus's `embeddingModel` disagrees with the runtime model |
+
+The embedding model is swappable; all corpus nodes must share the runtime `embeddingModel` or the tier degrades with `MODEL_MISMATCH`. Vector availability is cached (10-minute TTL); the MITRE corpus is cached (5-minute TTL). When the vector tier is off, the response still carries deterministic-tier matches.
+
+### Privacy and observability
+
+Auth flows through `AuthorizationService`; metrics through `MonitoringService`. **Raw query text is never logged** — the picker fires per keystroke and may contain pasted secrets, so failure logs capture shape (query length, kind) only.
+
+### Related
+
+- [Technique matching in SCHEMA.md](./SCHEMA.md#technique-matching)
+- [matchMitreTechniques in the API reference](../GRAPHQL_API_REFERENCE.md#matchmitretechniques)
+
+---
+
+## 10. Shared Services
 
 ### AuthorizationService
 
@@ -1128,6 +1313,33 @@ Caches analysis metadata from database queries.
 
 ##### `invalidateAnalysis(analysisId: string): void`
 Removes analysis from cache.
+
+### EmbeddingService
+
+**Location**: `src/gql/services/embedding.service.ts`
+
+#### Purpose
+Provides text embeddings and runtime embedding-model metadata for the vector-similarity tier of `MatchMitreTechniquesResolverService`. The embedding model is swappable; this service is the single source of truth for the runtime model, dimensions, and similarity threshold.
+
+#### Key Methods
+
+##### `isEnabled(): boolean`
+Whether embedding is enabled in the deployment's environment.
+
+##### `getModel(): string`
+The runtime embedding model identifier (compared against each corpus node's `embeddingModel` in the model-coherence precheck).
+
+##### `getDimensions(): number`
+Vector dimensionality, used when creating HNSW indexes.
+
+##### `getThreshold(): number`
+Minimum cosine similarity for a vector hit to qualify.
+
+##### `embedBatch(texts: string[]): Promise<number[][] | null>`
+Embeds a batch of strings into vectors.
+
+##### `disableForSession(reason: string): void`
+Disables the vector tier for the current process when an index/model mismatch is detected.
 
 ---
 

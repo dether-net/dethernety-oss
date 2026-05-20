@@ -202,6 +202,8 @@ Business logic implementation for specialized operations.
 | **IssueResolver** | External issue tracking system synchronization |
 | **SetInstantiationAttributes** | Component configuration with MITRE framework integration |
 | **ModuleManagementResolver** | Module lifecycle and class management |
+| **DispositionResolverService** | Records user decisions (dispositions) on SYSTEM-generated exposures and countermeasures |
+| **MatchMitreTechniquesResolverService** | Resolves user text to MITRE technique / mitigation candidates via a five-tier cascade |
 
 ---
 

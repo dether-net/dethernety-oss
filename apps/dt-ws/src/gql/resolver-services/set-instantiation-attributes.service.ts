@@ -352,7 +352,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
   }
 
   /**
-   * Tx-bound exposure upsert primitive. Runs the §4.7 scoped Cypher upsert
+   * Tx-bound exposure upsert primitive. Runs the scoped Cypher upsert
    * + MITRE technique linking for each exposure in `request.exposures`.
    * Does NOT run obsolete-finding cleanup — that semantic belongs to the
    * caller (the `setInstantiationAttributes` rebuild path keeps the
@@ -469,7 +469,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
         // Clean up obsolete exposures (rebuild-to-match semantic — owned
         // by setInstantiationAttributes; ElementBindingService runs an
-        // explicit §4.3/§4.4 sweep before calling upsertExposuresInTx).
+        // explicit sweep before calling upsertExposuresInTx).
         const deleteRequest: DeleteObsoleteObjectsRequest = {
           elementId: request.componentId,
           relation: 'HAS_EXPOSURE',
@@ -732,20 +732,56 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
         classId: request.classId,
       });
 
-      // Get component metadata using modern Neo4j v5 executeWrite
-      // Use label-free matching to support all element types
-      // (Component, SecurityBoundary, DataFlow, Data, Control)
-      const metadata = await session.executeWrite(async (tx: DatabaseTransaction) => {
-        const result = await tx.run(
-          // Orphan-aware: :HAS_CLASS implicitly excludes orphans —
-          // setting attributes on an instantiation requires the class to
-          // be active (operators can't reconfigure retired classes).
+      // Two-statement Cypher:
+      //  Statement 1: write attributes AND detect whether any value actually changed
+      //               (compares priorAttrs vs newAttrs element-wise; direct `<>` is
+      //               correct on Memgraph 3.8.1 for both scalars AND lists —
+      //               toString() was rejected because it throws on list-valued
+      //               properties).
+      //  Statement 2: when statement 1 reported a real value change, flip
+      //               `dispositionStale = true` on the element's dispositioned
+      //               findings — a sibling pair of single-edge statements: the
+      //               exposure flip (HAS_EXPOSURE, for component-like elements)
+      //               and the countermeasure flip (HAS_COUNTERMEASURE, for a
+      //               Control). The two are disjoint per element (a node carries
+      //               exposures XOR countermeasures), so each no-ops for the
+      //               wrong element type; the returned `staleFlippedCount` sums
+      //               both. Gated at the TS level on `valueChanged` (see the note
+      //               at the gate below for why we don't rely on the WHERE
+      //               returning zero rows).
+      // Use label-free matching on the seed node to support all element types
+      // (Component, SecurityBoundary, DataFlow, Data, Control).
+      const txResult = await session.executeWrite(async (tx: DatabaseTransaction) => {
+        // ----- Statement 1 -----
+        // Orphan-aware: :HAS_CLASS implicitly excludes orphans — setting
+        // attributes on an instantiation requires the class to be active
+        // (operators can't reconfigure retired classes).
+        const r1 = await tx.run(
           `
           MATCH (c {id: $componentId})
           MATCH (t {id: $classId})<-[:HAS_CLASS]-(m:Module)
           MATCH (c)-[r:IS_INSTANCE_OF]->(t)
-          SET r += $attributes
-          RETURN m.name AS moduleName, labels(c)[0] AS type
+          // First WITH: snapshot priorAttrs from the relationship BEFORE any SET.
+          WITH c, t, m, r, properties(r) AS priorAttrs, $attributes AS newAttrs
+          // Second WITH: materialise changedKeys as a scalar list.
+          // Direct Cypher equality is element-wise on lists and exact on scalars.
+          // toString() coercion was rejected: it throws at runtime on list-valued
+          // properties.
+          WITH c, t, m, r, newAttrs,
+               [k IN keys(newAttrs)
+                  WHERE (NOT k IN keys(priorAttrs))
+                     OR (priorAttrs[k] IS NULL AND newAttrs[k] IS NOT NULL)
+                     OR (priorAttrs[k] IS NOT NULL AND newAttrs[k] IS NULL)
+                     OR (priorAttrs[k] IS NOT NULL AND newAttrs[k] IS NOT NULL
+                         AND priorAttrs[k] <> newAttrs[k])
+               ] AS changedKeys
+          // Third WITH: pin valueChanged as a scalar so the planner can't
+          // re-read properties(r) after the SET below.
+          WITH c, t, m, r, newAttrs, size(changedKeys) > 0 AS valueChanged, changedKeys
+          SET r += newAttrs
+          RETURN m.name AS moduleName, labels(c)[0] AS type,
+                 valueChanged AS valueChanged,
+                 changedKeys AS changedKeys
           `,
           {
             componentId: request.componentId,
@@ -753,10 +789,10 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
             attributes: request.attributes,
           },
         );
-        
-        if (result.records.length === 0 || 
-            !result.records[0].get('moduleName') || 
-            !result.records[0].get('type')) {
+
+        if (r1.records.length === 0 ||
+            !r1.records[0].get('moduleName') ||
+            !r1.records[0].get('type')) {
           throw this.createSetInstantiationError(
             'DATABASE_ERROR',
             'Component or class not found, or failed to set attributes',
@@ -764,12 +800,98 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
             request.classId
           );
         }
-        
+
+        const valueChanged = r1.records[0].get('valueChanged') as boolean;
+        const changedKeys = r1.records[0].get('changedKeys') as string[];
+
+        // ----- Statement 2 -----
+        // Flip dispositionStale on every dispositioned exposure of the element
+        // when statement 1 reported a real value change. The Cypher itself is
+        // safe to run unconditionally (its WHERE filter returns zero rows when
+        // valueChanged is false), but Memgraph 3.8.1's planner does not
+        // constant-fold a Bolt-parameter boolean ahead of the seed lookup, so
+        // an unconditional run wastes a `MATCH (c {id})-[:HAS_EXPOSURE]->(e)`
+        // expansion on every no-op save. We gate at the TS level instead —
+        // skipping the round-trip entirely when there's nothing to flip. The
+        // post-state (`staleFlippedCount = 0` when valueChanged is false) is
+        // identical to running the Cypher; the invariant is preserved.
+        let staleFlippedCount = 0;
+        if (valueChanged) {
+          // Coerce a Memgraph count() (Neo4j Integer) to a JS number defensively.
+          const coerceCount = (raw: any): number =>
+            typeof raw === 'number'
+              ? raw
+              : typeof raw?.toNumber === 'function'
+                ? raw.toNumber()
+                : Number(raw ?? 0);
+
+          // Exposure flip — matches the not-yet-stale dispositioned exposures of
+          // a component element (zero rows for a Control, which has no
+          // HAS_EXPOSURE edges). The already-stale exclusion keeps
+          // staleFlippedCount reporting *newly* flipped rows, so a second
+          // attribute change doesn't re-count rows already pending review.
+          const r2 = await tx.run(
+            `
+            MATCH (c {id: $componentId})-[:HAS_EXPOSURE]->(e:Exposure)
+            WHERE e.dispositionKind IS NOT NULL
+              AND coalesce(e.dispositionStale, false) = false
+            SET e.dispositionStale = true
+            RETURN count(e) AS staleFlippedCount
+            `,
+            { componentId: request.componentId },
+          );
+
+          // Sibling countermeasure flip — matches the dispositioned
+          // countermeasures of a Control element (zero rows for a component,
+          // which has no HAS_COUNTERMEASURE edges). The two are disjoint per
+          // element: a component carries exposures, a Control carries
+          // countermeasures, never both on one node.
+          const r2cm = await tx.run(
+            `
+            MATCH (c {id: $componentId})-[:HAS_COUNTERMEASURE]->(cm:Countermeasure)
+            WHERE cm.dispositionKind IS NOT NULL
+              AND coalesce(cm.dispositionStale, false) = false
+            SET cm.dispositionStale = true
+            RETURN count(cm) AS staleFlippedCount
+            `,
+            { componentId: request.componentId },
+          );
+
+          staleFlippedCount =
+            coerceCount(r2.records[0]?.get('staleFlippedCount')) +
+            coerceCount(r2cm.records[0]?.get('staleFlippedCount'));
+        }
+
         return {
-          moduleName: result.records[0].get('moduleName') as string,
-          componentType: result.records[0].get('type') as ComponentType,
+          moduleName: r1.records[0].get('moduleName') as string,
+          componentType: r1.records[0].get('type') as ComponentType,
+          valueChanged,
+          changedKeys,
+          staleFlippedCount,
         };
       });
+      const metadata = {
+        moduleName: txResult.moduleName,
+        componentType: txResult.componentType,
+      };
+      const valueChanged = txResult.valueChanged;
+      const changedKeys = txResult.changedKeys;
+      const staleFlippedCount = txResult.staleFlippedCount;
+
+      // Observability: log the stale-flip outcome.
+      if (valueChanged && staleFlippedCount > 0) {
+        this.logger.log('Dispositions flipped stale by attribute change', {
+          componentId: request.componentId,
+          classId: request.classId,
+          flippedCount: staleFlippedCount,
+          changedAttributeKeys: changedKeys,
+        });
+      } else if (!valueChanged) {
+        this.logger.log('setInstantiationAttributes no-op (no value change)', {
+          componentId: request.componentId,
+          classId: request.classId,
+        });
+      }
 
       this.logger.debug('Component metadata retrieved', {
         componentId: request.componentId,
@@ -836,6 +958,7 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
 
       return {
         success: true,
+        staleFlippedCount,
         metadata: {
           operationId,
           timestamp: new Date().toISOString(),
@@ -1453,7 +1576,9 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
             attributeKeys: Object.keys(args.attributes || {}),
           });
 
-          // Use concurrency control following established pattern
+          // Use concurrency control following established pattern.
+          // GraphQL envelope shape: { success, staleFlippedCount } per
+          // SetInstantiationAttributesResult — see schema.graphql.
           try {
             const result = await this.executeWithConcurrencyControl(
               args.componentId,
@@ -1466,13 +1591,16 @@ export class SetInstantiationAttributesService implements OnModuleInit, OnModule
                 }
               },
             );
-            return result.success;
+            return {
+              success: result.success,
+              staleFlippedCount: result.staleFlippedCount ?? null,
+            };
           } catch (error) {
             this.logger.error('GraphQL setInstantiationAttributes failed', {
               componentId: args.componentId,
               error: error.message,
             });
-            return false;
+            return { success: false, staleFlippedCount: null };
           }
         },
       },

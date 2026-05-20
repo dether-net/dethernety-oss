@@ -392,7 +392,7 @@ describe('createAnalysisIdempotent — MERGE-by-id end-to-end', () => {
     } else {
       // Race didn't surface even without the constraint. Log explicitly so
       // future readers understand the test's empirical weakness here.
-      // eslint-disable-next-line no-console
+       
       console.warn(
         '[case 4] Memgraph serialized the 3 parallel calls even without the UNIQUE constraint. ' +
           'Phase-1 produced 1 Analysis node; the constraint catch is unproven from this harness. ' +

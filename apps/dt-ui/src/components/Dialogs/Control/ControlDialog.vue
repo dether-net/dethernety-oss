@@ -2,23 +2,24 @@
   import { computed, onMounted, ref, watch } from 'vue'
   import { useControlsStore } from '@/stores/controlsStore'
   import { useClassSuggestionsStore } from '@/stores/classSuggestionsStore'
-  import { useAuthStore } from '@/stores/authStore'
-  import { Class, Control, Countermeasure } from '@dethernety/dt-core'
+  import { Class, Control, Countermeasure, type DispositionMutationResult } from '@dethernety/dt-core'
   import { unflattenProperties } from '@/utils/dataFlowUtils'
   import { emitBindingChangeFeedback } from '@/utils/bindingChangeFeedback'
   import type { UISchemaElement } from '@jsonforms/core'
   import ClassPickerSheet from '@/components/DataFlow/ClassPicker/ClassPickerSheet.vue'
+  import DispositionDialog from '@/components/Dialogs/Exposure/DispositionDialog.vue'
+  import StaleBadge from '@/components/Disposition/StaleBadge.vue'
+  import {
+    useFindingDisposition,
+    emptyDispositionDialogState,
+    dispositionStateFor,
+    type SnackBarState,
+  } from '@/composables/useFindingDisposition'
 
   interface Props {
     show: boolean
     id: string
     showFileActions: boolean
-  }
-
-  interface SnackBar {
-    show: boolean
-    message: string
-    color: string
   }
 
   const props = defineProps<Props>()
@@ -34,42 +35,18 @@
   const emits = defineEmits(['control:deleted', 'control:moved', 'control:closed', 'control:saved'])
 
   const controlsStore = useControlsStore()
-  const authStore = useAuthStore()
-  const currentUserId = computed(() => authStore.user?.id ?? null)
 
-  /**
-   * Provenance icon rendering matrix. Mirrors the helper in
-   * SettingsExposuresTab.vue — see that file for the rendering matrix
-   * and icon-choice rationale.
-   */
-  type ProvenanceKind = 'user' | 'system' | 'none'
-  const countermeasureProvenanceInfo = (item: Countermeasure | { createdBy?: string | null, authoredBy?: string | null }): {
-    kind: ProvenanceKind
-    tooltip: string
-    iconName: string
-    iconColor: string
-  } => {
-    const createdBy = 'createdBy' in item ? (item.createdBy ?? null) : null
-    const authoredBy = 'authoredBy' in item ? (item.authoredBy ?? null) : null
-    if (createdBy === 'USER') {
-      const isSelf = authoredBy && currentUserId.value && authoredBy === currentUserId.value
-      return {
-        kind: 'user',
-        tooltip: isSelf ? 'Authored by you' : `Authored by ${authoredBy ?? 'a user'}`,
-        iconName: 'mdi-account-outline',
-        iconColor: 'primary',
-      }
-    }
-    if (createdBy === 'SYSTEM' && authoredBy) {
-      return {
-        kind: 'system',
-        tooltip: `Source: ${authoredBy}`,
-        iconName: 'mdi-database-outline',
-        iconColor: 'grey',
-      }
-    }
-    return { kind: 'none', tooltip: '', iconName: '', iconColor: '' }
-  }
+  // Shared disposition surface (provenance, kind label, sort, dialog state) —
+  // see useFindingDisposition. Same helpers the Exposure tab uses.
+  const {
+    provenanceInfo,
+    isUserAuthored,
+    dispositionKindLabel,
+    partitionAndSort,
+    rowClass,
+    DISPOSE_ICON,
+    ERROR_MESSAGES,
+  } = useFindingDisposition()
 
   const showClassControlDialog = ref(false)
   const selectedClassId = ref('')
@@ -93,8 +70,11 @@
   const showDefendTechniqueDialog = ref(false)
   const d3fendId = ref('')
 
-  const snackBar = ref<SnackBar>({ show: false, message: '', color: '' })
+  const snackBar = ref<SnackBarState>({ show: false, message: '', color: 'success', action: null })
   const tab = ref('general')
+
+  // Disposition dialog state (shape from useFindingDisposition).
+  const dispositionDialog = ref(emptyDispositionDialogState())
   const showMitigationDialog = ref(false)
   const mitigationId = ref('')
 
@@ -129,7 +109,7 @@
   // fetching getAttributesFromClassRelationship for every assigned class.
   // Used by onClassSelectionChange to gate the prompt — only classes that
   // have stored attributes prompt on un-assign (those are the destructive
-  // toggles). Maintained in sync by onAttributesSave (B3).
+  // toggles). Maintained in sync by onAttributesSave.
   const classesWithAttributes = ref<Set<string>>(new Set())
   const showClassRemovalConfirmDialog = ref(false)
   const pendingClassSelection = ref<string[]>([])
@@ -369,6 +349,15 @@
     })
   }
 
+  // Active first, disposed at bottom. Applied to the RENDERED
+  // rows so it doesn't fight the Control parent's source ordering.
+  const sortedCountermeasures = computed(() => partitionAndSort(countermeasures.value))
+
+  // Stale count surfaced as the Countermeasures v-tab badge.
+  const countermeasureStaleCount = computed(
+    () => countermeasures.value.filter(cm => cm.dispositionStale === true).length,
+  )
+
   const getControl = async () => {
     controlsStore.getControl({ controlId: props.id }).then(async controlData => {
       control.value = controlData
@@ -432,7 +421,11 @@
   }
 
   const onCountermeasureDelete = () => {
-    controlsStore.deleteCountermeasure({ countermeasureId: countermeasureId.value || '' })
+    // Pass the name so dt-core fires the USER-copy-delete
+    // companion that flips dispositionStale on any SUPERSEDED countermeasure
+    // whose reason references this USER copy.
+    const deletedName = countermeasures.value.find(cm => cm.id === countermeasureId.value)?.name
+    controlsStore.deleteCountermeasure({ countermeasureId: countermeasureId.value || '', countermeasureName: deletedName })
       .then(ret => {
         if (ret) {
           fetchCountermeasures()
@@ -446,6 +439,84 @@
         showDeleteCountermeasureDialog.value = false
         countermeasureId.value = null
       })
+  }
+
+  // Dispose / re-affirm a SYSTEM countermeasure.
+  const openDisposition = (item: Countermeasure) => {
+    dispositionDialog.value = dispositionStateFor(item)
+  }
+
+  const onDispositionSaved = (_result: DispositionMutationResult) => {
+    dispositionDialog.value.show = false
+    fetchCountermeasures()
+  }
+
+  const onDispositionCleared = (_result: DispositionMutationResult) => {
+    dispositionDialog.value.show = false
+    fetchCountermeasures()
+  }
+
+  const onDispositionDialogClose = () => {
+    dispositionDialog.value.show = false
+  }
+
+  // Supersede a SYSTEM countermeasure — create a USER
+  // copy on this Control and dispose the original as SUPERSEDED. Mirrors the
+  // exposure-side onSupersede (SettingsExposuresTab) with the partial-failure
+  // Retry snackbar.
+  const onSupersedeCountermeasure = async (item: Countermeasure) => {
+    try {
+      const { userCopy, systemDispositionResult } = await controlsStore.supersedeCountermeasure({
+        countermeasureId: item.id,
+        controlId: props.id,
+        countermeasure: item,
+      })
+      if (!systemDispositionResult.success) {
+        const reason = ERROR_MESSAGES[systemDispositionResult.errorCode ?? ''] ?? 'an unexpected error'
+        snackBar.value = {
+          show: true,
+          color: 'warning',
+          message: `Your editable copy was created, but marking the original as superseded failed (${reason}).`,
+          action: {
+            label: 'Retry',
+            handler: async () => {
+              const retry = await controlsStore.disposeCountermeasure({
+                countermeasureId: item.id,
+                kind: 'SUPERSEDED',
+                reason: `Superseded by user-authored countermeasure '${userCopy.name}'`,
+              })
+              if (!retry.success) {
+                snackBar.value = {
+                  show: true, color: 'error',
+                  message: "Couldn't mark the original as superseded. You can dispose it manually from the actions column.",
+                  action: null,
+                }
+              } else {
+                snackBar.value = {
+                  show: true, color: 'success',
+                  message: `Marked the original "${item.name}" as superseded.`,
+                  action: null,
+                }
+                fetchCountermeasures()
+              }
+            },
+          },
+        }
+      } else {
+        snackBar.value = {
+          show: true, color: 'success',
+          message: `Created your editable copy of "${item.name}". Edit it from this list.`,
+          action: null,
+        }
+      }
+      fetchCountermeasures()
+    } catch (err) {
+      snackBar.value = {
+        show: true, color: 'error',
+        message: `Supersede failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+        action: null,
+      }
+    }
   }
 
   const showMitigation = (attackId: string) => {
@@ -670,7 +741,9 @@
                 <v-tabs v-model="tab" color="primary">
                   <v-tab prepend-icon="mdi-cog-outline" value="general">General</v-tab>
                   <v-tab prepend-icon="mdi-shield-sword-outline" value="classes">Control Classes</v-tab>
-                  <v-tab prepend-icon="mdi-shield-check-outline" value="countermeasures">Countermeasures</v-tab>
+                  <v-tab prepend-icon="mdi-shield-check-outline" value="countermeasures">
+                    Countermeasures<StaleBadge :count="countermeasureStaleCount" />
+                  </v-tab>
                 </v-tabs>
               </v-row>
 
@@ -745,7 +818,11 @@
 
                   <!-- Countermeasures Tab -->
                   <v-tabs-window-item value="countermeasures">
-                    <v-data-table :headers="countermeasuresHeaders" :items="countermeasures">
+                    <v-data-table
+                      :headers="countermeasuresHeaders"
+                      :items="sortedCountermeasures"
+                      :row-props="({ item }) => ({ class: rowClass(item) })"
+                    >
                       <template #top>
                         <v-btn
                           class="ma-3"
@@ -757,23 +834,35 @@
                         />
                       </template>
                       <template #item.name="{ item }">
-                        <div class="d-flex align-center">
-                          <v-tooltip
-                            v-if="countermeasureProvenanceInfo(item).kind !== 'none'"
-                            :text="countermeasureProvenanceInfo(item).tooltip"
-                            location="top"
+                        <div class="d-flex flex-column py-1">
+                          <div class="d-flex align-center">
+                            <v-tooltip
+                              v-if="provenanceInfo(item).kind !== 'none'"
+                              :text="provenanceInfo(item).tooltip"
+                              location="top"
+                            >
+                              <template #activator="{ props: tooltipProps }">
+                                <v-icon
+                                  v-bind="tooltipProps"
+                                  :color="provenanceInfo(item).iconColor"
+                                  size="18"
+                                  class="mr-2"
+                                  :icon="provenanceInfo(item).iconName"
+                                />
+                              </template>
+                            </v-tooltip>
+                            <span>{{ item.name }}</span>
+                          </div>
+                          <div
+                            v-if="item.dispositionKind"
+                            role="img"
+                            :aria-label="`Disposition: ${dispositionKindLabel(item.dispositionKind)}`"
+                            class="mt-1"
                           >
-                            <template #activator="{ props: tooltipProps }">
-                              <v-icon
-                                v-bind="tooltipProps"
-                                :color="countermeasureProvenanceInfo(item).iconColor"
-                                size="18"
-                                class="mr-2"
-                                :icon="countermeasureProvenanceInfo(item).iconName"
-                              />
-                            </template>
-                          </v-tooltip>
-                          <span>{{ item.name }}</span>
+                            <v-chip size="x-small" variant="outlined">
+                              {{ dispositionKindLabel(item.dispositionKind) }}
+                            </v-chip>
+                          </div>
                         </div>
                       </template>
                       <template #item.mitigations="{ item }">
@@ -797,20 +886,88 @@
                         </v-chip>
                       </template>
                       <template #item.actions="{ item }">
-                        <v-btn
-                          class="mr-2"
-                          color="primary"
-                          icon="mdi-pencil"
-                          variant="plain"
-                          @click="showCountermeasure(item.id)"
-                        />
-                        <v-btn
-                          class="mr-2"
-                          color="error"
-                          icon="mdi-trash-can"
-                          variant="plain"
-                          @click="showDeleteCountermeasure(item.id)"
-                        />
+                        <div class="d-flex flex-row align-center justify-end">
+                          <!-- USER: edit + delete (forked copies are freely editable) -->
+                          <template v-if="isUserAuthored(item)">
+                            <v-tooltip text="Edit countermeasure" location="top">
+                              <template #activator="{ props: tProps }">
+                                <v-btn
+                                  v-bind="tProps"
+                                  class="mr-2"
+                                  aria-label="Edit countermeasure"
+                                  color="primary"
+                                  icon="mdi-pencil"
+                                  variant="plain"
+                                  @click="showCountermeasure(item.id)"
+                                />
+                              </template>
+                            </v-tooltip>
+                            <v-tooltip text="Delete countermeasure" location="top">
+                              <template #activator="{ props: tProps }">
+                                <v-btn
+                                  v-bind="tProps"
+                                  class="mr-2"
+                                  aria-label="Delete countermeasure"
+                                  color="error"
+                                  icon="mdi-trash-can"
+                                  variant="plain"
+                                  @click="showDeleteCountermeasure(item.id)"
+                                />
+                              </template>
+                            </v-tooltip>
+                          </template>
+                          <!-- SYSTEM: dispose / supersede; managed via disposition, not direct edit/delete -->
+                          <template v-else>
+                            <!-- Slot 2: customise (only when no active disposition) -->
+                            <v-tooltip v-if="!item.dispositionKind" text="Customize as an editable copy" location="top">
+                              <template #activator="{ props: tProps }">
+                                <v-btn
+                                  v-bind="tProps"
+                                  class="mr-2"
+                                  aria-label="Customize as an editable copy"
+                                  color="secondary"
+                                  icon="mdi-content-duplicate"
+                                  variant="plain"
+                                  @click="onSupersedeCountermeasure(item)"
+                                />
+                              </template>
+                            </v-tooltip>
+                            <!-- Slot 3: Review (stale) | Dispose / Edit-disposition -->
+                            <v-tooltip
+                              v-if="item.dispositionStale"
+                              text="Model changed — review and re-affirm this disposition"
+                              location="top"
+                            >
+                              <template #activator="{ props: tProps }">
+                                <v-btn
+                                  v-bind="tProps"
+                                  aria-label="Review and re-affirm disposition"
+                                  color="warning"
+                                  variant="text"
+                                  prepend-icon="mdi-refresh"
+                                  @click="openDisposition(item)"
+                                >Review</v-btn>
+                              </template>
+                            </v-tooltip>
+                            <v-tooltip
+                              v-else
+                              :text="item.dispositionKind ? `Edit disposition (${dispositionKindLabel(item.dispositionKind)})` : 'Dispose'"
+                              location="top"
+                            >
+                              <template #activator="{ props: tProps }">
+                                <v-btn
+                                  v-bind="tProps"
+                                  class="mr-2"
+                                  :aria-label="item.dispositionKind ? 'Edit disposition' : 'Dispose'"
+                                  :icon="DISPOSE_ICON"
+                                  :color="item.dispositionKind ? 'tertiary' : 'secondary'"
+                                  variant="plain"
+                                  @click="openDisposition(item)"
+                                />
+                              </template>
+                            </v-tooltip>
+                          </template>
+                        </div>
                       </template>
                     </v-data-table>
                   </v-tabs-window-item>
@@ -849,9 +1006,12 @@
           </v-card>
         </v-form>
 
-        <!-- Snackbar -->
-        <v-snackbar v-model="snackBar.show" :color="snackBar.color" timeout="5000" top>
-          {{ snackBar.message }}
+        <!-- Snackbar (optional Retry action on supersede partial-failure) -->
+        <v-snackbar v-model="snackBar.show" :color="snackBar.color" :timeout="snackBar.action ? -1 : 5000" top>
+          <span>{{ snackBar.message }}</span>
+          <template v-if="snackBar.action" #actions>
+            <v-btn variant="text" @click="snackBar.action?.handler()">{{ snackBar.action.label }}</v-btn>
+          </template>
         </v-snackbar>
         <AttributesDialog
           v-if="showClassControlDialog"
@@ -907,6 +1067,22 @@
           @countermeasure:created="onCountermeasureCreated"
           @countermeasure:failed="onCountermeasureFailed"
           @countermeasure:updated="onCountermeasureUpdated"
+        />
+        <DispositionDialog
+          v-if="dispositionDialog.show"
+          :show-dialog="dispositionDialog.show"
+          finding-type="COUNTERMEASURE"
+          :finding-id="dispositionDialog.findingId"
+          :finding-name="dispositionDialog.findingName"
+          :initial-kind="dispositionDialog.initialKind"
+          :initial-reason="dispositionDialog.initialReason"
+          :is-stale="dispositionDialog.isStale"
+          :lock-kind="dispositionDialog.lockKind"
+          :initial-dispositioned-by="dispositionDialog.initialDispositionedBy"
+          :initial-dispositioned-at="dispositionDialog.initialDispositionedAt"
+          @close="onDispositionDialogClose"
+          @saved="onDispositionSaved"
+          @cleared="onDispositionCleared"
         />
         <ConfirmDeleteDialog
           v-if="showDeleteCountermeasureDialog"
@@ -965,4 +1141,10 @@
   /* .control-classes — no explicit height. The table is paginated at 5
      rows so its natural height is bounded; the .model-tab wrapper above
      handles any overflow without nesting a second scrollbar. */
+
+  /* Yellow left border for stale dispositioned countermeasure
+     rows — mirrors the exposure-side .row-stale treatment. */
+  :deep(.row-stale) {
+    border-left: 4px solid rgb(var(--v-theme-warning));
+  }
 </style>

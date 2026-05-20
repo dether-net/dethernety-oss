@@ -1,14 +1,22 @@
 <script setup lang="ts">
-  import { ref } from 'vue'
+  import { ref, computed, watch } from 'vue'
   import type { Edge, Node } from '@vue-flow/core'
-  import { Class, Exposure } from '@dethernety/dt-core'
-  import { computed } from 'vue'
+  import {
+    Class, Exposure,
+    type DispositionMutationResult,
+  } from '@dethernety/dt-core'
   import { useFlowStore } from '@/stores/flowStore'
   import { useIssueStore } from '@/stores/issueStore'
-  import { useAuthStore } from '@/stores/authStore'
   import { useRouter } from 'vue-router'
+  import {
+    useFindingDisposition,
+    emptyDispositionDialogState,
+    dispositionStateFor,
+    type SnackBarState,
+  } from '@/composables/useFindingDisposition'
   import { getPageDisplayName } from '@/utils/dataFlowUtils'
   import ExposureDialog from '@/components/Dialogs/DataFlow/ExposureDialog.vue'
+  import DispositionDialog from '@/components/Dialogs/Exposure/DispositionDialog.vue'
   import AttackTechniqueDialog from '@/components/Dialogs/Mitre/AttackTechniqueDialog.vue'
   import ConfirmDeleteDialog from '@/components/Dialogs/General/ConfirmDeleteDialog.vue'
   import IssueDialog from '@/components/Dialogs/Issues/IssueDialog.vue'
@@ -25,64 +33,27 @@
   const emit = defineEmits<{
     'updateForm': [];
     'redirect:issue': [];
+    /** Parent renders the badge using this count. */
+    'update:staleCount': [count: number];
   }>()
 
   // Stores
   const flowStore = useFlowStore()
   const issueStore = useIssueStore()
-  const authStore = useAuthStore()
   const router = useRouter()
 
-  const currentUserId = computed(() => authStore.user?.id ?? null)
-
-  /**
-   * Provenance icon rendering matrix:
-   *  - createdBy = USER         → `mdi-account-outline` icon + "Authored by …"
-   *  - createdBy = SYSTEM + authoredBy non-null → `mdi-database-outline` icon
-   *                                                + "Source: …" tooltip
-   *  - createdBy = SYSTEM + authoredBy null     → no icon, no tooltip
-   *  - createdBy = null (legacy) → treated as SYSTEM (no icon, no tooltip)
-   *
-   * Icon-choice notes:
-   *   - USER uses `mdi-account-outline` (not `mdi-account-edit`) — the
-   *     "edit" connotation conflicts with the click-to-edit affordance.
-   *   - SYSTEM-with-authoredBy carries a visible icon (not hover-tooltip
-   *     only), so module-attributed findings are visible at a glance.
-   *   - When authoredBy matches the current user we render "Authored by
-   *     you". Cross-user display-name resolution (showing the author's
-   *     `User.name` instead of the raw id) is not currently supported —
-   *     `User.name` exists on the dt-core interface but the dt-ui
-   *     authStore exposes only the current user, so a directory-lookup
-   *     surface would need to be added first.
-   */
-  type ProvenanceKind = 'user' | 'system' | 'none'
-  const provenanceInfo = (item: Exposure | { createdBy?: string | null, authoredBy?: string | null }): {
-    kind: ProvenanceKind
-    tooltip: string
-    iconName: string
-    iconColor: string
-  } => {
-    const createdBy = 'createdBy' in item ? (item.createdBy ?? null) : null
-    const authoredBy = 'authoredBy' in item ? (item.authoredBy ?? null) : null
-    if (createdBy === 'USER') {
-      const isSelf = authoredBy && currentUserId.value && authoredBy === currentUserId.value
-      return {
-        kind: 'user',
-        tooltip: isSelf ? 'Authored by you' : `Authored by ${authoredBy ?? 'a user'}`,
-        iconName: 'mdi-account-outline',
-        iconColor: 'primary',
-      }
-    }
-    if (createdBy === 'SYSTEM' && authoredBy) {
-      return {
-        kind: 'system',
-        tooltip: `Source: ${authoredBy}`,
-        iconName: 'mdi-database-outline',
-        iconColor: 'grey',
-      }
-    }
-    return { kind: 'none', tooltip: '', iconName: '', iconColor: '' }
-  }
+  // Shared disposition surface (provenance, kind label, sort, dialog state) —
+  // see useFindingDisposition. The Exposure tab and the
+  // ControlDialog countermeasures sub-table consume the same helpers.
+  const {
+    provenanceInfo,
+    isUserAuthored,
+    dispositionKindLabel,
+    partitionAndSort,
+    rowClass,
+    DISPOSE_ICON,
+    ERROR_MESSAGES,
+  } = useFindingDisposition()
 
   // Data
   const exposureTableHeaders = [
@@ -100,6 +71,22 @@
     { value: -1, title: '$vuetify.dataFooter.itemsPerPageAll' },
   ]
 
+  // Sort on tab mount only — disposing a row mid-scroll should
+  // not make it jump out of the user's viewport.
+  const sortedExposures = ref<Exposure[]>([])
+
+  watch(() => props.exposures, next => {
+    sortedExposures.value = partitionAndSort(next)
+  }, { immediate: true })
+
+  // Expose stale count to parent for the tab badge.
+  const exposureStaleCount = computed(() =>
+    props.exposures.filter(e => e.dispositionStale === true).length,
+  )
+  watch(exposureStaleCount, count => {
+    emit('update:staleCount', count)
+  }, { immediate: true })
+
   // Exposures-related refs
   const showExposureDialog = ref(false)
   const exposureDialogAction = ref<'create' | 'edit'>('create')
@@ -114,6 +101,14 @@
   const issueExposureId = ref('')
   const issueName = ref('')
   const issueDescription = ref('')
+
+  // Disposition dialog state (shape from useFindingDisposition).
+  const dispositionDialog = ref(emptyDispositionDialogState())
+
+  // Snackbar with optional action button (e.g. Retry on supersede partial-failure).
+  const snackBar = ref<SnackBarState>({
+    show: false, color: 'success', message: '', action: null,
+  })
 
   const createExposure = () => {
     exposureDialogAction.value = 'create'
@@ -134,7 +129,14 @@
   const onExposureDelete = async () => {
     if (exposureToDelete.value) {
       try {
-        const deleted = await flowStore.deleteExposure({ exposureId: exposureToDelete.value })
+        const exposure = props.exposures.find(e => e.id === exposureToDelete.value)
+        const deleted = await flowStore.deleteExposure({
+          exposureId: exposureToDelete.value,
+          // Pass the name so dt-core fires the
+          // USER-copy-delete companion call that flips dispositionStale on any
+          // SYSTEM exposure superseded by this USER copy.
+          exposureName: exposure?.name,
+        })
         if (deleted) {
           showExposureDeleteDialog.value = false
           exposureToDelete.value = ''
@@ -185,14 +187,12 @@
   }
 
   const onCopyToIssue = (data: {id: string, name: string, description: string}) => {
-    // Get current route information dynamically
     const currentRoute = router.currentRoute.value
     const returnTo = {
       name: getPageDisplayName(currentRoute.path),
       path: currentRoute.path,
       query: { ...currentRoute.query },
     }
-
     issueStore.setIssueDataClipboard({
       name: data.name,
       description: data.name + ' Issue on ' + (props.selectedItem?.data?.label as string) + data.description,
@@ -208,6 +208,81 @@
     issueExposureId.value = ''
   }
 
+  // Dispose / re-affirm action.
+  const onDispose = (item: Exposure) => {
+    dispositionDialog.value = dispositionStateFor(item)
+  }
+
+  const onDispositionSaved = (_result: DispositionMutationResult) => {
+    dispositionDialog.value.show = false
+    emit('updateForm')
+  }
+
+  const onDispositionCleared = (_result: DispositionMutationResult) => {
+    dispositionDialog.value.show = false
+    emit('updateForm')
+  }
+
+  const onDispositionDialogClose = () => {
+    dispositionDialog.value.show = false
+  }
+
+  // Supersede orchestration handler.
+  const onSupersede = async (item: Exposure) => {
+    if (!props.selectedItem) return
+    try {
+      const { userCopy, systemDispositionResult } = await flowStore.supersedeExposure({
+        exposureId: item.id,
+        elementId: props.selectedItem.id,
+        exposure: item,
+      })
+      if (!systemDispositionResult.success) {
+        const reason = ERROR_MESSAGES[systemDispositionResult.errorCode ?? ''] ?? 'an unexpected error'
+        snackBar.value = {
+          show: true,
+          color: 'warning',
+          message: `Your editable copy was created, but marking the original as superseded failed (${reason}).`,
+          action: {
+            label: 'Retry',
+            handler: async () => {
+              const retry = await flowStore.disposeExposure({
+                exposureId: item.id,
+                kind: 'SUPERSEDED',
+                reason: `Superseded by user-authored exposure '${userCopy.name}'`,
+              })
+              if (!retry.success) {
+                snackBar.value = {
+                  show: true, color: 'error',
+                  message: "Couldn't mark the original as superseded. You can dispose it manually from the actions column.",
+                  action: null,
+                }
+              } else {
+                snackBar.value = {
+                  show: true, color: 'success',
+                  message: `Marked the original "${item.name}" as superseded.`,
+                  action: null,
+                }
+                emit('updateForm')
+              }
+            },
+          },
+        }
+      } else {
+        snackBar.value = {
+          show: true, color: 'success',
+          message: `Created your editable copy of "${item.name}". Edit it from this list.`,
+          action: null,
+        }
+      }
+      emit('updateForm')
+    } catch (err) {
+      snackBar.value = {
+        show: true, color: 'error',
+        message: `Supersede failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+        action: null,
+      }
+    }
+  }
 </script>
 
 <template>
@@ -216,7 +291,8 @@
       v-if="selectedItem"
       class="exposures-table"
       :headers="exposureTableHeaders"
-      :items="props.exposures"
+      :items="sortedExposures"
+      :row-props="({ item }) => ({ class: rowClass(item) })"
       items-per-page="5"
       :items-per-page-options="itemsPerPage"
     >
@@ -233,19 +309,31 @@
       </template>
 
       <template #item.name="{ item }">
-        <div class="d-flex align-center">
-          <v-tooltip v-if="provenanceInfo(item).kind !== 'none'" :text="provenanceInfo(item).tooltip" location="top">
-            <template #activator="{ props: tooltipProps }">
-              <v-icon
-                v-bind="tooltipProps"
-                :color="provenanceInfo(item).iconColor"
-                size="18"
-                class="mr-2"
-                :icon="provenanceInfo(item).iconName"
-              />
-            </template>
-          </v-tooltip>
-          <span class="text-capitalize" @click="editExposure(item.id)">{{ item.name.replaceAll('_', ' ') }}</span>
+        <div class="d-flex flex-column py-1">
+          <div class="d-flex align-center">
+            <v-tooltip v-if="provenanceInfo(item).kind !== 'none'" :text="provenanceInfo(item).tooltip" location="top">
+              <template #activator="{ props: tooltipProps }">
+                <v-icon
+                  v-bind="tooltipProps"
+                  :color="provenanceInfo(item).iconColor"
+                  size="18"
+                  class="mr-2"
+                  :icon="provenanceInfo(item).iconName"
+                />
+              </template>
+            </v-tooltip>
+            <span class="text-capitalize" @click="editExposure(item.id)">{{ item.name?.replaceAll('_', ' ') }}</span>
+          </div>
+          <div
+            v-if="item.dispositionKind"
+            role="img"
+            :aria-label="`Disposition: ${dispositionKindLabel(item.dispositionKind)}`"
+            class="mt-1"
+          >
+            <v-chip size="x-small" variant="outlined">
+              {{ dispositionKindLabel(item.dispositionKind) }}
+            </v-chip>
+          </div>
         </div>
       </template>
       <template #item.exploitedBy="{ item }">
@@ -262,7 +350,8 @@
         </div>
       </template>
       <template #item.actions="{ item }">
-        <div class="d-flex flex-column justify-end">
+        <div class="d-flex flex-row align-center">
+          <!-- Slot 1: issue link (existing) -->
           <IssueSelector
             :id="item.id || ''"
             :name="item.name || ''"
@@ -270,24 +359,81 @@
             @add:issue="onAddIssue"
             @copy:issue="onCopyToIssue"
           />
-          <v-btn
-            class="mt-1"
-            color="primary"
-            icon="mdi-pencil"
-            variant="plain"
-            @click="editExposure(item.id)"
-          />
-          <v-btn
-            class="mt-1"
-            color="error"
-            icon="mdi-trash-can"
-            variant="plain"
-            @click="deleteExposure(item.id)"
-          />
+
+          <!-- Slot 2: edit (USER) | supersede (SYSTEM) -->
+          <v-tooltip v-if="isUserAuthored(item)" text="Edit exposure" location="top">
+            <template #activator="{ props: tProps }">
+              <v-btn
+                v-bind="tProps"
+                aria-label="Edit exposure"
+                icon="mdi-pencil"
+                variant="plain"
+                @click="editExposure(item.id)"
+              />
+            </template>
+          </v-tooltip>
+          <v-tooltip v-else text="Customize as an editable copy" location="top">
+            <template #activator="{ props: tProps }">
+              <v-btn
+                v-bind="tProps"
+                aria-label="Customize as an editable copy"
+                color="secondary"
+                icon="mdi-content-duplicate"
+                variant="plain"
+                @click="onSupersede(item)"
+              />
+            </template>
+          </v-tooltip>
+
+          <!-- Slot 3: delete (USER) | re-affirm (SYSTEM stale, with visible "Review" text) | dispose (SYSTEM no-stale) -->
+          <v-tooltip v-if="isUserAuthored(item)" text="Delete exposure" location="top">
+            <template #activator="{ props: tProps }">
+              <v-btn
+                v-bind="tProps"
+                aria-label="Delete exposure"
+                icon="mdi-trash-can"
+                color="error"
+                variant="plain"
+                @click="deleteExposure(item.id)"
+              />
+            </template>
+          </v-tooltip>
+          <v-tooltip
+            v-else-if="item.dispositionStale"
+            text="Model changed — review and re-affirm this disposition"
+            location="top"
+          >
+            <template #activator="{ props: tProps }">
+              <v-btn
+                v-bind="tProps"
+                aria-label="Review and re-affirm disposition"
+                color="warning"
+                variant="text"
+                prepend-icon="mdi-refresh"
+                @click="onDispose(item)"
+              >Review</v-btn>
+            </template>
+          </v-tooltip>
+          <v-tooltip
+            v-else
+            :text="item.dispositionKind ? `Edit disposition (${dispositionKindLabel(item.dispositionKind)})` : 'Dispose'"
+            location="top"
+          >
+            <template #activator="{ props: tProps }">
+              <v-btn
+                v-bind="tProps"
+                :aria-label="item.dispositionKind ? 'Edit disposition' : 'Dispose'"
+                :icon="DISPOSE_ICON"
+                :color="item.dispositionKind ? 'tertiary' : 'secondary'"
+                variant="plain"
+                @click="onDispose(item)"
+              />
+            </template>
+          </v-tooltip>
         </div>
       </template>
     </v-data-table>
-    <v-alert v-else dismissible type="info">No item selected.</v-alert>
+    <v-alert v-else type="info">No item selected.</v-alert>
 
     <ExposureDialog
       v-if="showExposureDialog"
@@ -322,6 +468,37 @@
       @cancel:issue="showIssueDialog = false"
       @issue:added="onIssueAdded"
     />
+
+    <!-- Disposition dialog -->
+    <DispositionDialog
+      v-if="dispositionDialog.show"
+      :show-dialog="dispositionDialog.show"
+      finding-type="EXPOSURE"
+      :finding-id="dispositionDialog.findingId"
+      :finding-name="dispositionDialog.findingName"
+      :initial-kind="dispositionDialog.initialKind"
+      :initial-reason="dispositionDialog.initialReason"
+      :is-stale="dispositionDialog.isStale"
+      :lock-kind="dispositionDialog.lockKind"
+      :initial-dispositioned-by="dispositionDialog.initialDispositionedBy"
+      :initial-dispositioned-at="dispositionDialog.initialDispositionedAt"
+      @close="onDispositionDialogClose"
+      @saved="onDispositionSaved"
+      @cleared="onDispositionCleared"
+    />
+
+    <!-- Snackbar with optional action button (Retry on supersede partial-failure) -->
+    <v-snackbar
+      v-model="snackBar.show"
+      :color="snackBar.color"
+      :timeout="snackBar.action ? -1 : 5000"
+      top
+    >
+      <span>{{ snackBar.message }}</span>
+      <template v-if="snackBar.action" #actions>
+        <v-btn variant="text" @click="snackBar.action?.handler()">{{ snackBar.action.label }}</v-btn>
+      </template>
+    </v-snackbar>
   </div>
 </template>
 
@@ -329,5 +506,9 @@
   .exposures-table {
     max-height: 300px;
     overflow-y: auto;
+  }
+  /* Yellow left border for stale dispositioned rows. */
+  :deep(.row-stale) {
+    border-left: 4px solid rgb(var(--v-theme-warning));
   }
 </style>

@@ -1,7 +1,31 @@
 <script setup lang="ts">
-  import { computed, ref, watch } from 'vue'
+  import { ref, computed, watch } from 'vue'
   import { useControlsStore } from '@/stores/controlsStore'
-  import { Countermeasure, MitreDefendTechnique } from '@dethernety/dt-core'
+  import { useFlowStore } from '@/stores/flowStore'
+  import { useTechniqueSuggestionsStore } from '@/stores/techniqueSuggestionsStore'
+  import { Countermeasure, type MitreKind } from '@dethernety/dt-core'
+  import TechniquePicker from '@/components/Mitre/TechniquePicker/TechniquePicker.vue'
+  import ConfirmDeleteDialog from '@/components/Dialogs/General/ConfirmDeleteDialog.vue'
+
+  /**
+   * Both tactic-tab blocks (D3FEND techniques + ATT&CK mitigations) are
+   * replaced with TechniquePicker instances.
+   *
+   * The picker hides the tactic-facet chips when `kind === 'ATTACK_MITIGATION'`
+   * and renders an invisible spacer in the results' tactic column to preserve
+   * column rhythm across the two tabs.
+   *
+   * mitreId ↔ internalId conversion: same pattern as ExposureDialog.
+   * picker emits mitreId; backend connect expects internal UUID. Catalog lookup
+   * via techniqueSuggestionsStore.
+   *
+   * Dead code removed:
+   *   - mitigations data table + searchMitigation filter
+   *   - D3FEND nested tactic/technique/subtechnique tabs + checkboxes
+   *   - updateSelectedTechniques, sortedTechniques, getSortedSubTechniques,
+   *     filteredMitigations, loadMitreDefendTechniques, subTechniqueTab,
+   *     defendTacticTab refs
+   */
 
   interface Props {
     showDialog: boolean
@@ -18,8 +42,9 @@
   const tab = ref('information')
   const controlId = ref(props.controlId)
   const controlsStore = useControlsStore()
+  const flowStore = useFlowStore()
+  const techniqueStore = useTechniqueSuggestionsStore()
   const form = ref<HTMLFormElement | null>(null)
-  const techniques = ref<MitreDefendTechnique[]>([])
 
   const nameRules = [
     (v: string) => !!v || 'Name is required',
@@ -31,26 +56,14 @@
     (v: string | number) =>
       v === '' || v === null || Number.isFinite(Number(v)) || 'Score must be a number',
   ]
-  const subTechniqueTab = ref('')
-  const searchMitigation = ref('')
-  const selectedMitigationIds = ref<string[]>([])
-  const defendTacticTab = ref('')
-  // const selectedTechniqueIds = ref<string[]>([])
-  const filteredMitigations = computed(() => {
-    return mitreAttackMitigations.value.filter(mitigation => {
-      const nameMatches = mitigation.name.toLowerCase().includes(searchMitigation.value.toLowerCase())
-      const attackIdMatches = mitigation.attack_id.toLowerCase().includes(searchMitigation.value.toLowerCase())
-      return nameMatches || attackIdMatches
-    })
-  })
 
-  const sortedTechniques = computed(() => {
-    return [...techniques.value].sort((a, b) => a.name.localeCompare(b.name))
-  })
+  // Picker-bound mitreIds. Source of truth converted on save.
+  const selectedMitigationMitreIds = ref<string[]>([])
+  const selectedDefendTechniqueMitreIds = ref<string[]>([])
 
-  const getSortedSubTechniques = (technique: MitreDefendTechnique) => {
-    return technique.subTechniques ? [...technique.subTechniques].sort((a, b) => a.name.localeCompare(b.name)) : []
-  }
+  // Picker refs for the "Suggest matches" links below.
+  const mitigationPickerRef = ref<{ seedSearch: (text: string) => Promise<void> } | null>(null)
+  const defendPickerRef = ref<{ seedSearch: (text: string) => Promise<void> } | null>(null)
 
   const countermeasure = ref<Countermeasure>({
     name: '',
@@ -73,11 +86,82 @@
 
   const emit = defineEmits(['close', 'countermeasure:updated', 'countermeasure:created', 'countermeasure:failed'])
 
-  const updateSelectedTechniques = (technique: MitreDefendTechnique, value: boolean | null) => {
-    if (value) {
-      countermeasure.value.defendedTechniques?.push(technique)
-    } else {
-      countermeasure.value.defendedTechniques = countermeasure.value.defendedTechniques?.filter(t => t.id !== technique.id)
+  // Dirty tracking — initialState snapshot captured on load + refreshed after save.
+  // Mirrors ControlDialog's pattern. We snapshot the full picker arrays + the
+  // information-tab scalar fields so unsaved-changes warnings cover both tabs.
+  const initialState = ref<{
+    name: string
+    description: string
+    type: string
+    score: number
+    mitigationMitreIds: string[]
+    defendTechniqueMitreIds: string[]
+  }>({
+    name: '',
+    description: '',
+    type: '',
+    score: 0,
+    mitigationMitreIds: [],
+    defendTechniqueMitreIds: [],
+  })
+
+  const setEqual = (a: string[], b: string[]) =>
+    a.length === b.length && a.every(x => b.includes(x))
+
+  const isDirty = computed(() =>
+    (countermeasure.value.name ?? '') !== initialState.value.name
+    || (countermeasure.value.description ?? '') !== initialState.value.description
+    || (countermeasure.value.type ?? '') !== initialState.value.type
+    || Number(countermeasure.value.score ?? 0) !== initialState.value.score
+    || !setEqual(selectedMitigationMitreIds.value, initialState.value.mitigationMitreIds)
+    || !setEqual(selectedDefendTechniqueMitreIds.value, initialState.value.defendTechniqueMitreIds),
+  )
+
+  const showDiscardChangesDialog = ref(false)
+
+  function snapshotInitialState(): void {
+    initialState.value = {
+      name: countermeasure.value.name ?? '',
+      description: countermeasure.value.description ?? '',
+      type: countermeasure.value.type ?? '',
+      score: Number(countermeasure.value.score ?? 0),
+      mitigationMitreIds: [...selectedMitigationMitreIds.value],
+      defendTechniqueMitreIds: [...selectedDefendTechniqueMitreIds.value],
+    }
+  }
+
+  // Implicit query for the two Suggest links: description only, whitespace-
+  // normalised. We DON'T include name — nomic-embed-text weights both leading
+  // and trailing tokens heavily, and an arbitrary user-typed name shifts the
+  // embedding centroid below the similarity threshold. Description is the
+  // required field and carries the semantic content; real names duplicate
+  // description content anyway. Both pickers seed from the SAME query — the
+  // user picks the right tab for their intent. 20-char threshold is a dialog-
+  // side UX gate, separate from the picker's 4-char vector-eligibility gate.
+  const suggestQuery = computed<string>(() =>
+    (countermeasure.value.description ?? '').replace(/\s+/g, ' ').trim(),
+  )
+  const suggestEnabled = computed<boolean>(() => suggestQuery.value.length >= 20)
+  // Per-button loading state so a slow vector round-trip doesn't look like a
+  // dead click.
+  const isSuggestingMitigations = ref(false)
+  const isSuggestingDefend = ref(false)
+  async function onSuggestMitigations(): Promise<void> {
+    if (!suggestEnabled.value) return
+    isSuggestingMitigations.value = true
+    try {
+      await mitigationPickerRef.value?.seedSearch(suggestQuery.value)
+    } finally {
+      isSuggestingMitigations.value = false
+    }
+  }
+  async function onSuggestDefend(): Promise<void> {
+    if (!suggestEnabled.value) return
+    isSuggestingDefend.value = true
+    try {
+      await defendPickerRef.value?.seedSearch(suggestQuery.value)
+    } finally {
+      isSuggestingDefend.value = false
     }
   }
 
@@ -90,13 +174,36 @@
     emit('close')
   }
 
+  const onAttemptClose = () => {
+    if (isDirty.value) {
+      showDiscardChangesDialog.value = true
+    } else {
+      closeDialog()
+    }
+  }
+
+  const onDiscardConfirmed = () => {
+    showDiscardChangesDialog.value = false
+    closeDialog()
+  }
+
+  const onDiscardCanceled = () => {
+    showDiscardChangesDialog.value = false
+  }
+
   const loadCountermeasure = async () => {
     if (countermeasureId.value) {
       const response = await controlsStore.getCountermeasure({ countermeasureId: countermeasureId.value })
       if (response) {
         countermeasure.value = JSON.parse(JSON.stringify(response))
-        selectedMitigationIds.value = response.mitigations?.map(mitigation => mitigation.id) || []
+        // Convert internal id → mitreId for picker v-model.
+        selectedMitigationMitreIds.value = (response.mitigations ?? []).map(m => m.attack_id)
+        selectedDefendTechniqueMitreIds.value = (response.defendedTechniques ?? []).map(t => t.d3fendId)
+        snapshotInitialState()
       }
+    } else {
+      // Create flow — snapshot the empty defaults so typing flips isDirty.
+      snapshotInitialState()
     }
   }
 
@@ -106,70 +213,117 @@
     }
   })
 
+  // Convert picker mitreIds → backend connect-shape (Mitigation / Technique
+  // objects with internal id only). Catalog lookup may miss if not yet hydrated
+  // — the save handler surfaces that to the user.
+  function mitreIdsToInternalLookup(kind: MitreKind, mitreIds: string[]): Array<{ id: string }> | null {
+    const catalog = techniqueStore.catalog.get(kind) ?? []
+    const map = new Map(catalog.map(e => [e.mitreId, e.internalId]))
+    const out: Array<{ id: string }> = []
+    for (const m of mitreIds) {
+      const internal = map.get(m)
+      if (!internal) return null
+      out.push({ id: internal })
+    }
+    return out
+  }
+
+  // Inline snackbar for catalog-not-ready warning.
+  const snackBar = ref({ show: false, color: 'warning', message: '' })
+
+  // Re-entrancy guard. The save v-btn used to declare both `type="submit"`
+  // and `@click="onSubmit"`, so a single click fired onSubmit twice — the
+  // button handler ran, the form's submit event then re-entered. With the
+  // dialog's `:persistent` flag the duplicate invocation became more visible
+  // because both calls awaited the same mutex and the second one's terminal
+  // `.then` ran against state the first had already mutated. We now drop the
+  // redundant click handler in the template AND guard re-entry here.
+  const isSubmitting = ref(false)
+
   const onSubmit = async () => {
+    if (isSubmitting.value) return
     if (!form.value) return
     const { valid } = await form.value.validate()
-    if (!valid) return
-    if (action.value === 'create') {
-      countermeasure.value.mitigations = selectedMitigationIds.value.map(
-        id => mitreAttackMitigations.value.find(mitigation => mitigation.id === id)
-      ).filter((mitigation): mitigation is NonNullable<typeof mitigation> => mitigation !== undefined)
-      controlsStore.createCountermeasure({
-        controlId: controlId.value,
-        countermeasure: countermeasure.value,
-      }).then(response => {
+    if (!valid) {
+      snackBar.value = {
+        show: true, color: 'warning',
+        message: 'Please fix the highlighted fields before saving.',
+      }
+      return
+    }
+
+    const mitigationConnects = mitreIdsToInternalLookup('ATTACK_MITIGATION', selectedMitigationMitreIds.value)
+    const defendConnects = mitreIdsToInternalLookup('DEFEND_TECHNIQUE', selectedDefendTechniqueMitreIds.value)
+    if (mitigationConnects === null || defendConnects === null) {
+      snackBar.value = {
+        show: true, color: 'warning',
+        message: 'Technique catalog is still loading — please try again in a moment.',
+      }
+      return
+    }
+
+    // Backend expects `mitigations: MitreAttackMitigation[]` and
+    // `defendedTechniques: MitreDefendTechnique[]` — but only `.id` is read by
+    // the connect builder. Synthesize minimal stubs.
+    countermeasure.value.mitigations = mitigationConnects as any
+    countermeasure.value.defendedTechniques = defendConnects as any
+
+    isSubmitting.value = true
+    try {
+      if (action.value === 'create') {
+        const response = await controlsStore.createCountermeasure({
+          controlId: controlId.value,
+          countermeasure: countermeasure.value,
+        })
         if (response) {
+          snapshotInitialState()
           emit('countermeasure:created')
           showDialog.value = false
         } else {
+          snackBar.value = { show: true, color: 'error', message: 'Failed to create countermeasure.' }
           emit('countermeasure:failed')
         }
-      })
-    } else if (action.value === 'update') {
-      countermeasure.value.mitigations = selectedMitigationIds.value.map(
-        id => mitreAttackMitigations.value.find(mitigation => mitigation.id === id)
-      ).filter((mitigation): mitigation is NonNullable<typeof mitigation> => mitigation !== undefined)
-      controlsStore.updateCountermeasure({
-        countermeasureId: countermeasure.value.id,
-        countermeasure: countermeasure.value,
-      }).then(response => {
+      } else if (action.value === 'update') {
+        const response = await controlsStore.updateCountermeasure({
+          countermeasureId: countermeasure.value.id,
+          countermeasure: countermeasure.value,
+        })
         if (response) {
+          snapshotInitialState()
           emit('countermeasure:updated')
           showDialog.value = false
         } else {
+          snackBar.value = { show: true, color: 'error', message: 'Failed to update countermeasure.' }
           emit('countermeasure:failed')
         }
-      })
+      }
+    } catch (err) {
+      // Surface previously-silent mutation errors. The dt-core layer rethrows
+      // GraphQL / network errors after retry exhaustion; without this catch
+      // the .then never fires and the save appears to do nothing.
+      console.error('[CounterMeasureDialog] save failed', err)
+      snackBar.value = {
+        show: true, color: 'error',
+        message: err instanceof Error ? err.message : 'Save failed — see console for details.',
+      }
+      emit('countermeasure:failed')
+    } finally {
+      isSubmitting.value = false
     }
   }
 
-  const mitreAttackMitigations = computed(() => {
-    return controlsStore.mitreAttackMitigations
-  })
-
-  const mitigationHeaders = [
-    { title: 'Name', key: 'name' },
-    { title: 'Attack ID', key: 'attack_id' },
-    { title: '', key: 'description' },
-  ]
-
-  const loadMitreDefendTechniques = async () => {
-    techniques.value = await controlsStore.getMitreDefendTechniquesByTactic({ tacticId: defendTacticTab.value })
-  }
-
   loadCountermeasure()
-
 </script>
 
 <template>
   <!-- eslint-disable vue/v-on-event-hyphenation -->
-  <!-- eslint-disable vue/no-template-shadow -->
-  <!-- eslint-disable vue/no-lone-template -->
   <v-dialog
     v-model="showDialog"
     fluid
     width="80vw"
-    @keydown.esc="closeDialog"
+    :persistent="isDirty"
+    @click:outside="onAttemptClose"
+    @keydown.esc="onAttemptClose"
   >
     <v-form ref="form" @submit.prevent="onSubmit">
       <v-card>
@@ -184,7 +338,7 @@
               icon="mdi-close"
               size="medium"
               variant="text"
-              @click="closeDialog"
+              @click="onAttemptClose"
             />
           </v-sheet>
         </v-card-title>
@@ -195,7 +349,7 @@
                 <v-tabs v-model="tab" direction="vertical">
                   <v-tab prepend-icon="mdi-information-outline" text="Information" value="information" />
                   <v-tab prepend-icon="mdi-shield-star-outline" text="ATT&CK Mitigations" value="mitigations" />
-                  <v-tab prepend-icon="mdi-shield-sun-outline" text="D3fend tactics" value="defend-tactics" />
+                  <v-tab prepend-icon="mdi-shield-sun-outline" text="D3FEND Techniques" value="defend-techniques" />
                 </v-tabs>
               </v-col>
               <v-col class="pa-1 px-6 elevation-11 border-thin rounded-lg" cols="9">
@@ -229,138 +383,63 @@
                       </v-container>
                     </v-tabs-window-item>
                     <v-tabs-window-item value="mitigations">
-                      <v-container>
-                        <v-data-table
-                          v-model="selectedMitigationIds"
-                          :headers="mitigationHeaders"
-                          item-key="id"
-                          :items="filteredMitigations"
-                          show-select
-                        >
-                          <template #top>
-                            <div class="search-container">
-                              <v-text-field v-model="searchMitigation" label="Search" />
-                            </div>
-                          </template>
-                          <template #item.description="{ item }">
-                            <v-tooltip location="top" :text="item.description" width="60vw">
-                              <template #activator="{ props }">
-                                <v-icon
-                                  v-bind="props"
-                                  icon="mdi-information-outline"
-                                />
-                              </template>
-                            </v-tooltip>
-                          </template>
-                        </v-data-table>
+                      <v-container class="techniques-container">
+                        <div class="d-flex justify-end mb-1">
+                          <v-tooltip
+                            :disabled="suggestEnabled"
+                            location="top"
+                            text="Add a description (20+ characters) to suggest matches"
+                          >
+                            <template #activator="{ props: tipProps }">
+                              <span v-bind="tipProps">
+                                <v-btn
+                                  :disabled="!suggestEnabled"
+                                  :loading="isSuggestingMitigations"
+                                  prepend-icon="mdi-creation"
+                                  size="small"
+                                  variant="text"
+                                  @click="onSuggestMitigations"
+                                >Suggest matches</v-btn>
+                              </span>
+                            </template>
+                          </v-tooltip>
+                        </div>
+                        <TechniquePicker
+                          ref="mitigationPickerRef"
+                          v-model="selectedMitigationMitreIds"
+                          kind="ATTACK_MITIGATION"
+                          :model-id="flowStore.modelId"
+                        />
                       </v-container>
                     </v-tabs-window-item>
-                    <v-tabs-window-item value="defend-tactics">
-                      <v-container>
-                        <v-row>
-                          <v-col cols="12">
-                            <v-tabs v-model="defendTacticTab" direction="horizontal" @update:modelValue="loadMitreDefendTechniques">
-                              <v-tab v-for="tactic in controlsStore.mitreDefendTactics" :key="tactic.id" :text="tactic.name" :value="tactic.id" />
-                            </v-tabs>
-                          </v-col>
-                        </v-row>
-                        <v-row>
-                          <v-col cols="12">
-                            <v-tabs-window v-model="defendTacticTab" class="settings-window">
-                              <v-tabs-window-item v-for="tactic in controlsStore.mitreDefendTactics" :key="tactic.id" :value="tactic.id">
-                                <v-container class="pa-0 ma-0 border-thin rounded-lg" fluid height="50vh">
-                                  <v-row>
-                                    <v-col cols="12">
-                                      <v-container class="pa-0 ma-0" fluid>
-                                        <v-row>
-                                          <v-col cols="12">
-                                            <v-tabs v-model="subTechniqueTab" direction="horizontal">
-                                              <v-tab v-for="technique in sortedTechniques" :key="technique.id" :text="technique.name" :value="technique.id" />
-                                            </v-tabs>
-                                          </v-col>
-                                        </v-row>
-                                        <v-row>
-                                          <v-col cols="12">
-                                            <v-tabs-window v-model="subTechniqueTab" class="sub-techniques-window px-2 ma-1">
-                                              <v-tabs-window-item v-for="technique in sortedTechniques" :key="technique.id" :value="technique.id">
-                                                <v-container class="sub-techniques-container pa-0 ma-0" fluid>
-                                                  <v-row>
-                                                    <v-list class="w-100 pa-3 ma-0">
-                                                      <v-list-group
-                                                        v-for="subTechnique in getSortedSubTechniques(technique)"
-                                                        :key="subTechnique.id"
-                                                        :collapse-icon="subTechnique.subTechniques?.length ? 'mdi-chevron-up' : 'mdi-circle-small'"
-                                                        :expand-icon="subTechnique.subTechniques?.length ? 'mdi-chevron-down' : 'mdi-circle-small'"
-                                                        variant="outlined"
-                                                      >
-                                                        <template #activator="{ props }">
-                                                          <v-list-item
-                                                            v-bind="props"
-                                                            base-color="secondary"
-                                                            class="mb-1"
-                                                            color="primary"
-                                                            density="compact"
-                                                            elevation="11"
-                                                            variant="tonal"
-                                                            width="100%"
-                                                          >
-                                                            <v-list-item-title>
-                                                              <div class="d-flex flex-row align-center justify-space-between">
-                                                                <v-checkbox
-                                                                  v-bind="props"
-                                                                  class="flex-1-0 ma-0 pa-0"
-                                                                  :label="subTechnique.name"
-                                                                  :model-value="countermeasure.defendedTechniques?.some((t: MitreDefendTechnique) => t.id === subTechnique.id)"
-                                                                  @update:model-value="updateSelectedTechniques(subTechnique, $event)"
-                                                                />
-                                                                <v-tooltip location="top" :text="subTechnique.description" width="60vw">
-                                                                  <template #activator="{ props }">
-                                                                    <v-icon v-bind="props" icon="mdi-information-outline" />
-                                                                  </template>
-                                                                </v-tooltip>
-                                                              </div>
-                                                            </v-list-item-title>
-                                                          </v-list-item>
-                                                        </template>
-                                                        <v-list-item
-                                                          v-for="subSubTechnique in subTechnique.subTechniques"
-                                                          :key="subSubTechnique.id"
-                                                          class="mx-5 px-10 mb-2 w-100"
-                                                          density="compact"
-                                                          variant="text"
-                                                        >
-                                                          <v-list-item-title>
-                                                            <div class="d-flex align-center justify-space-between">
-                                                              <v-checkbox
-                                                                v-bind="props"
-                                                                :label="subSubTechnique.name"
-                                                                :model-value="countermeasure.defendedTechniques?.some((t: MitreDefendTechnique) => t.id === subSubTechnique.id)"
-                                                                @update:model-value="updateSelectedTechniques(subSubTechnique, $event)"
-                                                              />
-                                                              <v-tooltip location="top" :text="subSubTechnique.description" width="60vw">
-                                                                <template #activator="{ props }">
-                                                                  <v-icon v-bind="props" icon="mdi-information-outline" />
-                                                                </template>
-                                                              </v-tooltip>
-                                                            </div>
-                                                          </v-list-item-title>
-                                                        </v-list-item>
-                                                      </v-list-group>
-                                                    </v-list>
-                                                  </v-row>
-                                                </v-container>
-                                              </v-tabs-window-item>
-                                            </v-tabs-window>
-                                          </v-col>
-                                        </v-row>
-                                      </v-container>
-                                    </v-col>
-                                  </v-row>
-                                </v-container>
-                              </v-tabs-window-item>
-                            </v-tabs-window>
-                          </v-col>
-                        </v-row>
+                    <v-tabs-window-item value="defend-techniques">
+                      <v-container class="techniques-container">
+                        <div class="d-flex justify-end mb-1">
+                          <v-tooltip
+                            :disabled="suggestEnabled"
+                            location="top"
+                            text="Add a description (20+ characters) to suggest matches"
+                          >
+                            <template #activator="{ props: tipProps }">
+                              <span v-bind="tipProps">
+                                <v-btn
+                                  :disabled="!suggestEnabled"
+                                  :loading="isSuggestingDefend"
+                                  prepend-icon="mdi-creation"
+                                  size="small"
+                                  variant="text"
+                                  @click="onSuggestDefend"
+                                >Suggest matches</v-btn>
+                              </span>
+                            </template>
+                          </v-tooltip>
+                        </div>
+                        <TechniquePicker
+                          ref="defendPickerRef"
+                          v-model="selectedDefendTechniqueMitreIds"
+                          kind="DEFEND_TECHNIQUE"
+                          :model-id="flowStore.modelId"
+                        />
                       </v-container>
                     </v-tabs-window-item>
                   </v-tabs-window>
@@ -373,29 +452,39 @@
           <v-btn
             class="mx-1"
             color="secondary"
+            :disabled="(action === 'update' && !isDirty) || isSubmitting"
+            :loading="isSubmitting"
             icon="mdi-content-save-all-outline"
             size="x-large"
             type="submit"
             variant="outlined"
-            @click="onSubmit"
           />
         </v-card-actions>
       </v-card>
     </v-form>
+    <ConfirmDeleteDialog
+      v-if="showDiscardChangesDialog"
+      confirmColor="warning"
+      confirmIcon="mdi-close-circle-outline"
+      icon="mdi-pencil-off-outline"
+      message="You have unsaved changes. Are you sure you want to discard them?"
+      :show="showDiscardChangesDialog"
+      title="Discard unsaved changes?"
+      @delete:canceled="onDiscardCanceled"
+      @delete:confirmed="onDiscardConfirmed"
+    />
   </v-dialog>
+  <v-snackbar v-model="snackBar.show" :color="snackBar.color" timeout="5000" top>
+    {{ snackBar.message }}
+  </v-snackbar>
 </template>
 
 <style scoped>
   .content-container {
     height: 60vh;
   }
-  .sub-techniques-container {
-    height: 40vh;
-    min-height: 300px;
-    overflow-y: auto;
-  }
-  .sub-techniques-window {
-    height: 40vh;
+  .techniques-container {
+    height: 50vh;
     min-height: 300px;
     overflow-y: auto;
   }
