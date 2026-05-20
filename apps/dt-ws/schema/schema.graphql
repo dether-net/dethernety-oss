@@ -104,6 +104,68 @@ enum ValueType {
   DATE
 }
 
+"""Structured argument the user authors for treating a SYSTEM finding differently."""
+enum DispositionKind {
+  "Finding does not apply to this element / model context"
+  NOT_APPLICABLE
+  "Finding is incorrect — the underlying weakness does not exist as described"
+  FALSE_POSITIVE
+  "A compensating control mitigates the finding to an acceptable residual risk"
+  COMPENSATING_CONTROL
+  "Risk has been formally accepted; finding remains documented"
+  RISK_ACCEPTED
+  "We have decided not to implement this control (control waiver). Countermeasure-only."
+  WAIVED
+  "Finding has been replaced by a user-authored exposure that better fits the model"
+  SUPERSEDED
+}
+
+"""Error taxonomy for disposeExposure / clearDisposition mutations."""
+enum DispositionErrorCode {
+  "Input failed validation (reason empty, kind missing, exposureId malformed)"
+  VALIDATION_ERROR
+  "No Exposure matched the supplied exposureId"
+  EXPOSURE_NOT_FOUND
+  "Underlying graph write failed for an infrastructure reason"
+  DATABASE_ERROR
+}
+
+"""MITRE corpus selector for matchMitreTechniques. Determines which HNSW index is consulted."""
+enum MitreKind {
+  "MITRE ATT&CK adversary technique (T-codes; e.g. T1003, T1003.001)"
+  ATTACK_TECHNIQUE
+  "MITRE D3FEND defensive technique (D3-codes; e.g. D3-PMAD)"
+  DEFEND_TECHNIQUE
+  "MITRE ATT&CK mitigation (M-codes; e.g. M1041)"
+  ATTACK_MITIGATION
+}
+
+"""How a MITRE candidate matched the user's query. Distinct vocabulary from MatchType (matchClasses): MITRE matching cascades through id / name / description / vector tiers."""
+enum MitreMatchType {
+  "Query exactly equals the MITRE id (e.g. 'T1003' → T1003)"
+  EXACT_ID
+  "Query is a prefix of the MITRE id (e.g. 'T100' → T1003)"
+  PREFIX_ID
+  "Query substring matched the candidate's name"
+  NAME_MATCH
+  "Query substring matched the candidate's description"
+  DESCRIPTION_MATCH
+  "Server-computed embedding cosine-similarity match against the HNSW index"
+  VECTOR_SIMILARITY
+}
+
+"""Why the vector tier of matchMitreTechniques is disabled. Drives the picker caption and lets it differentiate deployment-lacks-vector from module-misalignment."""
+enum VectorDisabledReason {
+  "EMBEDDING_ENABLED is false in the deployment's environment"
+  EMBEDDING_DISABLED
+  "Graph backend lacks the vector_search procedure (Neo4j, or older Memgraph)"
+  NO_INDEX_MODULE
+  "MITRE module shipped no embeddings, or per-label coverage is incomplete (partial install)"
+  NO_VECTORS
+  "Module's embeddingModel disagrees with the platform's runtime EMBEDDING_MODEL"
+  MODEL_MISMATCH
+}
+
 """Base interface implemented by all graph-stored entities."""
 interface Element {
   "Unique identifier"
@@ -722,6 +784,20 @@ type Exposure implements Element  @authentication @node {
   authoredBy: String
     @populatedBy(callback: "populateAuthoredByOnCreate", operations: [CREATE])
     @settable(onUpdate: false)
+
+  "Disposition kind. Null = active (no disposition). When non-null, the user has authored a structured argument that this finding should be treated differently from the default 'actionable' interpretation. Set via the disposeExposure / Supersede flows; cleared via clearDisposition. The @neo4j/graphql auto-generated update input shape exposes this field as writeable for legitimate operator workflows (direct-GraphQL is a power-user surface); the structured mutations are the preferred path and the only one the UI exercises."
+  dispositionKind: DispositionKind
+  "Free-text justification authored by the user. Mandatory (non-empty after trim) when dispositionKind is non-null. Captured at dispose time and on every modification / re-affirm. For SUPERSEDED dispositions populated via the frontend Supersede flow, defaults to \"Superseded by user-authored exposure '<name>'\" — user-editable after. The single-quote wrapping around the clone's name is load-bearing for the USER-copy-delete companion staleness flip."
+  dispositionReason: String
+  "User id (JWT sub claim) of the user who authored the current disposition. Stamped by the disposeExposure resolver from context.user.sub. Null when dispositionKind is null. Updated on every dispose call (including re-affirm — the backend treats them identically). Server-stamped via the structured mutation only — the @settable(onCreate/onUpdate: false) directives prevent direct-GraphQL spoofing of this forensic-provenance field, matching the posture of createdBy / authoredBy above."
+  dispositionedBy: String
+    @settable(onCreate: false, onUpdate: false)
+  "ISO-8601 timestamp when the current disposition was authored or last modified / re-affirmed. Stamped by the resolver. Null when dispositionKind is null. Updated on every dispose call. Server-stamped only — @settable directives prevent backdating via direct-GraphQL."
+  dispositionedAt: DateTime
+    @settable(onCreate: false, onUpdate: false)
+  "True when an instantiation attribute value has changed since the disposition was last authored or re-affirmed. Flipped by SetInstantiationAttributesService inside the same transaction that writes the attribute change, and by the USER-copy-delete companion stale-flip (via the generated update mutation). Cleared by a subsequent disposeExposure call (re-affirm). Meaningful only when dispositionKind is non-null; null / false otherwise. After clearDisposition the field is null alongside the other four; null and false are semantically equivalent across all consumers. Intentionally settable via the generated update mutation so the companion flip can write it — the GUI approval dialogs are the guard on the direct-GraphQL power-user surface (a self-affecting review flag does not warrant a backend lock; cf dispositionedBy / dispositionedAt which stay @settable-locked)."
+  dispositionStale: Boolean
+
   "Components affected by this exposure"
   component: [Component!]! @relationship(type: "HAS_EXPOSURE", direction: IN)
   "Boundaries affected by this exposure"
@@ -900,6 +976,20 @@ type Countermeasure implements Element  @authentication @node {
   authoredBy: String
     @populatedBy(callback: "populateAuthoredByOnCreate", operations: [CREATE])
     @settable(onUpdate: false)
+
+  "Disposition kind. Null = active (no disposition). When non-null, the user has authored a structured argument that this finding should be treated differently from the default 'actionable' interpretation. Set via the disposeCountermeasure / Supersede flows; cleared via clearCountermeasureDisposition. The @neo4j/graphql auto-generated update input shape exposes this field as writeable for legitimate operator workflows (direct-GraphQL is a power-user surface); the structured mutations are the preferred path and the only one the UI exercises."
+  dispositionKind: DispositionKind
+  "Free-text justification authored by the user. Mandatory (non-empty after trim) when dispositionKind is non-null. Captured at dispose time and on every modification / re-affirm. For SUPERSEDED dispositions populated via the frontend Supersede flow, defaults to \"Superseded by user-authored countermeasure '<name>'\" — user-editable after. The single-quote wrapping around the clone's name is load-bearing for the USER-copy-delete companion staleness flip."
+  dispositionReason: String
+  "User id (JWT sub claim) of the user who authored the current disposition. Stamped by the disposeCountermeasure resolver from context.user.sub. Null when dispositionKind is null. Updated on every dispose call (including re-affirm — the backend treats them identically). Server-stamped via the structured mutation only — the @settable(onCreate/onUpdate: false) directives prevent direct-GraphQL spoofing of this forensic-provenance field, matching the posture of createdBy / authoredBy above."
+  dispositionedBy: String
+    @settable(onCreate: false, onUpdate: false)
+  "ISO-8601 timestamp when the current disposition was authored or last modified / re-affirmed. Stamped by the resolver. Null when dispositionKind is null. Updated on every dispose call. Server-stamped only — @settable directives prevent backdating via direct-GraphQL."
+  dispositionedAt: DateTime
+    @settable(onCreate: false, onUpdate: false)
+  "True when an instantiation attribute value has changed since the disposition was last authored or re-affirmed. Flipped by SetInstantiationAttributesService inside the same transaction that writes the attribute change, and by the USER-copy-delete companion stale-flip (via the generated update mutation). Cleared by a subsequent disposeCountermeasure call (re-affirm). Meaningful only when dispositionKind is non-null; null / false otherwise. After clearCountermeasureDisposition the field is null alongside the other four; null and false are semantically equivalent across all consumers. Intentionally settable via the generated update mutation so the companion flip can write it — the GUI approval dialogs are the guard on the direct-GraphQL power-user surface (a self-affecting review flag does not warrant a backend lock; cf dispositionedBy / dispositionedAt which stay @settable-locked)."
+  dispositionStale: Boolean
+
   "ATT&CK mitigations implemented by this countermeasure"
   mitigations: [MitreAttackMitigation!]! @relationship(type: "RESPONDS_WITH", direction: OUT)
   "D3FEND techniques implemented by this countermeasure"
@@ -1281,12 +1371,20 @@ type Mutation {
   # @cypher mutations is tracked as a perf follow-up; the per-label `id`
   # indexes are in place to back that rewrite.
 
-  "Set configuration attributes on a component's class instantiation relationship"
+  """
+  Set configuration attributes on a component's class instantiation
+  relationship. Returns a structured result envelope: `success`
+  is true on the attribute write succeeding; `staleFlippedCount` is the
+  number of dispositioned exposures on the component whose
+  `dispositionStale` flipped to true as a result of an attribute value
+  change. Zero when no value change is detected
+  (no-op save), or when the component has no dispositioned exposures.
+  """
   setInstantiationAttributes(
     componentId: String!
     classId: String!
     attributes: JSON!
-  ): Boolean!
+  ): SetInstantiationAttributesResult!
     @authentication
 
   """
@@ -1305,6 +1403,51 @@ type Mutation {
     elementId: ID!
     target: ElementBindingInput!
   ): ChangeElementBindingResult!
+    @authentication
+
+  """
+  Author, modify, or re-affirm the disposition on an Exposure. Stamps
+  dispositionedBy and dispositionedAt from the authenticated user / current
+  time. Clears dispositionStale unconditionally — re-affirming a stale
+  disposition is a successful dispose call with prior kind and (possibly
+  edited) reason. If a disposition already exists, last-writer-wins.
+  Mandatory fields: kind, reason (non-empty after trim).
+  """
+  disposeExposure(
+    exposureId: ID!
+    kind: DispositionKind!
+    reason: String!
+  ): DispositionMutationResult!
+    @authentication
+
+  """
+  Clear the disposition from an Exposure. Nulls all five disposition fields
+  in a single SET. Idempotent when no disposition exists.
+  """
+  clearDisposition(
+    exposureId: ID!
+  ): DispositionMutationResult!
+    @authentication
+
+  """
+  Author, modify, or re-affirm the disposition on a Countermeasure. Validates
+  kind ∈ {NOT_APPLICABLE, FALSE_POSITIVE, WAIVED} (SUPERSEDED accepted only from
+  the Supersede orchestrator). Stamps dispositionedBy / dispositionedAt
+  server-side. Clears dispositionStale unconditionally. Mandatory fields: kind,
+  reason (non-empty after trim). Returns the shared DispositionMutationResult —
+  the exposureId field carries the countermeasure id in this path.
+  """
+  disposeCountermeasure(
+    countermeasureId: ID!
+    kind: DispositionKind!
+    reason: String!
+  ): DispositionMutationResult!
+    @authentication
+
+  """Clear the disposition from a Countermeasure. Idempotent."""
+  clearCountermeasureDisposition(
+    countermeasureId: ID!
+  ): DispositionMutationResult!
     @authentication
 
   "Reset a module, clearing its cached state and reloading from disk"
@@ -1858,6 +2001,17 @@ type Query {
   matchClasses(input: MatchClassesInput!): MatchClassesResult!
     @authentication
 
+  """
+  Match MITRE techniques / mitigations against user queries using the full
+  priority cascade (EXACT_ID → PREFIX_ID → NAME_MATCH → DESCRIPTION_MATCH →
+  VECTOR_SIMILARITY). Mirrors matchClasses; consumed by the TechniquePicker.
+  The server returns at most
+  one tier of results per query; the picker is responsible for displaying
+  the server's tier-5 results below client-computed tiers 1–4.
+  """
+  matchMitreTechniques(input: MatchMitreTechniquesInput!): MatchMitreTechniquesResult!
+    @authentication
+
   "Paginated class catalogue with server-aggregated facet counts. Powers the class-picker side-sheet's browse-all path."
   listClasses(input: ListClassesInput!): ListClassesResult!
     @authentication
@@ -2100,4 +2254,113 @@ type ChangeElementBindingResult {
   deltas: ElementBindingDeltas!
   errorCode: ElementBindingErrorCode
   errorMessage: String
+}
+
+# ============================================================================
+# setInstantiationAttributes result envelope.
+# Replaces the prior Boolean! return shape. Renamed from the
+# original `SetAttributesResult` to avoid TS-internal collision with the
+# existing SetAttributesResult interface at
+# oss/apps/dt-ws/src/gql/interfaces/set-instantiation-attributes.interface.ts.
+# ============================================================================
+
+"""
+Result envelope returned by setInstantiationAttributes. `staleFlippedCount`
+is non-null when the attribute write succeeded; the value is the number of
+dispositioned exposures on the element whose `dispositionStale` was flipped
+to true by the second statement of the staleness Cypher. Zero on no-op saves (no value
+change) or when the element has no dispositioned exposures.
+"""
+type SetInstantiationAttributesResult {
+  "True when the attribute write succeeded; false when validation or DB failure prevented the write."
+  success: Boolean!
+  "Number of dispositioned exposures on the element whose `dispositionStale` was flipped to true. Zero on no-op saves or when the element carries no dispositions."
+  staleFlippedCount: Int
+}
+
+# ============================================================================
+# Disposition mutations supporting types.
+# ============================================================================
+
+"""
+Result envelope returned by both disposeExposure and clearDisposition. On
+success: errorCode and errorMessage are null; the five disposition fields
+echo the state landed on the Exposure (cleared mutation returns all five
+as null). On failure: success = false, errorCode set, disposition fields
+mirror the pre-mutation state (no graph change persisted).
+"""
+type DispositionMutationResult {
+  success: Boolean!
+  exposureId: ID!
+  dispositionKind: DispositionKind
+  dispositionReason: String
+  dispositionedBy: String
+  dispositionedAt: DateTime
+  dispositionStale: Boolean
+  errorCode: DispositionErrorCode
+  errorMessage: String
+}
+
+# ============================================================================
+# matchMitreTechniques query supporting types.
+# Distinct from matchClasses surface: techniques are not type-filtered, the
+# server returns at most one tier of results per query, and the vector tier
+# carries a structured disabled-reason for the picker caption.
+# ============================================================================
+
+"""
+Input envelope for matchMitreTechniques. Batch shape — the picker sends
+single-element arrays today. Server clamps queries to MAX_QUERIES (25) and
+topN to [1, 50].
+"""
+input MatchMitreTechniquesInput {
+  "One or more query strings. Each becomes an entry in matches[] in result."
+  queries: [TechniqueQueryInput!]!
+  "Corpus to match against — determines which HNSW index the server consults."
+  kind: MitreKind!
+  "Per-query result cap. Clamped to [1, 50] server-side. Defaults to 3."
+  topN: Int
+}
+
+"""Single query as part of a MatchMitreTechniquesInput.queries batch."""
+input TechniqueQueryInput {
+  "User-typed text. May be a MITRE id (T1003), a partial id (T100), a name fragment, or free-form intent. Hard cap MAX_QUERY_LENGTH (500)."
+  query: String!
+}
+
+"""
+Result envelope returned by matchMitreTechniques. matches[] is parallel to
+input.queries (same order, same length). unmatched[] lists queries that
+produced no candidates. vectorAvailable and vectorDisabledReason describe
+the runtime's vector-tier health at request time so the picker can surface
+the right caption.
+"""
+type MatchMitreTechniquesResult {
+  matches: [TechniqueQueryMatch!]!
+  unmatched: [String!]!
+  "False when the deployment has no HNSW indexes, the vector_search module is absent, embedding is disabled, or the module-shipped vectors mismatch the platform's runtime model."
+  vectorAvailable: Boolean!
+  "When vectorAvailable is false, names the specific reason — drives the picker caption. Null when vectorAvailable is true."
+  vectorDisabledReason: VectorDisabledReason
+}
+
+"""Candidate list returned for a single TechniqueQueryInput."""
+type TechniqueQueryMatch {
+  "Echoes the input query string so clients can correlate batched results."
+  query: String!
+  candidates: [MitreCandidate!]!
+}
+
+"""A single MITRE candidate. Shape is uniform across the three MitreKind values; mitreId reads from attack_id (ATT&CK) or d3fendId (D3FEND)."""
+type MitreCandidate {
+  "T1003 / T1003.001 / D3-PMAD / M1041 — read from attack_id (ATT&CK) or d3fendId (D3FEND)."
+  mitreId: String!
+  name: String!
+  description: String
+  "ATT&CK tactic name or D3FEND tactic name (same field; distinct vocabularies)."
+  tactic: String
+  kind: MitreKind!
+  matchType: MitreMatchType!
+  "Populated for VECTOR_SIMILARITY matches; null for the deterministic tiers (EXACT_ID, PREFIX_ID, NAME_MATCH, DESCRIPTION_MATCH)."
+  similarityScore: Float
 }

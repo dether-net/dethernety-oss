@@ -331,6 +331,42 @@ The Operations tab is the UI for the backend class-identity admin surface. Its c
 
 The page lazily loads admin data the first time the Operations tab is opened (`fetchModulesWithIdentity` + `fetchEvents`), and the event timeline supports opt-in 10-second polling — visibility-paused so a hidden tab doesn't generate background load.
 
+### 7. Finding Disposition Surface
+
+Users can record a structured decision on a SYSTEM-generated finding (an Exposure or a Countermeasure) instead of deleting it. The same surface renders in two venues; shared logic lives in a composable so they cannot drift.
+
+| Piece | File | Role |
+|-------|------|------|
+| Composable | [`composables/useFindingDisposition.ts`](../../../apps/dt-ui/src/composables/useFindingDisposition.ts) | Provenance icon matrix, kind label (incl. `WAIVED`), active-before-disposed sort (`partitionAndSort`), stale `rowClass`, dialog-state shape + opener, shared `ERROR_MESSAGES` |
+| Dialog | [`components/Dialogs/Exposure/DispositionDialog.vue`](../../../apps/dt-ui/src/components/Dialogs/Exposure/DispositionDialog.vue) | Shared dialog; `findingType: 'EXPOSURE' \| 'COUNTERMEASURE'` prop drives pickable kinds, title, and Save/Clear dispatch |
+| Exposure venue | [`components/DataFlow/SettingsTabs/SettingsExposuresTab.vue`](../../../apps/dt-ui/src/components/DataFlow/SettingsTabs/SettingsExposuresTab.vue) | Exposures table: provenance chip-stack, asymmetric SYSTEM/USER actions, Supersede, stale Review, tab stale-count |
+| Countermeasure venue | [`components/Dialogs/Control/ControlDialog.vue`](../../../apps/dt-ui/src/components/Dialogs/Control/ControlDialog.vue) | Countermeasures sub-table mirrors the same treatment; `(N)` stale badge on the Countermeasures tab |
+
+**Asymmetric actions.** `isUserAuthored(item)` splits the per-row action column. SYSTEM findings cannot be edited or deleted directly — they offer **Customize as your own copy** (Supersede) plus **Dispose**; when a SYSTEM disposition has gone stale the dispose control becomes a visible **Review** button. USER findings (including Supersede clones) offer the normal **Edit** and **Delete**.
+
+**Staleness.** Each venue computes a stale count (`dispositionStale === true`) and surfaces it as a tab badge — `(N)` next to the Countermeasures tab, an `update:staleCount` emit on the exposures tab. Stale rows render with a `row-stale` left-border treatment via the shared `rowClass` helper.
+
+**Supersede (Fork) flow.** Selecting "Customize as your own copy" calls `flowStore.supersedeExposure` / `controlsStore.supersedeCountermeasure`, which delegate to the pure dt-core orchestrators (`executeSupersedeFlow` / `executeSupersedeCountermeasureFlow`). The flow clones the SYSTEM finding into an editable USER copy and disposes the original as `SUPERSEDED`. If the disposal half fails after the copy is created, the venue shows a `warning` snackbar with a **Retry** action. Stores are thin passthroughs to dt-core; the venue refetches after a successful write. See [Implementation Patterns — Shared Surface Patterns](./LLD/Data%20architecture/IMPLEMENTATION_PATTERNS.md#shared-surface-patterns) for the composable / dialog / passthrough / partial-failure mechanics, and the [dt-core disposition operations](../dt-core/GRAPHQL_OPERATIONS.md#disposition-operations) for the result-envelope contract.
+
+### 8. MITRE Technique Picker
+
+A drawer / inline picker for attaching MITRE techniques, defenses, or mitigations to a finding. It blends instant local matching with server-side semantic search, and degrades gracefully when the semantic tier is unavailable.
+
+| Piece | File | Role |
+|-------|------|------|
+| Wrapper | [`components/Mitre/TechniquePicker/TechniquePicker.vue`](../../../apps/dt-ui/src/components/Mitre/TechniquePicker/TechniquePicker.vue) | Multi-bind `v-model: string[]` of `mitreId`s; composes chips + inline input + browse drawer; pushes recents on commit |
+| Inline input | [`components/Mitre/TechniquePicker/TechniquePickerInline.vue`](../../../apps/dt-ui/src/components/Mitre/TechniquePicker/TechniquePickerInline.vue) | Typeahead with synchronous local tier and 300 ms-debounced vector tier; exposes `seedSearch()` for "Suggest matches" |
+| Result rows | [`components/Mitre/TechniquePicker/TechniquePickerResults.vue`](../../../apps/dt-ui/src/components/Mitre/TechniquePicker/TechniquePickerResults.vue) | Shared row: monospace ID + name + tactic + one-line description; 3-dot similarity meter for `VECTOR_SIMILARITY` |
+| Preview pane | [`components/Mitre/TechniquePicker/TechniquePreview.vue`](../../../apps/dt-ui/src/components/Mitre/TechniquePicker/TechniquePreview.vue) | Detail card for the browse drawer; kind-aware ID label, tactic row hidden for `ATTACK_MITIGATION` |
+| Store | [`stores/techniqueSuggestionsStore.ts`](../../../apps/dt-ui/src/stores/techniqueSuggestionsStore.ts) | Vector-tier match results + locally hydrated catalog, keyed by `MitreKind`; tracks `vectorAvailable` + `vectorDisabledReason` |
+| Recents | [`composables/useRecentTechniques.ts`](../../../apps/dt-ui/src/composables/useRecentTechniques.ts) | Auth-scoped, model + kind scoped localStorage MRU list (max 8) |
+
+**Two-tier matching.** The inline input runs a synchronous scan over the store's hydrated catalog for the deterministic tiers (`EXACT_ID` / `PREFIX_ID` / `NAME_MATCH` / `DESCRIPTION_MATCH`), giving instant feedback. When the query is at least 4 characters and has no local exact-ID hit, it also fires a debounced server call to the vector tier (`VECTOR_SIMILARITY`) through `techniqueSuggestionsStore.matchTechniques` → `DtMitre.matchTechniques`. Vector results that duplicate a local row are suppressed.
+
+**Suggest matches.** Host dialogs ([`Dialogs/DataFlow/ExposureDialog.vue`](../../../apps/dt-ui/src/components/Dialogs/DataFlow/ExposureDialog.vue), [`Dialogs/Control/CounterMeasureDialog.vue`](../../../apps/dt-ui/src/components/Dialogs/Control/CounterMeasureDialog.vue)) expose a **Suggest matches** affordance that calls the picker's `seedSearch()` with the finding's description. This seeds the vector tier directly — bypassing the keystroke debounce — and widens the per-query budget (`topN = 10`) because description-seeded queries are diffuse and the genuinely relevant technique can rank below the typed-input default of 3.
+
+**Graceful degradation.** When the server reports `vectorAvailable: false`, the picker keeps the deterministic tiers working and shows a caption explaining why semantic search is unavailable — one of four messages mapped from `vectorDisabledReason` (`EMBEDDING_DISABLED`, `NO_INDEX_MODULE`, `NO_VECTORS`, `MODEL_MISMATCH`). The catalog is hydrated through the existing `DtMitreAttack` / `DtMitreDefend` surfaces; `DtMitre` is used only for the vector tier. See the [dt-core `DtMitre` operations](../dt-core/GRAPHQL_OPERATIONS.md#dtmitre) and the [MITRE technique matching types](../dt-core/DOMAIN_MODEL.md#mitre-technique-matching).
+
 ---
 
 ## Build Configuration

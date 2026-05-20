@@ -28,7 +28,7 @@ async function bootstrap(): Promise<void> {
     const report = await migration.run({ apply });
 
     if (!apply && report.totalActions > 0) {
-      // eslint-disable-next-line no-console
+       
       console.log(
         `\n[dry-run] ${report.totalActions} mutating action(s) would be performed. ` +
         `Re-run with --apply to execute.\n`,
@@ -40,7 +40,7 @@ async function bootstrap(): Promise<void> {
 }
 
 bootstrap().catch((error) => {
-  // eslint-disable-next-line no-console
+   
   console.error('migrate-class-identity failed:', error);
   process.exit(1);
 });

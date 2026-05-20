@@ -154,6 +154,28 @@ Dethernety automatically connects your security controls to industry-standard fr
 - You can trace exactly how a control protects against a specific threat
 - The platform uses established security frameworks (ATT&CK, D3FEND) without manual mapping
 
+## Attaching MITRE Techniques with the Technique Picker
+
+When you author or edit your own countermeasures and exposures, you can attach MITRE references directly using the **technique picker**:
+
+- **Countermeasures** map to MITRE **D3FEND** techniques and ATT&CK **mitigations**.
+- **Exposures** map to MITRE **ATT&CK** techniques.
+
+### Finding the right technique
+
+The picker is built for the reality that you rarely know the exact id. Type into the search box and it matches progressively:
+
+- **By id** — type a full id (`T1003`) or a prefix (`T1003` also surfaces its sub-techniques).
+- **By name** — type part of the technique's name (`credential dumping`).
+- **By description** — type words that appear in the technique's description.
+- **By meaning** — click **Suggest matches** to seed the search from the finding's own description. This uses semantic matching to surface techniques that are conceptually related even when they don't share the exact words.
+
+Results show the technique id, name, and tactic. Select a result to see its full description in the **preview** pane before committing, and pick several techniques in one session — the drawer stays open for multi-select. Recently picked techniques are remembered to speed up repeat work.
+
+### When semantic suggestions are unavailable
+
+Semantic ("Suggest matches") results depend on the deployment having an embedding backend configured and the MITRE corpus embedded. If that isn't available, the picker quietly falls back to id, name, and description matching — you can still find and attach any technique; only the meaning-based suggestions are turned off.
+
 ## Viewing Control Protection
 
 ### Protection Status in Components

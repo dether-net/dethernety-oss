@@ -171,6 +171,40 @@ main() {
         log_warn "Set OPENAI_API_KEY to generate SQL files for pgvector"
     fi
 
+    # Generate Memgraph HNSW embeddings (05-mitre-embeddings.cypher).
+    # Provider auto-detect happens inside the Python script — sentence-transformers
+    # if installed, else honours EMBEDDING_PROVIDER (ollama/openai/fixture). When
+    # no provider is configured, the script logs a warning and exits zero; build
+    # continues without 05-mitre-embeddings.cypher and the runtime picker falls
+    # back to deterministic tiers (id/name/description).
+    #
+    # NOTE on step 4 vs step 5 asymmetry: step 4 (pgvector SQL) is shell-gated on
+    # OPENAI_API_KEY; step 5 (Memgraph cypher) auto-detects in Python. An operator
+    # with OPENAI_API_KEY set AND sentence-transformers installed will produce
+    # step 4 via OpenAI but step 5 via sentence-transformers — two model families,
+    # two embedding spaces, two consumers. Set EMBEDDING_PROVIDER=openai to align
+    # step 5 with step 4 if that's the intent.
+    log_info "Generating MITRE Memgraph embeddings (05-mitre-embeddings.cypher)..."
+    (
+        cd "$MODULE_DIR"
+        export NEO4J_URI="bolt://localhost:$MEMGRAPH_PORT"
+        export NEO4J_USERNAME="neo4j"
+        export NEO4J_PASSWORD="password"
+
+        .venv/bin/python "$SCRIPT_DIR/export_embeddings_to_cypher.py" \
+            --output-dir "$MODULE_DIR/data"
+    ) || {
+        log_error "MITRE Memgraph embedding export failed"
+        exit 1
+    }
+
+    if [[ -f "$MODULE_DIR/data/05-mitre-embeddings.cypher" ]]; then
+        lines=$(wc -l < "$MODULE_DIR/data/05-mitre-embeddings.cypher")
+        log_info "  05-mitre-embeddings.cypher: $lines lines"
+    else
+        log_warn "  05-mitre-embeddings.cypher absent — operator did not configure an embedding provider"
+    fi
+
     # Parse version from manifest
     VERSION=$(jq -r '.version' "$MODULE_DIR/manifest.json")
     PACKAGE_NAME="mitre-frameworks-${VERSION}.tar.gz"

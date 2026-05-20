@@ -10,7 +10,10 @@ import {
   // Core types
   Class, Control, Countermeasure, MitreAttackMitigation,
   MitreDefendTactic, MitreDefendTechnique, Module,
-  UpdateControlResult,
+  UpdateControlResult, DispositionKind, DispositionMutationResult,
+
+  // Orchestration
+  executeSupersedeCountermeasureFlow,
 } from '@dethernety/dt-core'
 
 export const useControlsStore = defineStore('controls', () => {
@@ -435,9 +438,43 @@ export const useControlsStore = defineStore('controls', () => {
   }
 
   const deleteCountermeasure = async (
-    { countermeasureId }: { countermeasureId: string }
+    { countermeasureId, countermeasureName }: { countermeasureId: string, countermeasureName?: string }
   ): Promise<boolean> => {
-    return dtCountermeasure.deleteCountermeasure({ countermeasureId })
+    // Forward the name so dt-core fires the USER-copy-delete
+    // companion that flips dispositionStale on any SUPERSEDED countermeasure
+    // whose reason references this USER copy.
+    return dtCountermeasure.deleteCountermeasure({ countermeasureId, countermeasureName })
+  }
+
+  /**
+   * Supersede flow for countermeasures — frontend
+   * orchestrated. Composes createCountermeasure (clone onto the Control) +
+   * disposeCountermeasure(SUPERSEDED) via the pure dt-core helper. Returns the
+   * full result so the caller (ControlDialog) can render the partial-failure
+   * snackbar with a Retry when step 2 fails but step 1 succeeded.
+   */
+  const supersedeCountermeasure = async (
+    { countermeasureId, controlId, countermeasure }:
+    { countermeasureId: string, controlId: string, countermeasure: Countermeasure }
+  ): Promise<{ userCopy: Countermeasure, systemDispositionResult: DispositionMutationResult }> => {
+    return executeSupersedeCountermeasureFlow({
+      systemCountermeasureId: countermeasureId,
+      systemCountermeasure: countermeasure,
+      controlId,
+      dtCountermeasure,
+    })
+  }
+
+  const disposeCountermeasure = async (
+    { countermeasureId, kind, reason }: { countermeasureId: string, kind: DispositionKind, reason: string }
+  ): Promise<DispositionMutationResult> => {
+    return dtCountermeasure.disposeCountermeasure({ countermeasureId, kind, reason })
+  }
+
+  const clearCountermeasureDisposition = async (
+    { countermeasureId }: { countermeasureId: string }
+  ): Promise<DispositionMutationResult> => {
+    return dtCountermeasure.clearCountermeasureDisposition({ countermeasureId })
   }
 
   const fetchMitreAttackMitigations = async (useCache: boolean = true): Promise<boolean> => {
@@ -550,5 +587,6 @@ export const useControlsStore = defineStore('controls', () => {
     // Countermeasures
     getCountermeasuresFromControl, fetchMitreAttackMitigations, fetchMitreDefendTactics, getMitreDefendTechniquesByTactic,
     createCountermeasure, updateCountermeasure, getCountermeasure, deleteCountermeasure,
+    disposeCountermeasure, clearCountermeasureDisposition, supersedeCountermeasure,
   }
 })

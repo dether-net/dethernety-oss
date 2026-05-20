@@ -21,11 +21,25 @@ export interface SetAttributesRequest {
 }
 
 /**
- * Set attributes operation result
+ * Set attributes operation result.
+ *
+ * TS-internal — distinct from the GraphQL `SetInstantiationAttributesResult`
+ * type returned by the GraphQL resolver. The resolver wrapper in
+ * `set-instantiation-attributes.service.ts` maps this internal shape
+ * into the GraphQL envelope (only `success` + `staleFlippedCount` flow to
+ * the public surface).
+ *
+ * `staleFlippedCount` is populated by the two-statement Cypher
+ * after the attribute write succeeds: counts dispositioned exposures on the
+ * element whose `dispositionStale` flipped to true. Undefined when:
+ *   - `setAttributes` fails before statement 2 runs (validation, auth, etc.);
+ *   - the path bypasses the Cypher (none today, but keeping it optional
+ *     guards against future internal callers that synthesise a result).
  */
 export interface SetAttributesResult {
   success: boolean;
   error?: string;
+  staleFlippedCount?: number;
   metadata?: {
     operationId: string;
     timestamp: string;

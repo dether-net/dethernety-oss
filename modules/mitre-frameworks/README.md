@@ -46,6 +46,57 @@ pnpm test
 pnpm parsetest
 ```
 
+## MITRE Memgraph embeddings (`05-mitre-embeddings.cypher`)
+
+The module ships an optional sidecar artifact that powers the `matchMitreTechniques`
+GraphQL query's vector-similarity tier. It is **separate** from the existing
+`04-mitre-vectors.sql` (pgvector path, OpenAI `text-embedding-3-small` 1536-dim,
+consumed by the LangChain RAG / analysis subsystem):
+
+| Artifact | Model | Dimensions | Consumer |
+|---|---|---|---|
+| `data/04-mitre-vectors.sql` | OpenAI `text-embedding-3-small` | 1536 | pgvector |
+| `data/05-mitre-embeddings.cypher` | `nomic-embed-text` (runtime default) | 768 | Memgraph HNSW — `matchMitreTechniques` picker |
+
+Both coexist; neither replaces the other.
+
+### Embedding provider precedence
+
+`scripts/export_embeddings_to_cypher.py` honours `EMBEDDING_PROVIDER`. Auto-detects
+sentence-transformers if installed; otherwise skips gracefully (build still succeeds).
+
+| `EMBEDDING_PROVIDER` | Provider | Notes |
+|---|---|---|
+| _(unset, default)_ | sentence-transformers + `nomic-ai/nomic-embed-text-v1.5` if installed; else skip | 768-dim, requires `einops` (transitive). Model weights cache ~250 MB on first run. |
+| `sentence-transformers` | Same as above, explicitly | Forces the path even if other env vars are set. |
+| `ollama` | HTTP `OLLAMA_URL` `/api/embed` (default `http://localhost:11434/api/embed`) | Same model family — `search_document: ` task prefix applied build-side. |
+| `openai` | OpenAI client, `EMBEDDING_MODEL=text-embedding-3-small` | 1536-dim. NO task prefix (different model family). |
+| `fixture` | Deterministic hash-derived vectors, tagged `embeddingModel: "fixture"` | CI mode. The runtime precheck rejects fixture-tagged vectors against any real model — fail-closed by design. |
+
+### Graceful skip
+
+If no provider is configured (no sentence-transformers installed AND no
+`EMBEDDING_PROVIDER` set), the build logs a warning, omits
+`05-mitre-embeddings.cypher` from the tarball, and exits zero. The
+mitre-frameworks module still installs cleanly — the runtime picker
+falls back to deterministic tiers (id / name / description). See
+[`scripts/build-data.sh`](scripts/build-data.sh).
+
+### Task-prefix discipline
+
+The runtime side (`dt-ws` `EmbeddingService`) prepends `search_query: ` before
+embedding the user's typed query; the build side (`SentenceTransformersProvider`
+and `OllamaProvider`) prepends `search_document: ` before `model.encode()`.
+Silent prefix mismatch produces ~9% recall degradation invisible to operators —
+the prefix is encoded inside each provider so operators cannot accidentally skip
+it.
+
+### `corpusVersions`
+
+`manifest.json` carries a `corpusVersions: { attack, d3fend }` block. Operator-
+visible metadata only; the runtime doesn't consume these fields today. Reserved
+for future corpus-drift surfacing.
+
 ## Configuration
 
 Configuration is managed through environment variables (typically set in a `.env` file at the project root):
@@ -55,6 +106,10 @@ Configuration is managed through environment variables (typically set in a `.env
 - `NEO4J_PASSWORD`: Password for Neo4j authentication
 - `MITRE_ATTACK_VERSION`: Version of MITRE ATT&CK to ingest (default: latest)
 - `MITRE_DEFEND_VERSION`: Version of MITRE D3FEND to ingest (default: latest)
+- `EMBEDDING_PROVIDER`: One of `sentence-transformers`, `ollama`, `openai`, `fixture`. Used by `export_embeddings_to_cypher.py`. Auto-detects when unset (sentence-transformers if installed, else skip).
+- `EMBEDDING_MODEL`: Model identifier written into the `embeddingModel` property on each MITRE node. Defaults to `nomic-embed-text` (sentence-transformers / Ollama) or `text-embedding-3-small` (OpenAI).
+- `EMBEDDING_DIMENSIONS`: Override the expected dimension. Default 768 (nomic) / 1536 (OpenAI).
+- `OLLAMA_URL`: Override the Ollama endpoint (default `http://localhost:11434/api/embed`).
 
 ## Data Model
 

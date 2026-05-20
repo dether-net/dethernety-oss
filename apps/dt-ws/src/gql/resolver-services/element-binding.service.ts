@@ -187,7 +187,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
     // RFC 7519. The `@authentication` directive on the mutation
     // populates this; if absent in production it indicates a
     // misconfigured auth chain.
-    // Throwing here is the spec's preferred response — a structured log
+    // Throwing here is the preferred response — a structured log
     // attributed to no one is worse than no entry — but we round-trip
     // it through the resolver envelope as VALIDATION_ERROR so callers
     // see a consistent failure shape rather than an opaque server
@@ -279,7 +279,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
       const isControl = CONTROL_TYPES.has(elementType);
       const targetClassIds = target.kind === 'CLASS' ? target.classIds! : [];
 
-      // Step 2.5 — preflight identity short-circuit (I8). The §3.3 in-tx
+      // Step 2.5 — preflight identity short-circuit (I8). The in-tx
       // identity check below is the TOCTOU-safe authoritative gate; this
       // preflight short-circuit honours I8's "does not invoke the module"
       // requirement by exiting BEFORE the module calls at step 3.
@@ -422,7 +422,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
       // Step 5 — single executeWrite. Read inside tx is authoritative; if
       // anything throws, the transaction rolls back and the graph is
       // unchanged.
-      let deltas = zeroDeltas();
+      const deltas = zeroDeltas();
       let oldBinding:
         | { kind: ElementBindingKind; classIds?: string[]; modelId?: string }
         | null = null;
@@ -578,7 +578,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
   }
 
   // -------------------------------------------------------------------------
-  // Validation helpers (§2.4).
+  // Validation helpers.
   // -------------------------------------------------------------------------
 
   private validateInputShape(input: ElementBindingInput): string | null {
@@ -590,8 +590,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
         return 'target.classIds must be a non-empty array when kind = CLASS';
       }
       // Tighten: reject null/non-string/empty elements upfront rather than
-      // letting them surface as downstream CLASS_NOT_FOUND (per security
-      // architect §8).
+      // letting them surface as downstream CLASS_NOT_FOUND.
       const bad = input.classIds.findIndex(
         (id) => typeof id !== 'string' || id.length === 0,
       );
@@ -648,7 +647,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
   }
 
   // -------------------------------------------------------------------------
-  // Identity-transition check (§3.3).
+  // Identity-transition check.
   // -------------------------------------------------------------------------
 
   private isIdentityTransition(
@@ -681,7 +680,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
   }
 
   // -------------------------------------------------------------------------
-  // §4.1 — current-binding reads (preflight + in-tx).
+  // Current-binding reads (preflight + in-tx).
   // -------------------------------------------------------------------------
 
   private async readCurrentBindingPreflight(
@@ -741,7 +740,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
   }
 
   // -------------------------------------------------------------------------
-  // §4.2 — single-roundtrip class-status lookup. Returns `exists` + the
+  // Single-roundtrip class-status lookup. Returns `exists` + the
   // module name (or null when reached only via HAS_ORPHANED_CLASS).
   //
   // Distinguishes:
@@ -791,7 +790,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
   }
 
   // -------------------------------------------------------------------------
-  // §4.3 — destructive sweep for single-class types (exposures).
+  // Destructive sweep for single-class types (exposures).
   // -------------------------------------------------------------------------
 
   private async deleteDerivedExposuresSingleClass(
@@ -821,7 +820,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
   }
 
   // -------------------------------------------------------------------------
-  // §4.4 — destructive sweep for Controls (N-N countermeasures, diff-based).
+  // Destructive sweep for Controls (N-N countermeasures, diff-based).
   // -------------------------------------------------------------------------
 
   private async deleteDerivedCountermeasuresControls(
@@ -849,7 +848,7 @@ export class ElementBindingService implements OnModuleInit, OnModuleDestroy {
   }
 
   // -------------------------------------------------------------------------
-  // §4.5 — single-class rewire (branches A/B/C). Class label is interpolated
+  // Single-class rewire (branches A/B/C). Class label is interpolated
   // from a closed allowlist at query-build time (no user input).
   // -------------------------------------------------------------------------
 

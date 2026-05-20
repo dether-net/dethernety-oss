@@ -49,6 +49,34 @@ export function composeElementText(element: {
 }
 
 /**
+ * Compose the embedding text for a MITRE technique node (ATT&CK or D3FEND).
+ *
+ * Format is pinned: changing it invalidates all stored MITRE vectors and
+ * forces a mitre-frameworks module rebuild + republish.
+ */
+export function composeTechniqueText(t: {
+  name: string;
+  description?: string;
+  tactic?: string;
+}): string {
+  return `${t.name}. ${t.description || ''}. Tactic: ${t.tactic || 'Unknown'}.`;
+}
+
+/**
+ * Compose the embedding text for a MITRE mitigation node.
+ *
+ * Format is pinned: same constraints as composeTechniqueText. Mitigations
+ * have no tactic field — the composer is intentionally shorter than the
+ * technique variant.
+ */
+export function composeMitigationText(m: {
+  name: string;
+  description?: string;
+}): string {
+  return `${m.name}. ${m.description || ''}.`;
+}
+
+/**
  * Parse the embedding response, supporting OpenAI and Ollama formats.
  *
  *   OpenAI              : { data: [{ embedding: [...] }, ...] }
@@ -78,7 +106,7 @@ export function parseEmbeddingResponse(
  * reaches `composeClassText`. Needed so the CLI's pre-computed embedding text
  * matches the runtime's text byte-for-byte.
  *
- * Behavior mirrors `DtFileOpaModule.getMetadata` (see spec §8.4):
+ * Behavior mirrors `DtFileOpaModule.getMetadata`:
  *   - V2 OPA layout non-component types (`dataFlow`, `securityBoundary`,
  *     `control`, `data`) are replaced with the matching forced enum value.
  *   - V2 OPA `component` classes have their `type` upper-cased and are

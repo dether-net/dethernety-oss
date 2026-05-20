@@ -31,20 +31,29 @@ export const GET_MITRE_ATTACK_TECHNIQUES_BY_TACTIC = gql`
   }
 `
 
+// `MitreAttackTechniqueWhere` is the @neo4j/graphql v7 auto-generated input type;
+// the legacy v1 name `*Filter` no longer exists in the codegen output.
+// stix_created / stix_modified / stix_revoked are not properties on the
+// MitreAttackTechnique schema type — removed.
+//
+// `tactics { name }` is selected so the TechniquePicker sheet's tactic-facet
+// filter can resolve a tactic name per catalog entry. A technique can belong
+// to multiple tactics; the picker uses the first one (mirrors the
+// deterministic-tactic projection on the backend).
 export const FIND_MITRE_ATTACK_TECHNIQUE = gql`
-  query FindMitreAttackTechnique($filter: MitreAttackTechniqueFilter! ) {
+  query FindMitreAttackTechnique($filter: MitreAttackTechniqueWhere!) {
     mitreAttackTechniques(where: $filter) {
       id
       name
       description
       attack_id
       attack_version
-      stix_created
       stix_id
-      stix_modified
-      stix_revoked
       stix_spec_version
       stix_type
+      tactics {
+        name
+      }
     }
   }
 `

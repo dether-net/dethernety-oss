@@ -16,6 +16,9 @@
 - [DtAnalysis](#dtanalysis)
 - [DtIssue](#dtissue)
 - [MITRE Framework Classes](#mitre-framework-classes)
+- [DtMitre](#dtmitre)
+- [Disposition Operations](#disposition-operations)
+- [Supersede Orchestration Helpers](#supersede-orchestration-helpers)
 
 ## Overview
 
@@ -525,18 +528,182 @@ Manages security issue tracking.
 
 **Source:** `packages/dt-core/src/dt-exposure/`
 
-| Method | Description | Returns |
-|--------|-------------|---------|
-| `getExposures` | Get all exposures | `Promise<Exposure[]>` |
-| `getExposureById` | Get exposure by ID | `Promise<Exposure \| null>` |
-| `searchExposures` | Search by criteria | `Promise<Exposure[]>` |
+Manages exposures (security weaknesses) attached to model elements, plus their disposition lifecycle.
+
+| Method | Description | Parameters | Returns |
+|--------|-------------|------------|---------|
+| `getExposures` | Get all exposures for an element | `{ elementId }` | `Promise<Exposure[]>` |
+| `getExposure` | Get exposure by ID | `{ exposureId }` | `Promise<Exposure>` |
+| `createExposure` | Create exposure on an element | `{ exposure, elementId, attackTechniqueIds }` | `Promise<Exposure>` |
+| `updateExposure` | Update exposure properties + technique links | `{ exposureId, exposure, attackTechniqueIds }` | `Promise<Exposure>` |
+| `deleteExposure` | Delete exposure; fires the SUPERSEDED-staleness companion when `exposureName` is supplied | `{ exposureId, exposureName? }` | `Promise<boolean>` |
+| `disposeExposure` | Author or replace a disposition | `{ exposureId, kind, reason }` | `Promise<DispositionMutationResult>` |
+| `clearDisposition` | Clear a disposition (idempotent) | `{ exposureId }` | `Promise<DispositionMutationResult>` |
+| `reAffirmDisposition` | Thin alias for `disposeExposure` (caller-narrative clarity; identical wire call) | `{ exposureId, kind, reason }` | `Promise<DispositionMutationResult>` |
+
+> **Disposition return contract.** `disposeExposure` / `clearDisposition` resolve a [`DispositionMutationResult`](#disposition-operations) envelope. Domain errors (validation, not-found, database) return `success: false` with `errorCode` + `errorMessage` set rather than throwing; only transport / network errors propagate as exceptions.
+
+> **USER-copy-delete companion.** When `deleteExposure` is called with `exposureName`, it fires a fire-and-forget `updateExposures` (`FLIP_SUPERSEDED_STALE`) that sets `dispositionStale: true` on any `SUPERSEDED` exposure whose `dispositionReason` contains the single-quote-wrapped name (`'<name>'`). The companion swallows its own errors and never blocks the delete return. When `exposureName` is omitted the companion is skipped — without a name a bare-substring match could flip unrelated dispositions.
+
+#### Example Usage
+
+```typescript
+const dtExposure = new DtExposure(apolloClient)
+
+// Dispose a SYSTEM-generated exposure instead of deleting it
+const result = await dtExposure.disposeExposure({
+  exposureId: 'exp-123',
+  kind: 'RISK_ACCEPTED',
+  reason: 'Accepted by security review board, ticket SEC-...',
+})
+if (!result.success) {
+  console.error(result.errorCode, result.errorMessage)
+}
+
+// Clear a disposition (idempotent — no-op clear still returns success: true)
+await dtExposure.clearDisposition({ exposureId: 'exp-123' })
+
+// Delete a USER copy and flip staleness on the SYSTEM original it superseded
+await dtExposure.deleteExposure({ exposureId: 'exp-456', exposureName: 'SQL Injection (custom)' })
+```
+
+#### GraphQL Definitions
+
+```typescript
+// dt-exposure-gql.ts exports:
+GET_EXPOSURES         // Exposures for an element (incl. 5 disposition fields)
+GET_EXPOSURE          // Single exposure by ID (incl. 5 disposition fields)
+ADD_EXPOSURE          // createExposures
+UPDATE_EXPOSURE       // updateExposures (selection includes disposition fields)
+DELETE_EXPOSURE       // deleteExposures
+DISPOSE_EXPOSURE      // disposeExposure custom mutation → DispositionMutationResult
+CLEAR_DISPOSITION     // clearDisposition custom mutation → DispositionMutationResult
+FLIP_SUPERSEDED_STALE // updateExposures companion (staleness flip by name)
+```
+
+The `GET_*` / `UPDATE_EXPOSURE` selections include `dispositionKind`, `dispositionReason`, `dispositionedBy`, `dispositionedAt`, and `dispositionStale` so post-save refetches render disposition state correctly without a second round trip.
 
 ### DtCountermeasure
 
 **Source:** `packages/dt-core/src/dt-countermeasure/`
 
-| Method | Description | Returns |
-|--------|-------------|---------|
-| `getCountermeasures` | Get all countermeasures | `Promise<Countermeasure[]>` |
-| `getCountermeasureById` | Get by ID | `Promise<Countermeasure \| null>` |
-| `searchCountermeasures` | Search by criteria | `Promise<Countermeasure[]>` |
+Manages countermeasures attached to Controls, plus their disposition lifecycle. Mirrors `DtExposure` method-for-method.
+
+| Method | Description | Parameters | Returns |
+|--------|-------------|------------|---------|
+| `getCountermeasuresFromControl` | Get countermeasures for a Control | `{ controlId }` | `Promise<Countermeasure[] \| null>` |
+| `getCountermeasure` | Get countermeasure by ID | `{ countermeasureId }` | `Promise<Countermeasure \| null>` |
+| `createCountermeasure` | Create countermeasure on a Control | `{ controlId, countermeasure }` | `Promise<Countermeasure \| null>` |
+| `updateCountermeasure` | Update countermeasure properties + framework links | `{ countermeasureId, countermeasure }` | `Promise<Countermeasure \| null>` |
+| `deleteCountermeasure` | Delete countermeasure; fires the SUPERSEDED-staleness companion when `countermeasureName` is supplied | `{ countermeasureId, countermeasureName? }` | `Promise<boolean>` |
+| `disposeCountermeasure` | Author or replace a disposition | `{ countermeasureId, kind, reason }` | `Promise<DispositionMutationResult>` |
+| `clearCountermeasureDisposition` | Clear a disposition (idempotent) | `{ countermeasureId }` | `Promise<DispositionMutationResult>` |
+
+> **Shared result envelope.** `disposeCountermeasure` / `clearCountermeasureDisposition` resolve the same [`DispositionMutationResult`](#disposition-operations) type as the exposure side. Its `exposureId` field carries the **countermeasure** id on this path (the field is reused unchanged across both finding types). Same domain-error-vs-throw contract as `DtExposure`.
+
+> **USER-copy-delete companion.** `deleteCountermeasure` with `countermeasureName` fires a fire-and-forget `updateCountermeasures` (`FLIP_SUPERSEDED_COUNTERMEASURE_STALE`) that flips `dispositionStale: true` on any `SUPERSEDED` countermeasure whose `dispositionReason` contains `'<name>'`. Same skip-when-absent default as the exposure side.
+
+#### GraphQL Definitions
+
+```typescript
+// dt-countermeasure-gql.ts exports:
+GET_COUNTERMEASURES_FROM_CONTROL      // Countermeasures for a Control (incl. disposition fields)
+GET_COUNTERMEASURE                    // Single countermeasure by ID (incl. disposition fields)
+CREATE_COUNTERMEASURE                 // createCountermeasures (selection includes disposition fields)
+UPDATE_COUNTERMEASURE                 // updateCountermeasures (selection includes disposition fields)
+DELETE_COUNTERMEASURE                 // deleteCountermeasures
+DISPOSE_COUNTERMEASURE                // disposeCountermeasure custom mutation → DispositionMutationResult
+CLEAR_COUNTERMEASURE_DISPOSITION      // clearCountermeasureDisposition custom mutation → DispositionMutationResult
+FLIP_SUPERSEDED_COUNTERMEASURE_STALE  // updateCountermeasures companion (staleness flip by name)
+```
+
+---
+
+## DtMitre
+
+**Source:** `packages/dt-core/src/dt-mitre/`
+
+Vector-tier semantic match surface over the MITRE corpus. A thin façade over the `matchMitreTechniques` server query. Direct catalog access (tactics, full technique / mitigation lists) stays on [`DtMitreAttack`](#dtmitreattack) and [`DtMitreDefend`](#dtmitredefend) — `DtMitre` only adds the semantic-match tier.
+
+### Methods
+
+| Method | Description | Parameters | Returns |
+|--------|-------------|------------|---------|
+| `matchTechniques` | Match user-typed queries against a MITRE corpus through the five-tier cascade | `{ queries: string[], kind: MitreKind, topN? }` | `Promise<MatchMitreTechniquesResult>` |
+
+**Cascade.** The server evaluates each query through five tiers and returns at most one tier's results per query: `EXACT_ID` → `PREFIX_ID` → `NAME_MATCH` → `DESCRIPTION_MATCH` → `VECTOR_SIMILARITY`. The vector tier reads a Memgraph HNSW index built from an embedding model and degrades gracefully — `vectorAvailable: false` plus a structured `vectorDisabledReason` (`EMBEDDING_DISABLED` | `NO_INDEX_MODULE` | `NO_VECTORS` | `MODEL_MISMATCH`) when the index is absent or mismatched.
+
+**`kind`** selects the corpus and the index the server reads: `ATTACK_TECHNIQUE`, `DEFEND_TECHNIQUE`, or `ATTACK_MITIGATION`. **`topN`** caps candidates per query; the server clamps to `[1, 50]` and defaults to `3` when omitted.
+
+**Cancellation.** `matchTechniques` routes through `dtUtils.withCancellableLatest` keyed by `matchTechniques:${kind}`, so rapid keystrokes from one picker supersede each other while mixed-kind pickers proceed in parallel. Superseded calls reject with `CancelledError` (callers exit silently).
+
+### Example Usage
+
+```typescript
+const dtMitre = new DtMitre(apolloClient)
+
+const result = await dtMitre.matchTechniques({
+  queries: ['adversary-in-the-middle email interception'],
+  kind: 'ATTACK_TECHNIQUE',
+  topN: 10,
+})
+
+if (!result.vectorAvailable) {
+  // Show deterministic-only tiers; surface a caption from result.vectorDisabledReason
+}
+for (const candidate of result.matches[0]?.candidates ?? []) {
+  console.log(candidate.mitreId, candidate.matchType, candidate.similarityScore)
+}
+```
+
+### GraphQL Definitions
+
+```typescript
+// dt-mitre-gql.ts exports:
+MATCH_MITRE_TECHNIQUES  // matchMitreTechniques(input) → matches[] + unmatched + vectorAvailable + vectorDisabledReason
+```
+
+The server clamps `queries` to `MAX_QUERIES` (25) and `topN` to `[1, 50]`. The wrapper accepts bare query strings for ergonomics and maps each to the `TechniqueQueryInput { query }` shape the schema expects.
+
+---
+
+## Disposition Operations
+
+Dispositions let users record a structured decision on a SYSTEM-generated finding (Exposure or Countermeasure) instead of deleting it. The four mutations — `disposeExposure`, `clearDisposition`, `disposeCountermeasure`, `clearCountermeasureDisposition` — all return the shared `DispositionMutationResult` envelope.
+
+```typescript
+interface DispositionMutationResult {
+  success: boolean
+  exposureId: string                    // carries the finding id for BOTH types
+  dispositionKind: DispositionKind | null
+  dispositionReason: string | null
+  dispositionedBy: string | null
+  dispositionedAt: string | null
+  dispositionStale: boolean | null
+  errorCode: DispositionErrorCode | null
+  errorMessage: string | null
+}
+```
+
+**Domain errors vs throws.** On success, `errorCode` / `errorMessage` are null and the `disposition*` fields echo the state landed on the finding (a clear lands all five null). On a domain error the server returns `success: false` with `errorCode` set and persists no graph change. Transport / network failures still propagate as exceptions through `performMutation`. This split lets callers branch on `result.success` for expected domain outcomes without a `try/catch`.
+
+**Field reuse.** The result type names its id field `exposureId` for both finding types; on the countermeasure path it carries the countermeasure id. See [`DispositionMutationResult` in the Domain Model](../dt-core/DOMAIN_MODEL.md#disposition-fields) for the full type and `DispositionKind` enum.
+
+---
+
+## Supersede Orchestration Helpers
+
+**Source:** `packages/dt-core/src/orchestration/`
+
+Pure helpers (no Vue / Pinia dependency) that compose the two backend mutations behind a "Fork / Supersede" operation. Each takes a `DtExposure` / `DtCountermeasure` instance via args so it stays unit-testable with a mock.
+
+| Helper | Description | Parameters | Returns |
+|--------|-------------|------------|---------|
+| `executeSupersedeFlow` | Clone a SYSTEM exposure into a USER copy, then dispose the original as `SUPERSEDED` | `{ systemExposureId, systemExposure, elementId, cloneNameSuffix?, dtExposure }` | `Promise<{ userCopy, systemDispositionResult }>` |
+| `executeSupersedeCountermeasureFlow` | Clone a SYSTEM countermeasure into a USER copy (retaining the Control edge, dropping the class edge), then dispose the original as `SUPERSEDED` | `{ systemCountermeasureId, systemCountermeasure, controlId, cloneNameSuffix?, dtCountermeasure }` | `Promise<{ userCopy, systemDispositionResult }>` |
+
+**Two-step composition.** Step 1 creates the USER copy (`createExposure` / `createCountermeasure`); step 2 disposes the SYSTEM original with `kind: 'SUPERSEDED'` and reason `Superseded by user-authored {exposure|countermeasure} '<cloneName>'`. The clone defaults its name to `<sourceName> (custom)` and annotates its description with a `(custom of '<sourceName>')` backreference.
+
+**Partial-failure handling.** If step 2 returns `success: false`, the USER copy already exists — the helper does **not** roll it back (the copy is a legitimate authoring artefact) and returns both halves so the caller can surface a Retry affordance. Step 1 transport failures throw before step 2 runs, so no orphaned disposition is possible.
+
+**Load-bearing quote wrapping.** The single-quote wrap around `<cloneName>` in the disposition reason is the match anchor for the [USER-copy-delete companion](#dtexposure): `flipSupersededStaleByName` filters on `dispositionReason CONTAINS "'<name>'"` (with the quotes). The two sites must agree byte-for-byte.

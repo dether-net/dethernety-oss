@@ -3,8 +3,30 @@ import { ConfigService } from '@nestjs/config';
 import {
   composeClassText,
   composeElementText,
+  composeTechniqueText,
+  composeMitigationText,
   parseEmbeddingResponse,
 } from '@dethernety/dt-module/embedding';
+
+/**
+ * L2-normalize a single embedding vector to unit length. Used so runtime
+ * query vectors carry the same magnitude as the build-time stored vectors
+ * (mitre-frameworks/scripts/embedding_provider.py normalizes on emit). This
+ * keeps cosine-similarity scores well-defined and bounded in [-1, 1] modulo
+ * FP noise, regardless of whether the embedding endpoint (Ollama / OpenAI)
+ * happens to return normalized vectors by default.
+ */
+function l2NormalizeBatch(vectors: number[][]): number[][] {
+  return vectors.map((v) => {
+    let sumSq = 0;
+    for (let i = 0; i < v.length; i++) sumSq += v[i] * v[i];
+    if (sumSq === 0) return v;
+    const inv = 1 / Math.sqrt(sumSq);
+    const out = new Array<number>(v.length);
+    for (let i = 0; i < v.length; i++) out[i] = v[i] * inv;
+    return out;
+  });
+}
 
 @Injectable()
 export class EmbeddingService {
@@ -98,7 +120,11 @@ export class EmbeddingService {
           throw new Error(`Embedding API returned ${response.status}: ${response.statusText}`);
         }
         const data = await response.json();
-        return parseEmbeddingResponse(data, texts.length);
+        const parsed = parseEmbeddingResponse(data, texts.length);
+        // L2-normalize to match the build-side unit-vector contract
+        // (mitre-frameworks/scripts/embedding_provider.py). Idempotent on
+        // already-unit vectors.
+        return parsed ? l2NormalizeBatch(parsed) : parsed;
       } catch (error) {
         if (attempt === maxRetries) throw error;
         const delay = backoffBase * Math.pow(3, attempt - 1);
@@ -136,5 +162,26 @@ export class EmbeddingService {
     type?: string;
   }): string {
     return composeElementText(element);
+  }
+
+  /**
+   * Compose the embedding text for a MITRE technique (ATT&CK or D3FEND).
+   * Delegates to the dt-module helper so runtime and build-time
+   * tooling produce byte-equal text.
+   */
+  composeTechniqueText(t: {
+    name: string;
+    description?: string;
+    tactic?: string;
+  }): string {
+    return composeTechniqueText(t);
+  }
+
+  /**
+   * Compose the embedding text for a MITRE mitigation. Same byte-equality
+   * contract as composeTechniqueText.
+   */
+  composeMitigationText(m: { name: string; description?: string }): string {
+    return composeMitigationText(m);
   }
 }

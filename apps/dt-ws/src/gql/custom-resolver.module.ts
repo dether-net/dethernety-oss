@@ -11,9 +11,11 @@ import { ClassIdentityMigrationService } from './module-management-services/clas
 import { ModuleManagementResolverService } from './resolver-services/module-management-resolver.service';
 import { SetInstantiationAttributesService } from './resolver-services/set-instantiation-attributes.service';
 import { ElementBindingService } from './resolver-services/element-binding.service';
+import { DispositionResolverService } from './resolver-services/disposition-resolver.service';
 import { AnalysisResolverService } from './resolver-services/analysis-resolver.service';
 import { IssueResolverService } from './resolver-services/issue-resolver.service';
 import { MatchClassesResolverService } from './resolver-services/match-classes-resolver.service';
+import { MatchMitreTechniquesResolverService } from './resolver-services/match-mitre-techniques-resolver.service';
 import { ListClassesResolverService } from './resolver-services/list-classes-resolver.service';
 import { ControlGapsResolverService } from './resolver-services/control-gaps-resolver.service';
 import { ControlCandidatesResolverService } from './resolver-services/control-candidates-resolver.service';
@@ -29,9 +31,11 @@ const resolverServiceClasses = [
   ModuleManagementResolverService,
   SetInstantiationAttributesService,
   ElementBindingService,
+  DispositionResolverService,
   AnalysisResolverService,
   IssueResolverService,
   MatchClassesResolverService,
+  MatchMitreTechniquesResolverService,
   ListClassesResolverService,
   ControlGapsResolverService,
   ControlCandidatesResolverService,

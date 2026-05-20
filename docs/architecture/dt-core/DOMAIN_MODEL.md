@@ -443,6 +443,61 @@ interface MitreDefendTechnique extends Element {
 }
 ```
 
+### MITRE Technique Matching
+
+Types for the `matchMitreTechniques` semantic-search surface (consumed by the technique picker via [`DtMitre`](./GRAPHQL_OPERATIONS.md#dtmitre)). The server matches user-typed queries against a MITRE corpus through a five-tier cascade and returns at most one tier per query.
+
+```typescript
+type MitreKind = 'ATTACK_TECHNIQUE' | 'DEFEND_TECHNIQUE' | 'ATTACK_MITIGATION'
+
+type MitreMatchType =
+  | 'EXACT_ID'            // deterministic tiers
+  | 'PREFIX_ID'
+  | 'NAME_MATCH'
+  | 'DESCRIPTION_MATCH'
+  | 'VECTOR_SIMILARITY'   // semantic tier (Memgraph HNSW + embedding model)
+
+type VectorDisabledReason =
+  | 'EMBEDDING_DISABLED'  // semantic search turned off on this deployment
+  | 'NO_INDEX_MODULE'     // no module provides a vector index
+  | 'NO_VECTORS'          // MITRE vectors not yet installed
+  | 'MODEL_MISMATCH'      // module ships vectors for a different embedding model
+
+interface TechniqueQueryInput {
+  query: string
+}
+
+interface MatchMitreTechniquesInput {
+  queries: TechniqueQueryInput[]
+  kind: MitreKind
+  topN?: number           // per-query cap; clamped server-side to [1, 50], default 3
+}
+
+interface MitreCandidate {
+  mitreId: string         // T1003 / T1003.001 / D3-PMAD / M1041
+  name: string
+  description?: string | null
+  tactic?: string | null  // ATT&CK or D3FEND tactic name (same field, distinct vocabularies)
+  kind: MitreKind
+  matchType: MitreMatchType
+  similarityScore?: number | null  // populated for VECTOR_SIMILARITY; null for deterministic tiers
+}
+
+interface TechniqueQueryMatch {
+  query: string           // echoes the input query so clients can correlate batched results
+  candidates: MitreCandidate[]
+}
+
+interface MatchMitreTechniquesResult {
+  matches: TechniqueQueryMatch[]   // parallel to the input queries[]
+  unmatched: string[]
+  vectorAvailable: boolean
+  vectorDisabledReason?: VectorDisabledReason | null  // names the reason when vectorAvailable is false
+}
+```
+
+> **Graceful vector degradation.** When the HNSW index is absent or built against a different embedding model, the server sets `vectorAvailable: false` and a specific `vectorDisabledReason` rather than failing the query. The deterministic tiers (`EXACT_ID` through `DESCRIPTION_MATCH`) still return results; the picker shows a caption explaining that semantic search is unavailable.
+
 ### Exposure
 
 Security vulnerability or weakness:
@@ -462,6 +517,14 @@ interface Exposure extends Element {
   exploitedBy?: MitreAttackTechnique[]  // Linked ATT&CK techniques
   createdBy?: string | null       // Provenance: 'USER' | 'SYSTEM' | null. Server-stamped at CREATE time; sealed against UPDATE-path forgery.
   authoredBy?: string | null      // USER findings: JWT sub claim. SYSTEM findings: optional module-provided attribution string. Same write-once seal as createdBy.
+
+  // Disposition fields — see "Disposition fields" below. All five nullable;
+  // null means "no active disposition."
+  dispositionKind?: DispositionKind | null
+  dispositionReason?: string | null    // Free-text justification; mandatory when dispositionKind is non-null
+  dispositionedBy?: string | null      // JWT sub claim of the user who authored the disposition
+  dispositionedAt?: string | null      // ISO-8601 timestamp of authoring / re-affirmation
+  dispositionStale?: boolean | null    // True when an instantiation attribute changed since the disposition was set
 }
 ```
 
@@ -485,10 +548,63 @@ interface Countermeasure extends Element {
   control?: Control
   createdBy?: string | null       // Provenance: 'USER' | 'SYSTEM' | null. Same semantics as Exposure.createdBy.
   authoredBy?: string | null      // Same semantics as Exposure.authoredBy.
+
+  // Disposition fields — same shape and semantics as Exposure (see below).
+  dispositionKind?: DispositionKind | null
+  dispositionReason?: string | null
+  dispositionedBy?: string | null
+  dispositionedAt?: string | null
+  dispositionStale?: boolean | null
 }
 ```
 
 > **Provenance fields.** `createdBy` and `authoredBy` are populated server-side at CREATE time and are immutable thereafter. They drive the destructive-sweep predicate inside `changeElementBinding` (USER findings are preserved unconditionally; SYSTEM findings are diff-cleaned) and the provenance icon UX in the exposures and countermeasures tables. The full server-side mechanism is in [backend SCHEMA.md — Provenance fields](../backend/LLD/SCHEMA.md#provenance-fields-on-exposure-and-countermeasure).
+
+### Disposition fields
+
+Both `Exposure` and `Countermeasure` carry five nullable disposition fields. A disposition is a structured decision a user records on a SYSTEM-generated finding instead of deleting it — the finding stays in the model but is annotated with the reason it is being treated differently. `null` on all five means "no active disposition."
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `dispositionKind` | `DispositionKind \| null` | The structured argument for treating this finding differently |
+| `dispositionReason` | `string \| null` | Free-text justification. Mandatory when `dispositionKind` is non-null |
+| `dispositionedBy` | `string \| null` | JWT `sub` claim of the user who authored the current disposition |
+| `dispositionedAt` | `string \| null` | ISO-8601 string — when the disposition was authored or last re-affirmed |
+| `dispositionStale` | `boolean \| null` | `true` when an instantiation attribute changed since the disposition was authored / re-affirmed |
+
+```typescript
+type DispositionKind =
+  | 'NOT_APPLICABLE'
+  | 'FALSE_POSITIVE'
+  | 'COMPENSATING_CONTROL'
+  | 'RISK_ACCEPTED'
+  | 'WAIVED'
+  | 'SUPERSEDED'
+```
+
+**Staleness.** A disposition records a judgement made against a finding at a point in time. When the model changes underneath it — an instantiation attribute changes — the judgement may no longer hold, so the server flips `dispositionStale: true`. The UI surfaces stale rows distinctly and offers a re-affirm action; re-affirming clears the flag (the wire call is identical to authoring fresh).
+
+**Supersede.** `SUPERSEDED` is not a user-pickable kind. It is set only by the "Fork / Supersede" flow, which clones a SYSTEM finding into an editable USER copy and then disposes the original as `SUPERSEDED` with a reason that names the clone. Deleting the USER copy later flips the original's disposition back to stale (a fire-and-forget companion mutation keyed on the clone name). The orchestration lives in [`packages/dt-core/src/orchestration/`](./GRAPHQL_OPERATIONS.md#supersede-orchestration-helpers); the mutation surface is in [GraphQL Operations — Disposition Operations](./GRAPHQL_OPERATIONS.md#disposition-operations).
+
+The mutations that write these fields return a `DispositionMutationResult` envelope:
+
+```typescript
+type DispositionErrorCode = 'VALIDATION_ERROR' | 'EXPOSURE_NOT_FOUND' | 'DATABASE_ERROR'
+
+interface DispositionMutationResult {
+  success: boolean
+  exposureId: string              // carries the finding id for BOTH Exposure and Countermeasure paths
+  dispositionKind: DispositionKind | null
+  dispositionReason: string | null
+  dispositionedBy: string | null
+  dispositionedAt: string | null
+  dispositionStale: boolean | null
+  errorCode: DispositionErrorCode | null
+  errorMessage: string | null
+}
+```
+
+On a domain error (validation, not-found, database) the server returns `success: false` with `errorCode` set and no graph change; transport errors throw instead. `EXPOSURE_NOT_FOUND` is reused as the not-found code for both finding types.
 
 ---
 

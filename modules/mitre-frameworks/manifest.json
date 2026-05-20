@@ -4,5 +4,9 @@
   "displayName": "MITRE ATT&CK & D3FEND Data",
   "description": "Pre-exported MITRE ATT&CK and D3FEND framework data in Cypher format",
   "author": "Dethermine Team",
-  "tags": ["data", "mitre", "attack", "defend"]
+  "tags": ["data", "mitre", "attack", "defend"],
+  "corpusVersions": {
+    "attack": "v18.1",
+    "d3fend": "unknown"
+  }
 }

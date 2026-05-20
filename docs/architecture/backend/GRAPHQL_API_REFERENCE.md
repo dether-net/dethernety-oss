@@ -144,6 +144,68 @@ human-readable string suitable for snackbar display.
 | `MODULE_ERROR` |  |
 | `DATABASE_ERROR` |  |
 
+### DispositionKind
+
+Structured argument the user authors for treating a SYSTEM finding
+differently. Applies to both Exposure and Countermeasure.
+
+| Value | Description |
+|-------|-------------|
+| `NOT_APPLICABLE` | Finding does not apply to this element / model context |
+| `FALSE_POSITIVE` | Finding is incorrect — the underlying weakness does not exist as described |
+| `COMPENSATING_CONTROL` | A compensating control mitigates the finding to an acceptable residual risk (exposure-only) |
+| `RISK_ACCEPTED` | Risk has been formally accepted; finding remains documented (exposure-only) |
+| `WAIVED` | The control will not be implemented (control waiver; countermeasure-only) |
+| `SUPERSEDED` | Finding has been replaced by a user-authored finding that better fits the model (system-set by the Supersede flow) |
+
+### DispositionErrorCode
+
+Error taxonomy for the disposition mutations. Null on success;
+`errorMessage` carries a sanitised human-readable string. Domain errors
+return as `success: false` rather than throwing.
+
+| Value | Description |
+|-------|-------------|
+| `VALIDATION_ERROR` | Input failed validation (reason empty, kind not pickable for the node type, id malformed, actor absent) |
+| `EXPOSURE_NOT_FOUND` | No node matched the supplied id (reused for both Exposure and Countermeasure) |
+| `DATABASE_ERROR` | Underlying graph write failed for an infrastructure reason |
+
+### MitreKind
+
+MITRE corpus selector for matchMitreTechniques. Determines which HNSW
+index is consulted.
+
+| Value | Description |
+|-------|-------------|
+| `ATTACK_TECHNIQUE` | MITRE ATT&CK adversary technique (T-codes; e.g. T1003, T1003.001) |
+| `DEFEND_TECHNIQUE` | MITRE D3FEND defensive technique (D3-codes; e.g. D3-PMAD) |
+| `ATTACK_MITIGATION` | MITRE ATT&CK mitigation (M-codes; e.g. M1041) |
+
+### MitreMatchType
+
+How a MITRE candidate matched the user's query. Distinct vocabulary from
+`MatchType` (matchClasses).
+
+| Value | Description |
+|-------|-------------|
+| `EXACT_ID` | Query exactly equals the MITRE id |
+| `PREFIX_ID` | Query is a prefix of the MITRE id |
+| `NAME_MATCH` | Query substring matched the candidate's name |
+| `DESCRIPTION_MATCH` | Query substring matched the candidate's description |
+| `VECTOR_SIMILARITY` | Server-computed embedding cosine-similarity match against the HNSW index |
+
+### VectorDisabledReason
+
+Why the vector tier of matchMitreTechniques is disabled. Drives the picker
+caption.
+
+| Value | Description |
+|-------|-------------|
+| `EMBEDDING_DISABLED` | Embedding is disabled in the deployment's environment |
+| `NO_INDEX_MODULE` | Graph backend lacks the `vector_search` procedure (Neo4j, or older Memgraph) |
+| `NO_VECTORS` | MITRE module shipped no embeddings, or per-label coverage is incomplete |
+| `MODEL_MISMATCH` | The module's `embeddingModel` disagrees with the platform's runtime model |
+
 ## Interfaces
 
 ### Element
@@ -385,6 +447,11 @@ Implements: `Element`
 | `attackVector` | `AttackVector` | CVSS-aligned attack vector classification |
 | `createdBy` | `String` | Authorship kind. 'SYSTEM' = module-instantiated via class binding. 'USER' = hand-authored. Null on legacy data is treated as SYSTEM by the cleanup paths. Server-enforced via @populatedBy on the auto-generated CREATE mutations — the callback overrides any client-supplied value with 'USER'. The SYSTEM write path goes via Cypher (SetInstantiationAttributesService) and bypasses this directive. |
 | `authoredBy` | `String` | Creator reference, populated server-side at CREATE time. For USER findings: the authenticated user identifier (JWT sub claim) from context, set by the @populatedBy callback. For SYSTEM findings: an optional module-provided attribution string (feed name, advisory id, researcher name) that the module includes in its return; the module value flows through the resolver's sanitised \$attrs allowlist. Client-supplied values on auto-generated CREATE mutations are overridden by the @populatedBy callback. |
+| `dispositionKind` | `DispositionKind` | User-recorded decision on a SYSTEM finding (null = active). Set via `disposeExposure`; cleared via `clearDisposition`. The auto-generated update input exposes it as writeable, but the structured mutations are the preferred path. |
+| `dispositionReason` | `String` | Free-text justification, mandatory (non-empty after trim) when `dispositionKind` is non-null. |
+| `dispositionedBy` | `String` | Authenticating user (JWT sub claim), stamped server-side. `@settable(onCreate: false, onUpdate: false)` — the structured mutation is the only writer. |
+| `dispositionedAt` | `DateTime` | ISO-8601 timestamp of the current disposition, stamped server-side. `@settable(onCreate: false, onUpdate: false)`. |
+| `dispositionStale` | `Boolean` | True when an instantiation attribute value changed since the disposition was last authored / re-affirmed. Deliberately NOT `@settable`-locked so the generated update mutation and the USER-copy-delete companion can flip it. |
 | `component` | `[Component!]!` | Components affected by this exposure (← `HAS_EXPOSURE`) |
 | `securityBoundary` | `[SecurityBoundary!]!` | Boundaries affected by this exposure (← `HAS_EXPOSURE`) |
 | `dataFlow` | `[DataFlow!]!` | Data flows affected by this exposure (← `HAS_EXPOSURE`) |
@@ -412,6 +479,11 @@ Implements: `Element`
 | `tags` | `[String!]` | Tags for filtering and grouping |
 | `createdBy` | `String` | Authorship kind. 'SYSTEM' = module-instantiated via class binding. 'USER' = hand-authored. Server-enforced via @populatedBy on the auto-generated CREATE mutations — the callback overrides client input. See the matching field on Exposure for full rationale. |
 | `authoredBy` | `String` | Creator reference, populated server-side at CREATE time. See the matching field on Exposure for full rationale. Client-supplied values on auto-generated CREATE mutations are overridden by the @populatedBy callback. |
+| `dispositionKind` | `DispositionKind` | User-recorded decision on a SYSTEM finding (null = active). Set via `disposeCountermeasure`; cleared via `clearCountermeasureDisposition`. |
+| `dispositionReason` | `String` | Free-text justification, mandatory (non-empty after trim) when `dispositionKind` is non-null. |
+| `dispositionedBy` | `String` | Authenticating user (JWT sub claim), stamped server-side. `@settable(onCreate: false, onUpdate: false)`. |
+| `dispositionedAt` | `DateTime` | ISO-8601 timestamp of the current disposition, stamped server-side. `@settable(onCreate: false, onUpdate: false)`. |
+| `dispositionStale` | `Boolean` | True when an instantiation attribute value changed since the disposition was last authored / re-affirmed. Not `@settable`-locked. |
 | `mitigations` | `[MitreAttackMitigation!]!` | ATT&CK mitigations implemented by this countermeasure (→ `RESPONDS_WITH`) |
 | `defendedTechniques` | `[MitreDefendTechnique!]!` | D3FEND techniques implemented by this countermeasure (→ `RESPONDS_WITH`) |
 | `control` | `[Control!]!` | Control that provides this countermeasure (← `HAS_COUNTERMEASURE`) |
@@ -1076,6 +1148,60 @@ A reference to a MITRE ATT&CK or D3FEND entity.
 | `id` | `String!` |  |
 | `name` | `String!` |  |
 
+### MatchMitreTechniquesInput
+
+Input envelope for matchMitreTechniques. Batch shape — the picker sends
+single-element arrays. Server clamps `queries` to 25 and `topN` to `[1, 50]`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `queries` | `[TechniqueQueryInput!]!` | One or more query strings; each becomes a parallel entry in `matches[]` |
+| `kind` | `MitreKind!` | Corpus to match against — determines which HNSW index is consulted |
+| `topN` | `Int` | Per-query result cap. Clamped to `[1, 50]`. Defaults to 3 |
+
+### TechniqueQueryInput
+
+A single query within a `MatchMitreTechniquesInput.queries` batch.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `query` | `String!` | User-typed text — a MITRE id (T1003), a partial id (T100), a name fragment, or free-form intent. Capped at 500 chars |
+
+### MatchMitreTechniquesResult
+
+Top-level result for the matchMitreTechniques query.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `matches` | `[TechniqueQueryMatch!]!` | Match results per query, parallel to `input.queries` (same order, same length) |
+| `unmatched` | `[String!]!` | Queries that produced no candidates |
+| `vectorAvailable` | `Boolean!` | False when the deployment has no HNSW indexes, the `vector_search` module is absent, embedding is disabled, or shipped vectors mismatch the runtime model |
+| `vectorDisabledReason` | `VectorDisabledReason` | Set when `vectorAvailable` is false; null otherwise |
+
+### TechniqueQueryMatch
+
+Candidate list returned for a single `TechniqueQueryInput`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `query` | `String!` | Echoes the input query string so clients can correlate batched results |
+| `candidates` | `[MitreCandidate!]!` | Ordered list of candidate matches (best first) |
+
+### MitreCandidate
+
+A single MITRE candidate. The shape is uniform across the three `MitreKind`
+values; `mitreId` reads from `attack_id` (ATT&CK) or `d3fendId` (D3FEND).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mitreId` | `String!` | T1003 / T1003.001 / D3-PMAD / M1041 |
+| `name` | `String!` | Candidate name |
+| `description` | `String` | Free-text description |
+| `tactic` | `String` | ATT&CK or D3FEND tactic name (same field; distinct vocabularies) |
+| `kind` | `MitreKind!` | Corpus this candidate came from |
+| `matchType` | `MitreMatchType!` | Which tier produced the match |
+| `similarityScore` | `Float` | Populated for `VECTOR_SIMILARITY` matches; null for the deterministic tiers |
+
 ## Utility types
 
 Helper types used as return values or nested structures.
@@ -1164,6 +1290,29 @@ A streamed response from an AI analysis agent.
 | `invalid_tool_calls` | `[JSON!]` | Tool calls that failed validation |
 | `usage_metadata` | `JSON` | Token usage statistics |
 | `tool_call_chunks` | `[JSON!]` | Partial tool call data from streaming chunks |
+
+### DispositionMutationResult
+
+Result envelope returned by all four disposition mutations. On success,
+`errorCode` and `errorMessage` are null and the five disposition fields echo
+the state that landed (a clear mutation returns all five as null). On
+failure, `success` is false, `errorCode` is set, and no graph change
+persists.
+
+`exposureId` is shared across both node types — it carries the finding id for
+Exposure *and* Countermeasure (a deliberate no-rename decision).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `success` | `Boolean!` | True for applied and cleared dispositions; false on any error path |
+| `exposureId` | `ID!` | The finding id (Exposure or Countermeasure) |
+| `dispositionKind` | `DispositionKind` | Kind that landed; null after a clear |
+| `dispositionReason` | `String` | Reason that landed; null after a clear |
+| `dispositionedBy` | `String` | Actor (JWT sub) stamped server-side; null after a clear |
+| `dispositionedAt` | `DateTime` | Timestamp stamped server-side; null after a clear |
+| `dispositionStale` | `Boolean` | Always false after a dispose (re-affirm clears staleness); null after a clear |
+| `errorCode` | `DispositionErrorCode` | Null on success |
+| `errorMessage` | `String` | Sanitised human-readable string; null on success |
 
 ## Queries
 
@@ -1260,6 +1409,24 @@ Match elements against class catalog nodes using a multi-priority pipeline
 | Argument | Type |
 |----------|------|
 | `input` | `MatchClassesInput!` |
+
+### matchMitreTechniques
+
+Resolve user-typed text to MITRE technique or mitigation candidates via a
+five-tier cascade (EXACT_ID → PREFIX_ID → NAME_MATCH → DESCRIPTION_MATCH →
+VECTOR_SIMILARITY), short-circuiting at the first non-empty tier. The `kind`
+arg selects one of three corpora. The `vectorAvailable` /
+`vectorDisabledReason` envelope fields describe vector-tier health at request
+time; the deterministic tiers still serve results when the vector tier is
+off.
+
+**Returns:** `MatchMitreTechniquesResult!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `input` | `MatchMitreTechniquesInput!` |
 
 ### listClasses
 
@@ -1461,6 +1628,66 @@ transaction counts (deleted/instantiated derived; preserved custom).
 |----------|------|
 | `elementId` | `ID!` |
 | `target` | `ElementBindingInput!` |
+
+### disposeExposure
+
+Author, modify, or re-affirm the disposition on an Exposure. Stamps
+`dispositionedBy` and `dispositionedAt` from the authenticated user and
+current time, and clears `dispositionStale` unconditionally — re-affirming a
+stale disposition is a successful dispose call. If a disposition already
+exists, last-writer-wins. Mandatory: `kind`, `reason` (non-empty after trim,
+≤2000 chars). Domain errors return as `success: false`.
+
+**Returns:** `DispositionMutationResult!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `exposureId` | `ID!` |
+| `kind` | `DispositionKind!` |
+| `reason` | `String!` |
+
+### clearDisposition
+
+Clear the disposition from an Exposure. Nulls all five disposition fields in
+a single SET. Idempotent when no disposition exists.
+
+**Returns:** `DispositionMutationResult!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `exposureId` | `ID!` |
+
+### disposeCountermeasure
+
+Author, modify, or re-affirm the disposition on a Countermeasure. Same
+semantics as `disposeExposure`; the result envelope's `exposureId` field
+carries the countermeasure id in this path.
+
+**Returns:** `DispositionMutationResult!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `countermeasureId` | `ID!` |
+| `kind` | `DispositionKind!` |
+| `reason` | `String!` |
+
+### clearCountermeasureDisposition
+
+Clear the disposition from a Countermeasure. Idempotent.
+
+**Returns:** `DispositionMutationResult!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `countermeasureId` | `ID!` |
 
 ### resetModule
 

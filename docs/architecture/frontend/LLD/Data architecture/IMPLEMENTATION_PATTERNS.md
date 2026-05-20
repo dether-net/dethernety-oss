@@ -3,6 +3,7 @@
 ## Table of Contents
 - [Library Layer Patterns](#library-layer-patterns)
 - [Store Layer Patterns](#store-layer-patterns)
+- [Shared Surface Patterns](#shared-surface-patterns)
 - [Error Handling Patterns](#error-handling-patterns)
 - [Concurrency Patterns](#concurrency-patterns)
 - [State Management Patterns](#state-management-patterns)
@@ -391,6 +392,106 @@ const updateItem = async (params: UpdateParams): Promise<SomeType> => {
   }
 }
 ```
+
+## Shared Surface Patterns
+
+When two venues render the same domain surface, the shared behaviour is lifted into a composable so the venues cannot drift. The disposition surface — rendered identically by the exposures tab and the Control dialog's countermeasures sub-table — is the reference example.
+
+### 1. Composable for Shared View Logic
+
+`useFindingDisposition` ([`src/composables/useFindingDisposition.ts`](../../../../../apps/dt-ui/src/composables/useFindingDisposition.ts)) holds the pure / mostly-pure pieces both finding venues need: provenance icon matrix, kind label, active-before-disposed sort, stale row class, and the dialog-state shape and opener. It deliberately does **not** own the mutation dispatch — the stores and Supersede orchestrators differ between exposures and countermeasures — so each host wires its own store calls but renders through the shared helpers.
+
+```typescript
+// In a venue component (SettingsExposuresTab / ControlDialog)
+const {
+  provenanceInfo,      // (finding) → { kind, tooltip, iconName, iconColor }
+  isUserAuthored,      // (finding) → boolean  — drives asymmetric SYSTEM/USER actions
+  dispositionKindLabel,// (kind) → human label, incl. WAIVED
+  partitionAndSort,    // active (undisposed) findings first, disposed at the bottom
+  rowClass,            // stale rows → 'row-stale' class
+  DISPOSE_ICON,        // shared mdi glyph
+  ERROR_MESSAGES,      // errorCode → user-language snackbar copy
+} = useFindingDisposition()
+```
+
+Helpers exported standalone (not behind the `useFindingDisposition()` factory) are the pure ones a host needs at module scope: `emptyDispositionDialogState()`, `dispositionStateFor(finding)`, and the `DispositionDialogState` / `SnackBarState` / `FindingType` types. The factory is used only where reactive state (the auth store for self-attribution) is needed.
+
+**Why a composable, not a base component.** The two venues are structurally different (a settings tab vs. a sub-table inside a dialog). Sharing the *logic* rather than the *layout* lets each venue keep its own table chrome while guaranteeing the provenance icons, sort order, and stale styling stay byte-identical.
+
+### 2. Shared Dialog Parameterised by Type
+
+`DispositionDialog.vue` ([`src/components/Dialogs/Exposure/DispositionDialog.vue`](../../../../../apps/dt-ui/src/components/Dialogs/Exposure/DispositionDialog.vue)) is one dialog used by both finding types. A single `findingType: 'EXPOSURE' | 'COUNTERMEASURE'` prop drives every divergence:
+
+- **Pickable kinds** — exposures offer `NOT_APPLICABLE / FALSE_POSITIVE / COMPENSATING_CONTROL / RISK_ACCEPTED`; countermeasures offer `NOT_APPLICABLE / FALSE_POSITIVE / WAIVED`. `SUPERSEDED` is filtered out for both — it is set only by the Supersede flow, never user-picked.
+- **Title copy** — "Dispose Exposure" vs. "Dispose Countermeasure".
+- **Save / Clear dispatch** — `EXPOSURE` → `flowStore`, `COUNTERMEASURE` → `controlsStore`.
+
+```typescript
+const result = isCountermeasure.value
+  ? await controlsStore.disposeCountermeasure({ countermeasureId: props.findingId, kind, reason })
+  : await flowStore.disposeExposure({ exposureId: props.findingId, kind, reason })
+
+if (!result.success) {
+  errorMessage.value = result.errorMessage ?? 'Save failed.'   // domain error — branch on success, no throw
+  return
+}
+emit('saved', result)
+```
+
+The dialog branches on `result.success` (the [`DispositionMutationResult`](../../../dt-core/GRAPHQL_OPERATIONS.md#disposition-operations) contract) for domain errors and only `catch`es transport errors. The destructive "Remove disposition" action sits on the opposite side of the action row from Save and uses a two-tap confirmation so a mis-aim can't destroy disposition history.
+
+### 3. Store Passthrough
+
+Disposition and Supersede store actions are thin passthroughs: the UI calls the store, the store forwards to dt-core, and the result envelope flows back unchanged. There is no optimistic update or local cache mutation here — the venue refetches (`emit('updateForm')` / `fetchCountermeasures()`) after a successful write because disposition state can change derived ordering and badge counts.
+
+```typescript
+// flowStore.ts
+const disposeExposure = async ({ exposureId, kind, reason }) =>
+  dtExposure.disposeExposure({ exposureId, kind, reason })
+
+const supersedeExposure = async ({ exposureId, elementId, exposure }) =>
+  executeSupersedeFlow({ systemExposureId: exposureId, systemExposure: exposure, elementId, dtExposure })
+
+const deleteExposure = async ({ exposureId, exposureName }) =>
+  // exposureName captured BEFORE delete so dt-core can fire the SUPERSEDED-staleness companion
+  dtExposure.deleteExposure({ exposureId, exposureName })
+```
+
+`controlsStore` mirrors this with `disposeCountermeasure` / `clearCountermeasureDisposition` / `supersedeCountermeasure` / `deleteCountermeasure`. The Supersede actions return the full `{ userCopy, systemDispositionResult }` so the venue can render the partial-failure UX described next.
+
+### 4. Partial-Failure Snackbar with Retry
+
+The Supersede flow is two backend writes (clone, then dispose-as-superseded). Step 1 can succeed while step 2 fails — the USER copy exists but the original wasn't marked superseded. The venue surfaces this as a `warning` snackbar carrying a **Retry** action that re-issues only the failed disposal, keyed on the clone name produced by step 1:
+
+```typescript
+const { userCopy, systemDispositionResult } = await flowStore.supersedeExposure({
+  exposureId: item.id, elementId: props.selectedItem.id, exposure: item,
+})
+
+if (!systemDispositionResult.success) {
+  const reason = ERROR_MESSAGES[systemDispositionResult.errorCode ?? ''] ?? 'an unexpected error'
+  snackBar.value = {
+    show: true, color: 'warning',
+    message: `Your custom copy was created, but marking the original as superseded failed (${reason}).`,
+    action: {
+      label: 'Retry',
+      handler: async () => {
+        const retry = await flowStore.disposeExposure({
+          exposureId: item.id,
+          kind: 'SUPERSEDED',
+          // single-quote wrap is the companion match anchor — must match the orchestrator byte-for-byte
+          reason: `Superseded by user-authored exposure '${userCopy.name}'`,
+        })
+        // ... success → green snackbar + refetch; failure → error snackbar with manual-dispose hint
+      },
+    },
+  }
+}
+```
+
+The snackbar (`SnackBarState`, from `useFindingDisposition`) carries an optional `action: { label, handler }`. The Retry handler does **not** re-clone — step 1 already committed — it only re-runs the disposal so the user never ends up with a duplicate copy. The `errorCode` is mapped to user-language copy through the shared `ERROR_MESSAGES` map; the raw enum stays in the console / monitoring path.
+
+> This is the same partial-failure shape as the [class-change two-snackbar UX](#4-class-change-feedback-per-parent-snackbar) below: a committed first half plus a recoverable second half, surfaced colocated with the affected row rather than through a global toast queue.
 
 ## Error Handling Patterns
 
