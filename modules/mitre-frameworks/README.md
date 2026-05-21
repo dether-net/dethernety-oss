@@ -56,7 +56,7 @@ consumed by the LangChain RAG / analysis subsystem):
 | Artifact | Model | Dimensions | Consumer |
 |---|---|---|---|
 | `data/04-mitre-vectors.sql` | OpenAI `text-embedding-3-small` | 1536 | pgvector |
-| `data/05-mitre-embeddings.cypher` | `nomic-embed-text` (runtime default) | 768 | Memgraph HNSW — `matchMitreTechniques` picker |
+| `data/05-mitre-embeddings.cypher` | `embeddinggemma` (runtime default) | 768 | Memgraph HNSW — `matchMitreTechniques` picker |
 
 Both coexist; neither replaces the other.
 
@@ -107,8 +107,8 @@ Configuration is managed through environment variables (typically set in a `.env
 - `MITRE_ATTACK_VERSION`: Version of MITRE ATT&CK to ingest (default: latest)
 - `MITRE_DEFEND_VERSION`: Version of MITRE D3FEND to ingest (default: latest)
 - `EMBEDDING_PROVIDER`: One of `sentence-transformers`, `ollama`, `openai`, `fixture`. Used by `export_embeddings_to_cypher.py`. Auto-detects when unset (sentence-transformers if installed, else skip).
-- `EMBEDDING_MODEL`: Model identifier written into the `embeddingModel` property on each MITRE node. Defaults to `nomic-embed-text` (sentence-transformers / Ollama) or `text-embedding-3-small` (OpenAI).
-- `EMBEDDING_DIMENSIONS`: Override the expected dimension. Default 768 (nomic) / 1536 (OpenAI).
+- `EMBEDDING_MODEL`: Model identifier written into the `embeddingModel` property on each MITRE node. Defaults are per-provider: `nomic-embed-text` (sentence-transformers), `embeddinggemma` (Ollama — the platform runtime default), or `text-embedding-3-small` (OpenAI).
+- `EMBEDDING_DIMENSIONS`: Override the expected dimension. Default 768 (Ollama / sentence-transformers) / 1536 (OpenAI).
 - `OLLAMA_URL`: Override the Ollama endpoint (default `http://localhost:11434/api/embed`).
 
 ## Data Model

@@ -795,7 +795,7 @@ The embedding service is a thin HTTP client — it calls any OpenAI-compatible e
 EMBEDDING_ENABLED=true|false        // default: false
 EMBEDDING_URL=http://localhost:11434/api/embeddings  // any OpenAI-compatible endpoint
 EMBEDDING_API_KEY=                  // empty for local (Ollama), set for cloud (OpenAI, Bedrock)
-EMBEDDING_MODEL=nomic-embed-text   // model name passed in the request body
+EMBEDDING_MODEL=embeddinggemma     // model name passed in the request body
 EMBEDDING_DIMENSIONS=768            // must match model output
 EMBEDDING_SIMILARITY_THRESHOLD=0.75 // configurable
 ```
@@ -847,7 +847,7 @@ export class EmbeddingService {
     this.enabled = configService.get('EMBEDDING_ENABLED') === 'true'
     this.url = configService.get('EMBEDDING_URL') || ''
     this.apiKey = configService.get('EMBEDDING_API_KEY') || ''
-    this.model = configService.get('EMBEDDING_MODEL') || 'nomic-embed-text'
+    this.model = configService.get('EMBEDDING_MODEL') || 'embeddinggemma'
   }
 
   isEnabled(): boolean { return this.enabled }
@@ -979,7 +979,7 @@ Store the embedding model identifier alongside vectors to detect version drift:
 CREATE (c:ComponentClass {
     ...,
     embedding: item.vector,
-    embeddingModel: $model_identifier  // e.g., "nomic-embed-text"
+    embeddingModel: $model_identifier  // e.g., "embeddinggemma"
 })
 ```
 
@@ -1000,7 +1000,7 @@ SET c.name = item.name,
 
 ### Re-indexing (embedding model migration)
 
-When the embedding model changes (e.g., `nomic-embed-text` → a newer model), all class vectors must be recomputed before the new model is used for queries. A GraphQL mutation exposes this as a platform operation:
+When the embedding model changes (e.g., `embeddinggemma` → a newer model), all class vectors must be recomputed before the new model is used for queries. A GraphQL mutation exposes this as a platform operation:
 
 ```graphql
 type Mutation {

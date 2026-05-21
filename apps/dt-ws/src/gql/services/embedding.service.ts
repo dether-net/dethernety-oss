@@ -50,7 +50,7 @@ export class EmbeddingService {
     this.enabled = this.configService.get('EMBEDDING_ENABLED') === 'true';
     this.url = this.configService.get('EMBEDDING_URL') || 'http://localhost:11434/api/embed';
     this.apiKey = this.configService.get('EMBEDDING_API_KEY') || '';
-    this.model = this.configService.get('EMBEDDING_MODEL') || 'nomic-embed-text';
+    this.model = this.configService.get('EMBEDDING_MODEL') || 'embeddinggemma';
     this.dimensions = parseInt(this.configService.get('EMBEDDING_DIMENSIONS') || '768', 10);
     this.threshold = parseFloat(this.configService.get('EMBEDDING_SIMILARITY_THRESHOLD') || '0.75');
 
