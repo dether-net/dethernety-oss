@@ -1351,9 +1351,10 @@ type Mutation {
         WHERE otherC.id <> $analysisClassId
       DELETE stale
       WITH a
-      MATCH (e {id: $elementId})
-      WHERE any(label IN labels(e) WHERE label IN ['Model','Component','DataFlow','SecurityBoundary','Control','Data','Exposure','Countermeasure'])
-      MERGE (e)-[:ANALYZED_BY]->(a)
+      OPTIONAL MATCH (e {id: $elementId})
+        WHERE any(label IN labels(e) WHERE label IN ['Model','Component','DataFlow','SecurityBoundary','Control','Data','Exposure','Countermeasure'])
+      FOREACH (_ IN CASE WHEN e IS NULL THEN [] ELSE [1] END |
+        MERGE (e)-[:ANALYZED_BY]->(a))
       WITH a
       MATCH (c:AnalysisClass {id: $analysisClassId})
       MERGE (a)-[:IS_INSTANCE_OF]->(c)
