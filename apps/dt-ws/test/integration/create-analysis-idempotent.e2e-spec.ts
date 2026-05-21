@@ -104,9 +104,10 @@ const typeDefs = `
           WHERE otherC.id <> $analysisClassId
         DELETE stale
         WITH a
-        MATCH (e {id: $elementId})
-        WHERE any(label IN labels(e) WHERE label IN ['Model','Component','DataFlow','SecurityBoundary','Control','Data','Exposure','Countermeasure'])
-        MERGE (e)-[:ANALYZED_BY]->(a)
+        OPTIONAL MATCH (e {id: $elementId})
+          WHERE any(label IN labels(e) WHERE label IN ['Model','Component','DataFlow','SecurityBoundary','Control','Data','Exposure','Countermeasure'])
+        FOREACH (_ IN CASE WHEN e IS NULL THEN [] ELSE [1] END |
+          MERGE (e)-[:ANALYZED_BY]->(a))
         WITH a
         MATCH (c:AnalysisClass {id: $analysisClassId})
         MERGE (a)-[:IS_INSTANCE_OF]->(c)
@@ -547,7 +548,7 @@ describe('createAnalysisIdempotent — MERGE-by-id end-to-end', () => {
     }
   });
 
-  it('case 8 — Analysis label is excluded from the ANALYZED_BY label allow-list (anti-self-loop guard)', async () => {
+  it('case 8 — element not in the ANALYZED_BY allow-list: Analysis still created+returned (anti-self-loop guard + createAnalysis null-return regression)', async () => {
     // Anti-self-loop guard: 'Analysis' is intentionally NOT in the
     // ANALYZED_BY label allow-list. Without this exclusion, a caller
     // could create `(a:Analysis)-[:ANALYZED_BY]->(a)` by passing
@@ -568,13 +569,16 @@ describe('createAnalysisIdempotent — MERGE-by-id end-to-end', () => {
     });
 
     // Now try to create another Analysis with the victim Analysis as the
-    // "element". Since 'Analysis' is no longer in the allow-list, the WHERE
-    // filter excludes the match → MATCH (e ...) finds nothing → MERGE skips
-    // → the second Analysis node is created (the first MERGE succeeded) but
-    // no ANALYZED_BY edge to the victim is established. The IS_INSTANCE_OF
-    // MERGE also runs because the AnalysisClass is bound from a separate
-    // MATCH. End state: attacker.analyzedBy === 0 (no spurious self-link).
-    await graphql({
+    // "element". 'Analysis' is not in the allow-list, so the OPTIONAL MATCH
+    // binds e=null and the conditional FOREACH skips the ANALYZED_BY MERGE —
+    // but the pipeline survives, so the attacker Analysis is created, bound
+    // to its AnalysisClass, and RETURNED. This is exactly the Studio shape (a
+    // StudioClass element id, not in the allow-list): pre-fix the plain MATCH
+    // emptied the pipeline, so the mutation returned null (surfaced as "No
+    // data returned for createAnalysis") and left an orphaned Analysis with
+    // no IS_INSTANCE_OF. Pin both: the Analysis is returned, AND no spurious
+    // self-link is created.
+    const attackerResult = await graphql({
       schema,
       source: `mutation {
         createAnalysisIdempotent(
@@ -585,6 +589,13 @@ describe('createAnalysisIdempotent — MERGE-by-id end-to-end', () => {
       }`,
       contextValue: ctx,
     });
+
+    // Regression guard for the createAnalysis null-return bug: the mutation
+    // must return the Analysis even though the element label isn't in the
+    // allow-list, and bind IS_INSTANCE_OF, with NO ANALYZED_BY edge.
+    expect(attackerResult.errors).toBeUndefined();
+    expect((attackerResult.data?.createAnalysisIdempotent as { id: string } | null)?.id).toBe('attacker');
+    expect(await countShape('attacker')).toEqual({ analyses: 1, isInstanceOf: 1, analyzedBy: 0 });
 
     const session = mg.driver.session({ database: 'memgraph' });
     try {

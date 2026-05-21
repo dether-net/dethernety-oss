@@ -1579,6 +1579,16 @@ ANALYZED_BY bindings to other elements are NOT pruned: an Analysis can
 legitimately span multiple elements per the schema's `Analysis.element`
 list-cardinality field.
 
+The element binding is best-effort: `elementId` is bound via `ANALYZED_BY`
+only when the target node carries an analyzable label (`Model`, `Component`,
+`DataFlow`, `SecurityBoundary`, `Control`, `Data`, `Exposure`,
+`Countermeasure`). If the element is outside that set — e.g. a module-specific
+label such as Studio's `StudioClass`, which links the Analysis through its own
+relationship — the Analysis is still created, bound to its `AnalysisClass`, and
+returned; the mutation does not return null. (The element MATCH is an
+`OPTIONAL MATCH` + conditional `MERGE` so a non-listed element cannot empty the
+result pipeline.)
+
 **Returns:** `Analysis`
 
 **Arguments:**
