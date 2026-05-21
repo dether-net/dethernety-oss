@@ -460,8 +460,8 @@ A thin HTTP client, not a model runtime. The service calls any OpenAI-compatible
   │    EMBEDDING_ENABLED    (bool, default: false) │
   │    EMBEDDING_URL        (any compatible URL)   │
   │    EMBEDDING_API_KEY    (empty for local)      │
-  │    EMBEDDING_MODEL      (default: nomic-embed-│
-  │                          text, 768 dims)       │
+  │    EMBEDDING_MODEL      (default:              │
+  │                          embeddinggemma, 768d) │
   │    EMBEDDING_DIMENSIONS (default: 768)         │
   │    EMBEDDING_SIMILARITY_THRESHOLD (def: 0.75)  │
   │                                               │
@@ -478,7 +478,7 @@ A thin HTTP client, not a model runtime. The service calls any OpenAI-compatible
   └───────────────────────────────────────────────┘
 ```
 
-**Default model: `nomic-embed-text`** (768 dimensions). Chosen for quality-to-size ratio, local deployment via Ollama, and suitability for the domain (technical infrastructure descriptions). The embedding model is configurable per deployment.
+**Default model: `embeddinggemma`** (768 dimensions). Chosen for quality-to-size ratio, local deployment via Ollama, and suitability for the domain (technical infrastructure descriptions). The embedding model is configurable per deployment.
 
 ### Vector index topology
 

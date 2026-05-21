@@ -105,8 +105,11 @@ class SentenceTransformersProvider:
             "nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True
         )
         # model_name is what we write into the embeddingModel property on each
-        # MITRE node. Runtime EMBEDDING_MODEL defaults to 'nomic-embed-text';
-        # we keep that string here so the model-coherence precheck matches by default.
+        # MITRE node. This provider produces nomic-ai/nomic-embed-text-v1.5
+        # vectors, so it tags them 'nomic-embed-text'. The runtime EMBEDDING_MODEL
+        # default is 'embeddinggemma', so a corpus built via this fallback provider
+        # needs EMBEDDING_MODEL=nomic-embed-text at query time to match (else the
+        # model-coherence precheck flags MODEL_MISMATCH — diagnosable, not silent).
         self.model_name = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
         dim = self._model.get_sentence_embedding_dimension()
         if dim is None:
