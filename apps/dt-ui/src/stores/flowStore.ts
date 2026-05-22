@@ -840,8 +840,8 @@ export const useFlowStore = defineStore('flow', () => {
   /// ////////////////////////////////
   // DataItem functions
   const createDataItem = async (
-    { name, description, classId, elementId }:
-    { name: string, description: string, elementId: string, classId: string | null }
+    { name, description, classId, elementId, sensitivity, regulatoryFlags }:
+    { name: string, description: string, elementId: string, classId: string | null, sensitivity?: string | null, regulatoryFlags?: string[] }
   ): Promise<DataItem | null> => {
     const operationKey = 'createDataItem'
     
@@ -855,12 +855,14 @@ export const useFlowStore = defineStore('flow', () => {
       clearError(operationKey)
       setOperationLoading(operationKey, true)
       
-      const createdDataItem = await dtDataItem.createDataItem({ 
-        name, 
-        description, 
-        classId, 
-        elementId, 
-        modelId: modelId.value || '' 
+      const createdDataItem = await dtDataItem.createDataItem({
+        name,
+        description,
+        classId,
+        elementId,
+        modelId: modelId.value || '',
+        sensitivity: sensitivity ?? undefined,
+        regulatoryFlags,
       })
       
       if (!createdDataItem) {
@@ -909,8 +911,8 @@ export const useFlowStore = defineStore('flow', () => {
   }
 
   const updateDataItem = async (
-    { dataItemId, name, description, classId }:
-    { dataItemId: string | null, name: string, description: string, classId?: string | null }
+    { dataItemId, name, description, classId, sensitivity, regulatoryFlags }:
+    { dataItemId: string | null, name: string, description: string, classId?: string | null, sensitivity?: string | null, regulatoryFlags?: string[] }
   ): Promise<boolean> => {
     if (!dataItemId) return false
     
@@ -930,7 +932,12 @@ export const useFlowStore = defineStore('flow', () => {
         dataItemId,
         name,
         description,
-        classId
+        classId,
+        // Asset-context rides the same update. dt-core uses REPLACE semantics
+        // (an omitted value clears the platform field), so the dialog always
+        // sends the current values — see DataDialog seeding them on load.
+        sensitivity: sensitivity ?? undefined,
+        regulatoryFlags,
       })
 
       if (bindingResult?.errorCode) {

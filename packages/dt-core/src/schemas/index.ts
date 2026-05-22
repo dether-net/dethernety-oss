@@ -90,6 +90,7 @@ export {
   MODELING_DEPTHS,
   MODELING_INTENTS,
   SENSITIVITY_LEVELS,
+  RECOMMENDED_REGULATORY_FLAGS,
   platformEnumToLocal,
   localEnumToPlatform,
   platformScopeToLocal,

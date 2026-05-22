@@ -106,6 +106,8 @@ export const UPDATE_COMPONENT = gql`
             id
             name
           }
+          sensitivity
+          regulatoryFlags
           # elements {
           #   id
           # }
