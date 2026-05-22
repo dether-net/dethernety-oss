@@ -6,6 +6,8 @@ Domain terminology used throughout the Dethernety platform and documentation.
 
 ## Core modeling
 
+**Compliance Driver** -- A regulatory or standards framework that scopes a model (e.g., `PCI-DSS`, `SOC2`, `ISO 27001`, `HIPAA`, `GDPR`). A model-level, free-text list set via the combobox on the General tab of the Model dialog, or during the AI scope-definition workflow. Distinct from a data item's [Regulatory Flag](#): compliance drivers declare the obligations the whole model is built against and steer the depth of AI enrichment prompts (D52 tiers); regulatory flags label individual data items. The set is extensible — any value is allowed — but a recommended set is suggested.
+
 **Component** -- A system element in a threat model: server, service, database, user, external system, etc. Components are nodes in the graph. Each component has a class that determines its attributes and behavior.
 
 **Crown Jewel** -- A component flagged as a high-value asset — the data or capability an attacker would most want to reach. Set via the crown toggle on the General tab of a component's settings dialog, or during the AI classify workflow; both write the same per-component flag. Analysis prioritizes crown jewels (e.g., a crown jewel without controls is a highest-priority gap).

@@ -52,6 +52,8 @@ export {
   splitToMonolithic,
   validateMonolithicModel,
   RECOMMENDED_REGULATORY_FLAGS,
+  RECOMMENDED_COMPLIANCE_DRIVERS,
+  platformScopeToLocal,
 } from './schemas/index.js'
 
 // Schema types - prefixed or unique names to avoid conflicts

@@ -35,6 +35,27 @@ export const RECOMMENDED_REGULATORY_FLAGS = [
   { flag: 'CCPA personal', framework: 'CCPA' },
 ] as const;
 
+/**
+ * Recommended (NOT exhaustive) model-level compliance-driver vocabulary, mirroring
+ * the single source of truth in `docs/architecture/dethereal/THREAT_MODELING_WORKFLOW.md`
+ * (Phase 1 § "Regulatory drivers", D52 tiering). `complianceDrivers` is a free-text
+ * `[String!]` and the set is extensible — these are the frameworks the dethereal
+ * `security-enricher` agent recognises and the ones GUI/tooling suggest. The `tier`
+ * reflects D52 enrichment support: 1 = full attribute prompts, 2 = data-classification
+ * prompts only, 3 = declared only (no framework-specific prompts). Keep this in sync
+ * with the doc; do not add frameworks here without updating the doc (and vice versa).
+ */
+export const RECOMMENDED_COMPLIANCE_DRIVERS = [
+  { driver: 'SOC2', tier: 1 },
+  { driver: 'ISO 27001', tier: 1 },
+  { driver: 'PCI-DSS', tier: 2 },
+  { driver: 'HIPAA', tier: 2 },
+  { driver: 'GDPR', tier: 2 },
+  { driver: 'NIST CSF', tier: 3 },
+  { driver: 'NIS2', tier: 3 },
+  { driver: 'DORA', tier: 3 },
+] as const;
+
 /** Flat platform-shaped scope fields (mirror the GraphQL `Model` node). */
 export interface PlatformScopeFields {
   depth?: string | null;

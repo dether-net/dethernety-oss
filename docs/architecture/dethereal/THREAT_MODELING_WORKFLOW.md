@@ -134,6 +134,8 @@ The 7 methodology phases above describe the analytical framework. The guided wor
   - `insider` -- employees, contractors with internal access (triggers admin path and credential flow prompts)
   - `supply_chain` -- vendor/dependency compromise (triggers CI/CD and dependency chain prompts)
 
+The compliance-driver vocabulary above (the D52 tiers) is the **single source of truth** and is mirrored in code by the `RECOMMENDED_COMPLIANCE_DRIVERS` constant in dt-core (`packages/dt-core/src/schemas/asset-context-map.ts`), which feeds the GUI's compliance-driver suggestions in the model dialog. `complianceDrivers` is free-text and extensible, but this doc remains the source of truth for the recommended set; the constant is its code mirror, and **the two must be kept in sync** — adding or renaming a driver here requires the same change there (and vice versa).
+
 **Scope template** (`<model-path>/.dethereal/scope.json`):
 
 ```typescript

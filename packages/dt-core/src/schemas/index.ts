@@ -91,6 +91,7 @@ export {
   MODELING_INTENTS,
   SENSITIVITY_LEVELS,
   RECOMMENDED_REGULATORY_FLAGS,
+  RECOMMENDED_COMPLIANCE_DRIVERS,
   platformEnumToLocal,
   localEnumToPlatform,
   platformScopeToLocal,

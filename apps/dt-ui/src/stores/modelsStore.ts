@@ -2,7 +2,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import apolloClient from '@/plugins/apolloClient'
-import { DtModel, DtModule, Model, Module } from '@dethernety/dt-core'
+import { DtModel, DtModule, Model, Module, ModelScopeLocal } from '@dethernety/dt-core'
 
 export const useModelsStore = defineStore('models', () => {
   const models = ref<Model[]>([])
@@ -141,8 +141,8 @@ export const useModelsStore = defineStore('models', () => {
   }
 
   const updateModel = async (
-    { id, name, description, modules, controls, folderId }:
-    { id: string, name: string, description: string, modules: string[], controls: string[], folderId: string | undefined }
+    { id, name, description, modules, controls, folderId, scope }:
+    { id: string, name: string, description: string, modules: string[], controls: string[], folderId: string | undefined, scope?: ModelScopeLocal }
   ): Promise<boolean> => {
     // Validate input
     const validationErrors = validateUpdateRequest({ id, name, description, modules, controls, folderId })
@@ -171,7 +171,7 @@ export const useModelsStore = defineStore('models', () => {
     try {
       isUpdating.value = true
       error.value = ''
-      const updatedModel = await dtModel.updateModel({ id, name, description, modules, controls, folderId })
+      const updatedModel = await dtModel.updateModel({ id, name, description, modules, controls, folderId, scope })
       
       // Update store if we have the model locally
       if (hasLocalModel) {
