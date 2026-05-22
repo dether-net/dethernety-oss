@@ -109,6 +109,8 @@ export const UPDATE_BOUNDARY = gql`
             id
             name
           }
+          sensitivity
+          regulatoryFlags
           # elements {
           #   id
           # }

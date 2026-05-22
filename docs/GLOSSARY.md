@@ -18,7 +18,11 @@ Domain terminology used throughout the Dethernety platform and documentation.
 
 **Model** -- A threat model containing components, data flows, security boundaries, and controls. The top-level unit of work.
 
+**Regulatory Flag** -- A free-text compliance label on a data item recording which regime the data falls under (e.g., `PCI cardholder`, `PHI`, `GDPR personal`), kept separate from sensitivity. A data item can carry several. The set is extensible — any label is allowed — but the General tab of the Data dialog suggests a recommended set, and the AI enrichment path emits the same labels. Matched exactly and case-sensitively by compliance queries, so producers should use the recommended casing.
+
 **Security Boundary** -- A trust zone grouping components that share a trust level (e.g., "internal network", "DMZ", "public internet"). Boundaries can be nested. Also called "trust boundary" in some threat modeling methodologies.
+
+**Sensitivity** -- A data item's author-asserted confidentiality classification on a four-level scale, lowest to highest: Public, Internal, Confidential, Restricted. Set on the General tab of the Data dialog or by the AI enrichment path. Left unset, the data item is unclassified, which is not the same as Public.
 
 **Trust Level** -- A numeric value on a security boundary indicating how much the zone is trusted. Lower values mean less trust.
 

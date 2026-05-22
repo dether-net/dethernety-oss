@@ -64,6 +64,40 @@ When a component is marked as a crown jewel, its node on the canvas receives a *
 
 **Note**: The crown toggle and the AI/classify workflow set the **same** underlying field on a component. Whether a crown jewel is declared during AI scope definition or toggled here by hand, it is the one crown-jewel mark on that component.
 
+## Classifying Data Items
+
+A data item can carry two pieces of classification context — **sensitivity** and **regulatory flags** — set on the **General** tab of the Data dialog (open a data item's settings and stay on the **General** tab). Both feed security and compliance analysis.
+
+### Sensitivity
+
+**Sensitivity** is your own assertion of how confidential the data is, on a four-level scale from lowest to highest:
+
+- **Public**
+- **Internal**
+- **Confidential**
+- **Restricted**
+
+Pick a level from the **Sensitivity** dropdown. Leaving it blank marks the data item **Unclassified** — which is not the same as Public.
+
+### Regulatory flags
+
+**Regulatory flags** record which compliance regimes the data falls under — for example, cardholder data under PCI-DSS or health records under HIPAA. They are kept separate from sensitivity, and a data item can carry several at once.
+
+The **Regulatory flags** field is a free-text tag input: type any label and press Enter to add it, and click a chip's close icon to remove it. The field also **suggests** a recommended set of flags, each shown with the framework it maps to:
+
+| Flag | Framework |
+|------|-----------|
+| `PCI cardholder` | PCI-DSS |
+| `PHI` | HIPAA |
+| `GDPR personal` | GDPR |
+| `PII` | general |
+| `SOX financial` | SOX |
+| `CCPA personal` | CCPA |
+
+These are **suggestions, not a closed list** — you can type your own labels for any regime the suggestions don't cover. When you do match a recommended regime, prefer the suggested label exactly as written: flags are matched case-sensitively, so a custom variant like `pci cardholder` will not be picked up by compliance queries that look for `PCI cardholder`.
+
+**Note**: Sensitivity and regulatory flags are the same fields the AI enrichment path populates. Whether you set them here by hand or let the AI workflow classify the data item, they read from one shared list of recommended flags, so the GUI suggestions and the AI output stay aligned.
+
 ## AI-Powered Class Generation for All Elements
 
 **Universal Class Creation Capability**

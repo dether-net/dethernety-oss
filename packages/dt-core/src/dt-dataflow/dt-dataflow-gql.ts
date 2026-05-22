@@ -98,6 +98,8 @@ export const UPDATE_DATA_FLOW = gql`
             id
             name
           }
+          sensitivity
+          regulatoryFlags
           # elements {
           #   id
           # }

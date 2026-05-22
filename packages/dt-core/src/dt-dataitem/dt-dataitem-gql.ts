@@ -12,6 +12,8 @@ export const ADD_DATA_ITEM = gql`
           id
           name
         }
+        sensitivity
+        regulatoryFlags
         # elements {
         #   id
         # }
@@ -37,6 +39,8 @@ export const UPDATE_DATA_ITEM = gql`
           id
           name
         }
+        sensitivity
+        regulatoryFlags
         # elements {
         #   id
         # }

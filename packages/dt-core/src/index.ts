@@ -51,6 +51,7 @@ export {
   monolithicToSplit,
   splitToMonolithic,
   validateMonolithicModel,
+  RECOMMENDED_REGULATORY_FLAGS,
 } from './schemas/index.js'
 
 // Schema types - prefixed or unique names to avoid conflicts

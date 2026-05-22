@@ -16,6 +16,25 @@ export const MODELING_DEPTHS = ['architecture', 'design', 'implementation'] as c
 export const MODELING_INTENTS = ['initial', 'security_review', 'compliance', 'incident_response'] as const;
 export const SENSITIVITY_LEVELS = ['public', 'internal', 'confidential', 'restricted'] as const;
 
+/**
+ * Recommended (NOT exhaustive) regulatory-flag vocabulary, mirroring the single
+ * source of truth in `docs/architecture/dethereal/THREAT_MODELING_WORKFLOW.md`
+ * (§ "Canonical sensitivity and regulatory-flag vocabulary"). Regulatory flags
+ * are free-text and the set is extensible — these are the labels the dethereal
+ * `security-enricher` agent emits and the ones GUI/tooling suggest. Casing is
+ * significant: `dataInRegulatoryScope(flag)` matches exactly and case-sensitively,
+ * so suggestions must use the canonical casing below. Keep this in sync with the
+ * doc table; do not add frameworks here without updating the doc (and vice versa).
+ */
+export const RECOMMENDED_REGULATORY_FLAGS = [
+  { flag: 'PCI cardholder', framework: 'PCI-DSS' },
+  { flag: 'PHI', framework: 'HIPAA' },
+  { flag: 'GDPR personal', framework: 'GDPR' },
+  { flag: 'PII', framework: 'general' },
+  { flag: 'SOX financial', framework: 'SOX' },
+  { flag: 'CCPA personal', framework: 'CCPA' },
+] as const;
+
 /** Flat platform-shaped scope fields (mirror the GraphQL `Model` node). */
 export interface PlatformScopeFields {
   depth?: string | null;

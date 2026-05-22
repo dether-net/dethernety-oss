@@ -4,7 +4,7 @@
   import { computed, onMounted, onUnmounted, ref, shallowRef, watch, nextTick } from 'vue'
   import type { UISchemaElement } from '@jsonforms/core'
   import { flattenProperties, unflattenProperties } from '@/utils/dataFlowUtils'
-  import { Exposure } from '@dethernety/dt-core'
+  import { Exposure, RECOMMENDED_REGULATORY_FLAGS } from '@dethernety/dt-core'
   import AttributesForm from '@/components/DataFlow/AttributesForm.vue'
   import AttributesDialog from '@/components/DataFlow/AttributesDialog.vue'
   import ClassPicker from '@/components/DataFlow/ClassPicker/ClassPicker.vue'
@@ -26,6 +26,26 @@
   const name = ref('')
   const description = ref('')
   const dataClass = ref<string | null>(null)
+
+  // Asset-context. sensitivity holds the platform enum token (PUBLIC/INTERNAL/
+  // CONFIDENTIAL/RESTRICTED) or null (unclassified); dt-core's update is case-
+  // insensitive on the way down. regulatoryFlags is a free-text tag list. Both
+  // are seeded on load and always sent on save — dt-core uses REPLACE semantics,
+  // so omitting them would clear the platform fields.
+  const sensitivity = ref<string | null>(null)
+  const regulatoryFlags = ref<string[]>([])
+  const sensitivityOptions = [
+    { value: 'PUBLIC', title: 'Public', color: 'success' },
+    { value: 'INTERNAL', title: 'Internal', color: 'info' },
+    { value: 'CONFIDENTIAL', title: 'Confidential', color: 'warning' },
+    { value: 'RESTRICTED', title: 'Restricted', color: 'error' },
+  ]
+  // Suggested regulatory flags (free-text still allowed). Sourced from dt-core's
+  // canonical set so the GUI suggestions stay aligned with the dethereal/AI path.
+  const regulatoryFlagItems = RECOMMENDED_REGULATORY_FLAGS.map(f => f.flag)
+  const regulatoryFlagFramework: Record<string, string> = Object.fromEntries(
+    RECOMMENDED_REGULATORY_FLAGS.map(f => [f.flag, f.framework])
+  )
 
   // Attributes — buffered model matching SettingsWindow's pattern.
   // lastLoadedAttributes is the backend snapshot; pendingAttributes is the UI buffer that
@@ -66,10 +86,12 @@
   // fields; attributesDirty (declared above) signals the Attributes-tab portion. isDirty drives
   // the close-guard at v-dialog level so the user can't lose edits via Esc / backdrop / X, and
   // gates the Save button enable + Revert button visibility in the toolbar.
-  const initialState = ref<{ name: string; description: string; dataClass: string | null }>({
+  const initialState = ref<{ name: string; description: string; dataClass: string | null; sensitivity: string | null; regulatoryFlags: string[] }>({
     name: '',
     description: '',
     dataClass: null,
+    sensitivity: null,
+    regulatoryFlags: [],
   })
   const showDiscardChangesDialog = ref(false)
 
@@ -79,10 +101,16 @@
   const pendingClassId = ref<string | null>(null)
   const showClassChangeDialog = ref(false)
 
+  // Order-sensitive flag comparison; the combobox preserves insertion order and
+  // offers no reordering, so a plain JSON compare is a faithful dirty signal.
+  const flagsEqual = (a: string[], b: string[]) => JSON.stringify(a) === JSON.stringify(b)
+
   const isDirty = computed(() =>
     name.value !== initialState.value.name ||
     description.value !== initialState.value.description ||
     dataClass.value !== initialState.value.dataClass ||
+    sensitivity.value !== initialState.value.sensitivity ||
+    !flagsEqual(regulatoryFlags.value, initialState.value.regulatoryFlags) ||
     attributesDirty.value
   )
 
@@ -201,6 +229,8 @@
     name.value = initialState.value.name
     description.value = initialState.value.description
     dataClass.value = initialState.value.dataClass
+    sensitivity.value = initialState.value.sensitivity
+    regulatoryFlags.value = [...initialState.value.regulatoryFlags]
     // Attributes: authoritative re-fetch via the debounced init. If dataClass changed,
     // the watcher coalesces with this call (single initializeAttributes run after 100 ms).
     debouncedInitializeAttributes()
@@ -262,6 +292,8 @@
           name.value = currentDataItem.name
           description.value = currentDataItem.description
           dataClass.value = currentDataItem.dataClass?.id ?? null
+          sensitivity.value = currentDataItem.sensitivity ?? null
+          regulatoryFlags.value = currentDataItem.regulatoryFlags ? [...currentDataItem.regulatoryFlags] : []
           // Initialize attributes using our centralized function
           if (dataClass.value) {
             debouncedInitializeAttributes()
@@ -272,6 +304,8 @@
             name: currentDataItem.name,
             description: currentDataItem.description,
             dataClass: currentDataItem.dataClass?.id ?? null,
+            sensitivity: currentDataItem.sensitivity ?? null,
+            regulatoryFlags: currentDataItem.regulatoryFlags ? [...currentDataItem.regulatoryFlags] : [],
           }
         } catch (error) {
           console.error('Failed to get attributes from class relationship', error)
@@ -346,7 +380,9 @@
         const generalDirty =
           name.value !== initialState.value.name ||
           description.value !== initialState.value.description ||
-          dataClass.value !== initialState.value.dataClass
+          dataClass.value !== initialState.value.dataClass ||
+          sensitivity.value !== initialState.value.sensitivity ||
+          !flagsEqual(regulatoryFlags.value, initialState.value.regulatoryFlags)
 
         if (generalDirty) {
           const success = await flowStore.updateDataItem({
@@ -354,6 +390,8 @@
             name: name.value,
             description: description.value,
             classId: dataClass.value,
+            sensitivity: sensitivity.value,
+            regulatoryFlags: regulatoryFlags.value,
           })
           if (!success) {
             emit('update:snackBar', { show: true, message: 'Failed to update data entity', color: 'error' })
@@ -364,6 +402,8 @@
             name: name.value,
             description: description.value,
             dataClass: dataClass.value,
+            sensitivity: sensitivity.value,
+            regulatoryFlags: [...regulatoryFlags.value],
           }
           emit('update:snackBar', { show: true, message: 'Data entity updated successfully', color: 'success' })
         }
@@ -383,6 +423,8 @@
           description: description.value,
           classId: dataClass.value || null,
           elementId: flowStore.selectedItem.id,
+          sensitivity: sensitivity.value,
+          regulatoryFlags: regulatoryFlags.value,
           // Remove attributes from here - they're handled separately
         })
         
@@ -593,6 +635,47 @@
                             v-model="description"
                             label="Description"
                           />
+                          <div class="d-flex ga-4 align-start">
+                            <v-select
+                              v-model="sensitivity"
+                              clearable
+                              :items="sensitivityOptions"
+                              label="Sensitivity"
+                              persistent-placeholder
+                              placeholder="Unclassified"
+                              style="flex: 0 0 38%"
+                            >
+                              <template #item="{ props: itemProps, item }">
+                                <v-list-item v-bind="itemProps">
+                                  <template #prepend>
+                                    <v-icon :color="item.raw.color" size="x-small">mdi-circle</v-icon>
+                                  </template>
+                                </v-list-item>
+                              </template>
+                              <template #selection="{ item }">
+                                <v-icon :color="item.raw.color" class="mr-2" size="x-small">mdi-circle</v-icon>
+                                {{ item.title }}
+                              </template>
+                            </v-select>
+                            <v-combobox
+                              v-model="regulatoryFlags"
+                              chips
+                              class="flex-grow-1 regulatory-flags"
+                              closable-chips
+                              hint="Pick a recommended scope or type your own (e.g. PCI cardholder, PHI)"
+                              :items="regulatoryFlagItems"
+                              label="Regulatory flags"
+                              multiple
+                              style="min-width: 0"
+                            >
+                              <template #chip="{ props: chipProps }">
+                                <v-chip v-bind="chipProps" size="small" />
+                              </template>
+                              <template #item="{ props: itemProps, item }">
+                                <v-list-item v-bind="itemProps" :subtitle="regulatoryFlagFramework[item.title]" />
+                              </template>
+                            </v-combobox>
+                          </div>
                         </v-col>
                         <v-col cols="5">
                           <ClassPicker
@@ -831,7 +914,7 @@
 
 <style scoped>
   .data-window {
-    height: 230pt;
+    height: 260pt;
     overflow-y: auto;
   }
 
@@ -858,5 +941,13 @@
   .attributes-form :deep(.v-container) {
     max-height: 270px !important;
     overflow-y: hidden;
+  }
+
+  /* Regulatory-flags tag input: small chips wrap and grow the field naturally
+     (no internal scroll); the taller .data-window absorbs the extra rows. */
+  .regulatory-flags :deep(.v-field__input) {
+    align-content: flex-start;
+    max-height: 73px;
+    overflow-y: auto;
   }
 </style>

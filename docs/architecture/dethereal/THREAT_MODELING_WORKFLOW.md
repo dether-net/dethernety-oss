@@ -305,6 +305,8 @@ Without these attributes, the Analysis Engine's lateral movement analysis degene
 
 This subsection is the **single source of truth** for the data-sensitivity scale and the recommended regulatory-flag set. Other docs, the `/dethereal:enrich` skill, and the `dataInRegulatoryScope` resolver reference it rather than restating the list, so the vocabulary cannot fork.
 
+The recommended regulatory-flag table below is also mirrored in code by the `RECOMMENDED_REGULATORY_FLAGS` constant in dt-core (`packages/dt-core/src/schemas/asset-context-map.ts`), which feeds the GUI's regulatory-flag suggestions. This doc remains the source of truth for the vocabulary; the constant is its code mirror, and **the two must be kept in sync** — adding or renaming a flag here requires the same change there (and vice versa).
+
 **Sensitivity** — data items use the platform's four-level scale, lowest to highest: `public`, `internal`, `confidential`, `restricted`.
 
 **Regulatory flags** are captured separately from sensitivity, as free-text labels on the data item (an item may carry several at once). The platform does not enumerate them — the set is extensible — but `dataInRegulatoryScope(flag)` matches **exactly and case-sensitively**, so producers must emit the canonical casing below or a query will silently miss the data. Recommended canonical set (case as written):
