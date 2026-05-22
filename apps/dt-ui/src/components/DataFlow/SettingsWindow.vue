@@ -76,6 +76,9 @@
   const clearAllDirty = () => { dirtyTabs.value = new Set() }
 
   const isFromClass = ref(true)
+  // Crown-jewel flag for the selected component (boundaries never set it). Seeded
+  // from the node on selection; persisted immediately on toggle via saveItem.
+  const crownJewel = ref(false)
   const props = defineProps<{ freshlyCreatedId?: string | null }>()
   const emit = defineEmits(['openModel', 'update:open-settings', 'delete:node', 'delete:edge', 'redirect:issue', 'clear-freshly-created', 'update:snackBar'])
 
@@ -264,6 +267,7 @@
     if (isNode(selectedItem.value)) {
       pendingFormData.value.name = selectedItem.value.data.label || ''
       pendingFormData.value.description = selectedItem.value.data.description || ''
+      crownJewel.value = selectedItem.value.data?.crownJewel === true
     } else if (isEdge(selectedItem.value)) {
       pendingFormData.value.name = typeof selectedItem.value.label === 'string' ? selectedItem.value.label : ''
       pendingFormData.value.description = selectedItem.value.data?.description || ''
@@ -415,6 +419,7 @@
           data: {
             label: pendingFormData.value.name,
             description: pendingFormData.value.description,
+            crownJewel: crownJewel.value,
           },
         },
       })
@@ -441,6 +446,13 @@
     }
   }
 
+  // Crown jewel is a direct action: flip the flag and persist immediately (it
+  // rides saveItem's data payload through to Component.crownJewel).
+  const onCrownJewelToggle = async (value: boolean) => {
+    crownJewel.value = value
+    await saveItem()
+  }
+
   // Event handlers
   const onSubmit = async () => {
     if (!form.value) return
@@ -463,6 +475,7 @@
     if (isNode(selectedItem.value)) {
       pendingFormData.value.name = selectedItem.value.data.label || ''
       pendingFormData.value.description = selectedItem.value.data.description || ''
+      crownJewel.value = selectedItem.value.data?.crownJewel === true
     } else if (isEdge(selectedItem.value)) {
       pendingFormData.value.name = typeof selectedItem.value.label === 'string' ? selectedItem.value.label : ''
       pendingFormData.value.description = selectedItem.value.data?.description || ''
@@ -762,6 +775,7 @@
                 :formData="pendingFormData"
                 :hasDirtyEdits="isDirty"
                 :isFromClass="isFromClass"
+                :crownJewel="crownJewel"
                 :itemClass="itemClass"
                 :representedModel="representedModel"
                 @class-change-cancel="onClassChangeCancel"
@@ -771,6 +785,7 @@
                 @saveItem="onSubmit"
                 @update:formData="onPendingFormDataUpdate"
                 @update:isFromClass="isFromClass = $event"
+                @update:crownJewel="onCrownJewelToggle"
               />
             </v-tabs-window-item>
 

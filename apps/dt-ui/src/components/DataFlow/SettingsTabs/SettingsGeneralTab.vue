@@ -23,6 +23,7 @@
   interface Props {
     formData: FormData;
     isFromClass: boolean;
+    crownJewel: boolean;
     itemClass: Class | null;
     representedModel: Model | null;
     hasDirtyEdits?: boolean;
@@ -37,6 +38,7 @@
   const emit = defineEmits<{
     'update:formData': [value: FormData];
     'update:isFromClass': [value: boolean];
+    'update:crownJewel': [value: boolean];
     'openModel': [modelId: string];
     'class-change-commit': [];
     'class-change-discard': [];
@@ -112,6 +114,10 @@
 
   const updateIsFromClass = (value: boolean) => {
     emit('update:isFromClass', value)
+  }
+
+  const updateCrownJewel = (value: boolean) => {
+    emit('update:crownJewel', value)
   }
 
   // Staged class-commit pattern. We hold the pending classId until the confirm
@@ -257,12 +263,24 @@
             @update:model-value="updateFormData('description', $event)"
           />
           <div class="d-flex justify-space-between align-center">
-            <v-switch
-              v-if="selectedItem && selectedItem.type && 'position' in selectedItem"
-              :label="isFromClass ? 'Inherited from a Class' : 'Represents a Model'"
-              :model-value="isFromClass"
-              @update:model-value="val => updateIsFromClass(val === true)"
-            />
+            <div class="d-flex align-center ga-4">
+              <v-btn
+                v-if="componentType !== null"
+                :icon="crownJewel ? 'mdi-crown' : 'mdi-crown-outline'"
+                :variant="crownJewel ? 'tonal' : 'outlined'"
+                color="crownjewel"
+                size="x-large"
+                class="rounded-md"
+                @click="updateCrownJewel(!crownJewel)"
+              />
+              <v-switch
+                v-if="selectedItem && selectedItem.type && 'position' in selectedItem"
+                :hide-details="componentType !== null"
+                :label="isFromClass ? 'Inherited from a Class' : 'Represents a Model'"
+                :model-value="isFromClass"
+                @update:model-value="val => updateIsFromClass(val === true)"
+              />
+            </div>
             <v-btn
               v-if="!isFromClass && formData.model"
               class="mx-3 my-0"

@@ -89,6 +89,39 @@
   background-color: rgba(255, 255, 255, 0.1);
 }
 
+/* Crown-jewel treatment: a discrete gold cast offset south-east plus a gradient
+   hairline that dissolves from transparent (NW) to gold (SE). The class rides
+   `node.class` (set from data.crownJewel in flowStore) and layers over the
+   selection background, which only changes the fill. Follows border-radius, so it
+   reads correctly on the circle, the open-sided store, and the entity box. */
+.vue-flow__node.crown-jewel {
+  box-shadow: 4px 4px 8px 0 rgba(var(--v-theme-crownjewel), 0.30);
+}
+.vue-flow__node-PROCESS.crown-jewel,
+.vue-flow__node-EXTERNAL_ENTITY.crown-jewel {
+  /* keep the circles' existing depth shadows under the gold cast */
+  box-shadow:
+    4px 4px 8px 0 rgba(var(--v-theme-crownjewel), 0.30),
+    0 8px 20px rgba(0, 0, 0, 0.2),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.3);
+}
+.vue-flow__node.crown-jewel::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: linear-gradient(135deg,
+    rgba(var(--v-theme-crownjewel), 0) 30%,
+    rgba(var(--v-theme-crownjewel), 0.55) 65%,
+    rgba(var(--v-theme-crownjewel), 0.95) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+          mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+}
+
 /* Controls styles */
 .vue-flow .vue-flow__controls {
   display: flex;

@@ -104,6 +104,8 @@ export default createVuetify({
           'nodecolor-selected-1': colors.blueGrey.darken1,
           'nodecolor-selected-2': colors.blueGrey.darken2,
           'nodecolor-selected-3': colors.blueGrey.darken3,
+          // Crown-jewel gold (node treatment + settings toggle).
+          crownjewel: '#FFC84B',
         },
       },
       dark: {
@@ -130,6 +132,8 @@ export default createVuetify({
           'nodecolor-selected-1': '#505c6f',
           'nodecolor-selected-2': '#3a4455',
           'nodecolor-selected-3': '#2a3441',
+          // Crown-jewel gold (node treatment + settings toggle).
+          crownjewel: '#FFC84B',
         },
       },
     },

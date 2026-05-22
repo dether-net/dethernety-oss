@@ -403,6 +403,32 @@ const dataItems = ref<DataItem[]>([])
 const modules = ref<Module[]>([])
 ```
 
+### Crown-Jewel Node Class
+
+A component flagged as a **crown jewel** (`data.crownJewel === true`) carries a
+`crown-jewel` CSS class on its Vue Flow wrapper, which `DataFlow/Style/main.css`
+renders as a discrete gold treatment (a south-east gold cast plus a gradient
+hairline that dissolves toward the top-left; gold is the `crownjewel` theme token in
+`plugins/vuetify.ts`). The General-tab crown toggle
+(`SettingsTabs/SettingsGeneralTab.vue`, gated to components only) persists the flag
+through `saveItem → updateNode → DtComponent.updateComponent`.
+
+The class rides Vue Flow's **`node.class`** (not a manual DOM `classList`), so it
+survives the framework's re-renders. It is derived purely from `data.crownJewel` by
+the module-level `crownJewelClass(data)` helper at every point a component node is
+(re)built:
+
+- **Load** — `mapComponent` (dt-core) copies `crownJewel` into `node.data`; the store
+  maps it to the class as components enter `nodes.value`.
+- **Update reconciliation** — `updateComponentNode` re-derives the class from the
+  (already deep-merged) in-memory `crownJewel`, since `UPDATE_COMPONENT` does not
+  return the field. The data spread preserves `crownJewel`; only the stale class is
+  recomputed.
+
+Boundaries never set it (`componentType` is `null`, so the toggle is hidden and the
+mapper runs for components only). The treatment layers over selection state, which
+only changes the node fill.
+
 ### Selection Tracking
 
 **Source:** `flowStore.ts:42, 316`
