@@ -246,7 +246,9 @@ export class DtImport {
         name: jsonData.name,
         description: jsonData.description || '',
         modules: moduleIds,
-        folderId: folderId || undefined
+        folderId: folderId || undefined,
+        // Asset-context scope (grouped local shape; builder sets present fields).
+        scope: jsonData.scope
       })
 
       if (model) {
@@ -427,6 +429,9 @@ export class DtImport {
           description: componentData.description || '',
           controls: [],
           dataItems: [],
+          // Lifted crown-jewel flag → carried into ADD_COMPONENT (set when true).
+          // Later control/data-item association updates omit it (no-clobber).
+          crownJewel: componentData.crownJewel === true,
         },
         parentNode: parentBoundaryId,
       }
@@ -700,7 +705,10 @@ export class DtImport {
           description: dataItemData.description || '',
           elementId: modelId, // Always use model as primary element initially
           classId: classId || null,
-          modelId: modelId
+          modelId: modelId,
+          // Asset-context (set present fields on create). Local snake `regulatory_flags`.
+          sensitivity: dataItemData.sensitivity,
+          regulatoryFlags: dataItemData.regulatory_flags
         })
 
         if (!newDataItem) {

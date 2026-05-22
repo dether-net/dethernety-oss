@@ -18,7 +18,7 @@ import type {
   ElementReference,
 } from './common.schema.js';
 import { SCHEMA_VERSION } from './common.schema.js';
-import type { ModelManifest, ModelMetadata } from './manifest.schema.js';
+import type { ModelManifest, ModelMetadata, ModelScopeLocal } from './manifest.schema.js';
 import type {
   ModelStructure,
   StructureBoundary,
@@ -52,6 +52,7 @@ export interface MonolithicComponent {
   controls?: ControlReference[];
   dataItemIds?: UUID[];
   representedModel?: ModelReference;
+  crownJewel?: boolean;
 }
 
 /**
@@ -103,6 +104,8 @@ export interface MonolithicDataItem {
   description?: string;
   classData?: ClassReference;
   attributes?: Attributes;
+  sensitivity?: string;
+  regulatory_flags?: string[];
 }
 
 /**
@@ -116,6 +119,8 @@ export interface MonolithicModel {
   name: string;
   /** Model description */
   description?: string;
+  /** Asset-context scope (grouped, snake_case); absent when unset. */
+  scope?: ModelScopeLocal;
   /** Root boundary containing all elements */
   defaultBoundary: MonolithicBoundary;
   /** All data flows in the model */
@@ -246,6 +251,10 @@ export function splitToMonolithic(split: SplitModel): MonolithicModel {
     id: split.manifest.model.id,
     name: split.manifest.model.name,
     description: split.manifest.model.description,
+    // Asset-context scope rides into the monolithic so the push input-builders
+    // can lift it onto the flat platform Model fields (model.schema carries the
+    // grouped local shape unchanged). Absent when scope.json was never set.
+    scope: split.manifest.model.scope,
     defaultBoundary,
     dataFlows,
     dataItems,
@@ -410,6 +419,10 @@ function injectAttributesBoundary(
         controls: c.controls,
         dataItemIds: c.dataItemIds,
         representedModel: c.representedModel,
+        // crownJewel is a first-class structure field (structure.json), mirroring
+        // the platform Component.crownJewel. A definite boolean lets the push apply
+        // REPLACE semantics (clears the platform flag when unset locally).
+        crownJewel: c.crownJewel === true,
       } as MonolithicComponent;
     }),
   };

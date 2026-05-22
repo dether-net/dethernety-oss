@@ -42,6 +42,9 @@ export class DtComponent {
         type: newNode.type,
         x: newNode.position.x,
         y: newNode.position.y,
+        // Asset-context crown-jewel flag: set on the fresh node only when the
+        // caller asserts it (undefined → omitted → platform default null/false).
+        crownJewel: newNode.data?.crownJewel === true ? true : undefined,
       }
       
       const createdComponent = await this.dtUtils.performMutation<ComponentData>({
@@ -93,6 +96,14 @@ export class DtComponent {
     { updatedNode: Node, defaultBoundaryId: string }
   ): Promise<ComponentData | null> => {
     try {
+      // Asset-context crown-jewel: REPLACE only when the caller explicitly sets
+      // it on the node. Follow-up updates (controls / data-item association in
+      // dt-import & dt-update) build nodes without `crownJewel`, so this guard
+      // keeps them from clobbering a flag set at create time. The primary
+      // structure update always sets it (true/false) → true two-way replace.
+      const crownJewelInput = updatedNode.data?.crownJewel !== undefined
+        ? { crownJewel: { set: updatedNode.data.crownJewel === true } }
+        : {}
       const variables = {
         componentId: updatedNode.id,
         input: {
@@ -101,6 +112,7 @@ export class DtComponent {
           positionX: { set: updatedNode.position.x },
           positionY: { set: updatedNode.position.y },
           type: { set: updatedNode.type },
+          ...crownJewelInput,
           parentBoundary: {
             disconnect: {},
             connect: {

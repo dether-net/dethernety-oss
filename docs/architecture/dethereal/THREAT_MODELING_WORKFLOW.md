@@ -200,13 +200,13 @@ This reduces 4 sequential question-answer turns to 1, saving ~3 LLM round-trips.
 
 **When no class exists:** The plugin logs a recommendation that a custom module class be created. It never fabricates class IDs. Components without classes appear in the model but will not generate exposure detections (OPA/Rego policies evaluate against class-specific attributes).
 
-**Quality gate:** At Step 6 exit (classification step in the guided workflow): 100% of STORE components classified and 80% overall classification rate. Crown jewel-candidate components (those matching scope-declared crown jewel names) must be tagged with `crown_jewel: true` via lightweight name matching. After classification, flag any STORE components touched by cross-boundary flows that remain unclassified — these should be classified before proceeding to enrichment.
+**Quality gate:** At Step 6 exit (classification step in the guided workflow): 100% of STORE components classified and 80% overall classification rate. Crown jewel-candidate components (those matching scope-declared crown jewel names) must be tagged with `crownJewel: true` in `structure.json` via lightweight name matching. After classification, flag any STORE components touched by cross-boundary flows that remain unclassified — these should be classified before proceeding to enrichment.
 
 **Crown jewel mapping (D21, D41):** Crown jewel operationalization is split across two phases:
-- **Phase 3 (Classification):** Lightweight tagging — match scope-declared crown jewel names to discovered components, set `crown_jewel: true`. This enables quality gate evaluation at classification time.
+- **Phase 3 (Classification):** Lightweight tagging — match scope-declared crown jewel names to discovered components, set `crownJewel: true` on the component in `structure.json`. This enables quality gate evaluation at classification time.
 - **Phase 7 (Enrichment):** Full enrichment — set `asset_criticality: high|medium|low`, confirm/adjust mappings: "You named 'Payment Database' as a crown jewel. I found component 'payment-db'. Confirming mapping and setting `asset_criticality: high`."
 
-The `crown_jewel` boolean and `asset_criticality` attribute are component-level properties. The Analysis Engine computes full crown jewel scoring (PageRank, data sensitivity, control density) from these inputs -- the plugin provides raw signals, not the computation.
+The `crownJewel` boolean (a first-class `structure.json` field) and the `asset_criticality` attribute are component-level properties. The Analysis Engine computes full crown jewel scoring (PageRank, data sensitivity, control density) from these inputs -- the plugin provides raw signals, not the computation.
 
 ---
 
@@ -301,9 +301,24 @@ Without these attributes, the Analysis Engine's lateral movement analysis degene
 
 **Assignment:** Data items link to flows and components via `dataItemIds`. Each item can span multiple flows, representing the data lifecycle through the system.
 
-**Data sensitivity vocabulary:** Data items use the platform's four-level sensitivity scale: `public`, `internal`, `confidential`, `restricted`. Regulatory labels (PII, PHI, PCI cardholder data) are captured as separate regulatory flags on the data item, not as sensitivity levels. Default regulatory-to-sensitivity mapping: HIPAA PHI → `restricted`, PCI cardholder data → `restricted`, GDPR personal data → `confidential` minimum, SOX financial data → `confidential` minimum.
+#### Canonical sensitivity and regulatory-flag vocabulary
 
-Data items may carry multiple regulatory flags simultaneously. The sensitivity level is the maximum of all applicable regulatory mappings. For example, a patient billing record may carry both `regulatory_flags: ['PHI', 'PCI_cardholder']` with sensitivity `restricted`. The compliance-driven control checklist (OPERATIONAL_REQUIREMENTS.md Section 5) evaluates each flag independently.
+This subsection is the **single source of truth** for the data-sensitivity scale and the recommended regulatory-flag set. Other docs, the `/dethereal:enrich` skill, and the `dataInRegulatoryScope` resolver reference it rather than restating the list, so the vocabulary cannot fork.
+
+**Sensitivity** — data items use the platform's four-level scale, lowest to highest: `public`, `internal`, `confidential`, `restricted`.
+
+**Regulatory flags** are captured separately from sensitivity, as free-text labels on the data item (an item may carry several at once). The platform does not enumerate them — the set is extensible — but `dataInRegulatoryScope(flag)` matches **exactly and case-sensitively**, so producers must emit the canonical casing below or a query will silently miss the data. Recommended canonical set (case as written):
+
+| Flag | Framework | Sensitivity floor |
+|------|-----------|-------------------|
+| `PCI cardholder` | PCI-DSS | `restricted` |
+| `PHI` | HIPAA | `restricted` |
+| `GDPR personal` | GDPR | `confidential` (special-category data is `restricted`) |
+| `PII` | general | `confidential` |
+| `SOX financial` | SOX | `confidential` |
+| `CCPA personal` | CCPA | `confidential` |
+
+A data item may carry multiple flags; its sensitivity is the **maximum** of the floors of all flags it carries. For example, a patient billing record with `regulatory_flags: ["PHI", "PCI cardholder"]` is `restricted`. Unknown/free-text flags outside this set are tolerated by the analysis layer but are not matched by the recommended-set tooling. The compliance-driven control checklist (OPERATIONAL_REQUIREMENTS.md Section 5) evaluates each flag independently.
 
 **Quality gate:** Every flow carrying sensitive data that crosses a trust boundary must have at least one classified data item. Crown jewel data stores must have classified data items.
 

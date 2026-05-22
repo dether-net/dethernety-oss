@@ -70,6 +70,24 @@ export interface ModelManifest {
 }
 
 /**
+ * Local (split-file) representation of a model's asset-context scope.
+ *
+ * Grouped, snake_case shape. On disk it lives **only** in `.dethereal/scope.json`
+ * (the plugin strips it from manifest.json to avoid a duplicate); it is also carried
+ * on the in-memory manifest as the export/push transport. The platform stores these
+ * as flat camelCase `Model` properties; the transform lives in `asset-context-map.ts`.
+ */
+export interface ModelScopeLocal {
+  /** 'architecture' | 'design' | 'implementation' */
+  depth?: string;
+  /** 'initial' | 'security_review' | 'compliance' | 'incident_response' */
+  modeling_intent?: string;
+  compliance_drivers?: string[];
+  exclusions?: string[];
+  trust_assumptions?: string[];
+}
+
+/**
  * Model metadata stored in the manifest.
  */
 export interface ModelMetadata {
@@ -81,6 +99,8 @@ export interface ModelMetadata {
   description?: string;
   /** ID of the default boundary (root of hierarchy) */
   defaultBoundaryId: UUID;
+  /** Asset-context scope (grouped, snake_case); absent when unset. */
+  scope?: ModelScopeLocal;
 }
 
 /**

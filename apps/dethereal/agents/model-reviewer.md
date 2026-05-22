@@ -95,7 +95,7 @@ When invoked for surface analysis (`/dethereal:surface`), produce a structured a
 3. **Exposure counts** — If `manifest.model.id` exists (model is synced), call `mcp__plugin_dethereal_dethereal__manage_exposures(action: 'list')` to get platform-computed exposures. Group by component. If not synced: "Model not synced — push to platform for exposure analysis."
 
 4. **Control gap analysis** — Find classified components without security controls in their attribute files. Group by enrichment tier (assign each component to its **highest-priority matching tier only** — a crown jewel that is also cross-boundary appears only in Tier 1):
-   - Tier 1: Crown jewels (`crown_jewel: true` in attributes) — highest priority
+   - Tier 1: Crown jewels (`crownJewel: true` in `structure.json`) — highest priority
    - Tier 2: Cross-boundary components (source or target of cross-boundary flows)
    - Tier 3: Internet-facing components (connected to EXTERNAL_ENTITY)
    - Tier 4: Internal-only components

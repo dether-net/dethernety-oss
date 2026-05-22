@@ -209,7 +209,7 @@ describe('GenerateAttributeStubsTool', () => {
       classData: { id: classId, name: 'PostgreSQL' },
       attributes: {
         ssl_enabled: true,             // enriched value — must NOT be overwritten
-        crown_jewel: true,             // plugin field — must be preserved
+        asset_criticality: 'high',     // plugin field — must be preserved
       },
     }
     await fs.writeFile(
@@ -244,7 +244,7 @@ describe('GenerateAttributeStubsTool', () => {
     expect(attrs.attributes.ssl_enabled).toBe(true)
 
     // Plugin fields preserved
-    expect(attrs.attributes.crown_jewel).toBe(true)
+    expect(attrs.attributes.asset_criticality).toBe('high')
 
     // New template fields added
     expect(attrs.attributes.log_connections).toBeNull()
@@ -681,7 +681,7 @@ describe('GenerateAttributeStubsTool', () => {
           attributes: {
             innodb_buffer_pool_size: null,  // MySQL-specific, unenriched → REMOVED
             ssl_enabled: true,              // enriched → KEPT
-            crown_jewel: true,              // plugin field → KEPT
+            asset_criticality: 'high',      // plugin field → KEPT
           },
         }, null, 2),
       )
@@ -726,7 +726,7 @@ describe('GenerateAttributeStubsTool', () => {
       expect(attrs.attributes.log_connections).toBeNull()
       expect(attrs.attributes.password_encryption).toBe('scram-sha-256')
       // Plugin field untouched
-      expect(attrs.attributes.crown_jewel).toBe(true)
+      expect(attrs.attributes.asset_criticality).toBe('high')
 
       // Manifest updated to new class
       const manifest = JSON.parse(await fs.readFile(
@@ -801,7 +801,7 @@ describe('GenerateAttributeStubsTool', () => {
           elementId: 'c-1', elementType: 'component', elementName: 'Store',
           classData: { id: oldClassId, name: 'OldStore' },
           attributes: {
-            crown_jewel: true,
+            asset_criticality: 'high',
             credential_scope: ['db-creds'],
             monitoring_tools: ['SIEM'],
             old_template_field: null,
@@ -833,7 +833,7 @@ describe('GenerateAttributeStubsTool', () => {
       ))
 
       // All plugin fields preserved
-      expect(attrs.attributes.crown_jewel).toBe(true)
+      expect(attrs.attributes.asset_criticality).toBe('high')
       expect(attrs.attributes.credential_scope).toEqual(['db-creds'])
       expect(attrs.attributes.monitoring_tools).toEqual(['SIEM'])
       // Old template field removed, new added

@@ -30,6 +30,12 @@ export interface DataItem extends Identifiable {
    * In split-file format, this may be empty with attributes stored separately.
    */
   attributes?: Attributes;
+
+  /** Author-asserted sensitivity (snake/lowercase local: 'public'|'internal'|'confidential'|'restricted'). */
+  sensitivity?: string;
+
+  /** Regulatory scopes this data falls under (free-text, e.g. "PCI cardholder", "PHI"). */
+  regulatory_flags?: string[];
 }
 
 /**

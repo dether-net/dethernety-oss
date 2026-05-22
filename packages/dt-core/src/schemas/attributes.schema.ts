@@ -40,8 +40,12 @@ export interface ElementAttributes {
   /** Human-readable element name (for debugging/display) */
   elementName?: string;
 
-  /** Class that defines these attributes */
-  classData: ClassReference;
+  /**
+   * Class that defines these attributes. Optional: a synthesized
+   * crown-jewel-only entry for an unclassified component carries no class.
+   * Readers must guard with `?.` (all current readers already do).
+   */
+  classData?: ClassReference;
 
   /** The actual attribute values */
   attributes: Attributes;

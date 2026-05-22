@@ -129,7 +129,7 @@ insufficient for compliance evidence. Run /dethereal:enrich to fill gaps.
 
 Present the per-tier breakdown from the coverage tool output. Each component is assigned to its **highest-priority matching tier only** (a crown jewel that is also cross-boundary appears only in Tier 1):
 
-- **Tier 1:** Crown jewels (`crown_jewel: true`)
+- **Tier 1:** Crown jewels (`crownJewel: true` in `structure.json`)
 - **Tier 2:** Cross-boundary components (source or target of cross-boundary flows)
 - **Tier 3:** Internet-facing components (connected to EXTERNAL_ENTITY via data flow)
 - **Tier 4:** Internal-only components

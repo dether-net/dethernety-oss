@@ -181,7 +181,7 @@ The plugin provides tiered compliance framework support to match V1 capabilities
 
 **Tier 3 — Declared, not prompted (NIST CSF 2.0, NIS2, DORA):** Recorded in scope as compliance drivers but no framework-specific prompts in V1. These frameworks require deep domain expertise to map correctly — getting them wrong creates false compliance confidence, which is worse than not supporting them.
 
-> The regulatory-to-sensitivity mapping (HIPAA PHI → restricted, PCI cardholder → restricted, GDPR personal data → confidential minimum) is a static lookup table, not LLM-derived. It should be embedded as a configuration file (`docs/compliance_mappings.json`) imported by the security-enricher agent.
+> The regulatory-to-sensitivity mapping (`PHI` → restricted, `PCI cardholder` → restricted, `GDPR personal` → confidential minimum) is a static lookup table, not LLM-derived. Flags use the [canonical vocabulary](THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary); the mapping could be embedded as a configuration file imported by the security-enricher agent.
 
 ### Control-to-Requirement Mapping
 

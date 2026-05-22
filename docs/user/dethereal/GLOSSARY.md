@@ -37,6 +37,10 @@ Plugin-specific terminology. For platform-wide terms, see the [Dethernety Glossa
 
 **Data Item** — A classification of what data a flow carries, with sensitivity level and regulatory labels.
 
+**Sensitivity** — A data item's author-asserted confidentiality classification on a four-level scale, lowest to highest: `public`, `internal`, `confidential`, `restricted`. Absent ⇒ unclassified (which is *not* the same as `public`).
+
+**Regulatory Flags** — Free-text compliance labels on a data item (e.g. `PCI cardholder`, `PHI`, `GDPR personal`), kept separate from sensitivity. Matched exactly and case-sensitively by the platform's `dataInRegulatoryScope` query; see the [canonical vocabulary](../../architecture/dethereal/THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary) for the recommended set and casing.
+
 **Class** — A predefined type from the platform's module system (e.g., "Database", "Web Application", "Load Balancer"). Classification assigns a class to an element, enabling attribute schemas and analysis.
 
 **Attribute** — A security property of an element, stored in `attributes/<type>/<id>.json`. The 6 key component attributes are: authentication, encryption in transit, encryption at rest, logging, access control, and log telemetry.
@@ -53,9 +57,9 @@ Plugin-specific terminology. For platform-wide terms, see the [Dethernety Glossa
 
 **Quality Gate** — A progressive checkpoint with pass/fail criteria. Gate 1 (creation, advisory), Gate 2 (sync, blocking), Gate 3 (analysis, blocking).
 
-**Scope** — The definition of what the model covers: system name, crown jewels, compliance drivers, exclusions, trust assumptions. Stored in `.dethereal/scope.json`.
+**Scope** — The definition of what the model covers: system name, depth, modeling intent, crown jewels, compliance drivers, exclusions, trust assumptions. Stored in `.dethereal/scope.json`. The platform-synced fields (depth, modeling intent, compliance drivers, exclusions, trust assumptions) round-trip to the Model node; the rest stay local.
 
-**Crown Jewel** — The most valuable asset in the system — what an attacker would target. Named in scope, matched to components during classification, and enriched with highest priority (Tier 1).
+**Crown Jewel** — The most valuable asset in the system — what an attacker would target. Named in scope, matched to **components** during classification (synced as the `Component.crownJewel` field), and enriched with highest priority (Tier 1).
 
 **Enrichment Tier** — Priority grouping for enrichment order. Tier 1 (crown jewels), Tier 2 (cross-boundary), Tier 3 (internet-facing), Tier 4 (internal). Each component appears in its highest-priority tier only.
 

@@ -267,6 +267,13 @@ interface Model extends Element {
   controls?: Control[]            // Associated security controls
   modules?: Module[]              // Active modules for this model
   folder?: Folder                 // Organization folder
+  // Asset-context scope, flat — mirrors the platform Model node.
+  // (The grouped local snake_case shape is ModelScopeLocal in manifest.schema.)
+  depth?: string                  // ModelingDepth enum value
+  modelingIntent?: string         // ModelingIntent enum value
+  complianceDrivers?: string[]    // Regulatory/standards obligations in scope
+  exclusions?: string[]           // Deliberately out-of-scope areas
+  trustAssumptions?: string[]     // What the model treats as trusted
 }
 ```
 
@@ -285,6 +292,7 @@ interface ComponentData extends Element {
   parentBoundary?: { id: string } // Containing boundary
   controls?: Control[]            // Associated controls
   dataItems?: DataItem[]          // Associated data classifications
+  crownJewel?: boolean            // Author-asserted high-value asset marker
 }
 ```
 
@@ -338,6 +346,8 @@ interface DataItem extends Element {
   description: string
   dataClass?: { id: string, name: string } | null  // Classification class
   elements?: { id: string }[] | null               // Associated elements
+  sensitivity?: string                              // SensitivityLevel value; absent ⇒ unclassified
+  regulatoryFlags?: string[]                        // Free-text compliance labels (see canonical vocabulary)
 }
 ```
 

@@ -49,7 +49,7 @@ Before removal, scan for elements that depend on the target:
 
 ### 4. Show Dependencies and Confirm
 
-**Crown-jewel pre-check.** Before drafting the dependency table, read the element's attribute file (`attributes/components/<id>.json`, `attributes/dataFlows/<id>.json`, `attributes/dataItems/<id>.json`, or `attributes/boundaries/<id>.json` per element kind). If `crown_jewel === true` (top-level, pre-import) **or** `attributes.crown_jewel === true` (nested, post-import), the element is tagged as a crown jewel — elevate the prompt:
+**Crown-jewel pre-check.** Before drafting the dependency table, check whether the element is tagged as a crown jewel. For a **component**, that is `crownJewel === true` on the component in `structure.json`. For a non-component element (data flow / data item / boundary), it is `crown_jewel === true` in its attribute bag (`attributes/<kind>/<id>.json`, top-level or nested `attributes.crown_jewel` — a local-only mark). If tagged, elevate the prompt:
 
 ```
 Removing [STORE] "Customer DB" — this element is tagged as a CROWN JEWEL.

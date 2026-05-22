@@ -14,8 +14,19 @@ vi.mock('node:os', async () => {
   }
 })
 
-import { validatePathConfinement, isFlatFormat, normalizeFlatAttribute } from '../directory-utils.js'
-import type { ModelStructure, ClassReference } from '@dethernety/dt-core'
+import { promises as fs } from 'fs'
+import path from 'path'
+import {
+  validatePathConfinement,
+  isFlatFormat,
+  normalizeFlatAttribute,
+  readScope,
+  writeScope,
+  localOnlyCrownJewelNotice,
+  writeModelDirectory,
+  readModelDirectory,
+} from '../directory-utils.js'
+import type { ModelStructure, ClassReference, SplitModel } from '@dethernety/dt-core'
 import { flattenStructure } from '@dethernety/dt-core'
 
 describe('validatePathConfinement', () => {
@@ -212,7 +223,7 @@ describe('normalizeFlatAttribute', () => {
       authentication: 'password',
       authentication_notes: 'Password-based auth',
       encryption_in_transit: 'none',
-      crown_jewel: true,
+      monitoring_enabled: true,
       tier: 1,
     }, 'components', lookup, 'c-postgres.json')
 
@@ -232,7 +243,7 @@ describe('normalizeFlatAttribute', () => {
     expect(result!.attrs.attributes).toHaveProperty('authentication', 'password')
     expect(result!.attrs.attributes).toHaveProperty('authentication_notes', 'Password-based auth')
     expect(result!.attrs.attributes).toHaveProperty('encryption_in_transit', 'none')
-    expect(result!.attrs.attributes).toHaveProperty('crown_jewel', true)
+    expect(result!.attrs.attributes).toHaveProperty('monitoring_enabled', true)
     expect(result!.attrs.attributes).toHaveProperty('tier', 1)
   })
 
@@ -307,5 +318,244 @@ describe('normalizeFlatAttribute', () => {
       'x.json'
     )
     expect(result).toBeNull()
+  })
+})
+
+// =============================================================================
+// Asset-context scope I/O — .dethereal/scope.json
+// =============================================================================
+
+describe('readScope / writeScope', () => {
+  let tmpDir: string
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-scope-'))
+  })
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  async function writeRawScope(obj: Record<string, unknown>) {
+    const d = path.join(tmpDir, '.dethereal')
+    await fs.mkdir(d, { recursive: true })
+    await fs.writeFile(path.join(d, 'scope.json'), JSON.stringify(obj, null, 2), 'utf-8')
+  }
+  async function readRawScope(): Promise<Record<string, unknown>> {
+    return JSON.parse(await fs.readFile(path.join(tmpDir, '.dethereal', 'scope.json'), 'utf-8'))
+  }
+
+  it('readScope projects to the five synced keys, dropping local-only keys', async () => {
+    await writeRawScope({
+      depth: 'design',
+      modeling_intent: 'security_review',
+      compliance_drivers: ['PCI cardholder'],
+      exclusions: [],
+      trust_assumptions: ['cloud control plane'],
+      // local-only — must NOT appear in the projection
+      crown_jewels: ['Cardholder DB'],
+      adversary_classes: ['nation-state'],
+      activeModules: ['dethernety-module'],
+      system_name: 'Shop',
+    })
+    const scope = await readScope(tmpDir)
+    expect(scope).toEqual({
+      depth: 'design',
+      modeling_intent: 'security_review',
+      compliance_drivers: ['PCI cardholder'],
+      exclusions: [],
+      trust_assumptions: ['cloud control plane'],
+    })
+    expect(scope).not.toHaveProperty('crown_jewels')
+  })
+
+  it('readScope returns null when scope.json is absent', async () => {
+    expect(await readScope(tmpDir)).toBeNull()
+  })
+
+  it('readScope returns null when no synced keys are present', async () => {
+    await writeRawScope({ crown_jewels: ['Cardholder DB'], system_name: 'Shop' })
+    expect(await readScope(tmpDir)).toBeNull()
+  })
+
+  it('writeScope preserves local-only keys while overwriting the synced keys', async () => {
+    await writeRawScope({
+      depth: 'architecture',
+      compliance_drivers: ['stale'],
+      crown_jewels: ['Cardholder DB'],
+      adversary_classes: ['nation-state'],
+      activeModules: ['dethernety-module'],
+      declared_governance_controls: ['SOC2'],
+    })
+    await writeScope(tmpDir, {
+      depth: 'design',
+      modeling_intent: 'compliance',
+      compliance_drivers: ['PCI cardholder'],
+    })
+    const raw = await readRawScope()
+    // synced keys set/replaced
+    expect(raw.depth).toBe('design')
+    expect(raw.modeling_intent).toBe('compliance')
+    expect(raw.compliance_drivers).toEqual(['PCI cardholder'])
+    // local-only keys preserved
+    expect(raw.crown_jewels).toEqual(['Cardholder DB'])
+    expect(raw.adversary_classes).toEqual(['nation-state'])
+    expect(raw.activeModules).toEqual(['dethernety-module'])
+    expect(raw.declared_governance_controls).toEqual(['SOC2'])
+  })
+
+  it('writeScope deletes a synced key absent from the new scope (REPLACE mirror), keeping local-only', async () => {
+    await writeRawScope({ depth: 'design', exclusions: ['legacy'], crown_jewels: ['Cardholder DB'] })
+    await writeScope(tmpDir, { depth: 'design' }) // exclusions absent → cleared
+    const raw = await readRawScope()
+    expect(raw).not.toHaveProperty('exclusions')
+    expect(raw.depth).toBe('design')
+    expect(raw.crown_jewels).toEqual(['Cardholder DB'])
+  })
+
+  it('writeScope creates scope.json when absent', async () => {
+    await writeScope(tmpDir, { depth: 'implementation', trust_assumptions: ['vendor'] })
+    expect(await readRawScope()).toEqual({ depth: 'implementation', trust_assumptions: ['vendor'] })
+  })
+
+  it('writeScope({}) clears stale synced keys but preserves local-only keys (empty platform scope)', async () => {
+    // The platform has no scope; the pull/push tools call writeScope(dir, scope ?? {}).
+    await writeRawScope({ depth: 'design', compliance_drivers: ['stale'], crown_jewels: ['Cardholder DB'] })
+    await writeScope(tmpDir, {})
+    const raw = await readRawScope()
+    expect(raw).not.toHaveProperty('depth')
+    expect(raw).not.toHaveProperty('compliance_drivers')
+    expect(raw.crown_jewels).toEqual(['Cardholder DB'])
+  })
+
+  it('writeScope({}) does not materialise a scope.json when none exists', async () => {
+    await writeScope(tmpDir, {})
+    await expect(readRawScope()).rejects.toThrow() // file was never created
+  })
+
+  it('writeScope fails loud on a malformed existing scope.json (does not destroy local-only keys)', async () => {
+    const d = path.join(tmpDir, '.dethereal')
+    await fs.mkdir(d, { recursive: true })
+    const malformed = '{ "crown_jewels": ["Cardholder DB"], '  // truncated JSON
+    await fs.writeFile(path.join(d, 'scope.json'), malformed, 'utf-8')
+    await expect(writeScope(tmpDir, { depth: 'design' })).rejects.toThrow(/malformed/i)
+    // the corrupt file is left intact for the user to fix, not clobbered
+    expect(await fs.readFile(path.join(d, 'scope.json'), 'utf-8')).toBe(malformed)
+  })
+
+  it('readScope(writeScope(x)) round-trips the synced view', async () => {
+    const scope = {
+      depth: 'design',
+      modeling_intent: 'initial',
+      compliance_drivers: ['PCI cardholder', 'PHI'],
+      exclusions: ['legacy'],
+      trust_assumptions: ['cloud control plane'],
+    }
+    await writeScope(tmpDir, scope)
+    expect(await readScope(tmpDir)).toEqual(scope)
+  })
+})
+
+describe('localOnlyCrownJewelNotice', () => {
+  it('counts data-item bags with crown_jewel (top-level and nested) and returns a notice', () => {
+    const notice = localOnlyCrownJewelNotice({
+      dataItems: {
+        d1: { elementId: 'd1', elementType: 'dataItem', crown_jewel: true } as any,
+        d2: { elementId: 'd2', elementType: 'dataItem', attributes: { crown_jewel: true } },
+        d3: { elementId: 'd3', elementType: 'dataItem', attributes: { sensitivity: 'restricted' } },
+      },
+    })
+    expect(notice).toContain('2')
+    expect(notice).toMatch(/local-only/i)
+  })
+
+  it('counts boundary and flow bags too', () => {
+    const notice = localOnlyCrownJewelNotice({
+      boundaries: { b1: { elementId: 'b1', elementType: 'boundary', crown_jewel: true } as any },
+      dataFlows: { f1: { elementId: 'f1', elementType: 'dataFlow', attributes: { crown_jewel: true } } },
+    })
+    expect(notice).toContain('2')
+  })
+
+  it('does NOT count component bags (they sync via the dt-core lift)', () => {
+    const notice = localOnlyCrownJewelNotice({
+      components: {
+        c1: { elementId: 'c1', elementType: 'component', crown_jewel: true } as any,
+        c2: { elementId: 'c2', elementType: 'component', attributes: { crown_jewel: true } },
+      },
+    })
+    expect(notice).toBeNull()
+  })
+
+  it('returns null when there are no crown-jewel marks', () => {
+    expect(
+      localOnlyCrownJewelNotice({
+        dataItems: { d1: { elementId: 'd1', elementType: 'dataItem', attributes: { sensitivity: 'public' } } },
+      }),
+    ).toBeNull()
+    expect(localOnlyCrownJewelNotice({})).toBeNull()
+  })
+})
+
+describe('asset-context round-trip + scope strip', () => {
+  let tmpDir: string
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(process.cwd(), '.test-ac-'))
+  })
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  function buildModel(scope?: Record<string, unknown>): SplitModel {
+    return {
+      manifest: {
+        schemaVersion: '2.0.0',
+        format: 'split',
+        model: { id: 'm1', name: 'Shop', defaultBoundaryId: 'b1', ...(scope ? { scope } : {}) },
+        modules: [],
+        files: {
+          structure: 'structure.json',
+          dataFlows: 'dataflows.json',
+          dataItems: 'data-items.json',
+          attributes: 'attributes',
+        },
+      },
+      structure: {
+        defaultBoundary: { id: 'b1', name: 'System', boundaries: [], components: [{ id: 'c1', name: 'API', crownJewel: true }] },
+      },
+      dataFlows: [],
+      dataItems: [{ id: 'd1', name: 'Cardholder', sensitivity: 'restricted', regulatory_flags: ['PCI cardholder'] }],
+      attributes: {
+        components: {
+          c1: { elementId: 'c1', elementType: 'component', elementName: 'API', attributes: { monitoring_enabled: true } },
+        },
+      },
+    } as unknown as SplitModel
+  }
+
+  it('writeModelDirectory→readModelDirectory preserves data-item sensitivity/regulatory_flags, component crownJewel (structure.json), and the attribute bag', async () => {
+    await writeModelDirectory(tmpDir, buildModel())
+    const read = await readModelDirectory(tmpDir)
+    const di = read.dataItems.find((d) => d.id === 'd1')
+    expect(di?.sensitivity).toBe('restricted')
+    expect(di?.regulatory_flags).toEqual(['PCI cardholder'])
+    // crownJewel is a first-class structure.json field and round-trips there
+    const c1 = read.structure.defaultBoundary.components?.find((c: any) => c.id === 'c1')
+    expect(c1?.crownJewel).toBe(true)
+    // arbitrary bag attributes are preserved
+    expect(read.attributes.components?.['c1']?.attributes?.monitoring_enabled).toBe(true)
+  })
+
+  it('pull strip sequence: scope.json holds the synced keys, manifest.json carries none', async () => {
+    const model = buildModel({ depth: 'design', compliance_drivers: ['PCI cardholder'] })
+    // Mirror export-model.tool.ts: capture → strip → write → materialise.
+    const scope = model.manifest.model.scope
+    if (scope) delete model.manifest.model.scope
+    await writeModelDirectory(tmpDir, model)
+    if (scope) await writeScope(tmpDir, scope)
+
+    const manifestRaw = JSON.parse(await fs.readFile(path.join(tmpDir, 'manifest.json'), 'utf-8'))
+    expect(manifestRaw.model).not.toHaveProperty('scope')
+    expect(await readScope(tmpDir)).toEqual({ depth: 'design', compliance_drivers: ['PCI cardholder'] })
   })
 })

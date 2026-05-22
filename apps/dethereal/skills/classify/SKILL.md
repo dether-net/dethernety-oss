@@ -84,7 +84,7 @@ Match free-text crown jewel names from `scope.json` to actual components:
    | "Payment Database" | payment-db | STORE | Y |
    | "User PII" | user-service | PROCESS | ? |
    ```
-3. Set `crown_jewel: true` on confirmed component attribute files
+3. Set `crownJewel: true` on confirmed components in `structure.json`
 4. If a crown jewel declaration doesn't match any component, flag it: "Crown jewel 'X' does not match any discovered component. Add it with `/dethereal:add`?"
 
 This is the lightweight Phase 3 tagging. Full `asset_criticality` enrichment happens during `/dethereal:enrich`.
@@ -135,7 +135,7 @@ If the user skips, proceed with a warning but do not block.
 
 - Update `classData` on elements in `structure.json`
 - Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path: '<model-path>')` to deterministically write class template attribute stubs for all newly classified elements. The tool auto-scans `structure.json`, deduplicates classes, fetches templates via GraphQL, and merges template fields into existing attribute files (existing values preserved). This replaces manual template fetching — one tool call instead of per-element schema extraction.
-- Write `crown_jewel: true` to attribute files for confirmed crown jewel components
+- Write `crownJewel: true` onto the confirmed crown jewel components in `structure.json` (first-class field, not an attribute bag)
 
 ### 9. State — No Transition
 

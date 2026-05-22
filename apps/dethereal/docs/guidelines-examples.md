@@ -209,7 +209,6 @@ After classification and enrichment, attribute files contain both class-template
   "pg_hba_trust_entries": false,
   "listen_addresses": ["127.0.0.1"],
   "max_connections": 100,
-  "crown_jewel": true,
   "stores_credentials": true,
   "credential_scope": ["db-admin-account"],
   "monitoring_tools": ["CloudWatch"]
@@ -218,7 +217,7 @@ After classification and enrichment, attribute files contain both class-template
 
 **Class-template fields** (top group): `ssl_enabled`, `password_encryption`, `hba_auth_method`, etc. — discovered from `postgresql.conf`, `pg_hba.conf`, and IaC. The class template defines these; the guide's `how_to_obtain` tells the agent where to find values.
 
-**Plugin-enrichment fields** (bottom group): `crown_jewel`, `credential_scope`, `monitoring_tools` — added by the agent for the Analysis Engine. Not evaluated by OPA but preserved alongside template fields. (MITRE ATT&CK tactic coverage is derived server-side from `Exposure.exploitedBy` after analysis — the plugin does not write MITRE techniques on attribute files.)
+**Plugin-enrichment fields** (bottom group): `credential_scope`, `monitoring_tools` — added by the agent for the Analysis Engine. Not evaluated by OPA but preserved alongside template fields. (Crown-jewel tagging is the first-class `crownJewel` field on the component in `structure.json`, not an attribute-file field.) (MITRE ATT&CK tactic coverage is derived server-side from `Exposure.exploitedBy` after analysis — the plugin does not write MITRE techniques on attribute files.)
 
 ## Key Points
 

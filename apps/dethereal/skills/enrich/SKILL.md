@@ -68,7 +68,7 @@ After enrichment of stale elements is confirmed and written, remove their IDs fr
 
 Analyze model structure to assign each component to a tier:
 
-- **Tier 1**: Components with `crown_jewel: true` in attributes
+- **Tier 1**: Components with `crownJewel: true` in `structure.json`
 - **Tier 2**: Components participating in cross-boundary data flows (source or target in a different boundary than the component)
 - **Tier 3**: Components in DMZ or internet-facing boundaries (boundaries containing flows from EXTERNAL_ENTITY sources)
 - **Tier 4**: All remaining internal-only components
@@ -170,11 +170,13 @@ If `.dethereal/discovery.json` shows K8s sources were scanned, check for shared 
 For each boundary-crossing flow without classified data items:
 
 1. Prompt: "What data types flow across [flow name]? (PII, credentials, financial, health, session, none)"
-2. Apply regulatory-to-sensitivity mapping:
-   - PHI (HIPAA) → `restricted`
-   - PCI cardholder → `restricted`
-   - GDPR personal data → `confidential`
-   - PII (general) → `confidential`
+2. Apply the canonical regulatory flag → sensitivity-floor mapping. Emit the flags **exactly as written** — the platform's `dataInRegulatoryScope` query matches case-sensitively, and the canonical set is maintained in `THREAT_MODELING_WORKFLOW.md`:
+   - `PCI cardholder` → `restricted`
+   - `PHI` → `restricted`
+   - `GDPR personal` → `confidential` (special-category data → `restricted`)
+   - `PII` → `confidential`
+   - `SOX financial` → `confidential`
+   - `CCPA personal` → `confidential`
 3. Create data items in `data-items.json` with `sensitivity` and `regulatory_flags` fields
 4. Link to flows via `dataItemIds`
 
@@ -353,7 +355,7 @@ The control pass is a **separate agent invocation** with its own 40-turn budget.
 
 This step only executes when there is at least one `controls[]` entry with a non-null `id` (controls that exist on the platform). Name-only refs (`id: null`) are deferred to `/dethereal:sync push` where `manage_controls(action: 'list', name)` resolves them.
 
-> **Sprint 5 F-15 boundary note.** As of `sprint-5-polish`, `/dethereal:sync pull` (L4.5) auto-materialises `controls/<id>.json` for every Control referenced in the freshly-pulled structure/dataflows. So when this step runs immediately after a fresh pull, the `pull-controls` call below is largely a no-op (engine returns early per-id when the local file matches platform state). The pull-controls call is still required because `--focus controls` enrichment may run *after* operator edits, where the local files may have diverged from platform state and need reconciliation.
+> **Boundary note.** `/dethereal:sync pull` (L4.5) auto-materialises `controls/<id>.json` for every Control referenced in the freshly-pulled structure/dataflows. So when this step runs immediately after a fresh pull, the `pull-controls` call below is largely a no-op (engine returns early per-id when the local file matches platform state). The pull-controls call is still required because `--focus controls` enrichment may run *after* operator edits, where the local files may have diverged from platform state and need reconciliation.
 
 #### Step 1 — Pull
 
@@ -430,7 +432,7 @@ If no shared-ownership prompts will fire, skip the annotation entirely.
 
 ##### Post-edit drift sweep (defensive)
 
-Belt-and-braces check (Sprint 6 F-36): re-read every `controls/<id>.json` touched in this pass. For each `classes[idx]`, if `JSON.stringify(attributes) !== JSON.stringify(platformAttributes)` AND `pendingEdit` is absent, the file is in an "external-edit-like" state — `attributes` diverges from the platform snapshot but no engine-recorded baseline exists. The Step 3 flow should never produce this state (`set-local-edited` always populates `pendingEdit.previousAttributes`); detection here means either an out-of-band write happened mid-pass or a pre-existing drift survived from before the enrich invocation.
+Belt-and-braces check: re-read every `controls/<id>.json` touched in this pass. For each `classes[idx]`, if `JSON.stringify(attributes) !== JSON.stringify(platformAttributes)` AND `pendingEdit` is absent, the file is in an "external-edit-like" state — `attributes` diverges from the platform snapshot but no engine-recorded baseline exists. The Step 3 flow should never produce this state (`set-local-edited` always populates `pendingEdit.previousAttributes`); detection here means either an out-of-band write happened mid-pass or a pre-existing drift survived from before the enrich invocation.
 
 Emit the same hint the status skill renders, parallel wording:
 

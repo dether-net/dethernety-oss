@@ -79,7 +79,7 @@ Present tiered options:
 N boundaries have no enforcement controls.
 Review: (1) crown-jewel boundaries only, (2) all boundaries, (3) skip.
 ```
-If option 1: identify crown-jewel boundaries (those containing components with `crown_jewel: true`). Process these first (reduces effective B to ~3-4). After completing crown-jewel boundaries, offer to continue with remaining boundaries.
+If option 1: identify crown-jewel boundaries (those containing components with `crownJewel: true` in `structure.json`). Process these first (reduces effective B to ~3-4). After completing crown-jewel boundaries, offer to continue with remaining boundaries.
 
 ### Brownfield Batch Table Format
 
@@ -269,13 +269,13 @@ When you need a Control that does not exist in the org's control library and tha
 
 **On the next `/dethereal:sync push`**, the pipeline creates the Control on the platform, sets attributes per class, assigns SUPPORTS edges, writes the server-generated id back into both the file and all `controls[]` references, and flips `lifecycle: "brownfield"`.
 
-**Atomic ID rebinding (F-35 / F-05 closure).** A naive implementation of the above leaves the operator's local `controls/greenfield-abc.json` file orphaned — the platform issues `ctrl-uuid-123`, the structure is repointed to `ctrl-uuid-123`, but the *file* is still named `greenfield-abc.json`. The Sprint 4 WAL rename (CL Appendix A.9 + the `pending-id-rewrite.json` journal) closes this seam: the engine writes a journal entry **before** invoking `createControl`, then rewrites `structure.json` / `dataflows.json` references AND renames `controls/greenfield-abc.json → controls/ctrl-uuid-123.json` as a single atomic operation. A crash mid-operation leaves the journal on disk; the next push (or `/dethereal:sync repair-wal`) replays it. The operator never sees an orphaned greenfield file.
+**Atomic ID rebinding.** A naive implementation of the above leaves the operator's local `controls/greenfield-abc.json` file orphaned — the platform issues `ctrl-uuid-123`, the structure is repointed to `ctrl-uuid-123`, but the *file* is still named `greenfield-abc.json`. The WAL rename (CL Appendix A.9 + the `pending-id-rewrite.json` journal) closes this seam: the engine writes a journal entry **before** invoking `createControl`, then rewrites `structure.json` / `dataflows.json` references AND renames `controls/greenfield-abc.json → controls/ctrl-uuid-123.json` as a single atomic operation. A crash mid-operation leaves the journal on disk; the next push (or `/dethereal:sync repair-wal`) replays it. The operator never sees an orphaned greenfield file.
 
 **Supersedes the old eager-create path.** The previous pattern — calling `mcp__plugin_dethereal_dethereal__manage_controls(action: 'create', class_ids: [...])` during the control pass and writing the returned id — is retained only for non-attribute-binding use cases. For greenfield Controls **with** class bindings, use the file-first path above; it lets you iterate on attributes locally before committing to the platform.
 
 ### Brownfield Controls (platform-authoritative)
 
-When you assign an existing platform Control to a model element, the auto-pull at the start of `/dethereal:enrich --focus controls` (Sprint 3 and later) will populate `controls/<id>.json` with the platform's current state. Treat this file as a **read-only cache by default**.
+When you assign an existing platform Control to a model element, the auto-pull at the start of `/dethereal:enrich --focus controls` populates `controls/<id>.json` with the platform's current state. Treat this file as a **read-only cache by default**.
 
 **Do not modify `classes[].attributes` unless the user explicitly asks.** Controls are reusable entities — the same `ctrl-waf-123` may be assigned to five other models. Your local edit will trigger a platform mutation that changes the Control for every model that references it.
 
@@ -320,9 +320,9 @@ Touching these fields directly breaks the drift-detection and shared-ownership-s
 - If a `controls[]` entry in `structure.json` / `dataflows.json` has an `id` but no corresponding `controls/<id>.json` file, the sync pipeline will materialise one on the next pull (for brownfield) or reject the push (for greenfield — a greenfield reference without a config file means the operator hand-edited a reference without creating the attributes).
 - Orphan `controls/<id>.json` files (no element references the id) produce a validator warning, not an error — they're kept for operator-driven recovery.
 
-### Division of Labour: `/dethereal:sync pull` vs `/dethereal:enrich --focus controls` (Sprint 5 F-15)
+### Division of Labour: `/dethereal:sync pull` vs `/dethereal:enrich --focus controls`
 
-Post-`sprint-5-polish`, the per-Control file lifecycle is owned jointly by two skills:
+The per-Control file lifecycle is owned jointly by two skills:
 
 | Skill | When | What it does to `controls/` |
 |---|---|---|
@@ -330,7 +330,7 @@ Post-`sprint-5-polish`, the per-Control file lifecycle is owned jointly by two s
 | `/dethereal:enrich --focus controls` (Step 1) | Operator-initiated enrichment pass | Calls `pull-controls` for the same id set as a defensive refresh, then iterates classes for sparse-attribute prompts. The pull is largely a no-op when `enrich` runs immediately after a fresh `sync pull`. |
 | `/dethereal:sync push` (P7.1) | Every push | Auto-detects local edits / external drift / partial-pushed state. Uses local `controls/<id>.json` as authoritative; never re-pulls implicitly. |
 
-The motivating bug (RF F-15) was the silent-drift class where `sync pull` refreshed structure/dataflows but left `controls/` stale, so the operator's local view diverged from the platform until the next `enrich --focus controls`. The L4.5 step closes that gap: `sync pull` returns a self-consistent directory.
+This division guards against a silent-drift class: without the L4.5 step, `sync pull` would refresh structure/dataflows but leave `controls/` stale, so the operator's local view would diverge from the platform until the next `enrich --focus controls`. With it, `sync pull` returns a self-consistent directory.
 
 ## Multi-Class Control Evaluation
 
