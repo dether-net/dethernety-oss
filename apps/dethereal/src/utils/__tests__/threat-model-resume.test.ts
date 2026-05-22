@@ -276,9 +276,12 @@ describe('/dethereal:remove — crown-jewel pre-confirm', () => {
     expect(body).toMatch(/CROWN JEWEL/)
   })
 
-  it('checks both top-level and nested attribute paths (matching validate-model.tool.ts predicate)', () => {
+  it('covers the component (structure.json) and non-component (bag) crown-jewel paths', () => {
+    // Components: first-class crownJewel in structure.json (matches validate-model.tool.ts)
+    expect(body).toMatch(/crownJewel === true/)
+    expect(body).toMatch(/structure\.json/)
+    // Non-component elements (data flow / data item / boundary): local-only bag mark
     expect(body).toMatch(/crown_jewel === true/)
-    expect(body).toMatch(/attributes\.crown_jewel === true/)
   })
 
   it('declining the crown-jewel prompt stops without showing dependencies', () => {

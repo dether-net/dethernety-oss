@@ -78,7 +78,10 @@ const DataItemSchema = z.object({
   classData: z.object({
     id: z.string(),
     name: z.string()
-  }).optional()
+  }).optional(),
+  // Asset-context fields (snake_case local). Flag *values* are free-text — not enumed.
+  sensitivity: z.enum(['restricted', 'confidential', 'internal', 'public']).optional(),
+  regulatory_flags: z.array(z.string()).optional()
 })
 
 const AttributesSchema = z.object({
@@ -565,11 +568,15 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
     const internetFacingIds = new Set<string>()
     const externalEntityIds = new Set<string>()
 
-    // Collect external entity IDs
+    // Crown jewels are a first-class structure.json field (Component.crownJewel).
+    const crownJewelIds = new Set<string>()
+
+    // Collect external entity IDs (and crown-jewel IDs) from the structure tree.
     const collectExternals = (b: any): void => {
       if (b.components) {
         for (const c of b.components) {
           if (c.type === 'EXTERNAL_ENTITY') externalEntityIds.add(c.id)
+          if (c.crownJewel === true) crownJewelIds.add(c.id)
         }
       }
       if (b.boundaries) {
@@ -615,7 +622,7 @@ export class ValidateModelTool extends ClientFreeTool<ValidateInput, ValidateOut
       if (hasPositive || hasFormalControl) coveredCount++
 
       // Per-tier formal coverage — assign to highest priority tier only
-      const isCrownJewel = compAttrs?.crown_jewel === true || compAttrs?.attributes?.crown_jewel === true
+      const isCrownJewel = crownJewelIds.has(compId)
       let tier: TierKey
       if (isCrownJewel) {
         tier = 'tier_1'

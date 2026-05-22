@@ -9,7 +9,8 @@ export const ADD_COMPONENT = gql`
     $description: String,
     $type: ComponentType!,
     $x: Float!, $y:
-    Float!)
+    Float!,
+    $crownJewel: Boolean)
   {
   createComponents (
       input: {
@@ -18,6 +19,7 @@ export const ADD_COMPONENT = gql`
         description: $description
         positionX: $x
         positionY: $y
+        crownJewel: $crownJewel
         parentBoundary: {
           connect: {
             where: {

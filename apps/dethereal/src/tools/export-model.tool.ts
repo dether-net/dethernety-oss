@@ -26,6 +26,7 @@ import { DtExportSplit } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 import {
   writeModelDirectory,
+  writeScope,
   createDirectoryBackup,
   isModelDirectory,
   ensureModelDirectoryStructure,
@@ -121,8 +122,17 @@ export class ExportModelTool extends ClientDependentTool<ExportInput, ExportOutp
       // Ensure directory structure exists
       await ensureModelDirectoryStructure(directoryPath)
 
+      // Materialise model scope into .dethereal/scope.json (the single on-disk home) and
+      // strip it from the manifest so manifest.json doesn't carry a stale duplicate.
+      // writeScope runs unconditionally (with {} when the platform has no scope) so the
+      // REPLACE mirror can clear any stale synced keys left on disk; it no-ops for a
+      // scope-less model with no existing scope.json.
+      const scope = splitModel.manifest.model.scope
+      if (scope) delete splitModel.manifest.model.scope
+
       // Write split model to directory
       await writeModelDirectory(directoryPath, splitModel)
+      await writeScope(directoryPath, scope ?? {})
       debugLog(config, `Exported model to directory: ${directoryPath}`)
 
       const filesWritten = [
@@ -131,6 +141,7 @@ export class ExportModelTool extends ClientDependentTool<ExportInput, ExportOutp
         'dataflows.json',
         'data-items.json',
         'attributes/',
+        ...(scope ? ['.dethereal/scope.json'] : []),
       ]
 
       // Write sync.json for pull metadata

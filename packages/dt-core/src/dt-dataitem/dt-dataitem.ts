@@ -4,6 +4,7 @@ import * as Apollo from '@apollo/client'
 import { DataItem } from '../interfaces/core-types-interface.js'
 import { ADD_DATA_ITEM, UPDATE_DATA_ITEM, DELETE_DATA_ITEM } from './dt-dataitem-gql.js'
 import { DtClass, ChangeElementBindingResult } from '../dt-class/dt-class.js'
+import { localEnumToPlatform, SENSITIVITY_LEVELS } from '../schemas/index.js'
 
 /**
  * Bundled-method return shape: the residual UPDATE_DATA_ITEM surfaces
@@ -39,14 +40,23 @@ export class DtDataItem {
    * @returns The created data item
    */
   createDataItem = async (
-    { name, description, classId, elementId, modelId }:
-    { name: string, description: string, elementId: string, classId: string | null, modelId: string }
+    { name, description, classId, elementId, modelId, sensitivity, regulatoryFlags }:
+    { name: string, description: string, elementId: string, classId: string | null, modelId: string, sensitivity?: string, regulatoryFlags?: string[] }
   ): Promise<DataItem | null> => {
     try {
+      // Asset-context on create: set present fields only (fresh node, nothing to
+      // clear). Sensitivity validated + uppercased; an unknown value is dropped
+      // (warned) rather than sending an invalid enum. Flags are free-text.
+      const platformSensitivity = localEnumToPlatform(sensitivity, SENSITIVITY_LEVELS)
+      const assetContext = {
+        ...(platformSensitivity ? { sensitivity: platformSensitivity } : {}),
+        ...(regulatoryFlags?.length ? { regulatoryFlags } : {}),
+      }
       const variables = {
         input: [{
           name,
           description,
+          ...assetContext,
           model: {
             connect: {
               where: {
@@ -128,8 +138,8 @@ export class DtDataItem {
    * @returns UpdateDataItemResult — both halves observable.
    */
   updateDataItem = async (
-    { dataItemId, name, description, classId, attributes: _attributes }:
-    { dataItemId: string | null, name: string, description: string, classId?: string | null, attributes?: object }
+    { dataItemId, name, description, classId, attributes: _attributes, sensitivity, regulatoryFlags }:
+    { dataItemId: string | null, name: string, description: string, classId?: string | null, attributes?: object, sensitivity?: string, regulatoryFlags?: string[] }
   ): Promise<UpdateDataItemResult> => {
     if (!dataItemId) {
       return { dataItem: null, bindingResult: null, residualOk: false }
@@ -160,6 +170,12 @@ export class DtDataItem {
         input: {
           name: { set: name },
           description: { set: description },
+          // Asset-context: REPLACE (local authoritative). The push is a full
+          // sync, so always overwrite — an absent value clears the platform
+          // field ({ set: null } / { set: [] }). Sensitivity is validated +
+          // uppercased; unknown drops to null (warned). Flags replace wholesale.
+          sensitivity: { set: localEnumToPlatform(sensitivity, SENSITIVITY_LEVELS) ?? null },
+          regulatoryFlags: { set: regulatoryFlags ?? [] },
         },
       }
 

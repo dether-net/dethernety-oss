@@ -464,7 +464,10 @@ export class DtUpdate {
         description: data.description || existingModel.description || '',
         modules: moduleIds,
         controls: controlIds,
-        folderId: undefined
+        folderId: undefined,
+        // Asset-context scope (grouped local shape; the builder lifts it onto the
+        // flat platform fields with REPLACE semantics). Absent → platform untouched.
+        scope: data.scope
       })
       this.stats.updated++
     } catch (e) {
@@ -611,7 +614,10 @@ export class DtUpdate {
             dataItemId: itemId,
             name: itemData.name,
             description: itemData.description || '',
-            classId: itemData.classData?.id
+            classId: itemData.classData?.id,
+            // Asset-context (REPLACE on update). Local snake `regulatory_flags`.
+            sensitivity: itemData.sensitivity,
+            regulatoryFlags: itemData.regulatory_flags
           })
           this.idMapping.set(itemId, itemId)
           this.processedDataitemIds.add(itemId)
@@ -623,7 +629,9 @@ export class DtUpdate {
             description: itemData.description || '',
             elementId: this.defaultBoundaryId,
             classId: itemData.classData?.id,
-            modelId: this.currentModelId
+            modelId: this.currentModelId,
+            sensitivity: itemData.sensitivity,
+            regulatoryFlags: itemData.regulatory_flags
           })
 
           if (createdItem && itemData.id) {
@@ -891,7 +899,10 @@ export class DtUpdate {
         },
         data: {
           label: componentData.name,
-          description: componentData.description || ''
+          description: componentData.description || '',
+          // Lifted crown-jewel flag (REPLACE on the primary structure update —
+          // always set true/false so an unmark propagates).
+          crownJewel: componentData.crownJewel === true
         },
         parentNode: parentBoundaryId
       }
@@ -951,7 +962,9 @@ export class DtUpdate {
         },
         data: {
           label: componentData.name,
-          description: componentData.description || ''
+          description: componentData.description || '',
+          // Lifted crown-jewel flag → carried into ADD_COMPONENT (set when true).
+          crownJewel: componentData.crownJewel === true
         },
         parentNode: parentBoundaryId
       }

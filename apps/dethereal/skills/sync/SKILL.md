@@ -16,8 +16,8 @@ Route `$ARGUMENTS` to the correct subcommand:
 - `pull [model-id-or-name]` → **Pull flow** (import platform model to local)
 - `status [directory-path]` → **Status display** (sync state summary)
 - `promote-external-edit <controlId> <classId>` → **Recovery verb** (unblocks the Step A external-edit guard after someone else changed the Control on the platform between your pull and push; see §Promote External Edit below)
-- `tombstone <controlId>` → **Recovery verb** (Sprint 4 F-10) — flip a control's lifecycle to `tombstoned` locally so future pulls don't resurrect it; useful for retiring a Control without waiting for platform-deletion-detected reconciliation. See §Tombstone Recovery Verb below.
-- `repair-wal` → **Recovery verb** (Sprint 5 F-20) — surface the stranded WAL journal contents and walk the operator through the three available recovery actions (delete journal, retry replay, or manually rename). Use when any push/pull/status action returns `WAL_REPLAY_FAILED`. See §Repair WAL Recovery Verb below.
+- `tombstone <controlId>` → **Recovery verb** — flip a control's lifecycle to `tombstoned` locally so future pulls don't resurrect it; useful for retiring a Control without waiting for platform-deletion-detected reconciliation. See §Tombstone Recovery Verb below.
+- `repair-wal` → **Recovery verb** — surface the stranded WAL journal contents and walk the operator through the three available recovery actions (delete journal, retry replay, or manually rename). Use when any push/pull/status action returns `WAL_REPLAY_FAILED`. See §Repair WAL Recovery Verb below.
 - No arguments or unrecognized → show usage hint:
   ```
   Usage: /dethereal:sync <push|pull|status|promote-external-edit|tombstone|repair-wal> [options]
@@ -166,6 +166,8 @@ If user chooses **cancel**: stop.
 - The tool handles: structural diff, applying changes, sync.json update
 - `delete_orphaned` is always `true` because at this point the user has either confirmed deletion of platform additions (P4a → push), or no platform additions exist (P4 → no conflicts). The conflict resolution decision happens at the skill level (push/pull/cancel), not at the tool parameter level.
 
+Both tools also publish the model's **asset context**: model scope (read from `.dethereal/scope.json`), per-component `crownJewel` (first-class in `structure.json`), and per-data `sensitivity` / `regulatoryFlags` (first-class in `data-items.json`). These use REPLACE semantics — clearing a value locally clears it on the platform on the next push.
+
 ### P6. Post-Push
 
 1. Read the updated model files (server IDs now written to local files)
@@ -189,6 +191,8 @@ If user chooses **cancel**: stop.
    Create these controls on the platform, then re-sync to link them.
    ```
    If no control warnings: omit this section.
+
+3a. **Local-only asset notice:** `import_model` / `update_model` may return a warning that crown-jewel marks on non-component elements (data items, boundaries, or flows) were not synced — the platform tracks crown jewels on components only, so there is no field to publish them to. Surface this warning verbatim if present; omit otherwise.
 
 4. **Control ID Pinning:** After successful push, check local model files for name-only control references (`id: null`).
    If any exist:
@@ -227,9 +231,9 @@ Enumerate `<modelDir>/controls/<id>.json` files. Sort each into one of three buc
 
 1. **Brownfield with pending edits** (the canonical case): `lifecycle === 'brownfield'` AND any `classes[].pendingEdit` populated. Routes through P7.2–P7.6 below.
 
-2. **Greenfield / partially-pushed** (Sprint 4 F-05): `lifecycle === 'greenfield' || lifecycle === 'partially-pushed'`. Routes through the **Greenfield push branch** (P7.G below) — these are locally-authored Controls that need to be created on the platform with WAL-protected id rewrite. Pre-Sprint-4 these were silently skipped, leaving the file-first greenfield workflow unreachable.
+2. **Greenfield / partially-pushed**: `lifecycle === 'greenfield' || lifecycle === 'partially-pushed'`. Routes through the **Greenfield push branch** (P7.G below) — these are locally-authored Controls that need to be created on the platform with WAL-protected id rewrite. This keeps the file-first greenfield workflow reachable from the CLI.
 
-3. **External-edit drift** (Sprint 4 F-06): `lifecycle === 'brownfield' || lifecycle === 'partially-pushed'`, AND `attributes != platformAttributes` for any class entry, AND that class entry has NO `pendingEdit` block. Pre-Sprint-4 these were silently skipped — a hand-edited control file would never trigger the Step A external-edit guard because the engine was never invoked. Render as a **pre-flight error** before any P7.2 fetch:
+3. **External-edit drift**: `lifecycle === 'brownfield' || lifecycle === 'partially-pushed'`, AND `attributes != platformAttributes` for any class entry, AND that class entry has NO `pendingEdit` block. A hand-edited control file is caught here so it triggers the Step A external-edit guard. Render as a **pre-flight error** before any P7.2 fetch:
    ```
    External edit detected on control(s):
      - "<name>" [class "<className>"]: attributes diverge from platformAttributes with no pendingEdit.
@@ -302,7 +306,7 @@ Choose:
                 other models keep the original Control unchanged.
 ```
 
-**Case B — ≥2 controls need decision** — render the batched review screen per CL §6, with the row format and verb table grouped for scannability under panic load (UX-reviewed):
+**Case B — ≥2 controls need decision** — render the batched review screen per CL §6, with the row format and verb table grouped for scannability under panic load:
 
 ```
 Shared-Control review (<P> of <T> controls require approval):
@@ -411,7 +415,7 @@ Then re-prompt. Without the type hint, operators retype the same broken input (m
 
 **`show all` cost guard:** When prompted-control count > 4, render `show all` as `show all (will print ~<N×~5> lines)` so the operator can prefer `show 1` then iterate.
 
-#### P7.4a — Compact rendering mode (Sprint 5 S5.13)
+#### P7.4a — Compact rendering mode
 
 Under realistic operator load (5+ shared Controls × 3+ conflicting keys each), even the Case B batched render becomes a wall of text — multi-line `[shared:...]`/`[conflict:...]`/`[intent:...]` per row × N rows × per-key conflict expansion. Auto-engage **compact mode** when EITHER threshold is met:
 
@@ -447,9 +451,9 @@ Verbs: per-row (cancel|push-anyway|clone|push-unverified <n>) | per-key (keep|ac
 Use 'show <n>' for full row detail (per-key conflicts, models list, intent breakdown).
 ```
 
-The thresholds are V1 defaults pending operator-load telemetry. They can be revisited in a Sprint 6 iteration without code changes (skill prose only). Operator override: typing `verbose` once flips back to Case B rendering for the rest of the session; `compact` flips back. The toggle is also surfaced in the Verbs hint above so it's discoverable in-band.
+The thresholds are V1 defaults pending operator-load telemetry. They can be revisited later without code changes (skill prose only). Operator override: typing `verbose` once flips back to Case B rendering for the rest of the session; `compact` flips back. The toggle is also surfaced in the Verbs hint above so it's discoverable in-band.
 
-#### P7.4b — `merge-from-file` for large JSON payloads (Sprint 5 S5.14)
+#### P7.4b — `merge-from-file` for large JSON payloads
 
 For attribute values larger than ~120 characters (long allow-lists, certificate PEMs, multi-paragraph descriptions), pasting the JSON literal at the prompt is error-prone (newline handling, shell quoting, paste truncation). Add a file-backed variant:
 
@@ -457,10 +461,10 @@ For attribute values larger than ~120 characters (long allow-lists, certificate 
 merge-from-file <n>.<key> = <path>
 ```
 
-Where `<path>` is a path **relative to the model directory** (for path-confinement safety — see Sprint 4 F-07). The skill:
+Where `<path>` is a path **relative to the model directory** (for path-confinement safety). The skill:
 
 1. **Validate path confinement** — reject any absolute path or path containing `..`. Acceptable forms: `controls/<id>.merged-foo.json`, `.dethereal/merge-staging/<key>.json`. Render `Invalid path '<path>': must be a relative path within the model directory. Try staging the file at .dethereal/merge-staging/<basename>.` on rejection (suggesting the canonical staging path so the operator learns the convention without trial-and-error).
-2. **Auto-create the staging dir on demand (Sprint 6 Tier-3 carryover).** When `<path>` is exactly under `.dethereal/merge-staging/` and the directory does not yet exist, `mkdir -p .dethereal/merge-staging/` before reading. Render the one-line confirmation `Created .dethereal/merge-staging/ (gitignored).` so the operator knows the side-effect happened. Skip both the directory creation AND the confirmation when the path is anywhere else (e.g. `controls/<id>.merged-foo.json`) — only the canonical staging dir is auto-provisioned. Reuses the Sprint 4 `validatePathConfinement` helper for the path check; the `mkdir` is a thin wrapper that respects the confinement decision.
+2. **Auto-create the staging dir on demand.** When `<path>` is exactly under `.dethereal/merge-staging/` and the directory does not yet exist, `mkdir -p .dethereal/merge-staging/` before reading. Render the one-line confirmation `Created .dethereal/merge-staging/ (gitignored).` so the operator knows the side-effect happened. Skip both the directory creation AND the confirmation when the path is anywhere else (e.g. `controls/<id>.merged-foo.json`) — only the canonical staging dir is auto-provisioned. Reuses the `validatePathConfinement` helper for the path check; the `mkdir` is a thin wrapper that respects the confinement decision.
 3. **Read the file** — if absent, render `File not found: <modelDir>/<path>. Stage the JSON literal at this path and retry.` and re-prompt.
 4. **Parse + validate** — `JSON.parse(content)`. On error, surface the same parse-error rendering as inline `merge` (line 398-410 above) but with **offset-aware context** when `JSON.parse` provides a position (most engines do via `error.message` matching `at position N`):
    ```
@@ -569,13 +573,13 @@ If P7 had no work (empty gather in P7.1), keep the original P6 footer:
 [next] Commit changes to git, then /dethereal:review (assess quality)
 ```
 
-#### P7.G — Greenfield Push Branch (Sprint 4 F-05)
+#### P7.G — Greenfield Push Branch
 
-> Pre-Sprint-4 the engine had a working `pushGreenfieldControl` method but no skill called it. A `controls/greenfield-foo.json` file authored by `/dethereal:enrich --focus controls` was silently skipped at P7.1, leaving the file-first greenfield workflow unreachable from the CLI. This branch closes that gap.
+> Drives the engine's `pushGreenfieldControl` method for locally-authored Controls. A `controls/greenfield-foo.json` file authored by `/dethereal:enrich --focus controls` is routed here from P7.1, keeping the file-first greenfield workflow reachable from the CLI.
 
 For each control file in P7.1's bucket 2 (`lifecycle === 'greenfield' || lifecycle === 'partially-pushed'`):
 
-**Step G1 — derive `supporting_element_ids`** (also addresses RF F-13 documentation gap). Walk both `structure.json` and `dataflows.json`, collecting the id of every element whose `controls[]` array contains the new control's id (or its temp `greenfield-...` id, prior to platform creation):
+**Step G1 — derive `supporting_element_ids`.** Walk both `structure.json` and `dataflows.json`, collecting the id of every element whose `controls[]` array contains the new control's id (or its temp `greenfield-...` id, prior to platform creation):
 
 ```
 supportingElementIds = []
@@ -608,7 +612,7 @@ mcp__plugin_dethereal_dethereal__manage_controls(
 )
 ```
 
-The engine drives Steps A→D from CL §7 greenfield: create-on-platform, WAL-protected id rewrite (file rename + every `controls[]` reference in structure/dataflows rewritten from temp id to server id), per-class `setInstantiationAttributes`, lifecycle flip to `brownfield`. The WAL replay invoked by the F-02 pre-dispatch handles crash-recovery if the rewrite is interrupted.
+The engine drives Steps A→D from CL §7 greenfield: create-on-platform, WAL-protected id rewrite (file rename + every `controls[]` reference in structure/dataflows rewritten from temp id to server id), per-class `setInstantiationAttributes`, lifecycle flip to `brownfield`. The WAL replay invoked by the pre-dispatch handles crash-recovery if the rewrite is interrupted.
 
 On success, render:
 ```
@@ -621,11 +625,11 @@ On failure, surface the engine's error and continue to the next greenfield file 
 
 ---
 
-## Tombstone Recovery Verb (Sprint 4 F-10)
+## Tombstone Recovery Verb
 
 > `/dethereal:sync tombstone <controlId>` — flip a control's lifecycle to `tombstoned` locally, decoupling it from future pulls and signalling to the operator that the Control should not be re-pulled. Useful when an operator wants to retire a Control locally (e.g., after deciding the platform-side Control is the wrong choice) without waiting for the platform-deletion-detected path.
 
-1. **Auth + lock** — uses the F-03 lock automatically via the MCP boundary.
+1. **Auth + lock** — uses the lock automatically via the MCP boundary.
 2. **Read** the control file via `readControlFile(directory_path, controlId)`. If absent, render:
    ```
    Control <controlId> not found locally. Nothing to tombstone.
@@ -650,7 +654,7 @@ This verb is local-only: the platform-side Control is not deleted. Use the platf
 
 ---
 
-## Repair WAL Recovery Verb (Sprint 5 F-20)
+## Repair WAL Recovery Verb
 
 > `/dethereal:sync repair-wal [directory-path]` — recover from a stranded WAL journal that `applyPendingRewrites` refused to replay (`WAL_REPLAY_FAILED`). Surfaces the journal contents, the on-disk state of every operation, and walks the operator through the three available recovery actions. Use when any push/pull/status returned `WAL_REPLAY_FAILED` (typically the macOS overlay-FS / network-FS ambiguous-state case described in `wal-helper.ts:34-38`).
 
@@ -708,11 +712,11 @@ This verb is local-only: the platform-side Control is not deleted. Use the platf
 
    Choose [1/2/3, default 1]:
    ```
-   Order rationale (Sprint 5 cross-review): under WAL-recovery stress operators are fatigued; the safest option (cancel) is `1` and is the default on empty input. The destructive option (clear-journal) is `3` and requires verbatim confirmation below.
+   Order rationale: under WAL-recovery stress operators are fatigued; the safest option (cancel) is `1` and is the default on empty input. The destructive option (clear-journal) is `3` and requires verbatim confirmation below.
 
 4. **Apply operator's choice** (empty input → `1`):
    - **`1` (cancel)** — render `Journal preserved. Re-run /dethereal:sync repair-wal when ready.` and stop.
-   - **`2` (retry-replay)** — invoke any directory-touching MCP action (e.g. `mcp__plugin_dethereal_dethereal__manage_controls(action: 'pull-controls', directory_path, control_ids: [])`); the F-02 pre-dispatch will replay the journal. If replay still fails, render the new error with `(attempt N of 2)` in the prompt label and offer options 1/2/3 again. After 2 retry attempts force the operator to choose 1 or 3.
+   - **`2` (retry-replay)** — invoke any directory-touching MCP action (e.g. `mcp__plugin_dethereal_dethereal__manage_controls(action: 'pull-controls', directory_path, control_ids: [])`); the pre-dispatch will replay the journal. If replay still fails, render the new error with `(attempt N of 2)` in the prompt label and offer options 1/2/3 again. After 2 retry attempts force the operator to choose 1 or 3.
 
      Re-inspect before each retry — the WAL state may have changed since the operator's prior inspect (another shell could have run `clear-wal` or pushed new operations). Render the freshly-inspected state alongside the retry prompt so the operator's mental model is current.
 
@@ -743,7 +747,7 @@ This verb is local-only: the platform-side Control is not deleted. Use the platf
 - `repair-wal` is the operator's escape hatch — it cannot guess the right resolution. The skill's job is to surface the state honestly and confirm intent.
 - The lock is held for the duration of inspect-wal / clear-wal so two operators can't repair the same directory concurrently.
 - The platform-side Control was already created (that's how the journal got a `serverId`). Clearing the journal does not delete the platform Control; if the operator decides the local rewrite shouldn't have been started, the platform-side cleanup is manual.
-- **ASCII-only rendering convention (Sprint 6 Tier-3 carryover).** Every glyph the `repair-wal` flow renders — `[!]`, `[ok]`, `[pending]`, `[?]`, the bracketed prompt indicator above — is drawn from the same hard-coded ASCII palette used throughout this skill. Do NOT inject emoji, smart quotes, or non-ASCII separators when interpolating operator-supplied strings (e.g. `tempId` / `serverId` from a journal authored on a different host) into the rendered output: pass them through verbatim, but keep the surrounding skill prose ASCII-only so the recovery prompt stays legible in restricted terminals (CI logs, SSH-from-Windows-cmd, screen-readers).
+- **ASCII-only rendering convention.** Every glyph the `repair-wal` flow renders — `[!]`, `[ok]`, `[pending]`, `[?]`, the bracketed prompt indicator above — is drawn from the same hard-coded ASCII palette used throughout this skill. Do NOT inject emoji, smart quotes, or non-ASCII separators when interpolating operator-supplied strings (e.g. `tempId` / `serverId` from a journal authored on a different host) into the rendered output: pass them through verbatim, but keep the surrounding skill prose ASCII-only so the recovery prompt stays legible in restricted terminals (CI logs, SSH-from-Windows-cmd, screen-readers).
 
 ---
 
@@ -784,9 +788,9 @@ Determine the target directory:
 If the target directory already exists:
 1. Read `manifest.json` to confirm it's a model directory
 2. Read `.dethereal/sync.json` for stored content hashes
-3. Read the model files and compute a content hash: SHA-256 of `manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`, sorted by filename, excluding layout properties (`positionX`, `positionY`, `dimensionsWidth`, `dimensionsHeight`). Per SYNC_AND_SOURCE_OF_TRUTH.md §4.
-4. Compare the computed hash against `pull_content_hash` or `push_content_hash` from sync.json (whichever is more recent based on `last_pull_at` vs `last_push_at`)
-5. If hashes **match**: no local changes. Proceed to L4.
+3. Read the model files and compute a content hash. SHA-256 over the **semantic** content, in this fixed order: `manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`; then `.dethereal/scope.json` (model scope + local-only keys); then each `attributes/{boundaries,components,dataFlows,dataItems}/` subdir in that order, files sorted by name within a subdir. Exclude non-semantic properties — layout (`positionX`, `positionY`, `dimensionsWidth`, `dimensionsHeight`) and churny metadata (`modifiedAt`, `exportedAt`). The digest is version-tagged: `sha256:v2:<hex>`. Per SYNC_AND_SOURCE_OF_TRUTH.md §4.
+4. Compare the computed hash against `pull_content_hash` or `push_content_hash` from sync.json (whichever is more recent based on `last_pull_at` vs `last_push_at`). **Version guard first:** if the stored hash does **not** begin with `sha256:v2:`, it was written by a prior hash algorithm — treat the model as a clean baseline (it will re-baseline silently on the next sync) and do **not** report local changes or show the overwrite warning.
+5. If hashes **match** (or the stored hash is a prior-version baseline): no local changes. Proceed to L4.
 6. If hashes **differ** (or no sync.json exists): show warning:
    ```
    Local model "<name>" has changes since last pull/push.
@@ -794,7 +798,7 @@ If the target directory already exists:
 
    Options:
      "push first"  -- Push your changes, then pull
-     "backup"      -- Save current files to <path>.backup/ before pulling
+     "backup"      -- Save current files to <dir>.backup-<timestamp>/ before pulling
      "overwrite"   -- Discard local changes and pull
      "cancel"      -- Keep local files unchanged
    ```
@@ -809,9 +813,9 @@ Call `mcp__plugin_dethereal_dethereal__export_model` with:
 - `model_id`: the selected platform model ID
 - `directory_path`: the target directory
 
-The tool writes: `manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`, `attributes/`, and `.dethereal/sync.json`.
+The tool writes: `manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`, `attributes/`, `.dethereal/scope.json`, and `.dethereal/sync.json`. Model scope is materialised into `.dethereal/scope.json` (merge-preserving any local-only keys such as `crown_jewels` / `adversary_classes` / `activeModules`); component `crownJewel` is written first-class into `structure.json`; per-data `sensitivity` / `regulatoryFlags` are written first-class into `data-items.json`.
 
-### L4.5. Materialize Control Library Files (Sprint 5 F-15)
+### L4.5. Materialize Control Library Files
 
 `export_model` writes `structure.json` and `dataflows.json` with `controls[]` references but does NOT write the per-control files at `controls/<id>.json`. Without this step, the local view shows Control references that have no local backing file — `/dethereal:enrich --focus controls` would re-pull each one individually, and the `controls/` directory drifts silently from `structure.json` between pulls.
 
@@ -839,7 +843,7 @@ Controls library: <K> file(s) refreshed under controls/.
 
 If `pull-controls` returns an error for a specific id (e.g. tombstoned + lifecycle mismatch), surface as a warning in the summary; do not abort the pull. The structure/dataflows files are already on disk in their refreshed state.
 
-**Why this lives in pull and not enrich**: post-Sprint-5 the rule is "`/dethereal:sync pull` returns a self-consistent model directory — no follow-up `pull-controls` required." `/dethereal:enrich --focus controls` still calls `pull-controls` for newly-discovered Control references during enrichment, but a fresh pull no longer leaves `controls/` empty against a populated `structure.json`.
+**Why this lives in pull and not enrich**: the rule is "`/dethereal:sync pull` returns a self-consistent model directory — no follow-up `pull-controls` required." `/dethereal:enrich --focus controls` still calls `pull-controls` for newly-discovered Control references during enrichment, but a fresh pull no longer leaves `controls/` empty against a populated `structure.json`.
 
 ### L5. State Inference
 
@@ -944,6 +948,7 @@ Pulled "<model-name>" from platform.
   dataflows.json       <K> data flows
   data-items.json      <J> data items
   attributes/          <A> attribute files
+  .dethereal/scope.json  Model scope (synced keys merged; local-only keys preserved)
   controls/            <C> control file(s) refreshed
 
   Quality: <score>/100 (<label>)
@@ -960,7 +965,7 @@ Pulled "<model-name>" from platform.
   conflict detection against the freshly-pulled platform state. (See CL A.5)
 ```
 
-**Callout when structure/dataflows referenced a Control id that the platform no longer returns** (tombstoned server-side between the export_model call and the pull-controls call — the documented F-15 race, process-architect T2-1):
+**Callout when structure/dataflows referenced a Control id that the platform no longer returns** (tombstoned server-side between the export_model call and the pull-controls call — a known race):
 ```
   Note: <Q> Control reference(s) in structure/dataflows had no matching entry
   in the platform response — likely tombstoned server-side after the structure
@@ -969,12 +974,7 @@ Pulled "<model-name>" from platform.
   tombstone state has propagated if unexpected.
 ```
 
-**Scope absence note** (show once per pull):
-```
-Note: Platform models do not include scope metadata (.dethereal/scope.json).
-For full workflow support (enrichment prioritization, compliance-driven prompts),
-create scope.json manually or run /dethereal:create with scope definition.
-```
+**Recovery note** (manual; surface if a pull was interrupted): the export takes a timestamped snapshot before writing (`if_exists: 'backup'`), so a crashed or incomplete pull is recovered by restoring `<dir>.backup-<timestamp>/` over the model directory. These backups are full-tree copies and are not garbage-collected, so prune stale `*.backup-*` siblings periodically.
 
 Post-action footer:
 ```
@@ -1064,12 +1064,13 @@ Use the Model Resolution Protocol to find the target model. Read:
 ### S2. Compute Local Change Status
 
 If `sync.json` exists:
-1. Read model files and compute a content hash (read `manifest.json`, `structure.json`, `dataflows.json`, `data-items.json` — hash content excluding layout properties)
+1. Compute a content hash exactly as in L3 step 3: SHA-256 in fixed order over `manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`, then `.dethereal/scope.json`, then each `attributes/{boundaries,components,dataFlows,dataItems}/` subdir (files sorted by name within a subdir), excluding non-semantic properties (layout + `modifiedAt`/`exportedAt`); digest is `sha256:v2:<hex>`.
 2. Determine which hash to compare against:
    - If `last_push_at` is more recent than `last_pull_at`: compare against `push_content_hash`
    - Otherwise: compare against `pull_content_hash`
-3. If hashes match: "No local changes"
-4. If hashes differ: "Local changes not pushed"
+3. **Version guard:** if the stored hash does not begin with `sha256:v2:`, it is a prior-algorithm baseline — report "No local changes" (it re-baselines on the next sync); do not report drift.
+4. If hashes match: "No local changes"
+5. If hashes differ: "Local changes not pushed"
 
 If `sync.json` does not exist: "Never synced"
 

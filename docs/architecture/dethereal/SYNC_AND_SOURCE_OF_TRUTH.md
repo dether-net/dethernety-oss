@@ -71,7 +71,7 @@ However, the architecture must prepare for both directions because:
 | Models registry | Must register in `.dethernety/models.json` on pull | Low |
 | Push routing | Must check `manifest.model.id` to choose `update_model` vs `import_model` | Low |
 | `list_models` implementation | Specified but not built. Required for CLI-first pull | Medium |
-| Scope absence | Platform models have no `scope.json`. Prompt for scope on first skill invocation or infer from content | Low |
+| Scope materialisation | Pull writes `.dethereal/scope.json` from the platform `Model` scope fields (merge-preserving any skill-owned local-only keys); push reads it back. Legacy models with no scope ⇒ file simply carries no synced keys | Done |
 
 ---
 
@@ -236,7 +236,7 @@ Even though D40 defers conflict resolution to V1.1, a minimal `sync.json` should
   "platform_url": "https://demo.dethernety.io",
   "last_pull_at": "2026-03-26T10:00:00Z",
   "last_push_at": null,
-  "pull_content_hash": "sha256:...",
+  "pull_content_hash": "sha256:v2:...",
   "push_content_hash": null,
   "baseline_element_ids": {
     "boundaries": ["b-001", "b-002"],
@@ -248,7 +248,7 @@ Even though D40 defers conflict resolution to V1.1, a minimal `sync.json` should
 }
 ```
 
-**Content hash**: SHA-256 of all model files (not `.dethereal/`), excluding layout properties (`positionX`, `positionY`, `dimensionsWidth`, `dimensionsHeight`), sorted by path. Layout changes should not trigger staleness warnings — they are cosmetic.
+**Content hash**: SHA-256 over the semantic content of the model directory, version-tagged as `sha256:v2:<hex>`. It covers the four top-level files (`manifest.json`, `structure.json`, `dataflows.json`, `data-items.json`), **`.dethereal/scope.json`** (model scope + skill-owned local-only keys), and the per-element `attributes/{boundaries,components,dataFlows,dataItems}/*.json` bags, sorted within each subdir. It **excludes non-semantic properties**: diagram layout (`positionX`, `positionY`, `dimensionsWidth`, `dimensionsHeight`) and churny export/edit metadata (`modifiedAt`, `exportedAt`), so cosmetic re-exports do not trigger staleness warnings. A stored hash whose version prefix differs from the current algorithm is treated as a clean baseline (silently re-baselined on the next sync), not as local changes.
 
 **Baseline element IDs**: Captured after every push/pull. Enables disambiguation of platform additions (C1) from user deletions (C2) during the pre-push diff. See Section 12.
 
@@ -450,7 +450,7 @@ project-root/
         state.json                          # Inferred: currentState, inferredFromContent
         quality.json                        # Computed on pull
         sync.json                           # Sync tracking (gitignored)
-        # No scope.json (platform model has no plugin scope)
+        scope.json                          # Model scope, materialised from the platform's scope fields (present when set)
         # No discovery.json (not discovered via plugin)
         # No audit_trail.json (no plugin operations yet)
 ```
@@ -647,7 +647,7 @@ Before push, fetch platform element IDs via `DtUpdate.fetchExistingModelStructur
 | Answers "what changed" | Yes (via element-level diff) |
 | Layout sensitivity | Excluded from hash — position changes are cosmetic |
 
-The `SplitModel` manifest already has a `checksum` field. The content hash excludes `positionX`, `positionY`, `dimensionsWidth`, `dimensionsHeight` to avoid false-positive warnings from GUI layout changes.
+The `SplitModel` manifest already has a `checksum` field. The content hash excludes diagram layout (and churny export metadata) so GUI layout changes don't trigger false-positive warnings — see Section 4 for its full coverage (attributes, scope, and the `sha256:v2:` versioning).
 
 ### V1.1 Approach: Application-Level `updatedAt`
 
@@ -665,27 +665,29 @@ Add `updatedAt: String` and `createdAt: String` to the `Model` type in `schema.g
 
 ## 15. Scope on Platform Models
 
-A pulled model has no `scope.json` (scope is a plugin concept). Resolution: add scope fields to the Model graph node.
+Model scope round-trips through five **flat** fields on the `Model` graph node. (A `ModelScope` sub-object was considered and rejected: the fields must exist flat for the write path anyway, so a wrapper would have been a duplicate read surface for no v1 gain.) All are **nullable** so legacy models read cleanly.
 
-**Fields to add to Model type:**
+**Scope fields on the `Model` type:**
 
 ```graphql
 type Model {
   # ... existing fields ...
-  scopeDescription: String
-  scopeDepth: String           # 'architecture' | 'design' | 'implementation'
-  scopeModelingIntent: String  # 'initial' | 'security_review' | 'compliance' | 'incident_response'
-  scopeComplianceDrivers: [String!]
-  scopeCrownJewels: [String!]
-  scopeExclusions: [String!]
-  scopeTrustAssumptions: [String!]
+  depth: ModelingDepth            # ARCHITECTURE | DESIGN | IMPLEMENTATION
+  modelingIntent: ModelingIntent  # INITIAL | SECURITY_REVIEW | COMPLIANCE | INCIDENT_RESPONSE
+  complianceDrivers: [String!]
+  exclusions: [String!]
+  trustAssumptions: [String!]
 }
 ```
 
-**On push**: Write scope fields from `scope.json` to the Model node.
+`ModelingDepth` / `ModelingIntent` are GraphQL enums; on disk in `.dethereal/scope.json` they are the lowercase snake_case forms (`depth`, `modeling_intent`, `compliance_drivers`, `exclusions`, `trust_assumptions`). The enum/case transform is centralised in dt-core.
 
-**On pull**: Read scope fields from the Model node, write to `scope.json`.
+The companion per-element asset-context fields landed alongside scope: `Component.crownJewel: Boolean`, `Data.sensitivity: SensitivityLevel`, and `Data.regulatoryFlags: [String!]` (see [DT_MODULE_INTERFACE.md → Asset-context fields exposed to modules](../modules/DT_MODULE_INTERFACE.md#asset-context-fields-exposed-to-modules)). Crown jewels are tracked **per component** — there is no crown-jewels list on the `Model` node; the skill's local `crown_jewels` name list stays a local-only key inside `scope.json`. On disk these per-element fields are first-class: `crownJewel` on the component in `structure.json`, and `sensitivity` / `regulatory_flags` on each data item in `data-items.json` (not in the attribute bags).
 
-**Dirty-check**: If the model was modified on the platform (detected via element ID comparison at push time, or `updatedAt` when available), scope may have changed. On first skill invocation after pull, present the scope and require confirmation: *"Scope was imported from the platform. Review and confirm, or modify."*
+**On push**: write the scope fields from `scope.json` to the Model node, with REPLACE semantics — a value cleared locally is cleared on the platform, but a push that carries no scope at all leaves the platform untouched.
 
-If the Model node has no scope fields (older platform, or model created via GUI without scope), the plugin prompts for scope on first skill invocation — same as the current behavior for new models.
+**On pull**: read the scope fields from the Model node and write them to `.dethereal/scope.json`, merge-preserving any skill-owned local-only keys.
+
+**Drift surfacing**: `.dethereal/scope.json` is part of the content hash (Section 4), so a scope change — local or pulled — is surfaced as a local-change warning by the sync skill before a pull would overwrite it.
+
+**Legacy models**: a Model node with no scope fields reads `null` for each; `scope.json` simply carries no synced keys. No backfill.

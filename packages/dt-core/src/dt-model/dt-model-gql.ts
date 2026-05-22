@@ -102,6 +102,11 @@ export const DUMP_MODEL_DATA = gql`
       id
       name
       description
+      depth
+      modelingIntent
+      complianceDrivers
+      exclusions
+      trustAssumptions
       controls {
         id
       }
@@ -132,6 +137,7 @@ export const DUMP_MODEL_DATA = gql`
           representedModel {
             id
           }
+          crownJewel
         }
         allDescendantBoundaries {
           id
@@ -189,6 +195,8 @@ export const DUMP_MODEL_DATA = gql`
           id
           name
         }
+        sensitivity
+        regulatoryFlags
       }
       modules {
         id

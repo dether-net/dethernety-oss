@@ -91,6 +91,14 @@ export class DtExport {
           id: modelData.id,
           name: modelData.name,
           description: modelData.description,
+          // Flat asset-context scope (the model object is not spread). Component
+          // crownJewel and data-item sensitivity/regulatoryFlags ride the
+          // existing spreads in enrichComponent / enrichDataItem.
+          depth: modelData.depth,
+          modelingIntent: modelData.modelingIntent,
+          complianceDrivers: modelData.complianceDrivers,
+          exclusions: modelData.exclusions,
+          trustAssumptions: modelData.trustAssumptions,
         }
 
         // Process data items first (needed for references)

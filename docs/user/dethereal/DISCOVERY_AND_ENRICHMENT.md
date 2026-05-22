@@ -171,12 +171,12 @@ Credential topology is critical for lateral movement analysis — it shows which
 
 ### Data Item Classification
 
-For cross-boundary flows carrying sensitive data, the plugin proposes data items with sensitivity and regulatory labels:
+For cross-boundary flows carrying sensitive data, the plugin proposes data items with sensitivity and regulatory labels. Regulatory flags use the [canonical vocabulary](../../architecture/dethereal/THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary) — emit the exact casing, since the platform matches them case-sensitively:
 
 | Sensitivity | Regulatory Labels | Examples |
 |------------|------------------|---------|
-| Restricted (Tier 1) | PHI, PCI_cardholder | Health records, credit card numbers |
-| Confidential (Tier 2) | GDPR_personal_data, PII | Email addresses, session tokens |
+| Restricted (Tier 1) | `PHI`, `PCI cardholder` | Health records, credit card numbers |
+| Confidential (Tier 2) | `GDPR personal`, `PII`, `SOX financial`, `CCPA personal` | Email addresses, session tokens |
 | Internal (Tier 3) | — | Metrics, operational logs |
 | Public (Tier 4) | — | Documentation, public APIs |
 

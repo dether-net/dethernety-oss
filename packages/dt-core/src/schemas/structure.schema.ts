@@ -53,6 +53,9 @@ export interface StructureComponent extends Identifiable {
 
   /** If this component represents another model */
   representedModel?: ModelReference;
+
+  /** Author flag: this component is a crown jewel (high-value asset). */
+  crownJewel?: boolean;
 }
 
 /**

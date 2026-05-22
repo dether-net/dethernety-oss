@@ -78,10 +78,23 @@ export {
 export {
   type ModelManifest,
   type ModelMetadata,
+  type ModelScopeLocal,
   type FileReferences,
   DEFAULT_FILE_NAMES,
   createManifest,
 } from './manifest.schema.js';
+
+// Asset-context transform boundary (local <-> platform)
+export {
+  type PlatformScopeFields,
+  MODELING_DEPTHS,
+  MODELING_INTENTS,
+  SENSITIVITY_LEVELS,
+  platformEnumToLocal,
+  localEnumToPlatform,
+  platformScopeToLocal,
+  localScopeToPlatform,
+} from './asset-context-map.js';
 
 // Structure
 export {

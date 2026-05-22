@@ -54,6 +54,44 @@ enum ValueType {
 }
 ```
 
+### ModelingDepth
+
+Author-asserted modeling depth — an analysis-scope seed on `Model`.
+
+```graphql
+enum ModelingDepth {
+  ARCHITECTURE
+  DESIGN
+  IMPLEMENTATION
+}
+```
+
+### ModelingIntent
+
+Author-asserted modeling intent on `Model`.
+
+```graphql
+enum ModelingIntent {
+  INITIAL
+  SECURITY_REVIEW
+  COMPLIANCE
+  INCIDENT_RESPONSE
+}
+```
+
+### SensitivityLevel
+
+Author-asserted data sensitivity on `Data`, ordered `PUBLIC` < `INTERNAL` < `CONFIDENTIAL` < `RESTRICTED`.
+
+```graphql
+enum SensitivityLevel {
+  PUBLIC
+  INTERNAL
+  CONFIDENTIAL
+  RESTRICTED
+}
+```
+
 ### DispositionKind
 
 The structured decision a user records on a SYSTEM-generated finding (`Exposure` or `Countermeasure`) instead of deleting it. See [Disposition fields on Exposure and Countermeasure](#disposition-fields-on-exposure-and-countermeasure).
@@ -83,6 +121,11 @@ Represents a system model containing components, boundaries, and data flows.
 - `id` (ID!) — Unique identifier
 - `name` (String!) — Model name
 - `description` (String) — Model description
+- `depth` (ModelingDepth) — Author-asserted modeling depth (architecture / design / implementation)
+- `modelingIntent` (ModelingIntent) — Author-asserted modeling intent
+- `complianceDrivers` ([String!]) — Compliance obligations driving the model
+- `exclusions` ([String!]) — Areas the author placed out of scope
+- `trustAssumptions` ([String!]) — Trust assumptions the model relies on
 
 **Relationships:**
 - `(Model)-[:CONTAINS]->(SecurityBoundary)` — Default boundary for the model
@@ -103,6 +146,7 @@ Represents a key entity in the system (process, store, external entity).
 - `name` (String!) — Component name
 - `description` (String) — Component description
 - `type` (ComponentType!) — Type of component
+- `crownJewel` (Boolean) — Author flag marking this component a high-value asset (null ⇒ not a crown jewel)
 - `positionX` (Float) — X coordinate on canvas
 - `positionY` (Float) — Y coordinate on canvas
 - `dimensionsWidth` (Float) — Width on canvas
@@ -203,6 +247,8 @@ Represents data elements within the system.
 - `id` (ID!) — Unique identifier
 - `name` (String!) — Data name
 - `description` (String) — Data description
+- `sensitivity` (SensitivityLevel) — Author-asserted sensitivity classification (null ⇒ unclassified)
+- `regulatoryFlags` ([String!]) — Regulatory-scope tags (e.g. `PCI cardholder`, `GDPR personal`); null ⇒ none
 
 **Relationships:**
 - `(Data)<-[:CONTAINS]-(Model)` — Parent model
@@ -536,6 +582,7 @@ enum VectorDisabledReason { EMBEDDING_DISABLED, NO_INDEX_MODULE, NO_VECTORS, MOD
 | Query | Parameters | Returns | Description |
 |-------|-----------|---------|-------------|
 | `getExposuresForElement` | `elementId` | `[Exposure!]!` | Get exposures for any element |
+| `dataInRegulatoryScope` | `flag` | `[Data!]!` | Find `Data` whose `regulatoryFlags` contains `flag` (exact, case-sensitive; intentional full `:Data` scan, direct handlers only). Producers must emit the canonical casing — see [THREAT_MODELING_WORKFLOW](../../dethereal/THREAT_MODELING_WORKFLOW.md). |
 | `getAttributesFromClassRel` | `componentId`, `classId` | `JSON` | Get attributes from an IS_INSTANCE_OF relationship |
 | `getNotRepreseningModels` | `modelId` | `[Model!]` | Get models not already represented by components in the given model |
 | `getAnalysisValues` | `analysisId`, `valueKey` | `JSON!` | Get analysis result values by key |

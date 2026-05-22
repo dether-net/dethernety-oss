@@ -41,6 +41,38 @@ Component type (process, database, external entity, etc.).
 | `DATA` | A data class |
 | `CONTROL` | A control class |
 
+### ModelingDepth
+
+The depth at which a model reasons about the system (a `Model` scope field).
+
+| Value | Description |
+|-------|-------------|
+| `ARCHITECTURE` | Architecture level (systems and trust zones) |
+| `DESIGN` | Design level (components and interfaces) |
+| `IMPLEMENTATION` | Implementation level (concrete code and config) |
+
+### ModelingIntent
+
+Why a model exists; frames which findings matter (a `Model` scope field).
+
+| Value | Description |
+|-------|-------------|
+| `INITIAL` | Initial pass to establish a baseline model |
+| `SECURITY_REVIEW` | Focused security review of an existing system |
+| `COMPLIANCE` | Driven by a compliance obligation |
+| `INCIDENT_RESPONSE` | Modeling in support of an active incident response |
+
+### SensitivityLevel
+
+Author-asserted data sensitivity classification, lowest to highest (`Data.sensitivity`).
+
+| Value | Description |
+|-------|-------------|
+| `PUBLIC` | No confidentiality requirement |
+| `INTERNAL` | Restricted to the organization |
+| `CONFIDENTIAL` | Limited distribution |
+| `RESTRICTED` | Strict need-to-know |
+
 ### ClassLabelEnum
 
 Class label identifying which node type to match against.
@@ -247,6 +279,11 @@ Implements: `Element`
 | `id` | `ID!` | Unique identifier |
 | `name` | `String!` | Model name |
 | `description` | `String` | Free-text description |
+| `depth` | `ModelingDepth` | Author-asserted modeling depth (`ARCHITECTURE` / `DESIGN` / `IMPLEMENTATION`). Nullable |
+| `modelingIntent` | `ModelingIntent` | Why the model exists (`INITIAL` / `SECURITY_REVIEW` / `COMPLIANCE` / `INCIDENT_RESPONSE`). Nullable |
+| `complianceDrivers` | `[String!]` | Regulatory/standards obligations in scope, free-text (e.g. `PCI-DSS`, `HIPAA`). Nullable |
+| `exclusions` | `[String!]` | Areas deliberately out of scope. Nullable |
+| `trustAssumptions` | `[String!]` | What the model treats as trusted (e.g. "cloud control plane"). Nullable |
 | `defaultBoundary` | `[SecurityBoundary!]!` | Top-level security boundaries in this model (→ `CONTAINS`) |
 | `modules` | `[Module!]!` | Modules previously attached to this model. UI-deprecated as of 2026-05 —
 the class picker uses the global module catalogue via listClasses / matchClasses.
@@ -272,6 +309,7 @@ Implements: `Element`
 | `name` | `String!` | Component name |
 | `description` | `String` | Free-text description |
 | `type` | `ComponentType!` | Component type (process, store, external entity, etc.) |
+| `crownJewel` | `Boolean` | Author-asserted high-value asset marker. Nullable — `null` ⇒ not a crown jewel |
 | `parentBoundary` | `[SecurityBoundary!]!` | Security boundary this component belongs to (→ `BELONGS_TO`) |
 | `flowsFrom` | `[DataFlow!]!` | Outgoing data flows from this component (→ `FLOWS`) |
 | `flowsTo` | `[DataFlow!]!` | Incoming data flows to this component (← `FLOWS`) |
@@ -354,6 +392,8 @@ Implements: `Element`
 | `id` | `ID!` | Unique identifier |
 | `name` | `String!` | Data element name |
 | `description` | `String` | Free-text description |
+| `sensitivity` | `SensitivityLevel` | Author-asserted sensitivity. Nullable — `null` ⇒ unclassified (not `PUBLIC`) |
+| `regulatoryFlags` | `[String!]` | Free-text compliance labels (see [canonical vocabulary](../dethereal/THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary)). Nullable — `null` ⇒ none |
 | `model` | `[Model!]!` | Model this data element belongs to (← `CONTAINS`) |
 | `dataClass` | `[DataClass!]!` | Class this data element is an instance of (→ `IS_INSTANCE_OF`) |
 | `component` | `[Component!]!` | Components that handle this data (← `HANDLES`) |
@@ -1329,6 +1369,18 @@ Get all exposures attached to a specific element
 | Argument | Type |
 |----------|------|
 | `elementId` | `String!` |
+
+### dataInRegulatoryScope
+
+All `Data` whose `regulatoryFlags` contains the given flag. Exact, **case-sensitive** match — a typo (`"phi"` vs `"PHI"`) returns `[]` silently, so query with the [canonical casing](../dethereal/THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary). Backed by an `@cypher` full `:Data` scan (O(|Data|); `regulatoryFlags` is a list, not indexable on Memgraph) and finds **direct handlers only** — CDE-adjacency is an analysis-phase traversal composed on top.
+
+**Returns:** `[Data!]!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `flag` | `String!` |
 
 ### getAttributesFromClassRel
 

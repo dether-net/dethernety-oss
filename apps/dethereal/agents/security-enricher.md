@@ -39,7 +39,7 @@ Always read model files from disk at the start of each operation.
 
 Process components in tiers of security impact. Users choose: `tier1` (crown jewels only) | `all` (comprehensive) | `pick` (manual selection).
 
-1. **Tier 1 — Crown jewels** — components with `crown_jewel: true` in attributes. Must enrich for meaningful analysis.
+1. **Tier 1 — Crown jewels** — components with `crownJewel: true` in `structure.json`. Must enrich for meaningful analysis.
 2. **Tier 2 — Cross-boundary** — components participating in data flows crossing trust boundaries. Required for primary analysis output.
 3. **Tier 3 — Internet-facing** — components in the DMZ or receiving external traffic. Highest attacker accessibility.
 4. **Tier 4 — Internal-only** — components within internal boundaries. Can defer without blocking analysis.
@@ -56,7 +56,7 @@ For each classified component, populate the attributes defined by its assigned c
 2. **Use the guide to discover values** — the guide's `how_to_obtain` entries specify where to find each attribute value (config files, CLI commands, IaC keys). Search code, IaC, and configuration files systematically before asking the user
 3. **Ask the user for undiscoverable attributes** — use the guide's `option_description` and `security_impact` to frame targeted questions. Group by component to minimize round-trips
 4. **Full coverage required** — every field defined by the class template must be set. Partial coverage produces unreliable OPA results (policies may fire with incomplete input, generating inaccurate exposures)
-5. **Merge, never overwrite** — read the existing attribute file before writing. Merge template field values into the file, preserving plugin-enrichment fields (`crown_jewel`, `credential_scope`, `monitoring_tools`)
+5. **Merge, never overwrite** — read the existing attribute file before writing. Merge template field values into the file, preserving plugin-enrichment fields (`credential_scope`, `monitoring_tools`)
 
 For unclassified components (no assigned class), skip template-driven enrichment. Note in the summary: "N components skipped — unclassified."
 
@@ -118,7 +118,7 @@ When a module is added to `activeModules` after initial classification:
 
 During classification, match free-text crown jewel names from `.dethereal/scope.json` to actual components:
 1. Fuzzy-match `crown_jewels[]` entries from scope against component names
-2. Set `crown_jewel: true` on matched component attribute files
+2. Set `crownJewel: true` on the matched components in `structure.json`
 3. Present matches for confirmation: "You declared 'Payment Database' as a crown jewel. Matching component: 'payment-db' [STORE]. Confirm?"
 
 This is the lightweight Phase 3 tagging. Full `asset_criticality` enrichment happens during the enrich workflow (Phase 7).
@@ -137,7 +137,7 @@ If unclassified elements exist and `activeModules` is set, check if broadening w
 
 - Update `classData` on elements in `structure.json`
 - Call `mcp__plugin_dethereal_dethereal__generate_attribute_stubs(directory_path: '<model-path>')` to deterministically write class template attribute stubs for all newly classified elements. The tool auto-scans `structure.json`, deduplicates classes, fetches templates via GraphQL, and merges template fields into existing attribute files (existing values preserved).
-- Write `crown_jewel: true` to attribute files for matched crown jewels
+- Write `crownJewel: true` onto the matched crown jewel components in `structure.json`
 
 ## Credential Enrichment Protocol (D22, D62)
 
@@ -231,12 +231,14 @@ Static lookup (not LLM-derived):
 
 | Regulatory Flag | Sensitivity | Framework |
 |----------------|-------------|-----------|
-| PHI | restricted | HIPAA |
-| PCI_cardholder | restricted | PCI-DSS |
-| GDPR_personal_data | confidential | GDPR |
-| PII | confidential | General |
+| `PCI cardholder` | restricted | PCI-DSS |
+| `PHI` | restricted | HIPAA |
+| `GDPR personal` | confidential | GDPR |
+| `PII` | confidential | General |
+| `SOX financial` | confidential | SOX |
+| `CCPA personal` | confidential | CCPA |
 
-Data items may carry multiple regulatory flags. Sensitivity = max of all regulatory mappings (e.g., `['PHI', 'PCI_cardholder']` → `restricted`).
+Emit flags **exactly as written** — the platform's `dataInRegulatoryScope` query matches case-sensitively, and the canonical set is maintained in `THREAT_MODELING_WORKFLOW.md`. Data items may carry multiple regulatory flags; sensitivity = max of all regulatory mappings (e.g., `["PHI", "PCI cardholder"]` → `restricted`).
 
 ## Data Item Classification
 
@@ -251,7 +253,7 @@ For each boundary-crossing flow without classified data items:
 
 Four-level scale: `public` | `internal` | `confidential` | `restricted`
 
-Regulatory labels (PII, PHI, PCI cardholder data) are captured as separate `regulatory_flags` on data items, NOT as sensitivity levels. Apply the regulatory-to-sensitivity mapping table above.
+Regulatory labels (e.g. `PII`, `PHI`, `PCI cardholder`) are captured as separate `regulatory_flags` on data items, NOT as sensitivity levels. Apply the regulatory-to-sensitivity mapping table above.
 
 ### Quality Gate
 
@@ -262,9 +264,9 @@ Regulatory labels (PII, PHI, PCI cardholder data) are captured as separate `regu
 
 Two-phase approach:
 
-**Phase 3 (during classification):** Lightweight tagging — match scope names to components, set `crown_jewel: true`. Enables programmatic quality gate evaluation.
+**Phase 3 (during classification):** Lightweight tagging — match scope names to components, set `crownJewel: true` in `structure.json`. Enables programmatic quality gate evaluation.
 
-**Phase 7 (during enrichment):** Full enrichment — for components already tagged `crown_jewel: true`:
+**Phase 7 (during enrichment):** Full enrichment — for components already tagged `crownJewel: true`:
 1. Prompt for `asset_criticality: "high" | "medium" | "low"`
 2. Confirm mapping: "Component 'payment-db' was tagged as a crown jewel. Confirming asset_criticality: high. Adjust?"
 3. The Analysis Engine computes crown jewel scores using `CJ(v) = 0.45 * data_sensitivity + 0.25 * pagerank + 0.15 * in_degree + 0.15 * control_density`. The plugin provides raw signals, not the computation.

@@ -21,6 +21,8 @@ import {
   ModuleReference,
   SCHEMA_VERSION,
   DEFAULT_FILE_NAMES,
+  platformScopeToLocal,
+  platformEnumToLocal,
 } from '../schemas/index.js'
 
 /**
@@ -56,6 +58,10 @@ export class DtExportSplit {
   private monolithicToSplit(model: ExportedModel): SplitModel {
     const defaultBoundaryId = model.defaultBoundary?.id || ''
 
+    // Lower the platform's flat scope fields into the grouped, snake_case local
+    // shape. Absent when nothing is set (keeps scope.json deterministic).
+    const scope = platformScopeToLocal(model)
+
     // Build manifest
     const manifest: ModelManifest = {
       schemaVersion: SCHEMA_VERSION,
@@ -65,6 +71,7 @@ export class DtExportSplit {
         name: model.name || '',
         description: model.description,
         defaultBoundaryId,
+        ...(scope ? { scope } : {}),
       },
       files: {
         structure: DEFAULT_FILE_NAMES.structure,
@@ -241,6 +248,12 @@ export class DtExportSplit {
       }
     }
 
+    // Author flag — first-class field mirroring platform Component.crownJewel.
+    // Only `true` is written; false/null/absent ⇒ omit (absent ⇒ false).
+    if (component.crownJewel === true) {
+      result.crownJewel = true
+    }
+
     return result
   }
 
@@ -309,6 +322,14 @@ export class DtExportSplit {
         name: item.classData.name,
         module: item.classData.module,
       }
+    }
+
+    // Asset-context first-class fields (lower the enum to local lowercase;
+    // regulatory flags pass through as free-text).
+    const sensitivity = platformEnumToLocal(item.sensitivity)
+    if (sensitivity) result.sensitivity = sensitivity
+    if (item.regulatoryFlags && item.regulatoryFlags.length > 0) {
+      result.regulatory_flags = item.regulatoryFlags
     }
 
     return result

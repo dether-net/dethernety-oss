@@ -21,10 +21,22 @@ import {
 const DETHEREAL_DIR = '.dethereal'
 const SYNC_FILE = 'sync.json'
 
-// Layout properties to exclude from content hash
-const LAYOUT_PROPERTIES = new Set([
-  'positionX', 'positionY', 'dimensionsWidth', 'dimensionsHeight'
+// Properties excluded from the content hash: diagram layout (no semantic
+// meaning) plus churny export/edit metadata (modifiedAt on attribute bags,
+// exportedAt on the manifest) that would otherwise dirty the hash on every pull.
+const NON_SEMANTIC_PROPERTIES = new Set([
+  'positionX', 'positionY', 'dimensionsWidth', 'dimensionsHeight',
+  'modifiedAt', 'exportedAt'
 ])
+
+/**
+ * Algorithm version of `computeContentHash`, embedded in the digest as
+ * `sha256:<version>:<hex>`. Bump when the set of hashed inputs or the strip
+ * rules change, so stored hashes from a prior algorithm can be recognised and
+ * silently re-baselined (see `isStaleContentHashVersion`) rather than reported
+ * as spurious local changes.
+ */
+export const CONTENT_HASH_VERSION = 'v2'
 
 /**
  * Sync metadata structure
@@ -87,16 +99,22 @@ export async function readSyncJson(modelDir: string): Promise<SyncMetadata | nul
 }
 
 /**
- * Compute content hash of model files
+ * Compute content hash of model files.
  *
- * SHA-256 of model files (manifest, structure, dataflows, data-items),
- * excluding layout properties (positionX, positionY, dimensionsWidth, dimensionsHeight).
- * Files are sorted by name for deterministic ordering.
+ * SHA-256 over the semantic content of the model directory, excluding
+ * non-semantic properties (layout + churny `modifiedAt`/`exportedAt` metadata).
+ * Inputs, in deterministic order:
+ *   - the four top-level files (manifest, structure, dataflows, data-items);
+ *   - `.dethereal/scope.json` (model scope + skill-owned local-only keys);
+ *   - `attributes/{boundaries,components,dataFlows,dataItems}/*.json` (per-element
+ *     attribute bags), fixed dir order, files sorted by name.
+ *
+ * The digest is version-tagged (`sha256:<version>:<hex>`); see CONTENT_HASH_VERSION.
  */
 export async function computeContentHash(modelDir: string): Promise<string> {
   const hash = createHash('sha256')
 
-  // Read and hash each file in deterministic order
+  // Read and hash each top-level file in deterministic order
   const files = ['manifest.json', 'structure.json', 'dataflows.json', 'data-items.json']
 
   for (const file of files) {
@@ -104,31 +122,64 @@ export async function computeContentHash(modelDir: string): Promise<string> {
       const filePath = path.join(modelDir, file)
       const content = await fs.readFile(filePath, 'utf-8')
       const parsed = JSON.parse(content)
-      const stripped = stripLayoutProperties(parsed)
+      const stripped = stripNonSemanticProperties(parsed)
       hash.update(file + ':' + JSON.stringify(stripped))
     } catch {
       // File doesn't exist, skip
     }
   }
 
-  return 'sha256:' + hash.digest('hex')
+  // .dethereal/scope.json (whole file — synced keys AND local-only keys are both
+  // legitimate local changes to surface)
+  try {
+    const scopeRaw = await fs.readFile(path.join(modelDir, DETHEREAL_DIR, 'scope.json'), 'utf-8')
+    hash.update('scope.json:' + JSON.stringify(stripNonSemanticProperties(JSON.parse(scopeRaw))))
+  } catch {
+    // absent — skip
+  }
+
+  // attributes/{boundaries,components,dataFlows,dataItems}/*.json — fixed dir order, sorted files
+  for (const subdir of ['boundaries', 'components', 'dataFlows', 'dataItems']) {
+    const dir = path.join(modelDir, 'attributes', subdir)
+    let entries: string[]
+    try {
+      entries = (await fs.readdir(dir)).filter(f => f.endsWith('.json')).sort()
+    } catch {
+      continue // subdir absent
+    }
+    for (const f of entries) {
+      const content = await fs.readFile(path.join(dir, f), 'utf-8')
+      hash.update(`attributes/${subdir}/${f}:` + JSON.stringify(stripNonSemanticProperties(JSON.parse(content))))
+    }
+  }
+
+  return `sha256:${CONTENT_HASH_VERSION}:` + hash.digest('hex')
 }
 
 /**
- * Strip layout properties from an object recursively
+ * True when a stored content hash predates the current algorithm version, so it
+ * should be silently re-baselined on the next sync rather than reported as local
+ * changes (the digest's `sha256:<version>:` segment differs from CONTENT_HASH_VERSION).
  */
-function stripLayoutProperties(obj: unknown): unknown {
+export function isStaleContentHashVersion(stored: string | null | undefined): boolean {
+  return !!stored && !stored.startsWith(`sha256:${CONTENT_HASH_VERSION}:`)
+}
+
+/**
+ * Strip non-semantic properties (layout + churny metadata) from an object recursively.
+ */
+function stripNonSemanticProperties(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj
   if (typeof obj !== 'object') return obj
 
   if (Array.isArray(obj)) {
-    return obj.map(item => stripLayoutProperties(item))
+    return obj.map(item => stripNonSemanticProperties(item))
   }
 
   const result: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-    if (LAYOUT_PROPERTIES.has(key)) continue
-    result[key] = stripLayoutProperties(value)
+    if (NON_SEMANTIC_PROPERTIES.has(key)) continue
+    result[key] = stripNonSemanticProperties(value)
   }
   return result
 }

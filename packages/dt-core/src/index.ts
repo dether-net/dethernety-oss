@@ -77,6 +77,7 @@ export type {
   Identifiable,
   ModelManifest,
   ModelMetadata,
+  ModelScopeLocal,
   FileReferences,
   ModelStructure,
   StructureBoundary,

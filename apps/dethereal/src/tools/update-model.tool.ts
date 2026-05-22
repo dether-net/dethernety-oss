@@ -26,6 +26,9 @@ import {
   readModelDirectory,
   readAttributes,
   writeModelDirectory,
+  readScope,
+  writeScope,
+  localOnlyCrownJewelNotice,
   createDirectoryBackup,
   isModelDirectory,
   validatePathConfinement,
@@ -110,6 +113,10 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
       debugLog(config, `Reading model from directory: ${input.directory_path}`)
       const splitModel = await readModelDirectory(input.directory_path)
 
+      // Attach the local scope (.dethereal/scope.json is not read by readModelDirectory)
+      // so it publishes with the model. scope.json is the authoritative on-disk home.
+      splitModel.manifest.model.scope = (await readScope(input.directory_path)) ?? undefined
+
       debugLog(config, `Updating model: ${input.model_id}`)
 
       // Use DtUpdateSplit from dt-core
@@ -129,6 +136,11 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
         }
       }
 
+      // Surface crown-jewel marks on non-component elements (local-only; no platform field).
+      // Computed from the local model we pushed, not the re-export below.
+      const crownJewelNotice = localOnlyCrownJewelNotice(splitModel.attributes)
+      if (crownJewelNotice) result.warnings.push(crownJewelNotice)
+
       let sourceFilesUpdated = false
 
       // Export back to source directory if update is not disabled
@@ -143,7 +155,15 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
           const localAttributes = await readAttributes(input.directory_path)
           exportedModel.attributes = mergeAttributes(localAttributes, exportedModel.attributes)
 
+          // Re-materialise scope.json from the post-push platform state and strip it from
+          // the manifest (scope.json is the single on-disk home — same as the pull path).
+          // writeScope runs unconditionally (with {} when the platform has no scope) so the
+          // REPLACE mirror can clear any stale synced keys left on disk.
+          const scope = exportedModel.manifest.model.scope
+          if (scope) delete exportedModel.manifest.model.scope
+
           await writeModelDirectory(input.directory_path, exportedModel)
+          await writeScope(input.directory_path, scope ?? {})
           sourceFilesUpdated = true
           debugLog(config, `Updated source directory with current state`)
         } catch (error) {

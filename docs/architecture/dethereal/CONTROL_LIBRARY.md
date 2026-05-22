@@ -2,7 +2,7 @@
 
 > Design for managing per-instance Control configuration outside the model sync path.
 >
-> **Status: implemented** (Sprint 1 foundation + Sprint 2 engine + Sprint 3 integration; landed on `feat/control-library` 2026-04-18). Companion to [CONTROL_INTEGRATION.md](CONTROL_INTEGRATION.md), which covers control assignment semantics and two-tier reporting. **Supersedes** [CONTROL_INTEGRATION.md §6.1](CONTROL_INTEGRATION.md#61-two-path-control-integration) on the timing of greenfield Control creation: this doc defers the `manage_controls` create call to sync push (with a temp local id) instead of invoking it eagerly during the control pass. The reference shape in [§6.4](CONTROL_INTEGRATION.md#64-local-json-format) (`{id, name, source}`) is unchanged.
+> **Status: implemented.** Companion to [CONTROL_INTEGRATION.md](CONTROL_INTEGRATION.md), which covers control assignment semantics and two-tier reporting. **Supersedes** [CONTROL_INTEGRATION.md §6.1](CONTROL_INTEGRATION.md#61-two-path-control-integration) on the timing of greenfield Control creation: this doc defers the `manage_controls` create call to sync push (with a temp local id) instead of invoking it eagerly during the control pass. The reference shape in [§6.4](CONTROL_INTEGRATION.md#64-local-json-format) (`{id, name, source}`) is unchanged.
 
 ## Table of Contents
 
@@ -19,7 +19,7 @@
 - [11. Decisions](#11-decisions)
 - [12. Out of Scope](#12-out-of-scope)
 - [13. V1.1 Roadmap](#13-v11-roadmap)
-- [Appendix A. Implementation Notes](#appendix-a-implementation-notes) (A.1 – A.12, including hardening sprint design-choice rationale at A.12)
+- [Appendix A. Implementation Notes](#appendix-a-implementation-notes) (A.1 – A.12, including hardening design-choice rationale at A.12)
 
 ---
 
@@ -871,11 +871,11 @@ Replay logic for each operation in the journal — applied in order, each step i
 | Crash after file rename/write done, before journal delete | All checks are no-ops; proceed to journal delete. |
 | Crash on a non-POSIX filesystem (network mount, some Windows configs) | Out of scope for V1. The replay can detect inconsistent state — e.g. both `<tempId>.json` and `<serverId>.json` present with conflicting content — and abort with explicit error: "WAL replay detected ambiguous state (both `<tempId>.json` and `<serverId>.json` present); manual reconciliation required". |
 
-##### Replay scope (every MCP entry — Sprint 4 F-02)
+##### Replay scope (every MCP entry)
 
-The journal is replayed at the **MCP boundary** — the top of `manage_controls.execute()`'s switch, after lock acquisition (Sprint 4 F-03) and before action dispatch — for every action that takes `directory_path`: `pull-controls`, `push-greenfield`, `push-brownfield`, `tombstone`, `set-local-edited`, `promote-external-edit`. Replay before lock release means two concurrent sessions can't replay the same journal twice; replay-failure aborts the action with `WAL_REPLAY_FAILED` rather than silently proceeding against a partially-rewritten directory.
+The journal is replayed at the **MCP boundary** — the top of `manage_controls.execute()`'s switch, after lock acquisition and before action dispatch — for every action that takes `directory_path`: `pull-controls`, `push-greenfield`, `push-brownfield`, `tombstone`, `set-local-edited`, `promote-external-edit`. Replay before lock release means two concurrent sessions can't replay the same journal twice; replay-failure aborts the action with `WAL_REPLAY_FAILED` rather than silently proceeding against a partially-rewritten directory.
 
-Pre-Sprint-4 the design intended replay at every skill entry (a longer enumerated list of skills); the implementation only invoked replay inside `pushGreenfieldControl`. Sprint 4 F-02 closes the gap by relocating the seam to the MCP boundary, which is single-pointed and reachable from every skill regardless of which action it invokes. The trade-off: skills that *only* read the model directory without invoking a directory-touching MCP action (`/dethereal:view`, `/dethereal:status` when run without `show models`) don't trigger replay; their reads are best-effort and may observe pre-replay state during the brief window between platform mutation and journal cleanup. This is acceptable: those skills are read-only and the worst-case is rendering slightly-stale ids — the next directory-touching action replays before its critical section.
+The design originally intended replay at every skill entry (a longer enumerated list of skills); an earlier implementation only invoked replay inside `pushGreenfieldControl`. Relocating the replay seam to the MCP boundary closes the gap, since that boundary is single-pointed and reachable from every skill regardless of which action it invokes. The trade-off: skills that *only* read the model directory without invoking a directory-touching MCP action (`/dethereal:view`, `/dethereal:status` when run without `show models`) don't trigger replay; their reads are best-effort and may observe pre-replay state during the brief window between platform mutation and journal cleanup. This is acceptable: those skills are read-only and the worst-case is rendering slightly-stale ids — the next directory-touching action replays before its critical section.
 
 Replay is a single fstat + (if present) JSON parse + apply — under 5ms when the journal is absent, which is the common case. The journal is gitignored (per-operator transient state, like `sync.json`).
 
@@ -1030,12 +1030,12 @@ Listed in dependency order. Items at the top must land before items below them. 
 
 ## 13. V1.1 Roadmap
 
-Concrete deferrals captured during the V1 hardening initiative (Sprints 4–6). Each entry is a **design sketch** — the implementation is not contractually frozen here; the V1.1 sprint may revise as it learns more.
+Concrete deferrals captured during the V1 hardening initiative. Each entry is a **design sketch** — the implementation is not contractually frozen here; V1.1 may revise as it learns more.
 
 Two things keep these out of V1:
 
-1. **Migration story.** F-28 / F-29 change the on-disk schema of `control-audit.log`, which is committed to operator repos and append-only forever. A V1.1 sprint will design the migration step (anchor block, schema-version field, verifier accept-with-warning).
-2. **Threat-model trigger.** F-44 / F-45 are latent issues with no observed incident yet. V1.1 elevates them only if a real-world report appears.
+1. **Migration story.** Two deferred changes alter the on-disk schema of `control-audit.log`, which is committed to operator repos and append-only forever. V1.1 will design the migration step (anchor block, schema-version field, verifier accept-with-warning).
+2. **Threat-model trigger.** Two further deferred items are latent issues with no observed incident yet. V1.1 elevates them only if a real-world report appears.
 
 ### 13.1 — `authnOperator` JWT anchor on `AuditLogEntry`
 
@@ -1053,9 +1053,9 @@ V1 records `operator` (locally-claimed; spoofable). The `authnOperator` field ca
 **Migration story.**
 - No data conversion needed (field is optional).
 - Verifier (V1.1 `/dethereal:audit verify` skill) accepts absence with a structured INFO entry, not a warning.
-- Operators who rotate keys mid-sprint may see a mix of three states in one log; the verifier's per-entry classification handles that.
+- Operators who rotate keys partway through may see a mix of three states in one log; the verifier's per-entry classification handles that.
 
-**Cost estimate.** ~30 lines across `audit-log-writer.ts` + `apollo-client.ts` + `manage-controls.tool.ts`, plus a small unit test. The Sprint 4 JSDoc on `AuditLogEntry.authnOperator` already documents the three states ([audit-log-writer.ts:128-150](../../packages/dt-core/src/dt-control-library/audit-log-writer.ts)) so the contract surface is settled.
+**Cost estimate.** ~30 lines across `audit-log-writer.ts` + `apollo-client.ts` + `manage-controls.tool.ts`, plus a small unit test. The JSDoc on `AuditLogEntry.authnOperator` already documents the three states ([audit-log-writer.ts:128-150](../../packages/dt-core/src/dt-control-library/audit-log-writer.ts)) so the contract surface is settled.
 
 ### 13.2 — Audit-log hash chain (`prevEntryHash`)
 
@@ -1072,7 +1072,7 @@ V1 trusts the operator to commit the audit log; a malicious operator with write 
 - The first V1.1 entry seeds the chain with the sentinel; subsequent entries chain normally.
 - A repo with a mix of V1 and V1.1 entries is honest about its mixed protection coverage.
 
-**Cost estimate.** ~30 lines in `audit-log-writer.ts` + ~50 lines for `verifyAuditChain` + helper + tests. The `canonicalStringify` helper added in Sprint 5 (F-40) is the building block.
+**Cost estimate.** ~30 lines in `audit-log-writer.ts` + ~50 lines for `verifyAuditChain` + helper + tests. The existing `canonicalStringify` helper is the building block.
 
 ### 13.3 — `push-unverified` operator-asserted vs. engine-detected
 
@@ -1099,7 +1099,7 @@ A single Control referenced by two ControlClasses with overlapping attribute key
 
 ### 13.5 — V1.1 Backlog (improvement ideas)
 
-Three items deferred from Sprint 6 by operator decision (defer-all-with-deferral-docs):
+Three items deferred by operator decision (defer-all-with-deferral-docs):
 
 | Item | Trigger |
 |---|---|
@@ -1107,11 +1107,11 @@ Three items deferred from Sprint 6 by operator decision (defer-all-with-deferral
 | `O(n²)` dedup in shared-ownership query → `reduce(...)` form | Currently no-op at expected cardinality (≤10 modelIds); add when Memgraph ships `set()` or a real-world Control accumulates >1000 reachable Models |
 | Memgraph index-bootstrap structured metric (`memgraph_index_bootstrap_failed_total`) | Production-debugging gap; add when ops dashboards exist that can consume the metric |
 
-**Plus one Sprint 5 Tier-3 carryover:**
+**Plus one earlier carryover:**
 
 | Item | Why deferred |
 |---|---|
-| Memgraph bootstrap depth probe (`EXPLAIN MATCH ... :BELONGS_TO*0..50` at startup) | Today the `*0..50` raise (Sprint 5 F-25) is sufficient for the design's max boundary depth (~10 levels in practice). The probe is instrumentation that detects unindexed deep traversals on the actual model graph; defer until a real perf incident motivates it. |
+| Memgraph bootstrap depth probe (`EXPLAIN MATCH ... :BELONGS_TO*0..50` at startup) | Today the `*0..50` raise is sufficient for the design's max boundary depth (~10 levels in practice). The probe is instrumentation that detects unindexed deep traversals on the actual model graph; defer until a real perf incident motivates it. |
 
 ---
 
@@ -1121,7 +1121,7 @@ Recorded post-implementation — the design above is what landed; this appendix 
 
 ### A.1 — `set-local-edited` MCP action added beyond original four
 
-The Sprint 3 design listed four new `manage_controls` actions: `pull-controls`, `push-greenfield`, `push-brownfield`, `tombstone`. Implementation added a fifth — `set-local-edited` — that delegates to `DtControlLibrary.setLocalEdited`. Reason: routing the enrich agent through the engine method is the only way to guarantee the §4 two-write rule is not bypassed by direct JSON edits. The agent has filesystem write access; without an authoritative MCP path, the invariant is unenforceable.
+The original design listed four new `manage_controls` actions: `pull-controls`, `push-greenfield`, `push-brownfield`, `tombstone`. Implementation added a fifth — `set-local-edited` — that delegates to `DtControlLibrary.setLocalEdited`. Reason: routing the enrich agent through the engine method is the only way to guarantee the §4 two-write rule is not bypassed by direct JSON edits. The agent has filesystem write access; without an authoritative MCP path, the invariant is unenforceable.
 
 ### A.2 — `clone-and-swap` deferred to V1.1
 
@@ -1129,17 +1129,17 @@ The Sprint 3 design listed four new `manage_controls` actions: `pull-controls`, 
 
 ### A.3 — Step C `absent-but-known` collapsed to `absent-and-unknown` for V1
 
-`pushBrownfieldControl` Step C classifies intended-edit keys as `present`, `absent-but-known`, or `absent-and-unknown` per CL §7. The `absent-but-known` branch requires the ControlClass template's `properties` keys to distinguish "schema-known but not yet set on this instance" from "platform doesn't know this key at all". Sprint 1 didn't plumb template properties through the dt-class metadata cache. V1 collapses both into `absent-and-unknown` and aborts the push with a clear error message. Sprint 4 (V1.1) plumbs template properties through the `pull-controls` flow and re-introduces the `absent-but-known` branch (push the key as a re-add).
+`pushBrownfieldControl` Step C classifies intended-edit keys as `present`, `absent-but-known`, or `absent-and-unknown` per CL §7. The `absent-but-known` branch requires the ControlClass template's `properties` keys to distinguish "schema-known but not yet set on this instance" from "platform doesn't know this key at all". The initial implementation didn't plumb template properties through the dt-class metadata cache. V1 collapses both into `absent-and-unknown` and aborts the push with a clear error message. V1.1 plumbs template properties through the `pull-controls` flow and re-introduces the `absent-but-known` branch (push the key as a re-add).
 
 ### A.4 — Bundle-safety lazy imports in dt-control-library
 
 The dt-core barrel re-exports `dt-control-library/*` modules, which are also consumed by browser-bundled apps (dethernety-studio). Static `import * as fs from 'node:fs/promises'` at the top of `wal-helper.ts`, `audit-log-writer.ts`, and `file-io.ts` caused Vite to tag the entire `@dethernety/dt-core` barrel as `__vite-browser-external` at runtime, breaking the studio bundle. Fix: each Node-only import is now lazy-loaded behind a cached promise (`loadFs()`, `loadChildProcess()`) and `node:path` is replaced with inline POSIX `join()` / `dirname()` helpers. Compatible with the dt-export.ts pattern (existing precedent at the same barrel position).
 
-### A.5a — Greenfield ID-rebinding closes the orphan-file corner case (Sprint 6 F-35)
+### A.5a — Greenfield ID-rebinding closes the orphan-file corner case
 
 The greenfield Control flow appears, on a casual read, to leave a stranded file: operator creates `controls/greenfield-abc.json` and writes `{id: null, name: "..."}` (or `{id: "greenfield-abc", ...}`) into `structure.json`; the next push asks the platform for a UUID; the structure entry is repointed to the new UUID — but the file is still named `greenfield-abc.json`.
 
-The Sprint 4 WAL pre-write rename (Appendix A.9) closes this seam by treating the rebinding as a single atomic operation:
+The WAL pre-write rename (Appendix A.9) closes this seam by treating the rebinding as a single atomic operation:
 
 1. Pre-`createControl` — write `<modelDir>/.dethereal/pending-id-rewrite.json` with `{tempId, intendedFiles, intendedRename}`.
 2. Invoke `createControl(name, classes)` against the platform; receive `serverId`.
@@ -1147,7 +1147,7 @@ The Sprint 4 WAL pre-write rename (Appendix A.9) closes this seam by treating th
 4. Rename `controls/greenfield-abc.json → controls/<serverId>.json`. Atomic on POSIX.
 5. Delete the journal file. Push completes.
 
-A crash between any two steps leaves the journal on disk. The next `/dethereal:sync push` (or the explicit `/dethereal:sync repair-wal <controlId>` recovery verb shipped in Sprint 5) replays steps 3–5 idempotently. The operator never observes an orphan greenfield file or a half-rebound structure.
+A crash between any two steps leaves the journal on disk. The next `/dethereal:sync push` (or the explicit `/dethereal:sync repair-wal <controlId>` recovery verb) replays steps 3–5 idempotently. The operator never observes an orphan greenfield file or a half-rebound structure.
 
 This subsection is the design rationale; the engine implementation lives at [`wal-helper.ts:replayPendingRewrite`](../../packages/dt-core/src/dt-control-library/wal-helper.ts) and the operator workflow at [`oss/apps/dethereal/skills/sync/SKILL.md` § Repair WAL Recovery Verb](../../apps/dethereal/skills/sync/SKILL.md).
 
@@ -1172,15 +1172,15 @@ V1 does NOT auto-redact a known-secret-key list — control attribute schemas ar
 
 This is an accepted V1 trade-off; document control attribute schemas with a sensitivity annotation in your module's class definitions and avoid storing literal secrets in Control attributes.
 
-### A.8 — Step A external-edit guard is snapshot-relative; Step B re-fetches inline (Sprint 4 F-09)
+### A.8 — Step A external-edit guard is snapshot-relative; Step B re-fetches inline
 
 The Step A guard at [dt-control-library.ts:534-542](../../packages/dt-core/src/dt-control-library/dt-control-library.ts#L534) checks `entry.attributes !== entry.platformAttributes && !entry.pendingEdit`, where `entry.platformAttributes` is the snapshot from the last `pull-controls` call. It does NOT re-query the platform at guard-fire time — by the time Step A runs, the snapshot is what's on disk.
 
-**Sprint 4 F-09 closes the silent-overwrite case for Step D conflict detection.** Pre-Sprint-4 Step B trusted the caller's `freshPlatformAttrs` map, built once at `/dethereal:sync` P7.2's batched fetch. If a third party mutated the platform during the operator review window (seconds to minutes between P7.2 and P7.5), the snapshot would still show the operator's pre-edit value as the baseline — Step D would see no conflict, the third party's edit would be silently overwritten, no `force-shared` audit entry would record it. Step B now re-fetches `getControlInstantiationAttributes` inline per touched Control just before classification. Scope: ALL Controls (alone + shared) — the safety property is honest only if it covers every push regardless of shared/alone. Cost: one extra round-trip per touched Control.
+**Inline re-fetching closes the silent-overwrite case for Step D conflict detection.** An earlier Step B trusted the caller's `freshPlatformAttrs` map, built once at `/dethereal:sync` P7.2's batched fetch. If a third party mutated the platform during the operator review window (seconds to minutes between P7.2 and P7.5), the snapshot would still show the operator's pre-edit value as the baseline — Step D would see no conflict, the third party's edit would be silently overwritten, no `force-shared` audit entry would record it. Step B now re-fetches `getControlInstantiationAttributes` inline per touched Control just before classification. Scope: ALL Controls (alone + shared) — the safety property is honest only if it covers every push regardless of shared/alone. Cost: one extra round-trip per touched Control.
 
-**What Sprint 4 still doesn't cover:** the Step A guard itself doesn't re-fetch — it's a tripwire on the at-rest snapshot, not a live check. A third party who mutates after P7.2 but in a way that the operator's snapshot already accounts for (e.g., they wrote the same value the operator was about to push) is invisible to Step A. The Step D inline re-fetch catches the divergent case that matters; the at-rest tripwire is for the much commoner "operator hand-edited the file" case (now ALSO caught at the skill layer per F-06 P7.1 pre-flight).
+**What this still doesn't cover:** the Step A guard itself doesn't re-fetch — it's a tripwire on the at-rest snapshot, not a live check. A third party who mutates after P7.2 but in a way that the operator's snapshot already accounts for (e.g., they wrote the same value the operator was about to push) is invisible to Step A. The Step D inline re-fetch catches the divergent case that matters; the at-rest tripwire is for the much commoner "operator hand-edited the file" case (now ALSO caught at the skill layer by the P7.1 pre-flight).
 
-V1.1 alternative tracked as RF F-09 alternative: optimistic locking via `If-Match` on the GraphQL mutation eliminates round-trips for the happy path; the engine returns the conflict to the skill, which re-fetches only the conflicting rows. Defer until V1's per-push cost proves unacceptable in production.
+A V1.1 alternative is tracked: optimistic locking via `If-Match` on the GraphQL mutation eliminates round-trips for the happy path; the engine returns the conflict to the skill, which re-fetches only the conflicting rows. Defer until V1's per-push cost proves unacceptable in production.
 
 The operator-facing mitigation lives in the `/dethereal:sync` P7.4 prompt rendering (the `retry-query <n>` verb re-fetches a single row's ownership and platformAttributes on demand).
 
@@ -1190,52 +1190,52 @@ Greenfield gets WAL protection because its critical section (`controls/<tempId>.
 
 The maintainer-facing implication: the brownfield engine has no WAL because it doesn't need one. The crash-resilience contract is "re-plan from scratch and re-attempt; idempotent under partial-payload" — distinct from greenfield's "WAL replay reconverges from observed corruption". Don't mistakenly add WAL operations to brownfield in a future refactor.
 
-**Sprint 5 F-14 contract layers** (now also inlined as a JSDoc block at `dt-control-library.ts` Step F):
+**Crash-recovery contract layers** (now also inlined as a JSDoc block at `dt-control-library.ts` Step F):
 1. *No on-disk mutation until success* — every `working.classes[i] = ...` is an in-memory edit; `writeControlFile` runs once after the loop. A crash between mutations leaves the file untouched.
-2. *Re-plan from scratch on retry* — the next `push-brownfield` re-runs Steps A→F. Step A re-checks the external-edit guard, Step B re-fetches live platform attributes (Sprint 4 F-09 catches concurrent mutations during the crash window), Step D re-runs conflict detection.
+2. *Re-plan from scratch on retry* — the next `push-brownfield` re-runs Steps A→F. Step A re-checks the external-edit guard, Step B re-fetches live platform attributes (the inline re-fetch catches concurrent mutations during the crash window), Step D re-runs conflict detection.
 3. *Idempotent under partial-payload* (DEC-CL-11) — the Cypher mutation is `SET r += $attributes`. A class entry that was successfully pushed before the crash has its server state already at the desired value; the retry's outbound payload merges identical values (no-op).
 
 The `pendingEdit` block on disk **is** the journal for brownfield. Caller responsibility: re-run `push-brownfield` after a transient failure. Step B re-fetch + Step D conflict detection + Step F partial-payload idempotency together ensure no data loss even on mid-batch abort.
 
-### A.10 — CL §6 verb-table revision history (Sprint 4 F-11)
+### A.10 — CL §6 verb-table revision history
 
-Sprint 3's close UX iteration introduced two verbs in the `/dethereal:sync` SKILL that didn't exist in the original CL §6 verb table:
+An early close-flow UX iteration introduced two verbs in the `/dethereal:sync` SKILL that didn't exist in the original CL §6 verb table:
 
 - `cancel-everything` — full kill switch (cancels ALL rows including the safe-to-push group). Distinct from `cancel-all` which only cancels the prompted rows. The asymmetric default exists so an operator can deal with prompts without inadvertently blocking the safe-to-push push; the explicit `cancel-everything` verb is the explicit kill path.
-- `drop <n>.<key>` was originally documented under "Per-key for re-add prompts (Step D Case 2)" only. Operator UX testing during Sprint 3 revealed that `drop` is also useful in the main per-key view (the operator wants to remove a key from the outbound payload AND from `pendingEdit.previousAttributes` so the next push doesn't surface the same conflict). Sprint 4 F-11 reconciliation moves `drop` into the main per-key list and clarifies that it serves both Step D Case 2 (re-add) and the main conflict view.
+- `drop <n>.<key>` was originally documented under "Per-key for re-add prompts (Step D Case 2)" only. Operator UX testing revealed that `drop` is also useful in the main per-key view (the operator wants to remove a key from the outbound payload AND from `pendingEdit.previousAttributes` so the next push doesn't surface the same conflict). The reconciliation moves `drop` into the main per-key list and clarifies that it serves both Step D Case 2 (re-add) and the main conflict view.
 
 The CL §6 verb table now matches the `/dethereal:sync` SKILL exactly. A future revision should update CL §6 first and then propagate to the SKILL, not the other way around — the design doc is the auditor-facing contract.
 
-### A.11 — Sprint 4 hardening sprint additions
+### A.11 — Hardening additions
 
-Sprint 4 added four security primitives orthogonal to the original CL design:
+The hardening work added four security primitives orthogonal to the original CL design:
 
-- **`authnOperator` field on `AuditLogEntry`** (RF F-04). JWT-anchored operator identity threaded through every `pushBrownfieldControl` audit-write call site. Optional for back-compat with Sprint-3 entries; populated whenever the MCP entry has a valid token. The locally-claimed `operator` field stays — a mismatch between the two is a forensic signal worth investigating.
-- **`IllegalEditedByError`** (RF F-01). The `set-local-edited` MCP action's Zod enum drops `'external'`; the engine's `setLocalEdited` raises this error if a programmatic caller bypasses Zod. The `'external'` discriminator is reserved for the dedicated `promote-external-edit` recovery action.
-- **`acquireLock` / `releaseLock`** (RF F-03). File-based advisory lock at `.dethereal/.control-library.lock` with PID + signal-zero stale detection. Wraps every `manage_controls` action that takes `directory_path`. Closes the WAL/audit-log corruption window from concurrent invocations.
-- **WAL replay at every MCP entry** (RF F-02). `applyPendingRewrites` is called at the top of `manage_controls.execute()`'s switch, after lock acquisition and before action dispatch. Pre-Sprint-4 only `pushGreenfieldControl` invoked replay, so a stranded greenfield journal would silently persist across `pull-controls` / `push-brownfield` / `set-local-edited` operations.
+- **`authnOperator` field on `AuditLogEntry`**. JWT-anchored operator identity threaded through every `pushBrownfieldControl` audit-write call site. Optional for back-compat with older entries; populated whenever the MCP entry has a valid token. The locally-claimed `operator` field stays — a mismatch between the two is a forensic signal worth investigating.
+- **`IllegalEditedByError`**. The `set-local-edited` MCP action's Zod enum drops `'external'`; the engine's `setLocalEdited` raises this error if a programmatic caller bypasses Zod. The `'external'` discriminator is reserved for the dedicated `promote-external-edit` recovery action.
+- **`acquireLock` / `releaseLock`**. File-based advisory lock at `.dethereal/.control-library.lock` with PID + signal-zero stale detection. Wraps every `manage_controls` action that takes `directory_path`. Closes the WAL/audit-log corruption window from concurrent invocations.
+- **WAL replay at every MCP entry**. `applyPendingRewrites` is called at the top of `manage_controls.execute()`'s switch, after lock acquisition and before action dispatch. An earlier implementation invoked replay only inside `pushGreenfieldControl`, so a stranded greenfield journal would silently persist across `pull-controls` / `push-brownfield` / `set-local-edited` operations.
 
 Each addition has a unit-test suite under `oss/packages/dt-core/src/dt-control-library/__tests__/`.
 
-### A.12 — Hardening sprint design-choice rationale (Sprints 4–6)
+### A.12 — Hardening design-choice rationale
 
 The hardening initiative landed several architectural decisions where multiple defensible options existed. Recording the rejected alternatives here so a future revisitor doesn't re-derive the comparison from scratch.
 
-**F-02 WAL replay seam — chose MCP-tool layer over engine layer.**
+**WAL replay seam — chose MCP-tool layer over engine layer.**
 - Option (a, chosen) — `applyPendingRewrites(modelDir)` invoked at the top of `manage_controls.execute()`, after lock acquisition and before action dispatch. Six action handlers; replay runs once per entry regardless of which action fires.
 - Option (b, rejected) — replay invoked inside each `DtControlLibrary` public method (six methods).
 - Why (a) won: the engine layer stays free of cross-cutting concerns (replay, locking, JWT extraction) — those are responsibilities of the MCP boundary that owns the `directory_path` parameter and the operator session. Keeping the engine pure makes it independently usable from non-MCP callers (e.g. integration tests, dethernety-studio) without inheriting MCP-specific lifecycle hooks. Option (b)'s "harder to bypass" trade was real but mitigated by the fact that engine methods are not part of the public MCP surface.
 - When to revisit: if a future non-MCP caller appears that needs the same replay-on-entry semantics, lift the call into the engine OR introduce a thin façade that does both — don't duplicate the replay logic at every entry.
 
-**F-09 TOCTOU window — chose per-control fresh-fetch over `If-Match` semantics.**
+**TOCTOU window — chose per-control fresh-fetch over `If-Match` semantics.**
 - Option (a, chosen) — `pushBrownfieldControl` Step B re-fetches `getControlInstantiationAttributes` inline per touched Control just before classification. One extra round-trip per touched Control; ~all client-side; ships in V1 with no schema changes.
 - Option (b, deferred to V1.1) — `updatedAt` field on the `IS_INSTANCE_OF` edge with `If-Match` on the GraphQL mutation. Schema work in dt-ws; per-mutation conflict reported by the server; eliminates the client-side round-trip on the happy path.
 - Why (a) won: the safety property (catch concurrent mutations during the operator review window) is the priority for V1; the round-trip cost is acceptable at expected control counts (~10 per push). Option (b) is the right long-term answer but requires a server-side schema change and conflict-handling protocol that's V1.1-scoped.
-- When to revisit: if the per-push round-trip cost becomes user-visible (operator complaints about slow pushes on shared brownfield Controls), or if the server schema gains optimistic-locking primitives for unrelated reasons, swap to option (b). The Sprint 4 implementation is contained to `pushBrownfieldControl` — the swap is local.
+- When to revisit: if the per-push round-trip cost becomes user-visible (operator complaints about slow pushes on shared brownfield Controls), or if the server schema gains optimistic-locking primitives for unrelated reasons, swap to option (b). The implementation is contained to `pushBrownfieldControl` — the swap is local.
 - Documented as a V1.1 alternative in Appendix A.8.
 
-**Sprint-4 risk-register Plan-B fallbacks (kept for swap traceability).** Each Sprint 4 user story whose preferred technical bet had a documented fallback path:
-- **F-04 JWT plumbing** — preferred path threads the token through the MCP `ToolContext` shape. Plan B (not exercised): `audit-log-writer.ts` reads the token directly from `~/.dethernety/tokens.json`. Less elegant (writer touches storage rather than receives an injected value) but ships in V1 if the `ToolContext` change turns out to be invasive elsewhere.
-- **F-03 advisory lock** — preferred path uses `proper-lockfile`. Plan B (chosen): `fs.open(path, 'wx')` sentinel — zero-dep, slightly more code, verified to not break the dethernety-studio bundle. Recorded here because if a future maintainer considers swapping back to `proper-lockfile`, they need to re-verify the studio-bundle compatibility.
+**Risk-register Plan-B fallbacks (kept for swap traceability).** Each hardening item whose preferred technical bet had a documented fallback path:
+- **JWT plumbing** — preferred path threads the token through the MCP `ToolContext` shape. Plan B (not exercised): `audit-log-writer.ts` reads the token directly from `~/.dethernety/tokens.json`. Less elegant (writer touches storage rather than receives an injected value) but ships in V1 if the `ToolContext` change turns out to be invasive elsewhere.
+- **Advisory lock** — preferred path uses `proper-lockfile`. Plan B (chosen): `fs.open(path, 'wx')` sentinel — zero-dep, slightly more code, verified to not break the dethernety-studio bundle. Recorded here because if a future maintainer considers swapping back to `proper-lockfile`, they need to re-verify the studio-bundle compatibility.
 
-**Sprint 5 + 6 design choices** are captured at each call site — JSDoc at the engine layer and inline comments at the touch points encode the why. Commit-level history (what landed in which sprint) is in `git log` against the `sprint-5-polish` and `sprint-6-closure` tags.
+**Later hardening design choices** are captured at each call site — JSDoc at the engine layer and inline comments at the touch points encode the why. Commit-level history is in `git log`.

@@ -1,6 +1,6 @@
 # Dethereal Plugin -- Architecture Decisions
 
-> Decisions identified during the architecture planning exercise. D1-D12, D14-D19 resolved by accepting recommendations (batch resolution). D13 resolved through R4 (effectively implemented in architecture). D20-D25 resolved through multi-agent review R1 (mapping vs. analysis boundary). D26-D32 resolved through R2 (plugin structure, MCP schemas, quality calibration). D33-D37 resolved through R3 (cross-document consistency, UX trust, documentation completeness). D38-D43 resolved through R4 (spec completeness, UX patterns, gate timing). D44-D54 resolved through R5 (token efficiency, overengineering, operational gaps). D55-D60 resolved through R7 (model decomposition for complex systems). D61-D66 resolved through R8 (pre-implementation security and UX review). D67 covers the drift-detection feature design. **All 67 decisions resolved.**
+> Decisions identified during the architecture planning exercise. D1-D12, D14-D19 resolved by accepting recommendations (batch resolution). D13 resolved through R4 (effectively implemented in architecture). D20-D25 resolved through multi-agent review R1 (mapping vs. analysis boundary). D26-D32 resolved through R2 (plugin structure, MCP schemas, quality calibration). D33-D37 resolved through R3 (cross-document consistency, UX trust, documentation completeness). D38-D43 resolved through R4 (spec completeness, UX patterns, gate timing). D44-D54 resolved through R5 (token efficiency, overengineering, operational gaps). D55-D60 resolved through R7 (model decomposition for complex systems). D61-D66 resolved through R8 (pre-implementation security and UX review). D67 covers the drift-detection feature design. D68 relocates the per-component crown-jewel flag to `structure.json`. **All 68 decisions resolved.**
 
 ---
 
@@ -75,6 +75,7 @@
 | D65 | [UX hardening: discovery, session break, undo, decomposition](#d65-ux-hardening) | Various options per sub-finding | Sources-checked summary; size-calibrated session break; git-based undo with LLM guidance; cross-model gap warning at decomposition; commit recommendation at STRUCTURE_COMPLETE | Medium — UX gaps that compound on large models | **Resolved** |
 | D66 | [monitoring_tools V1 scope](#d66-monitoring_tools-v1-scope) | Engine integration vs. human review only vs. defer capture | V1: capture for human review only. No engine integration point exists. Engine integration is a future capability | Low — documented as human review, no false expectations | **Resolved** |
 | D67 | [Drift detection — simplified design](#d67-drift-detection--simplified-design) | Earlier complex implementation (verb-language grammar, ledger, advisory locks) vs. routing the delta through existing modeling skills | Adopt the simplified design per `DRIFT_DETECTION.md` | Low — earlier implementation is preserved at `archive/drift-reconciliation-v1-overengineered` and remains `git checkout`-able if needed | **Resolved** |
+| D68 | [Crown-jewel placement — `structure.json`, not the attribute bag](#d68-crown-jewel-placement--structurejson-not-the-attribute-bag) | Fix the lift to read the bag root vs. move the flag to the first-class `structure.json` field | Store `crownJewel` first-class on the component in `structure.json`; remove the bag path (supersedes the storage location in D21/D41) | Low — clean cut; existing local models re-tag via `/dethereal:classify` | **Resolved** |
 
 ---
 
@@ -1454,5 +1455,26 @@ The plugin captures `monitoring_tools` as a component attribute. The detection f
 **Boundary:** Drift detection mechanism, reconciliation flow, modeling-skill composition.
 
 **Risk if wrong:** Low — the archive branch remains `git checkout`-able. If a specific scenario covered by the earlier design turns out to be load-bearing, the recovery path is to scope a targeted addition rather than wholesale revert.
+
+**Status: Resolved**
+
+### D68: Crown-jewel placement — `structure.json`, not the attribute bag
+
+**Context:** D21/D41 introduced lightweight crown-jewel tagging as a component "attribute" (`crown_jewel: boolean`). In implementation the producer (`/dethereal:classify` + enrich) wrote `crown_jewel` at the **root of the component attribute bag** (`attributes/components/<id>.json`), while the dt-core split→monolithic push lift read `attributes.crown_jewel` (nested *inside* the bag's `attributes` object). The two never agreed, so the flag silently never reached the platform `Component.crownJewel` field. `Component.crownJewel` is a first-class platform field, and the dt-core `StructureComponent` type already declared `crownJewel?: boolean` — the implementation simply diverged to the bag.
+
+**Options considered:**
+
+- (a) Fix the lift to read the bag root (keep crown_jewel in the attribute bag).
+- (b) Move the flag to the first-class `crownJewel` field on the component in `structure.json`.
+
+**Decision: (b).** The per-component crown-jewel flag is stored as the first-class `crownJewel` field on the component in `structure.json` — mirroring the platform `Component.crownJewel` field, alongside `name` / `description` / `type` / `classData`. The bag-based path is removed end-to-end (push lift, export write-back, validator read, and all producer/reader prose). No transitional bag fallback — a clean cut.
+
+**Why this design:**
+
+- **First-class, not an attribute.** `crownJewel` is a platform field; the attribute bag is reserved for class-typed security attributes evaluated by OPA. `monitoring_enabled` / `asset_criticality` stay in the bag because they are local-only (no platform field).
+- **One canonical home.** A single placement avoids the root-vs-nested drift that caused the original defect; `structure.json` is already covered by the content hash.
+- **The type already agreed.** `StructureComponent.crownJewel` predated this fix — the change aligns the producer, the lift, and the export with the existing type.
+
+**Supersedes:** the *storage location* in D21/D41 only. The lightweight-tagging concept and the Phase 3 / Phase 7 split are unchanged — the flag moves from the attribute bag to `structure.json`.
 
 **Status: Resolved**

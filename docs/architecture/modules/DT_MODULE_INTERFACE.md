@@ -8,6 +8,7 @@
 - [Class Metadata Interfaces](#class-metadata-interfaces)
 - [Exposure and Countermeasure Interfaces](#exposure-and-countermeasure-interfaces)
 - [Analysis Interfaces](#analysis-interfaces)
+- [Asset-context fields exposed to modules](#asset-context-fields-exposed-to-modules)
 - [Method Details](#method-details)
 
 ## Overview
@@ -594,6 +595,56 @@ export interface LgModuleOptions {
   moduleTemplate?: string;          // Custom template JSON
 }
 ```
+
+---
+
+## Asset-context fields exposed to modules
+
+Analysis modules read the model graph through the per-request `GraphQLContext` (the `driver` + `sessionConfig` available in `getResolvers`/analysis). Alongside structure, classes, controls, and exposures, the graph carries **author-asserted asset context** — what the modeller declared about scope, value, and data sensitivity. These are *inputs* to analysis, not computed verdicts: treat the model-level fields as **seeds for the analysis-phase scope, not direct risk-math inputs**, and the per-element fields as evidence to weigh.
+
+No module-API change is required — these are ordinary node properties on `Model`, `Component`, and `Data`, selectable in any module query.
+
+### Model scope (five flat fields on `Model`)
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `depth` | `ModelingDepth` — `ARCHITECTURE` \| `DESIGN` \| `IMPLEMENTATION` | How deep the model reasons (architecture, design, or implementation fidelity). |
+| `modelingIntent` | `ModelingIntent` — `INITIAL` \| `SECURITY_REVIEW` \| `COMPLIANCE` \| `INCIDENT_RESPONSE` | Why the model exists; frames which findings matter. |
+| `complianceDrivers` | `[String!]` | Regulatory/standards obligations in scope (e.g. `PCI-DSS`, `HIPAA`). Free-text. |
+| `exclusions` | `[String!]` | What the modeller deliberately put out of scope; analysis should not fault their absence. |
+| `trustAssumptions` | `[String!]` | What the model treats as trusted (e.g. "cloud control plane"); analysis may surface these as assumptions to test. |
+
+### Per-element fields
+
+- **`Component.crownJewel: Boolean`** — the modeller marked this component a high-value asset. Crown-jewel marks exist on **components only**.
+- **`Data.sensitivity: SensitivityLevel`** (`PUBLIC` < `INTERNAL` < `CONFIDENTIAL` < `RESTRICTED`) — author-asserted classification. Rank an element by the **maximum sensitivity of the data it handles** (but see the coalescing contract below: `null`-sensitivity data is excluded from that max and surfaced separately, never treated as `PUBLIC`).
+- **`Data.regulatoryFlags: [String!]`** — free-text compliance labels; see the [canonical vocabulary](../dethereal/THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary) for the recommended set and casing.
+
+### Coalescing contract (legacy + un-set nodes)
+
+All asset-context fields are **nullable** — legacy nodes and un-classified elements read `null`. Coalesce consistently:
+
+| Field | `null` means |
+|-------|--------------|
+| `crownJewel` | not a crown jewel (treat as `false`) |
+| `regulatoryFlags` | none declared (treat as `[]`) |
+| `sensitivity` | **unclassified — not `public`** |
+
+Treat `sensitivity: null` as **unknown, surfaced separately** — never as a `public` floor. An element handling only `null`-sensitivity data is *unrated*, not *low-risk*; folding it into a max-sensitivity aggregation as `public` would silently under-rate genuinely-sensitive-but-unclassified data. Report the unclassified gap rather than scoring through it.
+
+### `dataInRegulatoryScope(flag: String!): [Data!]!`
+
+Returns every `Data` node whose `regulatoryFlags` contains `flag`. For module authors:
+
+- **Exact, case-sensitive match** — a producer typo (`"phi"` vs `"PHI"`) returns `[]` silently, not an error. Query with the [canonical casing](../dethereal/THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary).
+- **O(|Data|) full scan** — `regulatoryFlags` is a list and is not indexable on Memgraph, so cost is linear in the number of `Data` nodes. Fine for analysis-phase use; don't call it in a tight loop.
+- **Direct handlers only** — it finds the data items *carrying* the flag, not the components/flows adjacent to them. Cardholder-data-environment (CDE) adjacency — which components touch regulated data — is an analysis-phase traversal you compose on top, not something this query does.
+
+### Not available (deliberately, in this version)
+
+- No `crownJewel` on `Data`, `SecurityBoundary`, or `DataFlow` — crown-jewel marks on those live only in local plugin files and are not synced to the platform.
+- No persisted **adversary classes** / threat-actor model on the graph.
+- **Monitoring-coverage** and **credential-handling** asset context are not yet first-class graph fields — they remain local enrichment pending separate node authoring.
 
 ---
 

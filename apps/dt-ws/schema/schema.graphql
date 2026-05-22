@@ -166,6 +166,40 @@ enum VectorDisabledReason {
   MODEL_MISMATCH
 }
 
+"""Modeling depth the author asserts the model reaches."""
+enum ModelingDepth {
+  "Reasoning at the architecture level (systems and trust zones)"
+  ARCHITECTURE
+  "Reasoning at the design level (components and interfaces)"
+  DESIGN
+  "Reasoning at the implementation level (concrete code and config)"
+  IMPLEMENTATION
+}
+
+"""Why this model is being built — drives the analysis-phase emphasis."""
+enum ModelingIntent {
+  "Initial pass to establish a baseline model"
+  INITIAL
+  "Focused security review of an existing system"
+  SECURITY_REVIEW
+  "Driven by a compliance obligation"
+  COMPLIANCE
+  "Modeling in support of an active incident response"
+  INCIDENT_RESPONSE
+}
+
+"""Author-asserted data sensitivity classification."""
+enum SensitivityLevel {
+  "Public — no confidentiality requirement"
+  PUBLIC
+  "Internal — restricted to the organization"
+  INTERNAL
+  "Confidential — limited distribution"
+  CONFIDENTIAL
+  "Restricted — strict need-to-know"
+  RESTRICTED
+}
+
 """Base interface implemented by all graph-stored entities."""
 interface Element {
   "Unique identifier"
@@ -226,6 +260,16 @@ type Model implements Element  @authentication @node {
   issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
   "Folder containing this model"
   folder: [Folder!]! @relationship(type: "FOLDER_CONTAINS", direction: IN)
+  "Modeling depth asserted by the author (architecture / design / implementation)"
+  depth: ModelingDepth
+  "Why this model is being built (drives the analysis-phase emphasis)"
+  modelingIntent: ModelingIntent
+  "Compliance frameworks driving this model (free-text, e.g. PCI-DSS, HIPAA)"
+  complianceDrivers: [String!]
+  "Areas the author explicitly declared out of scope"
+  exclusions: [String!]
+  "Trust assumptions the author is making about the environment"
+  trustAssumptions: [String!]
 }
 
 """A modeled entity in the system (process, database, external entity, etc.)."""
@@ -266,6 +310,8 @@ type Component implements Element  @authentication @node {
   dimensionsWidth: Float
   "Height on the canvas"
   dimensionsHeight: Float
+  "Author flag marking this component a crown jewel (high-value asset). Null ⇒ false."
+  crownJewel: Boolean
 }
 
 """A directed data flow between two components."""
@@ -409,6 +455,10 @@ type Data implements Element  @authentication @node {
   analyses: [Analysis!]! @relationship(type: "ANALYZED_BY", direction: OUT)
   "Issues associated with this data"
   issues: [Issue!]! @relationship(type: "HAS_ISSUE", direction: OUT)
+  "Author-asserted sensitivity classification of this data. Null ⇒ unclassified."
+  sensitivity: SensitivityLevel
+  "Regulatory scopes this data falls under (free-text, e.g. \"PCI cardholder\", \"PHI\"). Null ⇒ []."
+  regulatoryFlags: [String!]
 }
 
 """A security control applied to one or more elements (e.g., encryption, authentication, firewall rule)."""
@@ -1938,6 +1988,23 @@ type Query {
       RETURN ex
       """
       columnName: "ex"
+    )
+    @authentication
+
+  """
+  All Data whose regulatoryFlags contains the given flag (exact, case-sensitive).
+  Intentional full :Data scan (regulatoryFlags is a list — not indexable on Memgraph);
+  finds direct handlers only. A producer typo ("phi" vs "PHI") returns [] silently,
+  so producers must emit the canonical casing — see the canonical regulatory-flag
+  vocabulary in docs/architecture/dethereal/THREAT_MODELING_WORKFLOW.md.
+  """
+  dataInRegulatoryScope(flag: String!): [Data!]!
+    @cypher(
+      statement: """
+      MATCH (d:Data) WHERE $flag IN COALESCE(d.regulatoryFlags, [])
+      RETURN d
+      """
+      columnName: "d"
     )
     @authentication
 

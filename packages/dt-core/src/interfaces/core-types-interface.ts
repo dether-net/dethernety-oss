@@ -186,6 +186,8 @@ export interface DataItem extends Element {
   description: string
   dataClass?: { id: string, name: string } | null
   elements?: { id: string }[] | null
+  sensitivity?: string
+  regulatoryFlags?: string[]
 }
 
 export interface ComponentData extends Element {
@@ -200,6 +202,7 @@ export interface ComponentData extends Element {
   dataItems?: DataItem[]
   componentClass?: { id: string }[]
   representedModel?: { id: string }[]
+  crownJewel?: boolean
 }
 
 export interface BoundaryData extends Element {
@@ -238,6 +241,13 @@ export interface Model extends Element {
   controls?: Control[]
   modules?: Module[]
   folder?: Folder
+  // Flat asset-context scope fields, mirroring the platform Model node.
+  // The grouped/local snake_case shape is ModelScopeLocal (manifest.schema).
+  depth?: string
+  modelingIntent?: string
+  complianceDrivers?: string[]
+  exclusions?: string[]
+  trustAssumptions?: string[]
 }
 
 export interface DirectDescendant {

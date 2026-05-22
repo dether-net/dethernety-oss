@@ -2,6 +2,7 @@ import { DtUtils } from '../dt-utils/dt-utils.js'
 import { gql } from 'graphql-tag'
 import * as Apollo from '@apollo/client'
 import { Model, ComponentData, BoundaryData, DataFlowData, DataItem, Module } from '../interfaces/core-types-interface.js'
+import { ModelScopeLocal, localScopeToPlatform } from '../schemas/index.js'
 import { Node, Edge } from '@vue-flow/core'
 
 import {
@@ -310,14 +311,25 @@ export class DtModel {
    * @returns The created model
    */
   createModel = async (
-    { name, description, modules, folderId }:
-    { name: string, description: string, modules: string[], folderId: string | undefined }
+    { name, description, modules, folderId, scope }:
+    { name: string, description: string, modules: string[], folderId: string | undefined, scope?: ModelScopeLocal }
   ): Promise<Model> => {
     try {
       const defaultBoundaryName = `Default Boundary`
+      // Asset-context scope on create: set present fields only (a fresh node has
+      // nothing to clear). Flat camelCase platform values, enums SCREAMING_SNAKE.
+      const p = scope ? localScopeToPlatform(scope) : undefined
+      const scopeCreate = p ? {
+        ...(p.depth ? { depth: p.depth } : {}),
+        ...(p.modelingIntent ? { modelingIntent: p.modelingIntent } : {}),
+        ...(p.complianceDrivers ? { complianceDrivers: p.complianceDrivers } : {}),
+        ...(p.exclusions ? { exclusions: p.exclusions } : {}),
+        ...(p.trustAssumptions ? { trustAssumptions: p.trustAssumptions } : {}),
+      } : {}
       const mutationInput = {
         name,
         description,
+        ...scopeCreate,
         defaultBoundary: {
           create: {
             node: {
@@ -374,13 +386,28 @@ export class DtModel {
    * @returns The updated model
    */
   updateModel = async (
-    { id, name, description, modules, controls, folderId }:
-    { id: string, name: string, description: string, modules: string[], controls: string[], folderId: string | undefined }
+    { id, name, description, modules, controls, folderId, scope }:
+    { id: string, name: string, description: string, modules: string[], controls: string[], folderId: string | undefined, scope?: ModelScopeLocal }
   ): Promise<Model> => {
     try {
+      // Asset-context scope on update: REPLACE (local authoritative). When scope
+      // is supplied with at least one valid field, set all five — clearing the
+      // ones absent within the scope ({ set: null }/{ set: [] }). When scope is
+      // omitted entirely (p === undefined), emit no scope keys so the platform's
+      // scope is left untouched (no blanket wipe). Callers that don't sync scope
+      // (e.g. the modules-only update) simply pass no scope.
+      const p = scope ? localScopeToPlatform(scope) : undefined
+      const scopeUpdate = p ? {
+        depth: { set: p.depth ?? null },
+        modelingIntent: { set: p.modelingIntent ?? null },
+        complianceDrivers: { set: p.complianceDrivers ?? [] },
+        exclusions: { set: p.exclusions ?? [] },
+        trustAssumptions: { set: p.trustAssumptions ?? [] },
+      } : {}
       const mutationInput = {
         name: { set: name },
         description: { set: description },
+        ...scopeUpdate,
         modules: {
           disconnect: {},
           connect: modules.map(module => ({

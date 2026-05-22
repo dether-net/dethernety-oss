@@ -176,7 +176,6 @@ Agents write flat key-value files with a type-specific ID field. The file contai
   "persistence_enabled": true,
   "persistence_unencrypted": true,
   "monitoring_enabled": false,
-  "crown_jewel": false,
   "credential_scope": ["session-jwt-tokens"],
   "stores_credentials": true,
   "monitoring_tools": ["None"]
@@ -199,7 +198,6 @@ After import, files are normalized to the `ElementAttributes` structure:
     "requirepass_present": false,
     "tls_enabled": false,
     "acl_enabled": false,
-    "crown_jewel": false,
     "credential_scope": ["session-jwt-tokens"]
   }
 }

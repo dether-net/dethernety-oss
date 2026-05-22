@@ -21,6 +21,22 @@ The underlying data model is methodology-agnostic. STRIDE is the built-in interp
 
 ---
 
+## Model Scope
+
+Before modeling the system you declare **scope** — the framing that tells analysis what this model is for and what to hold constant. Scope is set at scope-definition time (e.g. via `/dethereal:create`), stored on the model itself, and round-trips through `.dethereal/scope.json` on sync:
+
+| Field | Meaning |
+|-------|---------|
+| **Depth** | How deep the model reasons: `architecture`, `design`, or `implementation`. |
+| **Modeling intent** | Why the model exists: `initial`, `security_review`, `compliance`, or `incident_response`. |
+| **Compliance drivers** | Regulatory/standards obligations in scope (e.g. PCI-DSS, HIPAA) — these drive which compliance prompts appear during enrichment. |
+| **Exclusions** | What you deliberately put out of scope, so analysis doesn't fault their absence. |
+| **Trust assumptions** | What the model treats as trusted (e.g. "cloud control plane is trusted"). |
+
+Scope is **seed context for analysis**, not a score — it shapes which findings matter rather than computing risk directly. Crown jewels are also declared at scope-definition time (see [Crown Jewels](#crown-jewels)).
+
+---
+
 ## Components
 
 Components are the things in your system. Every component has a **type** that determines its behavior in security analysis:
@@ -124,16 +140,18 @@ Data items classify what data flows carry. They're attached to data flows and de
 
 ### Regulatory Labels
 
-Data items can carry regulatory flags that map to compliance frameworks:
+Data items can carry **regulatory flags** — free-text compliance labels, kept separate from the sensitivity level. The recommended canonical set (matched **exactly and case-sensitively** by the platform's `dataInRegulatoryScope` query, so spelling and case matter):
 
-| Label | Framework | Sensitivity |
-|-------|-----------|------------|
+| Label | Framework | Sensitivity floor |
+|-------|-----------|-------------------|
+| `PCI cardholder` | PCI-DSS | Restricted |
 | `PHI` | HIPAA | Restricted |
-| `PCI_cardholder` | PCI-DSS | Restricted |
-| `GDPR_personal_data` | GDPR | Confidential (minimum — special category data is Restricted) |
+| `GDPR personal` | GDPR | Confidential (special-category data is Restricted) |
 | `PII` | General | Confidential |
+| `SOX financial` | SOX | Confidential |
+| `CCPA personal` | CCPA | Confidential |
 
-Your compliance drivers (set during scope definition) determine which regulatory prompts appear during enrichment.
+A data item may carry several flags; its sensitivity is the highest applicable floor. This set is the [single source of truth in the architecture docs](../../architecture/dethereal/THREAT_MODELING_WORKFLOW.md#canonical-sensitivity-and-regulatory-flag-vocabulary) — it's extensible, but emit the canonical casing so scope queries match. Your compliance drivers (set during scope definition) determine which regulatory prompts appear during enrichment.
 
 ---
 
@@ -181,7 +199,6 @@ These attributes are populated during the enrichment step and stored in individu
 ### Additional Attributes
 
 - **`monitoring_tools`** — which monitoring systems observe this component (SIEM, EDR, NDR, APM). Components without monitoring tools are detection blind spots.
-- **`crown_jewel`** — true/false, marks the component as a high-value target
 - **`asset_criticality`** — high/medium/low, the business impact of compromise
 - **`stores_credentials`** — true for STORE components that hold credential material
 - **`credential_scope`** — which credential identifiers are stored (drives lateral movement analysis)
@@ -196,7 +213,7 @@ Crown jewels are your most valuable assets — the data or capabilities an attac
 Crown jewels: ["Cardholder data", "User PII", "API authentication keys"]
 ```
 
-During classification, these free-text names are fuzzy-matched to actual components and tagged with `crown_jewel: true`. Crown jewels receive priority treatment:
+During classification, these free-text names are fuzzy-matched to actual components and tagged with `crownJewel: true` on the component in `structure.json` (the first-class `Component.crownJewel` field, synced to the platform). Crown-jewel marks are tracked **per component**; marking a data item, boundary, or flow stays local. Crown jewels receive priority treatment:
 
 - **Enrichment tier 1** — enriched first, with the most thorough prompts
 - **Control gap analysis** — crown jewels without controls are flagged as highest-priority gaps

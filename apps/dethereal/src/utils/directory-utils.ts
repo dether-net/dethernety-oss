@@ -26,6 +26,7 @@ import { homedir } from 'os'
 import type {
   SplitModel,
   ModelManifest,
+  ModelScopeLocal,
   ModelStructure,
   StructureBoundary,
   StructureComponent,
@@ -47,6 +48,24 @@ import {
 // =============================================================================
 
 const ATTRIBUTES_SUBDIRS = ['boundaries', 'components', 'dataFlows', 'dataItems'] as const
+
+/** Per-model sync-state directory; holds scope.json and sync.json (see sync-utils.ts). */
+const DETHEREAL_DIR = '.dethereal'
+const SCOPE_FILE = 'scope.json'
+
+/**
+ * The model-scope keys that sync to/from the platform (mirror of `ModelScopeLocal`).
+ * scope.json is a superset on disk — local-only keys (`crown_jewels`, `adversary_classes`,
+ * `activeModules`, `declared_governance_controls`, …) are written by the modeling skills and
+ * must be preserved by `writeScope`; only these five are platform-synced.
+ */
+const SYNCED_SCOPE_KEYS = [
+  'depth',
+  'modeling_intent',
+  'compliance_drivers',
+  'exclusions',
+  'trust_assumptions',
+] as const
 
 /**
  * Maps attribute subdirectory names to the ID field used in the flat enrichment format
@@ -594,6 +613,120 @@ export async function writeModelDirectory(
   await writeDataFlows(dirPath, model.dataFlows)
   await writeDataItems(dirPath, model.dataItems)
   await writeAttributes(dirPath, model.attributes)
+}
+
+// =============================================================================
+// Scope I/O (.dethereal/scope.json)
+// =============================================================================
+
+/**
+ * Read the platform-synced model scope from `.dethereal/scope.json`.
+ *
+ * scope.json is a superset on disk (it also holds skill-owned local-only keys like
+ * `crown_jewels`, `adversary_classes`, `activeModules`). This projects to just the five
+ * synced keys so the value can be attached to `manifest.model.scope` for a push without
+ * leaking local-only keys into manifest.json.
+ *
+ * Returns `null` when the file is absent/unparseable or carries none of the synced keys.
+ */
+export async function readScope(modelDir: string): Promise<ModelScopeLocal | null> {
+  const scopePath = path.join(modelDir, DETHEREAL_DIR, SCOPE_FILE)
+  let raw: Record<string, unknown>
+  try {
+    raw = JSON.parse(await fs.readFile(scopePath, 'utf-8'))
+  } catch {
+    return null
+  }
+
+  const scope: ModelScopeLocal = {}
+  for (const key of SYNCED_SCOPE_KEYS) {
+    if (raw[key] !== undefined) {
+      ;(scope as Record<string, unknown>)[key] = raw[key]
+    }
+  }
+  return Object.keys(scope).length > 0 ? scope : null
+}
+
+/**
+ * Write the platform-synced model scope into `.dethereal/scope.json`, merge-preserving.
+ *
+ * Preserves every existing key (the skill-owned local-only keys) and replaces the synced
+ * view: each synced key present in `scope` is set, each absent one is deleted (symmetric
+ * with the push REPLACE semantics — scope.json mirrors the platform's synced state).
+ *
+ * Callers pass an empty `scope` ({}) when the platform has no scope set, so the mirror still
+ * runs and clears any stale synced keys left on disk. To avoid materialising a noise-only file,
+ * an empty `scope` with no pre-existing scope.json is a no-op (nothing to clear, nothing to write).
+ */
+export async function writeScope(modelDir: string, scope: ModelScopeLocal): Promise<void> {
+  const detherealDir = path.join(modelDir, DETHEREAL_DIR)
+  const scopePath = path.join(detherealDir, SCOPE_FILE)
+
+  // Read any existing file first (before mkdir) so we distinguish absent / parseable /
+  // malformed without leaving side effects.
+  let rawExisting: string | null = null
+  try {
+    rawExisting = await fs.readFile(scopePath, 'utf-8')
+  } catch {
+    // No existing scope.json.
+  }
+
+  const incoming = scope as Record<string, unknown>
+  const hasSyncedKeys = SYNCED_SCOPE_KEYS.some((key) => incoming[key] !== undefined)
+
+  // Nothing to mirror and no file to reconcile: don't create an empty scope.json. Reached on a
+  // pull/push of a model whose platform scope is empty and which has no local scope.json yet.
+  if (rawExisting === null && !hasSyncedKeys) return
+
+  let existing: Record<string, unknown> = {}
+  if (rawExisting !== null) {
+    // Fail loud on a present-but-unparseable file rather than overwriting it: a
+    // blind `{}` fallback here would silently destroy the skill-owned local-only
+    // keys (crown_jewels, adversary_classes, …) on the next merge.
+    try {
+      existing = JSON.parse(rawExisting)
+    } catch {
+      throw new Error(
+        `Refusing to overwrite malformed ${SCOPE_FILE} (it would destroy local-only scope keys); fix or remove the file first`,
+      )
+    }
+  }
+
+  const merged: Record<string, unknown> = { ...existing }
+  for (const key of SYNCED_SCOPE_KEYS) {
+    if (incoming[key] !== undefined) {
+      merged[key] = incoming[key]
+    } else {
+      delete merged[key]
+    }
+  }
+
+  await fs.mkdir(detherealDir, { recursive: true })
+  await fs.writeFile(scopePath, JSON.stringify(merged, null, 2), 'utf-8')
+}
+
+/**
+ * The platform tracks crown jewels on **components** only — a component's `crownJewel` is a
+ * first-class `structure.json` field that syncs. There is no crown-jewel field on data items /
+ * boundaries / data flows, so a `crown_jewel: true` on one of those *attribute bags* can't be
+ * pushed. Returns a one-line user notice (or `null` when there are none) so a push can surface
+ * what it left behind rather than silently dropping it.
+ *
+ * Detection scans the non-component bags for `crown_jewel` at the bag root or nested under
+ * `attributes`. Components are intentionally excluded — their `crownJewel` syncs via structure.json.
+ */
+export function localOnlyCrownJewelNotice(attributes: ConsolidatedAttributesFile): string | null {
+  let count = 0
+  for (const subdir of ['dataItems', 'boundaries', 'dataFlows'] as const) {
+    const bags = attributes[subdir]
+    if (!bags) continue
+    for (const bag of Object.values(bags)) {
+      const b = bag as { crown_jewel?: unknown; attributes?: { crown_jewel?: unknown } }
+      if (b?.crown_jewel === true || b?.attributes?.crown_jewel === true) count++
+    }
+  }
+  if (count === 0) return null
+  return `Crown-jewel marks on ${count} non-component element(s) (data items / boundaries / flows) are local-only — the platform tracks crown jewels on components, so these were not synced.`
 }
 
 // =============================================================================

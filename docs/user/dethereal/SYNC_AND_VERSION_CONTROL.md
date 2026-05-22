@@ -185,12 +185,7 @@ Platform models don't have `.dethereal/state.json`. After pull, the plugin infer
 
 ### Missing Scope Metadata
 
-Platform models don't include `scope.json` (scope is a plugin concept). After pull:
-
-```
-Note: Platform models do not include scope.json.
-Create one manually for full workflow support (/dethereal:threat-model to resume with scope).
-```
+Pull materialises `.dethereal/scope.json` from the platform model's scope fields (depth, modeling intent, compliance drivers, exclusions, trust assumptions), merge-preserving any skill-owned local-only keys; push reads it back. A legacy model created without scope simply yields a `scope.json` with no synced keys — you can fill it in via `/dethereal:threat-model`, but you no longer need to hand-create the file.
 
 ### Referenced Models
 
@@ -224,7 +219,7 @@ Sync Status: ./threat-models/prod/
 
 ### Content Hashing
 
-The plugin uses content hashes to determine if local changes exist. Layout properties (position, dimensions) are excluded from the hash — moving components around in a diagram doesn't count as a model change.
+The plugin uses content hashes to determine if local changes exist. Diagram layout (position, dimensions) and export timestamps are excluded — moving components around doesn't count as a model change — but edits to structure (including component crown-jewel marks), data items (including data sensitivity and regulatory flags), element security attributes, and model scope all do, so local enrichment is detected before a pull would overwrite it.
 
 ---
 

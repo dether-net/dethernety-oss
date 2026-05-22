@@ -24,6 +24,8 @@ import { DtImportSplit, type ImportProgress } from '@dethernety/dt-core'
 import { ClientDependentTool, ToolContext, ToolResult } from './base-tool.js'
 import {
   readModelDirectory,
+  readScope,
+  localOnlyCrownJewelNotice,
   createDirectoryBackup,
   isModelDirectory,
   applyIdMapping,
@@ -105,6 +107,10 @@ export class ImportModelTool extends ClientDependentTool<ImportInput, ImportOutp
       debugLog(config, `Reading model from directory: ${input.directory_path}`)
       const splitModel = await readModelDirectory(input.directory_path)
 
+      // Attach the local scope (.dethereal/scope.json is not read by readModelDirectory)
+      // so it publishes with the model. scope.json is the authoritative on-disk home.
+      splitModel.manifest.model.scope = (await readScope(input.directory_path)) ?? undefined
+
       debugLog(config, `Importing model: ${splitModel.manifest.model.name}`)
 
       // Use DtImportSplit from dt-core
@@ -123,6 +129,10 @@ export class ImportModelTool extends ClientDependentTool<ImportInput, ImportOutp
           error: `Import failed: ${result.errors.map((e: { error: string }) => e.error).join(', ')}`
         }
       }
+
+      // Surface crown-jewel marks on non-component elements (local-only; no platform field).
+      const crownJewelNotice = localOnlyCrownJewelNotice(splitModel.attributes)
+      if (crownJewelNotice) result.warnings.push(crownJewelNotice)
 
       let sourceFilesUpdated = false
 
