@@ -12,6 +12,7 @@ import {
   localScopeToPlatform,
   MODELING_DEPTHS,
   MODELING_INTENTS,
+  RECOMMENDED_COMPLIANCE_DRIVERS,
 } from '../asset-context-map.js';
 
 describe('platformEnumToLocal', () => {
@@ -107,5 +108,27 @@ describe('localScopeToPlatform', () => {
       trustAssumptions: ['kms'],
     };
     expect(localScopeToPlatform(platformScopeToLocal(platform))).toEqual(platform);
+  });
+});
+
+describe('RECOMMENDED_COMPLIANCE_DRIVERS', () => {
+  // Guards the doc <-> code mirror: THREAT_MODELING_WORKFLOW.md Phase 1 (D52 tiers) is
+  // the SSOT. A drift here means the doc and the GUI's suggestions have forked.
+  it('mirrors the documented D52 framework set and tiers', () => {
+    expect(RECOMMENDED_COMPLIANCE_DRIVERS).toEqual([
+      { driver: 'SOC2', tier: 1 },
+      { driver: 'ISO 27001', tier: 1 },
+      { driver: 'PCI-DSS', tier: 2 },
+      { driver: 'HIPAA', tier: 2 },
+      { driver: 'GDPR', tier: 2 },
+      { driver: 'NIST CSF', tier: 3 },
+      { driver: 'NIS2', tier: 3 },
+      { driver: 'DORA', tier: 3 },
+    ]);
+  });
+  it('uses only valid D52 tiers (1, 2, or 3)', () => {
+    for (const { tier } of RECOMMENDED_COMPLIANCE_DRIVERS) {
+      expect([1, 2, 3]).toContain(tier);
+    }
   });
 });

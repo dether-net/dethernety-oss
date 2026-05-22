@@ -2,7 +2,7 @@
   import { ref } from 'vue'
   import { useModelsStore } from '@/stores/modelsStore'
   import { useRouter } from 'vue-router'
-  import { Class, Control, Model, Module } from '@dethernety/dt-core'
+  import { Class, Control, Model, Module, ModelScopeLocal, RECOMMENDED_COMPLIANCE_DRIVERS, platformScopeToLocal } from '@dethernety/dt-core'
   import { useIssueStore } from '@/stores/issueStore'
   import { getPageDisplayName } from '@/utils/dataFlowUtils'
 
@@ -41,6 +41,30 @@
   const controls = ref<Control[]>([])
   const modelName = ref<string>('')
 
+  // Model-level compliance drivers (e.g. PCI-DSS, SOC2). Free-text [String!] on the
+  // platform; seeded on load and round-tripped on save. The other four scope fields
+  // (depth, modelingIntent, exclusions, trustAssumptions) are not edited here but must
+  // be preserved — DtModel.updateModel uses REPLACE semantics on the whole scope, so
+  // buildScope() carries them through unchanged (see saveModel).
+  const complianceDrivers = ref<string[]>([])
+  const complianceDriverItems = RECOMMENDED_COMPLIANCE_DRIVERS.map(d => d.driver)
+  const complianceTierLabel: Record<number, string> = {
+    1: 'Full enrichment',
+    2: 'Data classification',
+    3: 'Declared only',
+  }
+  const complianceDriverSubtitle: Record<string, string> = Object.fromEntries(
+    RECOMMENDED_COMPLIANCE_DRIVERS.map(d => [d.driver, complianceTierLabel[d.tier]])
+  )
+
+  // Preserve the four non-edited scope fields and override compliance drivers. The
+  // transform boundary lives in dt-core; localScopeToPlatform (inside updateModel) drops
+  // empties, so an all-empty scope becomes undefined (no wipe) and a cleared list clears.
+  const buildScope = (): ModelScopeLocal => ({
+    ...(platformScopeToLocal(model.value ?? {}) ?? {}),
+    compliance_drivers: complianceDrivers.value,
+  })
+
   const showIssueDialog = ref(false)
   const issueClass = ref<Class | null>(null)
 
@@ -73,6 +97,7 @@
         modules: newModules.value.map(module => module.id),
         controls: selectedControlIds.value,
         folderId: model.value?.folder?.id || undefined,
+        scope: buildScope(),
       })
     if (ret) {
       controls.value = controls.value.filter(control => selectedControlIds.value.includes(control.id || ''))
@@ -89,6 +114,7 @@
       modules: newModules.value.map(module => module.id),
       controls: selectedControlIds.value,
       folderId,
+      scope: buildScope(),
     }).then(ret => {
       if (ret) {
         emits('model:moved', folderId)
@@ -109,6 +135,7 @@
       newModules.value = model.value?.modules || []
       selectedControlIds.value = model.value?.controls?.map(control => control.id || '') || []
       controls.value = model.value?.controls || []
+      complianceDrivers.value = model.value?.complianceDrivers ?? []
     })
   })
 
@@ -243,6 +270,26 @@
                       <v-row>
                         <v-col cols="12">
                           <v-textarea v-model="newDescription" label="Description" rows="6" />
+                        </v-col>
+                      </v-row>
+                      <v-row>
+                        <v-col cols="12">
+                          <v-combobox
+                            v-model="complianceDrivers"
+                            chips
+                            closable-chips
+                            hint="Pick a recommended framework or type your own (e.g. PCI-DSS, SOC2)"
+                            :items="complianceDriverItems"
+                            label="Compliance drivers"
+                            multiple
+                          >
+                            <template #chip="{ props: chipProps }">
+                              <v-chip v-bind="chipProps" size="small" />
+                            </template>
+                            <template #item="{ props: itemProps, item }">
+                              <v-list-item v-bind="itemProps" :subtitle="complianceDriverSubtitle[item.title]" />
+                            </template>
+                          </v-combobox>
                         </v-col>
                       </v-row>
                     </v-container>
@@ -446,7 +493,7 @@
 
 <style scoped>
 .model-tab {
-  height: 350px;
+  height: 400px;
   overflow-y: auto;
 }
 

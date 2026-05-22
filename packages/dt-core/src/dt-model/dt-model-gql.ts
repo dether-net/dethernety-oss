@@ -17,6 +17,11 @@ export const GET_MODELS = gql`
       id
       name
       description
+      depth
+      modelingIntent
+      complianceDrivers
+      exclusions
+      trustAssumptions
       modules {
         id
         name
@@ -74,6 +79,11 @@ export const UPDATE_MODEL = gql`
         id
         name
         description
+        depth
+        modelingIntent
+        complianceDrivers
+        exclusions
+        trustAssumptions
         modules {
           id
           name
