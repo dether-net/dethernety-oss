@@ -213,7 +213,7 @@ Crown jewels are your most valuable assets — the data or capabilities an attac
 Crown jewels: ["Cardholder data", "User PII", "API authentication keys"]
 ```
 
-During classification, these free-text names are fuzzy-matched to actual components and tagged with `crownJewel: true` on the component in `structure.json` (the first-class `Component.crownJewel` field, synced to the platform). Crown-jewel marks are tracked **per component**; marking a data item, boundary, or flow stays local. Crown jewels receive priority treatment:
+During classification, these free-text names are fuzzy-matched to actual components and tagged with `crownJewel: true` on the component in `structure.json` (the first-class `Component.crownJewel` field, synced to the platform). Crown-jewel marks are tracked **per component**; marking a data item, boundary, or flow stays local. Besides this AI classify path, crown jewels can also be toggled per component **directly in the GUI** (component settings → General tab → crown button) — both write the same `Component.crownJewel` field. Crown jewels receive priority treatment:
 
 - **Enrichment tier 1** — enriched first, with the most thorough prompts
 - **Control gap analysis** — crown jewels without controls are flagged as highest-priority gaps

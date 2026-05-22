@@ -152,6 +152,7 @@ export class DtModel {
                 dataItems: component.dataItems?.map(dataItem => dataItem.id),
                 classId: firstId(component.componentClass),
                 representedModelId: firstId(component.representedModel),
+                crownJewel: component.crownJewel,
               },
               parentNode:
                 Array.isArray(component.parentBoundary) &&

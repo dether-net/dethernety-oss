@@ -13,7 +13,7 @@
   import { getId, getNewName, nodeTypes, useDragAndDrop } from '@/utils/dataFlowUtils'
   import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 
-  import { useFlowStore } from '@/stores/flowStore'
+  import { useFlowStore, crownJewelClass } from '@/stores/flowStore'
   import DataFlowBackground from '@/components/DataFlow/DataFlowBackground.vue'
   import ProcessNode from '@/components/DataFlow/Nodes/ProcessNode.vue'
   import StoreNode from '@/components/DataFlow/Nodes/StoreNode.vue'
@@ -192,7 +192,7 @@
     const intersectingBoundary = findIntersectingBoundary(node)
 
     for (const n of getNodes.value) {
-      updateNode(n.id, { class: '' })
+      updateNode(n.id, { class: crownJewelClass(n.data) ?? '' })
     }
 
     if ( intersectingBoundary ) {
@@ -306,14 +306,14 @@
     const intersectingBoundary = findIntersectingBoundary(draggedNode)
 
     for (const node of getNodes.value) {
-      updateNode(node.id, { class: '' })
+      updateNode(node.id, { class: crownJewelClass(node.data) ?? '' })
     }
 
     if (intersectingBoundary) {
       updateNode(intersectingBoundary.id, { class: 'intersecting' })
     } else {
       for (const node of getNodes.value) {
-        updateNode(node.id, { class: '' })
+        updateNode(node.id, { class: crownJewelClass(node.data) ?? '' })
       }
     }
   })
@@ -406,7 +406,7 @@
         } catch (error) {
           console.warn('Error setting parent boundary:', error)
           for (const node of getNodes.value) {
-            updateNode(node.id, { class: '' })
+            updateNode(node.id, { class: crownJewelClass(node.data) ?? '' })
           }
         }
       }, 300)
@@ -576,7 +576,7 @@
     }
 
     for (const node of getNodes.value) {
-      updateNode(node.id, { class: '' })
+      updateNode(node.id, { class: crownJewelClass(node.data) ?? '' })
     }
 
     const intersectingBoundary = findIntersectingBoundary(tempNode)
@@ -590,7 +590,7 @@
     onDragLeave()
 
     for (const node of getNodes.value) {
-      updateNode(node.id, { class: '' })
+      updateNode(node.id, { class: crownJewelClass(node.data) ?? '' })
     }
   }
 

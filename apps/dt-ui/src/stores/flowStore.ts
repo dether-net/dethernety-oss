@@ -19,6 +19,15 @@ import {
   DispositionKind, DispositionMutationResult,
 } from '@dethernety/dt-core'
 
+// Crown-jewel components carry a `crown-jewel` class on the vue-flow wrapper so the
+// gold treatment (main.css) can render. Riding `node.class` (not a manual DOM class)
+// keeps it across re-renders. Derived purely from `data.crownJewel` wherever a
+// component node is (re)built — boundaries never set it. Exported so the canvas's
+// drag handlers (which reset `node.class` for boundary-intersection feedback) can
+// preserve it rather than clobber it.
+export const crownJewelClass = (data: any): string | undefined =>
+  data?.crownJewel === true ? 'crown-jewel' : undefined
+
 export const useFlowStore = defineStore('flow', () => {
   // === DEPENDENCIES ===
   const dtUtils = new DtUtils(apolloClient)
@@ -580,6 +589,9 @@ export const useFlowStore = defineStore('flow', () => {
           ...nodes.value[index],
           id: updatedComponent.id,
           type: updatedComponent.type,
+          // Re-derive from the (already deep-merged) in-memory crownJewel — the spread
+          // above keeps the stale class, and UPDATE_COMPONENT does not return crownJewel.
+          class: crownJewelClass(nodes.value[index].data),
           data: {
             ...nodes.value[index].data,
             label: updatedComponent.name,
@@ -1098,7 +1110,7 @@ export const useFlowStore = defineStore('flow', () => {
       defaultBoundaryId.value = results.defaultBoundary?.id || ''
       defaultBoundary.value = results.defaultBoundary || null
       nodes.value = [
-        ...results.components,
+        ...results.components.map((n: Node) => ({ ...n, class: crownJewelClass(n.data) })),
         ...results.boundaries,
       ]
       await nextTick()

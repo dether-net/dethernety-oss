@@ -8,6 +8,8 @@ Domain terminology used throughout the Dethernety platform and documentation.
 
 **Component** -- A system element in a threat model: server, service, database, user, external system, etc. Components are nodes in the graph. Each component has a class that determines its attributes and behavior.
 
+**Crown Jewel** -- A component flagged as a high-value asset — the data or capability an attacker would most want to reach. Set via the crown toggle on the General tab of a component's settings dialog, or during the AI classify workflow; both write the same per-component flag. Analysis prioritizes crown jewels (e.g., a crown jewel without controls is a highest-priority gap).
+
 **Data Flow** -- A directed connection between two components representing data movement. Data flows are edges in the graph. They carry data items and can have security attributes (encryption, authentication).
 
 **Data Item** -- A piece of data carried by a data flow. Used to classify what information moves between components (e.g., credentials, PII, session tokens).

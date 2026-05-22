@@ -37,6 +37,33 @@ Before configuring components, it's important to understand how Dethernety's [mo
 - **Security Rules**: How the module calculates exposures
 - **Validation Logic**: What combinations of settings are valid
 
+## Marking Crown Jewels
+
+A **crown jewel** is a high-value asset — a component holding the data or capability an attacker would most want to reach. Marking a component as a crown jewel tells the analysis to prioritize it: a crown jewel without adequate security controls is surfaced as a highest-priority gap.
+
+### Where to find the crown button
+
+The crown toggle lives on the **General** tab of a component's settings dialog. It is the **crown icon button** at the left of the row that holds the **"Inherited from a Class" / "Represents a Model"** switch.
+
+The button appears **only for components** — Process, Data Store, and External Entity. It does not appear for security boundaries, data flows, or data items, which have no crown-jewel field.
+
+### Marking and unmarking a component
+
+1. Open the component's settings dialog and stay on the **General** tab
+2. Locate the **crown button** to the left of the inheritance switch
+3. Click it to toggle the crown-jewel state:
+   - **Off**: an outlined crown
+   - **On**: a filled gold crown
+4. The change **persists immediately** — there is no separate Save step
+
+Clicking the crown again clears the flag and removes the visual treatment.
+
+### What the gold treatment means
+
+When a component is marked as a crown jewel, its node on the canvas receives a **discrete gold treatment** — a soft gold cast and a thin gold edge — so crown jewels stand out at a glance among ordinary components. Toggling the flag off restores the node's normal appearance.
+
+**Note**: The crown toggle and the AI/classify workflow set the **same** underlying field on a component. Whether a crown jewel is declared during AI scope definition or toggled here by hand, it is the one crown-jewel mark on that component.
+
 ## AI-Powered Class Generation for All Elements
 
 **Universal Class Creation Capability**

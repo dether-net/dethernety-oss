@@ -86,6 +86,7 @@ const defaultProps = {
     category: '',
   },
   isFromClass: true,
+  crownJewel: false,
   itemClass: null,
   representedModel: null,
 }
@@ -282,5 +283,23 @@ describe('SettingsGeneralTab — isFromClass toggle memory', () => {
     expect(formDataEvents).toBeTruthy()
     const restored = (formDataEvents!.at(-1)![0] as { class: string }).class
     expect(restored).toBe('cls-1')
+  })
+})
+
+describe('SettingsGeneralTab — crownJewel toggle', () => {
+  // The crown button is the only <v-btn> rendered in this config (the open-model
+  // button needs !isFromClass + a model; the default props have isFromClass: true).
+  // It only renders for components (componentType !== null) — the mock store's
+  // selectedItem is a PROCESS, so it shows.
+  it('emits update:crownJewel(true) when marking a non-crown component', async () => {
+    const wrapper = await mountAndSettle({ crownJewel: false })
+    await wrapper.find('.v-btn').trigger('click')
+    expect(wrapper.emitted('update:crownJewel')).toEqual([[true]])
+  })
+
+  it('emits update:crownJewel(false) when unmarking an existing crown jewel', async () => {
+    const wrapper = await mountAndSettle({ crownJewel: true })
+    await wrapper.find('.v-btn').trigger('click')
+    expect(wrapper.emitted('update:crownJewel')).toEqual([[false]])
   })
 })
