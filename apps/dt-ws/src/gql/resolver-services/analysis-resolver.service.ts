@@ -992,27 +992,31 @@ export class AnalysisResolverService implements OnModuleInit, OnModuleDestroy {
         this.statistics.activeAnalyses = Math.max(0, this.statistics.activeAnalyses - 1);
       }
 
-      // Delete from database first
+      // Module cleanup runs BEFORE the node delete so a module that owns an
+      // atomic subtree+node cascade either fully commits or rolls back before
+      // we touch the node. Failure contract:
+      //  - a THROW aborts the whole operation (it propagates to the outer
+      //    catch): we do NOT delete the node, so a failed cascade can never
+      //    leave a half-deleted analysis. The base module's thread cleanup
+      //    swallows transport errors and returns `false` rather than throwing,
+      //    so this guards modules that delete graph state themselves.
+      //  - a FALSE return is tolerated: external/thread cleanup couldn't
+      //    finish but the graph is intact, so we proceed to the node delete —
+      //    control-plane deletion still works when the AI runtime is down.
+      const moduleInstance = this.moduleRegistry.getModuleByName(metadata.moduleName);
+      let moduleDeleted = true;
+
+      if (moduleInstance && typeof moduleInstance.deleteAnalysis === 'function') {
+        moduleDeleted = await moduleInstance.deleteAnalysis(analysisId);
+      }
+
+      // Node delete: the fallback for analyses with no owning module, and an
+      // idempotent safety-net otherwise. A `DETACH DELETE` on an id a module
+      // already removed is a no-op, so this is harmless once a module deletes
+      // the node itself.
       const dbDeleted = await this.deleteAnalysisNode(analysisId);
       if (!dbDeleted) {
         throw this.createAnalysisError('DATABASE_ERROR', 'Failed to delete analysis node from database', analysisId);
-      }
-
-      // Clean up module data
-      const moduleInstance = this.moduleRegistry.getModuleByName(metadata.moduleName);
-      let moduleDeleted = true;
-      
-      if (moduleInstance && typeof moduleInstance.deleteAnalysis === 'function') {
-        try {
-          moduleDeleted = await moduleInstance.deleteAnalysis(analysisId);
-        } catch (error) {
-          this.logger.warn('Failed to delete analysis from module, but database deletion succeeded', {
-            analysisId,
-            moduleName: metadata.moduleName,
-            error: error.message,
-          });
-          moduleDeleted = false;
-        }
       }
 
       // Record successful operation

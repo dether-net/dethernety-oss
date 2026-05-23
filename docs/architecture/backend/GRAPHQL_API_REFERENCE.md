@@ -1287,6 +1287,26 @@ Statistics returned after deleting a model.
 | `nodesDeleted` | `Int!` | Number of graph nodes deleted |
 | `relationshipsDeleted` | `Int!` | Number of graph relationships deleted |
 
+### OrphanSweepReport
+
+Result of `sweepOrphans`. Counts are 'planned' if `dryRun=true`, 'applied' otherwise. `byLabel` is the per-label breakdown aggregated across the core sweep and every module's orphan-sweep hook.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dryRun` | `Boolean!` | True if this was a dry-run (no writes performed). |
+| `totalNodes` | `Int!` | Total orphan nodes deleted (or planned). |
+| `totalRelationships` | `Int!` | Total relationships removed from the orphan nodes (or planned). On a dry-run this is `0` — the count-only preview reports node counts only. |
+| `byLabel` | `[OrphanSweepLabelCount!]!` | Per-label orphan breakdown. |
+
+### OrphanSweepLabelCount
+
+One (label, count) row in an `OrphanSweepReport` — `count` is the number of nodes of `label` deleted (or, on a dry-run, that would be deleted).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `label` | `String!` | Node label swept (e.g. `Data`, `Exposure`). Loaded modules contribute their own label values at runtime — the platform treats them as opaque strings. |
+| `count` | `Int!` | Orphan nodes of this label deleted (planned, if `dryRun=true`). |
+
 ### Session
 
 An analysis session identifier.
@@ -1917,6 +1937,36 @@ end state.
 | Argument | Type |
 |----------|------|
 | `dryRun` | `Boolean!` |
+
+### sweepOrphans
+
+Admin: one-time sweep of pre-existing orphan nodes (nodes whose owner was
+deleted before the delete path cascaded fully). `dryRun=true` (the default)
+counts the orphans per label without writing — a count-only preview run on a
+read transaction; `dryRun=false` deletes them on a write transaction.
+
+The platform sweeps its core labels (`Data`, `Exposure`) and dispatches an
+orphan-sweep lifecycle hook to every loaded module so each removes its own
+labels on the same transaction, then aggregates every contributor's per-label
+counts into one report (`byLabel`). The report is label-agnostic — each module
+contributes its own label values at runtime, surfaced as opaque strings. On a
+dry-run, `totalRelationships` is `0` (the preview reports node counts only).
+Idempotent — a second apply is a no-op. Modules participate via the
+`onOrphanSweep` lifecycle hook — see
+[`DT_MODULE_INTERFACE.md`](../modules/DT_MODULE_INTERFACE.md).
+
+Admin-gated at resolver entry via `requireAdmin(ctx)` — the schema directive is
+`@authentication` (token validity), and the role check happens in TypeScript,
+not in the schema (same posture as the class-identity admin mutations above).
+Audit-logged before the work runs.
+
+**Returns:** `OrphanSweepReport!`
+
+**Arguments:**
+
+| Argument | Type |
+|----------|------|
+| `dryRun` | `Boolean! = true` |
 
 ## Subscription
 

@@ -13,6 +13,7 @@ import { SetInstantiationAttributesService } from './resolver-services/set-insta
 import { ElementBindingService } from './resolver-services/element-binding.service';
 import { DispositionResolverService } from './resolver-services/disposition-resolver.service';
 import { AnalysisResolverService } from './resolver-services/analysis-resolver.service';
+import { ModelResolverService } from './resolver-services/model-resolver.service';
 import { IssueResolverService } from './resolver-services/issue-resolver.service';
 import { MatchClassesResolverService } from './resolver-services/match-classes-resolver.service';
 import { MatchMitreTechniquesResolverService } from './resolver-services/match-mitre-techniques-resolver.service';
@@ -20,6 +21,7 @@ import { ListClassesResolverService } from './resolver-services/list-classes-res
 import { ControlGapsResolverService } from './resolver-services/control-gaps-resolver.service';
 import { ControlCandidatesResolverService } from './resolver-services/control-candidates-resolver.service';
 import { ClassIdentityResolverService } from './resolver-services/class-identity-resolver.service';
+import { OrphanSweepResolverService } from './resolver-services/orphan-sweep-resolver.service';
 import { AuthorizationService } from './services/authorization.service';
 import { MonitoringService } from './services/monitoring.service';
 import { TemplateCacheService } from './services/template-cache.service';
@@ -33,6 +35,7 @@ const resolverServiceClasses = [
   ElementBindingService,
   DispositionResolverService,
   AnalysisResolverService,
+  ModelResolverService,
   IssueResolverService,
   MatchClassesResolverService,
   MatchMitreTechniquesResolverService,
@@ -41,6 +44,8 @@ const resolverServiceClasses = [
   ControlCandidatesResolverService,
   // Admin GraphQL surface for class-identity (events + admin mutations).
   ClassIdentityResolverService,
+  // Admin GraphQL surface for the one-time orphan sweep.
+  OrphanSweepResolverService,
 ];
 
 @Module({

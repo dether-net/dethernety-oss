@@ -978,7 +978,7 @@ New enhancements are split across three layers based on what each layer has acce
 
 #### Layer 1: Schema `@cypher` directives (graph data, no app logic)
 
-Queries that are single Cypher traversals with no multi-phase orchestration. Use `@cypher` in `schema.graphql` with `@authentication` — no custom resolver needed. This follows the pattern of existing `@cypher` queries (`getExposuresForElement`, `addElementsToIssue`, `deleteModel`, etc.).
+Queries that are single Cypher traversals with no multi-phase orchestration. Use `@cypher` in `schema.graphql` with `@authentication` — no custom resolver needed. This follows the pattern of existing `@cypher` operations (`getExposuresForElement`, `addElementsToIssue`, `removeElementFromIssue`, etc.).
 
 | Query | Purpose | Cypher |
 |-------|---------|--------|

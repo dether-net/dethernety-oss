@@ -16,10 +16,11 @@ We use the [Nygard template](https://cognitect.com/blog/2011/11/15/documenting-a
 | [006](006-defense-in-depth-security.md) | Defense-in-depth security | Accepted |
 | [007](007-finding-disposition-lifecycle.md) | Finding disposition lifecycle | Accepted |
 | [008](008-embedding-technique-matching.md) | Embedding-based MITRE technique matching | Accepted |
+| [009](009-model-delete-lifecycle-hooks.md) | Model-delete semantics and module lifecycle hooks | Accepted |
 
 ## Adding new ADRs
 
 1. Copy an existing ADR as a template
-2. Number sequentially (next: 009)
+2. Number sequentially (next: 010)
 3. Set status to "Proposed" until reviewed
 4. Add the entry to the index table above

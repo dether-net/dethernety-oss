@@ -27,6 +27,88 @@ export interface DTModule {
   deleteAnalysis?(id: string): Promise<boolean>;
   stopAnalysis?(id: string): Promise<boolean>;
 
+  /**
+   * Lifecycle event — the platform deleted a model. Modules that own
+   * model-scoped nodes implement this to remove them in the SAME write
+   * transaction as the structural delete, so everything commits or rolls
+   * back together. Invocation order across modules is unspecified; each
+   * implementation must be self-contained from { modelId, analysisIds }
+   * (no module may depend on another's nodes being deleted first).
+   *
+   * Contract — the implementation MUST:
+   *   - perform ONLY graph operations on the passed `tx` (no own session/tx,
+   *     so a rollback reverts the hook's writes too); and
+   *   - be idempotent and free of non-transactional side effects (no event
+   *     emit, external call, counter, or off-`tx` write): the platform runs
+   *     the delete inside a managed transaction that may RE-RUN the whole
+   *     callback — and thus this hook — on a retriable error. Re-running
+   *     `DETACH DELETE`-style graph ops is safe; a non-`tx` side effect would
+   *     be doubled and never rolled back.
+   *
+   * @param tx          The active write transaction (driver `Transaction`).
+   *                    Typed `any` to match this package's transaction-
+   *                    callback convention and avoid pulling a neo4j-driver
+   *                    dependency into the module base library.
+   * @param modelId     The deleted model.
+   * @param analysisIds The model's owned analyses, pre-collected by the
+   *                    platform so the hook needn't re-enumerate them.
+   * @returns Deleted node/relationship counts to fold into the platform's
+   *          deletion stats, or void.
+   *
+   * This is the first push-style lifecycle hook on the interface — the
+   * platform calls the module on a model-delete event, rather than the
+   * module pulling state.
+   */
+  onModelDeleted?(
+    tx: any,
+    modelId: string,
+    analysisIds: string[],
+  ): Promise<{ nodesDeleted: number; relationshipsDeleted: number } | void>;
+
+  /**
+   * Lifecycle/maintenance event — the platform is running a one-time, graph-wide
+   * sweep of pre-existing orphans (nodes whose owner was deleted before the
+   * delete path cascaded fully). Modules that own node types implement this to
+   * remove their own orphaned nodes on the passed `tx`. The platform aggregates
+   * each module's per-label counts into one operator-facing report; it never
+   * names a module's labels itself.
+   *
+   * Two modes, selected by `opts.apply`:
+   *   - `apply: false` (dry-run) — COUNT only. MUST NOT mutate the graph; the
+   *     platform runs this on a READ transaction. Returns the would-delete
+   *     counts so an operator can preview the blast radius.
+   *   - `apply: true` — DELETE the orphans and return actual counts. The
+   *     platform runs this on a WRITE transaction.
+   * The dry-run count and the apply count for the same graph state must agree
+   * per label (the sweep's self-consistency contract).
+   *
+   * Contract — same discipline as {@link onModelDeleted}: graph operations ONLY
+   * on the passed `tx` (a rollback reverts the hook), idempotent (a second sweep
+   * is a no-op `{}`), and free of non-transactional side effects (the managed
+   * transaction may re-run the callback on a retriable error). An implementation
+   * MAY throw to abort the whole sweep — e.g. a data-integrity precondition that,
+   * if violated, means deleting would risk live data; the throw rolls back the
+   * transaction and surfaces as an error.
+   *
+   * @param tx        The active transaction (read on dry-run, write on apply).
+   *                  Typed `any` per this package's transaction-callback
+   *                  convention.
+   * @param opts.apply Whether to delete (`true`) or only count (`false`).
+   * @returns Per-label deleted/would-delete counts plus the node/relationship
+   *          totals to fold into the platform's report, or void.
+   *
+   * This is the second push-style lifecycle hook on the interface (sibling to
+   * {@link onModelDeleted}).
+   */
+  onOrphanSweep?(
+    tx: any,
+    opts: { apply: boolean },
+  ): Promise<{
+    byLabel: Record<string, number>;
+    nodesDeleted: number;
+    relationshipsDeleted: number;
+  } | void>;
+
   getSyncedIssueAttributes?(issueId: string, attributes: string, lastSyncAt: string): Promise<string>;
 
   /**
