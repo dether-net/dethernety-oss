@@ -1507,49 +1507,6 @@ type Mutation {
 
   "Delete a model and all its contained elements (boundaries, components, data flows, exposures)"
   deleteModel(modelId: ID!): DeletionStats!
-    @cypher(
-      statement: """
-      MATCH (model:Model {id: $modelId})-[:CONTAINS]->(defbound:SecurityBoundary)
-      OPTIONAL MATCH (defbound)<-[:BELONGS_TO*0..]-(secbound:SecurityBoundary)
-      OPTIONAL MATCH (secbound)<-[:BELONGS_TO]-(comp:Component)
-      OPTIONAL MATCH (comp)-[:FLOWS]-(flow:DataFlow)
-      OPTIONAL MATCH (comp)-[:HANDLES]->(compdat:Data)
-      OPTIONAL MATCH (flow)-[:HANDLES]->(flowdat:Data)
-      OPTIONAL MATCH (secbound)-[:HANDLES]->(bounddat:Data)
-      OPTIONAL MATCH (comp)-[:HAS_EXPOSURE]->(excomp:Exposure)
-      OPTIONAL MATCH (flow)-[:HAS_EXPOSURE]->(exflow:Exposure)
-      OPTIONAL MATCH (secbound)-[:HAS_EXPOSURE]->(exbound:Exposure)
-      OPTIONAL MATCH (compdat)-[:HAS_EXPOSURE]->(exdat:Exposure)
-      OPTIONAL MATCH (flowdat)-[:HAS_EXPOSURE]->(exflowdat:Exposure)
-      OPTIONAL MATCH (bounddat)-[:HAS_EXPOSURE]->(exbounddat:Exposure)
-      // Collect all nodes into a single list
-      WITH collect(model) + collect(defbound) + collect(secbound) 
-          + collect(comp) + collect(flow) + collect(compdat) 
-          + collect(flowdat) + collect(bounddat)
-          + collect(excomp) + collect(exflow) + collect(exbound)
-          + collect(exdat) + collect(exflowdat) as nodesToDelete
-
-      // Remove null entries and get distinct nodes
-      UNWIND nodesToDelete as n
-      WITH collect(distinct n) as distinctNodes
-
-      // Count relationships that will be deleted
-      UNWIND distinctNodes as dn
-      MATCH (dn)-[r]-()
-      WITH distinctNodes, count(r) as relCount
-
-      // Delete all nodes
-      UNWIND distinctNodes as node
-      DETACH DELETE node
-
-      // Return stats
-      RETURN DISTINCT { 
-        nodesDeleted: size(distinctNodes), 
-        relationshipsDeleted: relCount 
-      } AS result
-      """
-      columnName: "result"
-    )
     @authentication
 
   "Start an analysis run, returns a session ID for subscribing to results"
@@ -1649,6 +1606,37 @@ type Mutation {
   """
   runIdentityMigration(dryRun: Boolean! = true): IdentityMigrationReport!
     @authentication
+
+  """
+  Admin: one-time sweep of pre-existing orphan nodes (nodes whose owner was
+  deleted before the delete path cascaded fully). dryRun=true (default) counts
+  the orphans per label without writing; dryRun=false deletes them. The
+  platform sweeps core labels and dispatches an orphan-sweep hook to every
+  loaded module for its own labels, aggregating the per-label counts.
+  Idempotent — a second apply is a no-op.
+  """
+  sweepOrphans(dryRun: Boolean! = true): OrphanSweepReport!
+    @authentication
+}
+
+"""One (label, count) row in an OrphanSweepReport — `count` is the number of nodes of `label` deleted (or, on a dry-run, that would be deleted)."""
+type OrphanSweepLabelCount @authentication @node {
+  "Node label swept (e.g. 'Data', 'Exposure'). Loaded modules contribute their own label values at runtime — the platform treats them as opaque strings."
+  label: String!
+  "Orphan nodes of this label deleted (planned, if dryRun=true)."
+  count: Int!
+}
+
+"""Result of sweepOrphans. Counts are 'planned' if dryRun=true, 'applied' otherwise. `byLabel` is the per-label breakdown aggregated across the core sweep and every module's orphan-sweep hook."""
+type OrphanSweepReport @authentication @node {
+  "True if this was a dry-run (no writes performed)."
+  dryRun: Boolean!
+  "Total orphan nodes deleted (or planned)."
+  totalNodes: Int!
+  "Total relationships removed from the orphan nodes (or planned)."
+  totalRelationships: Int!
+  "Per-label orphan breakdown."
+  byLabel: [OrphanSweepLabelCount!]!
 }
 
 """Result of runIdentityMigration. Counts are 'planned' if dryRun=true, 'applied' otherwise. `details` is the human-readable per-action log (one entry per dedup group + mutating action)."""

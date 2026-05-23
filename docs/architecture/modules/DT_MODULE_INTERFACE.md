@@ -10,6 +10,7 @@
 - [Analysis Interfaces](#analysis-interfaces)
 - [Asset-context fields exposed to modules](#asset-context-fields-exposed-to-modules)
 - [Method Details](#method-details)
+- [Lifecycle Hooks (Optional)](#lifecycle-hooks-optional)
 
 ## Overview
 
@@ -66,6 +67,12 @@ The `DTModule` interface is the core contract that all Dethernety modules must i
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │              Custom Resolvers (Optional)                        │    │
 │  │  • getResolvers(context): ResolverMap                           │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │              Lifecycle Hooks (Optional)                         │    │
+│  │  • onModelDeleted(tx, modelId, analysisIds)                     │    │
+│  │  • onOrphanSweep(tx, { apply })                                 │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -956,6 +963,81 @@ export interface ResolverFunction {
 ```
 
 The `context` parameter in `ResolverFunction` is typed as `any` intentionally — modules must not depend on platform-internal types. At runtime, it is the per-request `GraphQLContext` containing `token`, `jwt`, `driver`, `sessionConfig`, etc.
+
+---
+
+## Lifecycle Hooks (Optional)
+
+Lifecycle hooks are **push-style** callbacks: the platform invokes them on a platform event or a maintenance operation, rather than the module pulling state on a user request. They run inside a transaction the platform owns, so the module's writes commit or roll back together with the platform's.
+
+The division of responsibility is by **label ownership**. The platform owns the core/structural labels (`Model`, `SecurityBoundary`, `Component`, `DataFlow`, `Data`, `Exposure`) and removes them itself. Each module owns — and is the only participant that removes — the labels *it* defines. A hook is the seam through which the platform tells a module "a model was deleted" or "remove your orphans" without the platform surface ever naming a module's labels.
+
+All lifecycle hooks share the same discipline:
+
+- **Transaction-bound.** Perform graph operations **only** on the passed `tx`. Do not open your own session or transaction — a rollback must be able to revert the hook's writes.
+- **Idempotent.** The platform runs the work inside a managed transaction that may re-run the whole callback (and therefore the hook) on a retriable error. Re-running `DETACH DELETE`-style graph operations is safe; a second invocation on already-clean data is a no-op.
+- **Side-effect-free.** No event emit, external call, counter increment, or any off-`tx` write. A non-transactional side effect would be doubled on a retry and never rolled back.
+- **Throw-to-abort.** A throw from any hook aborts the whole operation — the transaction rolls back and the throw surfaces as an error. Invocation order across modules is unspecified, so each implementation must be self-contained from its arguments and must not depend on another module's hook running first.
+
+### onModelDeleted(tx, modelId, analysisIds)
+
+```typescript
+onModelDeleted?(
+  tx: any,
+  modelId: string,
+  analysisIds: string[],
+): Promise<{ nodesDeleted: number; relationshipsDeleted: number } | void>
+```
+
+Removes the module's own model-scoped nodes when the platform deletes a model.
+
+**Called by:** the platform's model-delete path, inside the single write transaction that also runs the structural delete. The platform pre-enumerates the model's owned analysis ids and dispatches this hook to every loaded module before running the structural delete; everything commits or rolls back together.
+
+**Parameters:**
+- `tx` — the active write transaction. Typed `any` to match this package's transaction-callback convention (so the base library carries no driver dependency). All of the hook's graph operations must run on this `tx`.
+- `modelId` — the id of the model being deleted.
+- `analysisIds` — the model's owned analysis ids, pre-collected by the platform so the hook need not re-enumerate them.
+
+**Returns:** `{ nodesDeleted, relationshipsDeleted }` for the platform to fold into its deletion stats, or `void`.
+
+**Contract rules:**
+- Operate only on the passed `tx` — open no session or transaction of your own.
+- Be idempotent: the managed transaction may re-run the callback, and therefore this hook, on a retriable error.
+- Perform no non-transactional side effects (no event emit, external call, counter, or off-`tx` write).
+- Be self-contained from `{ modelId, analysisIds }` — invocation order across modules is unspecified, so do not depend on another module's nodes already being gone.
+- A throw aborts the whole delete: the transaction rolls back and the error propagates.
+
+### onOrphanSweep(tx, opts)
+
+```typescript
+onOrphanSweep?(
+  tx: any,
+  opts: { apply: boolean },
+): Promise<{
+  byLabel: Record<string, number>;
+  nodesDeleted: number;
+  relationshipsDeleted: number;
+} | void>
+```
+
+Counts or removes the module's own orphaned nodes during an admin-run, graph-wide sweep of pre-existing orphans (nodes whose owner was deleted before the delete path cascaded fully).
+
+**Called by:** the admin orphan-sweep operation, on a single transaction shared with the platform's core sweep. The platform aggregates each module's per-label counts into one operator-facing report; it never names a module's labels itself.
+
+**Parameters:**
+- `tx` — the active transaction. Typed `any` per this package's transaction-callback convention. Read transaction on dry-run, write transaction on apply.
+- `opts.apply`:
+  - `false` (dry-run) — **count only**. Must not mutate the graph; the platform runs this on a read transaction. Return the would-delete counts so an operator can preview the blast radius.
+  - `true` — **delete** the orphans and return actual counts. The platform runs this on a write transaction.
+
+**Returns:** `{ byLabel, nodesDeleted, relationshipsDeleted }` to fold into the platform's report, or `void`. `byLabel` maps each of the module's own labels to its node count.
+
+**Contract rules:**
+- Operate only on the passed `tx`; respect the mode — never mutate the graph when `apply` is `false`.
+- Report node counts only on the dry-run; the dry-run count and the apply count for the same graph state must agree per label (the sweep's self-consistency contract).
+- Be idempotent: a second sweep over already-clean data is a no-op (`{}`), and the managed transaction may re-run the callback on a retriable error.
+- Perform no non-transactional side effects.
+- A throw aborts the whole sweep — for example, a violated data-integrity precondition that would make deletion risk live data. The throw rolls the transaction back and surfaces as an error.
 
 ---
 

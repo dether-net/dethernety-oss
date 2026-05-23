@@ -630,7 +630,7 @@ Detecting "has the platform model changed since last push?" requires tracking al
 | Channel | Examples | Controllability |
 |---------|----------|:---:|
 | 1. Neo4j GraphQL auto-generated mutations | `createComponents`, `updateSecurityBoundaries` via dt-core classes, flowStore | HIGH |
-| 2. `@cypher` mutations in schema | `deleteModel` (cascading), issue linking | MEDIUM |
+| 2. `@cypher` mutations in schema | Issue linking (e.g. `addElementsToIssue`). Note: `deleteModel` is no longer in this channel — it is now an application-code resolver (`ModelResolverService.deleteModel`), so it runs through application logic rather than a `@cypher` directive. | MEDIUM |
 | 3. `setInstantiationAttributes` service | OPA/Rego evaluation writes: attribute sets, exposure upserts, countermeasure upserts via direct Cypher | MEDIUM |
 | 4. DTModule raw driver access | `DbOps` is read-only today, but raw driver exposed to modules | LOW |
 | 5. Import/Update pipeline | `DtUpdate`, `DtImport` bulk writes via dt-core classes | HIGH |
@@ -657,7 +657,7 @@ Add `updatedAt: String` and `createdAt: String` to the `Model` type in `schema.g
 2. **`setInstantiationAttributes` service**: Post-operation hook traverses to parent Model and sets `updatedAt`
 3. **Import/Update pipeline**: `DtUpdate` sets `Model.updatedAt` at operation end (already has `modelId`)
 
-**Known gap (~5%)**: Channel 2 (`@cypher` mutations) and Channel 4 (arbitrary module Cypher) bypass application code. Current modules are read-only via `DbOps`. If a future module writes directly, it must also update `Model.updatedAt` — document as DTModule interface contract.
+**Known gap (~5%)**: Channel 2 (`@cypher` mutations) and Channel 4 (arbitrary module Cypher) bypass application code. Note that `deleteModel` is **not** part of this gap any more — it is now an application-code resolver (`ModelResolverService.deleteModel`) running an atomic transaction, so it goes through application logic and can stamp `Model.updatedAt` like any other orchestrated write. The remaining Channel-2 surface is the residual schema `@cypher` writes (e.g. issue linking). Current modules are read-only via `DbOps`. If a future module writes directly, it must also update `Model.updatedAt` — document as DTModule interface contract.
 
 **Migration V1 → V1.1**: Plugin checks if `updatedAt` is available on Model node. If yes, use fast check (10ms). If no, fall back to snapshot comparison. Backward-compatible with older platform versions.
 
