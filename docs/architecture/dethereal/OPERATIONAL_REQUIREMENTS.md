@@ -42,7 +42,7 @@ Auto-discovery from code systematically misses these elements. The plugin must e
 |-----------|-----------|--------|----------------|
 | Shared infrastructure (IdP, DNS, CA, log aggregator) | Outside application codebase | SolarWinds-style attacks target shared services | Ask: "What shared infrastructure does this system depend on?" |
 | Side-channel data flows (logging, metrics, DNS, backups) | Not visible in application code | Attacker C2 via DNS, data exfiltration via logs | Ask: "What supporting data flows exist?" |
-| Deployment pipeline (CI/CD, registries, artifact stores) | Not application code | Supply chain attack vector | Note as known gap in model |
+| Deployment pipeline (CI/CD, registries, artifact stores) | Not application code | Supply chain attack vector | When CI/CD configs are discovered, model the pipeline as lightweight EXTERNAL_ENTITY components (pipeline → registry → runtime); otherwise note as a known gap (see §8 CI/CD Integration Pattern) |
 | Third-party SaaS (OAuth, webhooks, payments, CDN) | Configured outside code | Organizational boundary crossings | Ask: "What external service dependencies exist?" |
 | Human actors with privileged access | Not in code | Insider threat, social engineering | Ask: "Who has admin access and how?" |
 

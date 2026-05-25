@@ -418,6 +418,7 @@ Config Analysis ────┘
 | gRPC proto files | Data flows | DTDataFlowClass: gRPC |
 | Auth middleware (JWT, OAuth) | Controls | DTControlClass: Authentication |
 | Database connection strings | Flows + stores | STORE + connection flow |
+| Message queue producers/consumers (Kafka, RabbitMQ, SQS) | Components + flows | Broker as PROCESS/STORE; producer/consumer edges as data flows |
 | Service mesh configs | Controls + flows | mTLS, service routes |
 
 ### Architecture Diagram Discovery
@@ -464,6 +465,7 @@ interface DiscoveredElement {
   suggestedType: 'component' | 'boundary' | 'dataFlow' | 'dataItem' | 'control'
   suggestedName: string
   suggestedDescription: string
+  suggestedComponentType?: 'PROCESS' | 'STORE' | 'EXTERNAL_ENTITY'  // DFD substrate when suggestedType === 'component'; drives reclassification on substrate flips
   suggestedClass?: { id: string; name: string }
   existenceConfidence: 'high' | 'medium' | 'low'
   classificationConfidence: 'high' | 'medium' | 'low'
@@ -473,6 +475,7 @@ interface DiscoveredElement {
     line?: number
     resource?: string
   }>
+  confirmed: boolean  // set true once the user accepts the element in batch confirmation
 }
 ```
 
