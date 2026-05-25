@@ -681,11 +681,14 @@ Update an existing platform model from local files.
 | Property | Value |
 |----------|-------|
 | **Base class** | `ClientDependentTool` |
-| **Input** | `{ directory_path: string, model_id?: string }` |
+| **Input** | `{ model_id: string, directory_path: string, delete_orphaned?: boolean, create_backup?: boolean, disable_source_file_update?: boolean }` |
 | **Output** | `{ updated: true, changes: { added: number, modified: number, removed: number } }` |
 | **dt-core class** | `DtUpdateSplit` |
 
-If `model_id` is not provided, reads it from `manifest.json` or `sync.json` in the directory. Applies structural changes (add/remove/modify elements) and attribute updates.
+Applies structural changes (add/remove/modify elements) and attribute updates. The caller (e.g. the `/dethereal:sync` push path) resolves `model_id` from `manifest.model.id`. Optional flags:
+- `delete_orphaned` (default `true`) — delete platform elements absent from the local files; this is the mechanism the sync C1/C2 conflict gate relies on.
+- `create_backup` (default `true`) — snapshot the directory before applying changes.
+- `disable_source_file_update` (default `false`) — skip the post-update re-export back to the source directory.
 
 #### `list_models` (NEW)
 
@@ -1234,7 +1237,7 @@ Exposures are **read-only** in the MCP server. Create/update/delete operations a
 | `validate_model_json` | Add `quality` action for quality score computation (currently only does structural validation) |
 | `export_model` | Write `sync.json` after export (pull metadata, content hash, baseline element IDs) |
 | `import_model` / `create_threat_model` | Write `sync.json` after import (push metadata, content hash, baseline element IDs) |
-| `update_model` | Update `sync.json` push hash after successful update |
+| `update_model` | Write `sync.json` after update (push metadata, content hash, baseline element IDs) |
 
 ---
 

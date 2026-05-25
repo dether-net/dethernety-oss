@@ -35,7 +35,7 @@ import {
 } from '../utils/directory-utils.js'
 import { pathExists } from '../utils/file-utils.js'
 import { getConfig, debugLog } from '../config.js'
-import { writeSyncJson, readSyncJson, computeContentHash } from '../utils/sync-utils.js'
+import { writeSyncJson, readSyncJson, computeContentHash, collectBaselineElementIds } from '../utils/sync-utils.js'
 
 const InputSchema = z.object({
   model_id: z.string().describe('The ID of the model to update'),
@@ -175,6 +175,11 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
       // Update sync.json push metadata
       try {
         const contentHash = await computeContentHash(input.directory_path)
+        // Refresh the baseline from the post-push directory state so the next push's
+        // C1/C2 conflict disambiguation has an accurate reference point. After the
+        // re-export above the files carry the platform's authoritative IDs; when
+        // re-export is disabled they carry the just-pushed local IDs — both correct.
+        const baselineIds = await collectBaselineElementIds(input.directory_path)
         const existingSync = await readSyncJson(input.directory_path)
         await writeSyncJson(input.directory_path, {
           ...existingSync,
@@ -182,6 +187,7 @@ export class UpdateModelTool extends ClientDependentTool<UpdateInput, UpdateOutp
           platform_url: config.baseUrl,
           last_push_at: new Date().toISOString(),
           push_content_hash: contentHash,
+          baseline_element_ids: baselineIds,
         })
       } catch (syncError) {
         debugLog(config, `Failed to update sync.json: ${syncError}`)

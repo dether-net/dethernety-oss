@@ -441,8 +441,8 @@ Without credential data, the engine's `can_traverse` function never gates on cre
 
 On data flows (enrichment phase, cross-boundary flows):
 - `credential_type: "service_account" | "api_key" | "oauth_token" | "ssh_key" | "certificate" | "password" | "none"`
-- `credential_name: string` (label, e.g., "db-service-account")
-- `credential_scope: string[]` (machine-comparable identifiers for what else this credential accesses)
+- `credential_name: string` (human-readable label, e.g., "db-service-account")
+- `required_credentials: string[]` (engine property name — the credential identifiers needed to traverse this flow; matched against `credential_scope` on STORE nodes. See [D62](#d62-credential-attribute-key-mapping); supersedes the earlier `credential_scope`-on-flows shape)
 
 On components (stores identified as credential repositories):
 - `stores_credentials: boolean`
